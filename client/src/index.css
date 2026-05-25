@@ -1,0 +1,297 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * CHIZZLE WEALTH ENGINE — DARK COCKPIT PALETTE
+ *
+ * ink.black   #05070A  218 33% 3%   primary background
+ * ink.panel   #0C1118  213 33% 7%   panel/card background
+ * ink.line    #1A2230  216 30% 14%  borders, dividers
+ * slate.gray  #5A6675  213 13% 41%  secondary text, axis labels
+ * soft.white  #E8ECF1  213 22% 93%  primary text
+ * neon.blue   #3DA9FC  207 97% 62%  primary accent, ARMED states
+ * signal.green#22C55E  142 71% 45%  wins, T1/T2, GREEN regime
+ * signal.amber#F59E0B  38 92% 50%   warnings, YELLOW regime
+ * signal.red  #EF4444  0 84% 60%    stop hit, losses, RED regime
+ * gold.lux    #C8A24B  42 53% 54%   milestones, Operator state
+ *
+ * Dark-only. :root mirrors .dark so any consumer reading without .dark still works.
+ */
+
+:root {
+  --button-outline: rgba(255, 255, 255, 0.08);
+  --badge-outline: rgba(255, 255, 255, 0.04);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255, 255, 255, 0.03);
+  --elevate-2: rgba(255, 255, 255, 0.07);
+
+  --background: 218 33% 3%;
+  --foreground: 213 22% 93%;
+  --border: 216 30% 14%;
+
+  --card: 213 33% 7%;
+  --card-foreground: 213 22% 93%;
+  --card-border: 216 30% 14%;
+
+  --sidebar: 213 33% 5%;
+  --sidebar-foreground: 213 22% 93%;
+  --sidebar-border: 216 30% 14%;
+  --sidebar-primary: 207 97% 62%;
+  --sidebar-primary-foreground: 218 33% 3%;
+  --sidebar-accent: 216 30% 14%;
+  --sidebar-accent-foreground: 213 22% 93%;
+  --sidebar-ring: 207 97% 62%;
+
+  --popover: 213 33% 7%;
+  --popover-foreground: 213 22% 93%;
+  --popover-border: 216 30% 14%;
+
+  --primary: 207 97% 62%;
+  --primary-foreground: 218 33% 3%;
+
+  --secondary: 216 30% 14%;
+  --secondary-foreground: 213 22% 93%;
+
+  --muted: 216 30% 11%;
+  --muted-foreground: 213 13% 55%;
+
+  --accent: 216 30% 14%;
+  --accent-foreground: 213 22% 93%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 213 22% 93%;
+
+  --input: 216 30% 14%;
+  --ring: 207 97% 62%;
+
+  /* Cockpit semantic tokens */
+  --ink-black: 218 33% 3%;
+  --ink-panel: 213 33% 7%;
+  --ink-line: 216 30% 14%;
+  --slate-gray: 213 13% 41%;
+  --soft-white: 213 22% 93%;
+  --neon-blue: 207 97% 62%;
+  --signal-green: 142 71% 45%;
+  --signal-amber: 38 92% 50%;
+  --signal-red: 0 84% 60%;
+  --gold-lux: 42 53% 54%;
+
+  --chart-1: 207 97% 62%;
+  --chart-2: 142 71% 45%;
+  --chart-3: 38 92% 50%;
+  --chart-4: 0 84% 60%;
+  --chart-5: 42 53% 54%;
+
+  --font-sans: "Inter", "system-ui", sans-serif;
+  --font-display: "Space Grotesk", "Inter", sans-serif;
+  --font-mono: "JetBrains Mono", "IBM Plex Mono", monospace;
+
+  --radius: 0.25rem;
+
+  --shadow-2xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-sm: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-md: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-lg: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
+
+  --sidebar-primary-border: hsl(207 97% 50%);
+  --sidebar-accent-border: hsl(216 30% 22%);
+  --primary-border: hsl(207 97% 50%);
+  --secondary-border: hsl(216 30% 22%);
+  --muted-border: hsl(216 30% 18%);
+  --accent-border: hsl(216 30% 22%);
+  --destructive-border: hsl(0 84% 50%);
+}
+
+.dark {
+  --button-outline: rgba(255, 255, 255, 0.08);
+  --badge-outline: rgba(255, 255, 255, 0.04);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255, 255, 255, 0.03);
+  --elevate-2: rgba(255, 255, 255, 0.07);
+
+  --background: 218 33% 3%;
+  --foreground: 213 22% 93%;
+  --border: 216 30% 14%;
+
+  --card: 213 33% 7%;
+  --card-foreground: 213 22% 93%;
+  --card-border: 216 30% 14%;
+
+  --sidebar: 213 33% 5%;
+  --sidebar-foreground: 213 22% 93%;
+  --sidebar-border: 216 30% 14%;
+  --sidebar-primary: 207 97% 62%;
+  --sidebar-primary-foreground: 218 33% 3%;
+  --sidebar-accent: 216 30% 14%;
+  --sidebar-accent-foreground: 213 22% 93%;
+  --sidebar-ring: 207 97% 62%;
+
+  --popover: 213 33% 7%;
+  --popover-foreground: 213 22% 93%;
+  --popover-border: 216 30% 14%;
+
+  --primary: 207 97% 62%;
+  --primary-foreground: 218 33% 3%;
+
+  --secondary: 216 30% 14%;
+  --secondary-foreground: 213 22% 93%;
+
+  --muted: 216 30% 11%;
+  --muted-foreground: 213 13% 55%;
+
+  --accent: 216 30% 14%;
+  --accent-foreground: 213 22% 93%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 213 22% 93%;
+
+  --input: 216 30% 14%;
+  --ring: 207 97% 62%;
+
+  --chart-1: 207 97% 62%;
+  --chart-2: 142 71% 45%;
+  --chart-3: 38 92% 50%;
+  --chart-4: 0 84% 60%;
+  --chart-5: 42 53% 54%;
+
+  --shadow-2xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-sm: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-md: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-lg: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
+
+  --sidebar-primary-border: hsl(207 97% 50%);
+  --sidebar-accent-border: hsl(216 30% 22%);
+  --primary-border: hsl(207 97% 50%);
+  --secondary-border: hsl(216 30% 22%);
+  --muted-border: hsl(216 30% 18%);
+  --accent-border: hsl(216 30% 22%);
+  --destructive-border: hsl(0 84% 50%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html {
+    color-scheme: dark;
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Tabular numeric for ALL numbers — cockpit reads numbers everywhere */
+  .tabular,
+  .num,
+  td.num,
+  th.num {
+    font-variant-numeric: tabular-nums;
+    font-family: var(--font-mono);
+  }
+
+  .font-display {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .font-mono-num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button {
+    @apply hidden;
+  }
+
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+
+  .no-default-hover-elevate {
+  }
+  .no-default-active-elevate {
+  }
+
+  /* Mission-control state tints */
+  .state-armed {
+    background: hsl(var(--neon-blue) / 0.08);
+    border-left: 2px solid hsl(var(--neon-blue));
+  }
+  .state-inzone {
+    background: hsl(var(--soft-white) / 0.04);
+    border-left: 2px solid hsl(var(--soft-white) / 0.4);
+  }
+  .state-approaching {
+    background: hsl(var(--signal-amber) / 0.05);
+    border-left: 2px solid hsl(var(--signal-amber) / 0.6);
+  }
+  .state-building {
+    border-left: 2px solid hsl(var(--ink-line));
+  }
+  .state-dormant {
+    color: hsl(var(--slate-gray));
+  }
+  .state-live {
+    background: hsl(var(--signal-green) / 0.06);
+    border-left: 2px solid hsl(var(--signal-green));
+  }
+  .state-invalidated {
+    color: hsl(var(--slate-gray));
+    text-decoration: line-through;
+  }
+
+  /* Heartbeat pulse for ARMED status */
+  @keyframes heartbeat {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.55; }
+  }
+  .heartbeat {
+    animation: heartbeat 1.8s ease-in-out infinite;
+  }
+}
+
+/* Scrollbar — quiet, cockpit-grade */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: hsl(var(--ink-black));
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--ink-line));
+  border-radius: 2px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--slate-gray));
+}
+
+/* Recharts dark-cockpit overrides */
+.recharts-cartesian-grid line {
+  stroke: hsl(var(--ink-line));
+}
+.recharts-text {
+  fill: hsl(var(--slate-gray));
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.recharts-tooltip-wrapper {
+  outline: none !important;
+}

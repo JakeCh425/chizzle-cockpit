@@ -1,0 +1,12 @@
+node_modules
+dist
+.env
+.env.local
+.env.*.local
+*.log
+.DS_Store
+data.db-shm
+data.db-wal
+.vscode/*
+!.vscode/settings.json
+coverage
