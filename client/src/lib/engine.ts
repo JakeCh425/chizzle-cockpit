@@ -13,7 +13,7 @@ export type IdentityState = "OPERATOR" | "DISCIPLINED" | "WORKING" | "OFF_PROCES
 // ─── Risk Engine ────────────────────────────────────────────────────────────
 export const RISK_PCT: Record<Regime, number> = { GREEN: 0.03, YELLOW: 0.02, RED: 0.01 };
 export const MAX_POSITIONS: Record<Regime, number> = { GREEN: 4, YELLOW: 3, RED: 2 };
-export const NOTIONAL_CAP_PCT: Record<Regime, number> = { GREEN: 0.5, YELLOW: 0.35, RED: 0.2 };
+export const NOTIONAL_CAP_PCT: Record<Regime, number> = { GREEN: 0.8, YELLOW: 0.6, RED: 0.4 };
 export const MAX_OPEN_RISK_PCT = 6;
 export const MIN_RR = 2.0;
 
