@@ -50,13 +50,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── spec review (regime_gate_spec.md) ───────────────────────────
   app.get("/api/spec", (_req, res) => {
-    const specPath = "/home/user/workspace/regime_gate_spec.md";
-    try {
-      const text = fs.readFileSync(specPath, "utf8");
-      res.type("text/plain").send(text);
-    } catch (e: any) {
-      res.status(500).type("text/plain").send(`Failed to read spec: ${e?.message || "unknown"}`);
+    const candidates = [
+      path.resolve(process.cwd(), "regime_gate_spec.md"),
+      path.resolve(process.cwd(), "../regime_gate_spec.md"),
+      path.resolve(__dirname, "../regime_gate_spec.md"),
+      "/home/user/workspace/regime_gate_spec.md",
+    ];
+    for (const p of candidates) {
+      try {
+        const text = fs.readFileSync(p, "utf8");
+        return res.type("text/plain").send(text);
+      } catch {}
     }
+    res.status(404).type("text/plain").send("Spec file not found. Place regime_gate_spec.md at project root.");
   });
 
   // ── settings ────────────────────────────────────────────────────
