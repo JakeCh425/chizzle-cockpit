@@ -18,3 +18,5 @@
         value: "false"
       - key: LOW_CREDIT_MODE
         value: "true"
+      - key: VITE_TEST_MODE
+        value: "true"
