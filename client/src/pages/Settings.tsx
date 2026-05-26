@@ -13,19 +13,80 @@ interface RegimePayload {
   effective: { code: "green" | "yellow" | "red"; source: "AUTO" | "MANUAL" };
 }
 
+function RiskSlider({
+  label,
+  color,
+  value,
+  onChange,
+  active,
+}: {
+  label: string;
+  color: "green" | "amber" | "red";
+  value: string;
+  onChange: (v: string) => void;
+  active: boolean;
+}) {
+  const hueVar =
+    color === "green" ? "--signal-green" : color === "amber" ? "--signal-amber" : "--signal-red";
+  const textColor =
+    color === "green" ? "text-signal-green" : color === "amber" ? "text-signal-amber" : "text-signal-red";
+  const v = Number(value) || 0;
+  return (
+    <div
+      className="border rounded-sm p-3 transition-colors"
+      style={{
+        borderColor: active ? `hsl(var(${hueVar}) / 0.6)` : "hsl(var(--ink-line) / 0.6)",
+        background: active ? `hsl(var(${hueVar}) / 0.06)` : "transparent",
+      }}
+    >
+      <div className="flex items-baseline justify-between mb-2">
+        <span className="text-[10px] uppercase tracking-wider text-slate-gray">{label}</span>
+        {active && <span className="text-[9px] uppercase tracking-wider text-neon-blue">• ACTIVE</span>}
+      </div>
+      <div className="flex items-baseline gap-2 mb-2">
+        <span className={`font-mono-num tabular-nums text-2xl font-semibold ${textColor}`}>{v.toFixed(1)}</span>
+        <span className="text-[12px] text-slate-gray">% per trade</span>
+      </div>
+      <input
+        type="range"
+        min={1}
+        max={10}
+        step={0.1}
+        value={v}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full cursor-pointer"
+        style={{ accentColor: `hsl(var(${hueVar}))` }}
+        data-testid={`slider-risk-${color}`}
+      />
+      <div className="flex justify-between text-[9px] text-slate-gray mt-1">
+        <span>1%</span>
+        <span>5%</span>
+        <span>10%</span>
+      </div>
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
+  const { data: regimePayload } = useQuery<RegimePayload>({ queryKey: ["/api/regime"] });
+
+  const activeRegime: "GREEN" | "YELLOW" | "RED" =
+    (regimePayload?.effective?.code?.toUpperCase() as any) || "YELLOW";
 
   const [equity, setEquity] = useState("");
-  const [riskG, setRiskG] = useState("3");
-  const [riskY, setRiskY] = useState("2");
+  const [riskG, setRiskG] = useState("5");
+  const [riskY, setRiskY] = useState("3");
   const [riskR, setRiskR] = useState("1");
   const [maxRisk, setMaxRisk] = useState("6");
   const [minRR, setMinRR] = useState("2");
   const [maxPosG, setMaxPosG] = useState("4");
   const [maxPosY, setMaxPosY] = useState("3");
   const [maxPosR, setMaxPosR] = useState("2");
+
+  const activeRiskPct =
+    activeRegime === "GREEN" ? Number(riskG) : activeRegime === "RED" ? Number(riskR) : Number(riskY);
 
   useEffect(() => {
     if (settings) {
@@ -86,11 +147,20 @@ export default function SettingsPage() {
 
       <RegimeEnginePanel />
 
-      <Panel title="Risk Profile">
-        <div className="grid grid-cols-3 gap-3">
-          <Field label="Risk % Green"><input type="number" step="0.1" value={riskG} onChange={e => setRiskG(e.target.value)} className="form-input num" /></Field>
-          <Field label="Risk % Yellow"><input type="number" step="0.1" value={riskY} onChange={e => setRiskY(e.target.value)} className="form-input num" /></Field>
-          <Field label="Risk % Red"><input type="number" step="0.1" value={riskR} onChange={e => setRiskR(e.target.value)} className="form-input num" /></Field>
+      <Panel
+        title="Risk Profile"
+        hint={`Active: ${activeRegime} · ${activeRiskPct.toFixed(1)}% per trade`}
+      >
+        <div className="text-[11px] text-slate-gray mb-3">
+          Risk per trade adjusts to current regime. Drag the sliders (1–10%) or type a value.
+          Higher % = larger position size on each setup.
+        </div>
+        <div className="grid grid-cols-3 gap-4">
+          <RiskSlider label="Green Regime" color="green" value={riskG} onChange={setRiskG} active={activeRegime === "GREEN"} />
+          <RiskSlider label="Yellow Regime" color="amber" value={riskY} onChange={setRiskY} active={activeRegime === "YELLOW"} />
+          <RiskSlider label="Red Regime" color="red" value={riskR} onChange={setRiskR} active={activeRegime === "RED"} />
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-ink-line/60">
           <Field label="Max Positions Green"><input type="number" value={maxPosG} onChange={e => setMaxPosG(e.target.value)} className="form-input num" /></Field>
           <Field label="Max Positions Yellow"><input type="number" value={maxPosY} onChange={e => setMaxPosY(e.target.value)} className="form-input num" /></Field>
           <Field label="Max Positions Red"><input type="number" value={maxPosR} onChange={e => setMaxPosR(e.target.value)} className="form-input num" /></Field>

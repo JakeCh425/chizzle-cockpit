@@ -4,7 +4,7 @@ import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, Trade, SetupCandidateRow } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { validateTrade, fmtR, rMultiple, RISK_PCT, type Regime } from "@/lib/engine";
+import { validateTrade, fmtR, rMultiple, RISK_PCT, formatShares, type Regime } from "@/lib/engine";
 import { decideDiscipline, defaultQualityFallback, type Quality, type RegimeCode } from "@shared/discipline";
 import { Sparkles, RefreshCw, Trash2 } from "lucide-react";
 import Sparkline from "@/components/charts/Sparkline";
@@ -135,7 +135,7 @@ export default function Trades() {
     await apiRequest("POST", "/api/alerts", {
       ticker: ticker.toUpperCase(), type: "TRADE ARMED",
       severity: "info",
-      message: `${ticker.toUpperCase()} armed @ ${e.toFixed(2)} · stop ${s.toFixed(2)} · T1 ${t1n.toFixed(2)} · RR ${v.rr.toFixed(2)} · ${v.shares} sh — pending broker confirmation`,
+      message: `${ticker.toUpperCase()} armed @ ${e.toFixed(2)} · stop ${s.toFixed(2)} · T1 ${t1n.toFixed(2)} · RR ${v.rr.toFixed(2)} · ${formatShares(v.shares)} sh — pending broker confirmation`,
       firedAt: new Date().toISOString(),
     });
     queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
@@ -263,7 +263,7 @@ export default function Trades() {
               value={`$${(preview.riskDollarsValue * discipline.riskMultiplier).toFixed(2)}`}
               tone={discipline.riskMultiplier === 0 ? "red" : discipline.riskMultiplier < 1 ? "amber" : "neutral"}
             />
-            <Stat label="Shares" value={preview.shares.toString()} />
+            <Stat label="Shares" value={formatShares(preview.shares)} />
             <Stat label="Notional" value={`$${preview.notional.toFixed(2)}`} />
             <Stat label="RR" value={preview.rr.toFixed(2)} tone={preview.rr >= 2 ? "green" : "red"} />
             <Stat label="New Open Risk %" value={`${preview.newOpenRiskPct.toFixed(2)}%`} tone={preview.newOpenRiskPct > 6 ? "red" : preview.newOpenRiskPct > 5 ? "amber" : "neutral"} />
@@ -499,7 +499,7 @@ function PendingTradesList({ trades }: { trades: Trade[] }) {
             </div>
             <div>
               <div className="text-[10px] uppercase tracking-wider text-slate-gray">Shares</div>
-              <div className="font-mono-num tabular-nums text-soft-white">{t.shares}</div>
+              <div className="font-mono-num tabular-nums text-soft-white">{formatShares(t.shares)}</div>
             </div>
           </div>
           {t.thesis && (
@@ -578,7 +578,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                   </td>
                   <td className="px-2 py-2 text-right font-mono-num tabular-nums">{t.entry.toFixed(2)}</td>
                   <td className="px-2 py-2 text-right font-mono-num tabular-nums">{t.exit?.toFixed(2) ?? "—"}</td>
-                  <td className="px-2 py-2 text-right font-mono-num tabular-nums">{t.shares}</td>
+                  <td className="px-2 py-2 text-right font-mono-num tabular-nums">{formatShares(t.shares)}</td>
                   <td className={`px-2 py-2 text-right font-mono-num tabular-nums ${r > 0 ? "text-signal-green" : r < 0 ? "text-signal-red" : ""}`}>{t.status === "CLOSED" ? fmtR(r) : "—"}</td>
                   <td className="px-2 py-2 text-right font-mono-num tabular-nums text-slate-gray">{days}</td>
                   <td className="px-2 py-2">{t.planFollowed == null ? "—" : t.planFollowed ? <Chip tone="green">Y</Chip> : <Chip tone="red">N</Chip>}</td>

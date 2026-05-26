@@ -328,6 +328,9 @@ CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS reflection TEXT",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE trades ADD COLUMN IF NOT EXISTS confirmed_at TEXT",
+    // 2026-05: support fractional shares (was integer). DOUBLE PRECISION is
+    // wider than INTEGER so this is a lossless upgrade for existing rows.
+    "ALTER TABLE trades ALTER COLUMN shares TYPE DOUBLE PRECISION USING shares::double precision",
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
@@ -349,8 +352,10 @@ async function seedIfEmpty() {
       regimeOverride: false,
       regimeChangedAt: new Date().toISOString(),
       watchlistTier: 1,
-      riskPctGreen: 3,
-      riskPctYellow: 2,
+      // Bumped defaults 2026-05: more aggressive sizing out-of-the-box.
+      // User can tune 1–10% via sliders in Settings.
+      riskPctGreen: 5,
+      riskPctYellow: 3,
       riskPctRed: 1,
       maxPositionsGreen: 4,
       maxPositionsYellow: 3,

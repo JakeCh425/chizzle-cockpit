@@ -26,9 +26,18 @@ export function perShareRisk(entry: number, stop: number): number {
   return Math.max(0, entry - stop);
 }
 
+// Fractional shares: round DOWN to 2 decimals so we never over-risk by
+// rounding up. e.g. 12.3456 → 12.34 shares.
 export function positionSize(riskDollarsValue: number, perShareRiskValue: number): number {
   if (perShareRiskValue <= 0) return 0;
-  return Math.floor(riskDollarsValue / perShareRiskValue);
+  const raw = riskDollarsValue / perShareRiskValue;
+  return Math.floor(raw * 100) / 100;
+}
+
+// Format share count for display — always 2 decimals, comma-grouped.
+export function formatShares(n: number | null | undefined): string {
+  if (n == null || !Number.isFinite(n)) return "0.00";
+  return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 export function rrRatio(entry: number, stop: number, t1: number): number {

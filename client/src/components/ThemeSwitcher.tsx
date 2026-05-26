@@ -36,7 +36,7 @@ export function ThemeSwitcher() {
 
   return (
     <div
-      className="hidden md:inline-flex items-center border border-ink-line rounded-sm bg-ink-panel/60 backdrop-blur"
+      className="inline-flex items-center gap-0.5 border border-neon-blue/50 rounded-sm bg-ink-panel/80 backdrop-blur px-0.5 py-0.5 shadow-[0_0_8px_hsl(var(--neon-blue)/0.25)]"
       role="group"
       aria-label="Theme switcher"
     >
@@ -47,16 +47,17 @@ export function ThemeSwitcher() {
             key={value}
             onClick={() => setTheme(value)}
             data-testid={`button-theme-${value}`}
-            title={label}
+            title={`${label} theme`}
             aria-label={`Switch to ${label} theme`}
             aria-pressed={active}
-            className={`px-2 py-1 transition-colors cursor-pointer ${
+            className={`px-2 py-1.5 rounded-sm transition-colors cursor-pointer ${
               active
-                ? "bg-neon-blue/20 text-neon-blue"
-                : "text-slate-gray hover:text-soft-white hover:bg-ink-line/40"
+                ? "bg-neon-blue/25 text-neon-blue"
+                : "text-soft-white/80 hover:text-neon-blue hover:bg-neon-blue/10"
             }`}
+            style={active ? { textShadow: "0 0 6px hsl(var(--neon-blue) / 0.7)" } : undefined}
           >
-            <Icon className="w-3.5 h-3.5" />
+            <Icon className="w-4 h-4" />
           </button>
         );
       })}

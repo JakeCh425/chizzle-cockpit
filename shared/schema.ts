@@ -10,8 +10,10 @@ export const settings = pgTable("settings", {
   regimeOverride: boolean("regime_override").notNull().default(false),
   regimeChangedAt: text("regime_changed_at").notNull().default(""),
   watchlistTier: integer("watchlist_tier").notNull().default(1),
-  riskPctGreen: doublePrecision("risk_pct_green").notNull().default(3),
-  riskPctYellow: doublePrecision("risk_pct_yellow").notNull().default(2),
+  // Risk per trade by regime (in %). Bumped defaults 2026-05: more aggressive
+  // out-of-the-box sizing; tune via sliders in Settings.
+  riskPctGreen: doublePrecision("risk_pct_green").notNull().default(5),
+  riskPctYellow: doublePrecision("risk_pct_yellow").notNull().default(3),
   riskPctRed: doublePrecision("risk_pct_red").notNull().default(1),
   maxPositionsGreen: integer("max_positions_green").notNull().default(4),
   maxPositionsYellow: integer("max_positions_yellow").notNull().default(3),
@@ -62,7 +64,8 @@ export const trades = pgTable("trades", {
   t1: doublePrecision("t1").notNull(),
   t2: doublePrecision("t2"),
   exit: doublePrecision("exit"),
-  shares: integer("shares").notNull(),
+  // Fractional shares supported (2 decimals). e.g. 12.34 shares of QQQ.
+  shares: doublePrecision("shares").notNull(),
   riskDollars: doublePrecision("risk_dollars").notNull(),
   rr: doublePrecision("rr").notNull(),
   status: text("status").notNull().default("PENDING"), // PENDING | OPEN | CLOSED | DISCARDED
