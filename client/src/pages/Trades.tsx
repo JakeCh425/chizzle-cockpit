@@ -371,6 +371,7 @@ function OpenPositionsDetail({ trades }: { trades: Trade[] }) {
 function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: number }) {
   const lp = livePrice ?? trade.entry;
   const r = (lp - trade.entry) / (trade.entry - trade.stop || 1);
+  const pnl = (lp - trade.entry) * trade.shares;
   const days = Math.floor((Date.now() - new Date(trade.openedAt).getTime()) / 86400000);
   // Tick series for sparkline (manual, single fetch on mount; no polling).
   const { data: ticks } = useQuery<Array<{ price: number; ts: number }>>({
@@ -422,7 +423,7 @@ function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: numb
           />
         </div>
       )}
-      <div className="grid grid-cols-4 gap-2 text-[11px]">
+      <div className="grid grid-cols-5 gap-2 text-[11px]">
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-gray">LP</div>
           <div className="font-mono-num tabular-nums text-soft-white">{lp.toFixed(2)}</div>
@@ -438,6 +439,10 @@ function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: numb
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-gray">R</div>
           <div className={`font-mono-num tabular-nums ${r > 0 ? "text-signal-green" : r < 0 ? "text-signal-red" : "text-soft-white/80"}`}>{fmtR(r)}</div>
+        </div>
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray">P/L $</div>
+          <div className={`font-mono-num tabular-nums ${pnl > 0 ? "text-signal-green" : pnl < 0 ? "text-signal-red" : "text-soft-white/80"}`}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</div>
         </div>
       </div>
     </div>

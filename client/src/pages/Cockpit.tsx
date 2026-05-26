@@ -776,6 +776,7 @@ function OpenPositionsTable({ trades, livePrices }: { trades: Trade[]; livePrice
             <th className="text-right px-2 py-2 font-medium">T1</th>
             <th className="text-right px-2 py-2 font-medium">LP</th>
             <th className="text-right px-2 py-2 font-medium">R</th>
+            <th className="text-right px-2 py-2 font-medium">P/L $</th>
             <th className="text-right px-2 py-2 font-medium">% to T1</th>
             <th className="text-right px-3.5 py-2 font-medium">Days</th>
           </tr>
@@ -784,6 +785,7 @@ function OpenPositionsTable({ trades, livePrices }: { trades: Trade[]; livePrice
           {trades.map(t => {
             const lp = livePrices[t.ticker] ?? t.entry;
             const r = (lp - t.entry) / (t.entry - t.stop);
+            const pnl = (lp - t.entry) * t.shares;
             const pctToT1 = ((t.t1 - lp) / lp) * 100;
             const days = Math.floor((Date.now() - new Date(t.openedAt).getTime()) / 86400000);
             return (
@@ -794,6 +796,7 @@ function OpenPositionsTable({ trades, livePrices }: { trades: Trade[]; livePrice
                 <td className="px-2 py-2 text-right font-mono-num tabular-nums text-signal-green/80">{t.t1.toFixed(2)}</td>
                 <td className="px-2 py-2 text-right font-mono-num tabular-nums">{lp.toFixed(2)}</td>
                 <td className={`px-2 py-2 text-right font-mono-num tabular-nums ${r >= 0 ? "text-signal-green" : "text-signal-red"}`}>{fmtR(r)}</td>
+                <td className={`px-2 py-2 text-right font-mono-num tabular-nums ${pnl >= 0 ? "text-signal-green" : "text-signal-red"}`}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</td>
                 <td className="px-2 py-2 text-right font-mono-num tabular-nums">{fmtPct(pctToT1)}</td>
                 <td className="px-3.5 py-2 text-right font-mono-num tabular-nums text-slate-gray">{days}d</td>
               </tr>
