@@ -34,7 +34,7 @@ import {
   earningsBlocksEntry,
   computeFinalRMultiple,
 } from "./tradeLifecycle";
-import { decideDiscipline } from "@shared/discipline";
+import { decideDiscipline } from "../shared/discipline";
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ── health check (for rebuild.sh + uptime monitoring) ───────────

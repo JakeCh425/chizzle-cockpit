@@ -288,6 +288,14 @@ function safeAlter(sql: string): void {
 }
 safeAlter("ALTER TABLE setup_candidates ADD COLUMN regime_eligible INTEGER NOT NULL DEFAULT 1");
 safeAlter("ALTER TABLE setup_candidates ADD COLUMN regime_blocked_reason TEXT");
+// ── setup_candidates: quality classifier fields (added in Batch 3) ──────────
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN relative_strength INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN trend_strength INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN volume_score INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN cleanliness_score INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN market_alignment INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN earnings_risk INTEGER");
+safeAlter("ALTER TABLE setup_candidates ADD COLUMN quality TEXT");
 
 // ── trades: lifecycle + classifier fields (added across Batches 2 & 3) ──────
 safeAlter("ALTER TABLE trades ADD COLUMN t1_filled INTEGER NOT NULL DEFAULT 0");
