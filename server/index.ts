@@ -30,6 +30,8 @@ app.get("/health", (_req, res) => {
     status: "ok",
     mode: process.env.LOW_CREDIT_MODE === "true" ? "low-credit" : "normal",
     schedulersDisabled: process.env.LOW_CREDIT_MODE === "true",
+    testMode: process.env.VITE_TEST_MODE === "true",
+    testModeRaw: process.env.VITE_TEST_MODE ?? null,
     uptime: process.uptime(),
     now: new Date().toISOString(),
   });
