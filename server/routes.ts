@@ -169,6 +169,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   app.get("/api/trades", (_req, res) => res.json(storage.listTrades()));
+  app.get("/api/trades/archived", (_req, res) => res.json(storage.listArchivedTrades()));
   app.post("/api/trades", (req, res) => {
     try {
       // Server-side regime gate — source of truth. Frontend gates are UX only.
@@ -213,20 +214,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         });
       }
 
+      // ARM → PENDING. Trade only becomes OPEN once user CONFIRMs they actually
+      // placed the order in their broker. No ENTRY event logged until confirm.
       const data = insertTradeSchema.parse({
         ...req.body,
         openedAt: req.body.openedAt || new Date().toISOString(),
+        status: "PENDING",
         qualityAtEntry: req.body.qualityAtEntry ?? null,
         riskMultiplierAtEntry: req.body.riskMultiplierAtEntry ?? disc.riskMultiplier,
       });
       const created = storage.createTrade(data);
-      // Audit log: ENTRY event
       try {
         storage.createTradeEvent({
           tradeId: created.id,
-          kind: "ENTRY",
+          kind: "ARMED",
           price: created.entry,
-          note: `Entered ${created.ticker} @ ${created.entry} (${disc.riskMultiplier}× risk)`,
+          note: `Armed ${created.ticker} @ ${created.entry} (awaiting broker confirmation)`,
           occurredAt: new Date().toISOString(),
         });
       } catch (_e) { /* ignore */ }
@@ -355,6 +358,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.patch("/api/trades/:id", (req, res) => {
     res.json(storage.updateTrade(Number(req.params.id), req.body));
+  });
+
+  // ── PENDING → OPEN: user has placed the order in their broker ───────────
+  app.post("/api/trades/:id/confirm", (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const trade = storage.getTrade(id);
+      if (!trade) return res.status(404).json({ error: "trade not found" });
+      if (trade.status !== "PENDING") {
+        return res.status(400).json({ error: `Trade is ${trade.status}, only PENDING trades can be confirmed.` });
+      }
+      const now = new Date().toISOString();
+      const updated = storage.updateTrade(id, { status: "OPEN", confirmedAt: now } as any);
+      storage.createTradeEvent({
+        tradeId: id,
+        kind: "ENTRY",
+        price: trade.entry,
+        note: `Confirmed ${trade.ticker} @ ${trade.entry} (${trade.riskMultiplierAtEntry ?? 1}× risk)`,
+        occurredAt: now,
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // ── PENDING → DISCARDED + archived: user did not actually place the trade ─
+  app.post("/api/trades/:id/discard", (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const trade = storage.getTrade(id);
+      if (!trade) return res.status(404).json({ error: "trade not found" });
+      if (trade.status !== "PENDING") {
+        return res.status(400).json({ error: `Trade is ${trade.status}, only PENDING trades can be discarded.` });
+      }
+      const updated = storage.updateTrade(id, { status: "DISCARDED", archived: true } as any);
+      storage.createTradeEvent({
+        tradeId: id,
+        kind: "DISCARDED",
+        price: null,
+        note: `Discarded ${trade.ticker} — not placed in broker.`,
+        occurredAt: new Date().toISOString(),
+      });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // ── archive / restore (soft delete) ─────────────────────────────────────
+  app.post("/api/trades/:id/archive", (req, res) => {
+    const id = Number(req.params.id);
+    const updated = storage.setTradeArchived(id, true);
+    if (!updated) return res.status(404).json({ error: "trade not found" });
+    res.json(updated);
+  });
+  app.post("/api/trades/:id/restore", (req, res) => {
+    const id = Number(req.params.id);
+    const updated = storage.setTradeArchived(id, false);
+    if (!updated) return res.status(404).json({ error: "trade not found" });
+    res.json(updated);
   });
   // close-trade convenience endpoint
   app.post("/api/trades/:id/close", (req, res) => {

@@ -41,6 +41,7 @@ export default function Trades() {
   const { data: trades } = useQuery<Trade[]>({ queryKey: ["/api/trades"] });
   const { data: setupsByTicker } = useQuery<Record<string, SetupCandidateRow[]>>({ queryKey: ["/api/setups"] });
   const openTrades = (trades || []).filter(t => t.status === "OPEN");
+  const pendingTrades = (trades || []).filter(t => t.status === "PENDING");
 
   // Form state
   const [ticker, setTicker] = useState("");
@@ -116,6 +117,8 @@ export default function Trades() {
       toast({ title: "Trade rejected", description: v.reason });
       return;
     }
+    // Armed trades land in PENDING. Confirm later once the order is placed in
+    // the broker — only then do they count toward equity / analytics.
     await apiRequest("POST", "/api/trades", {
       ticker: ticker.toUpperCase(),
       setup,
@@ -125,20 +128,19 @@ export default function Trades() {
       shares: v.shares,
       riskDollars: v.riskDollarsValue,
       rr: v.rr,
-      status: "OPEN",
       thesis,
       emotionalState,
       openedAt: new Date().toISOString(),
     });
     await apiRequest("POST", "/api/alerts", {
-      ticker: ticker.toUpperCase(), type: "TRADE OPEN",
+      ticker: ticker.toUpperCase(), type: "TRADE ARMED",
       severity: "info",
-      message: `${ticker.toUpperCase()} entry ${e.toFixed(2)} · stop ${s.toFixed(2)} · T1 ${t1n.toFixed(2)} · RR ${v.rr.toFixed(2)} · ${v.shares} sh`,
+      message: `${ticker.toUpperCase()} armed @ ${e.toFixed(2)} · stop ${s.toFixed(2)} · T1 ${t1n.toFixed(2)} · RR ${v.rr.toFixed(2)} · ${v.shares} sh — pending broker confirmation`,
       firedAt: new Date().toISOString(),
     });
     queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
     queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
-    toast({ title: "Trade logged", description: `${ticker.toUpperCase()} ${v.shares} sh · RR ${v.rr.toFixed(2)}` });
+    toast({ title: "Trade armed", description: `${ticker.toUpperCase()} pending — confirm once placed in broker.` });
     setTicker(""); setEntry(""); setStop(""); setT1(""); setT2(""); setThesis(""); setAutoFilledFrom(null);
   };
 
@@ -284,6 +286,16 @@ export default function Trades() {
           </button>
         </div>
       </Panel>
+
+      {/* Pending (armed but not confirmed in broker) */}
+      {pendingTrades.length > 0 && (
+        <Panel
+          title="Pending Confirmation"
+          hint={`${pendingTrades.length} awaiting broker fill · Confirm once placed, Discard if not`}
+        >
+          <PendingTradesList trades={pendingTrades} />
+        </Panel>
+      )}
 
       {/* Open Positions Detail with charts */}
       {openTrades.length > 0 && (
@@ -433,8 +445,96 @@ function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: numb
 }
 
 // ─── trades table with close modal ──────────────────────────────────────────
+function PendingTradesList({ trades }: { trades: Trade[] }) {
+  const { toast } = useToast();
+  const confirmTrade = async (t: Trade) => {
+    try {
+      await apiRequest("POST", `/api/trades/${t.id}/confirm`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      toast({ title: "Confirmed", description: `${t.ticker} is now OPEN.` });
+    } catch (e: any) {
+      toast({ title: "Confirm failed", description: e?.message || String(e) });
+    }
+  };
+  const discardTrade = async (t: Trade) => {
+    if (!confirm(`Discard armed ${t.ticker}? It will be archived (not placed in broker).`)) return;
+    try {
+      await apiRequest("POST", `/api/trades/${t.id}/discard`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      toast({ title: "Discarded", description: `${t.ticker} removed from pending.` });
+    } catch (e: any) {
+      toast({ title: "Discard failed", description: e?.message || String(e) });
+    }
+  };
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      {trades.map(t => (
+        <div key={t.id} className="border border-signal-amber/40 bg-signal-amber/5 rounded-sm p-3 flex flex-col gap-2">
+          <div className="flex items-baseline justify-between">
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono-num text-[14px] text-soft-white">{t.ticker}</span>
+              <Chip tone="amber">PENDING</Chip>
+              <Chip tone={t.regimeAtEntry === "GREEN" ? "green" : t.regimeAtEntry === "YELLOW" ? "amber" : "red"}>{t.regimeAtEntry}</Chip>
+            </div>
+            <span className="text-[10px] uppercase tracking-wider text-slate-gray">{t.setup === "BREAKOUT" ? "Breakout" : "Trend"}</span>
+          </div>
+          <div className="grid grid-cols-4 gap-2 text-[11px]">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Entry</div>
+              <div className="font-mono-num tabular-nums text-soft-white">{t.entry.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Stop</div>
+              <div className="font-mono-num tabular-nums text-signal-red/80">{t.stop.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray">T1</div>
+              <div className="font-mono-num tabular-nums text-soft-white">{t.t1.toFixed(2)}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Shares</div>
+              <div className="font-mono-num tabular-nums text-soft-white">{t.shares}</div>
+            </div>
+          </div>
+          {t.thesis && (
+            <div className="text-[11px] text-slate-gray italic border-l border-ink-line/60 pl-2">{t.thesis}</div>
+          )}
+          <div className="flex justify-end gap-2 pt-1">
+            <button
+              onClick={() => discardTrade(t)}
+              data-testid={`button-discard-trade-${t.id}`}
+              className="px-3 py-1 border border-ink-line text-[11px] uppercase tracking-wider rounded-sm hover:bg-ink-line/40 text-slate-gray"
+            >
+              Discard
+            </button>
+            <button
+              onClick={() => confirmTrade(t)}
+              data-testid={`button-confirm-trade-${t.id}`}
+              className="px-3 py-1 border border-signal-green/60 bg-signal-green/20 text-signal-green text-[11px] uppercase tracking-wider rounded-sm hover:bg-signal-green/30"
+            >
+              Confirm Filled
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function TradesTable({ trades }: { trades: Trade[] }) {
+  const { toast } = useToast();
   const [closingId, setClosingId] = useState<number | null>(null);
+  const archive = async (t: Trade) => {
+    if (!confirm(`Archive ${t.ticker}? You can restore it later from Settings.`)) return;
+    try {
+      await apiRequest("POST", `/api/trades/${t.id}/archive`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      toast({ title: "Archived", description: `${t.ticker} hidden from main view.` });
+    } catch (e: any) {
+      toast({ title: "Archive failed", description: e?.message || String(e) });
+    }
+  };
   if (!trades.length) {
     return <div className="text-[12px] text-slate-gray py-4">No trades logged yet.</div>;
   }
@@ -478,17 +578,31 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                   <td className="px-2 py-2 text-right font-mono-num tabular-nums text-slate-gray">{days}</td>
                   <td className="px-2 py-2">{t.planFollowed == null ? "—" : t.planFollowed ? <Chip tone="green">Y</Chip> : <Chip tone="red">N</Chip>}</td>
                   <td className="px-2 py-2 text-[10px] text-slate-gray">{t.lessonTag ?? "—"}</td>
-                  <td className="px-2 py-2"><Chip tone={t.status === "OPEN" ? "blue" : "neutral"}>{t.status}</Chip></td>
+                  <td className="px-2 py-2">
+                    <Chip tone={t.status === "OPEN" ? "blue" : t.status === "PENDING" ? "amber" : t.status === "DISCARDED" ? "red" : "neutral"}>{t.status}</Chip>
+                  </td>
                   <td className="px-3 py-2 text-right">
-                    {t.status === "OPEN" && (
-                      <button
-                        onClick={() => setClosingId(t.id)}
-                        data-testid={`button-close-trade-${t.id}`}
-                        className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40"
-                      >
-                        Close
-                      </button>
-                    )}
+                    <div className="flex justify-end gap-1">
+                      {t.status === "OPEN" && (
+                        <button
+                          onClick={() => setClosingId(t.id)}
+                          data-testid={`button-close-trade-${t.id}`}
+                          className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40"
+                        >
+                          Close
+                        </button>
+                      )}
+                      {t.status !== "PENDING" && (
+                        <button
+                          onClick={() => archive(t)}
+                          data-testid={`button-archive-trade-${t.id}`}
+                          title="Archive (soft delete — recoverable in Settings)"
+                          className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40 text-slate-gray"
+                        >
+                          Archive
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );

@@ -65,7 +65,9 @@ export const trades = sqliteTable("trades", {
   shares: integer("shares").notNull(),
   riskDollars: real("risk_dollars").notNull(),
   rr: real("rr").notNull(),
-  status: text("status").notNull().default("OPEN"), // OPEN | CLOSED
+  status: text("status").notNull().default("PENDING"), // PENDING | OPEN | CLOSED | DISCARDED
+  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  confirmedAt: text("confirmed_at"),
   exitReason: text("exit_reason"),
   rMultiple: real("r_multiple"),
   planFollowed: integer("plan_followed", { mode: "boolean" }),

@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import type { Settings as SettingsType, RegimeState, RegimeInputsRow } from "@shared/schema";
+import type { Settings as SettingsType, RegimeState, RegimeInputsRow, Trade } from "@shared/schema";
 import { CHIZZLE_WEIGHTS, WATCHLIST_WEIGHTS } from "@/lib/engine";
 import { useToast } from "@/hooks/use-toast";
 import { useFeedStatus, useFeedConnection } from "@/lib/priceFeed";
@@ -123,6 +123,8 @@ export default function SettingsPage() {
         </div>
       </Panel>
 
+      <ArchivedTradesPanel />
+
       <div className="flex justify-between items-center gap-3">
         <button
           onClick={confirmReset}
@@ -146,6 +148,70 @@ export default function SettingsPage() {
         .form-input.num { font-family: "JetBrains Mono", monospace; font-variant-numeric: tabular-nums; }
       `}</style>
     </div>
+  );
+}
+
+function ArchivedTradesPanel() {
+  const { toast } = useToast();
+  const { data: archived } = useQuery<Trade[]>({ queryKey: ["/api/trades/archived"] });
+  const restore = async (t: Trade) => {
+    try {
+      await apiRequest("POST", `/api/trades/${t.id}/restore`, {});
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
+      toast({ title: "Restored", description: `${t.ticker} returned to main view.` });
+    } catch (e: any) {
+      toast({ title: "Restore failed", description: e?.message || String(e) });
+    }
+  };
+  const list = archived || [];
+  return (
+    <Panel title="Archived Trades" hint={`${list.length} soft-deleted — restore to bring back into history`}>
+      {list.length === 0 ? (
+        <div className="text-[12px] text-slate-gray py-2">No archived trades.</div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px]">
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
+                <th className="text-left px-2 py-1.5">Ticker</th>
+                <th className="text-left px-2 py-1.5">Regime</th>
+                <th className="text-left px-2 py-1.5">Status</th>
+                <th className="text-right px-2 py-1.5">Entry</th>
+                <th className="text-right px-2 py-1.5">Exit</th>
+                <th className="text-left px-2 py-1.5">Opened</th>
+                <th className="px-2 py-1.5"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {list.map(t => (
+                <tr key={t.id} className="border-t border-ink-line/60">
+                  <td className="px-2 py-1.5 font-mono-num">{t.ticker}</td>
+                  <td className="px-2 py-1.5">
+                    <Chip tone={t.regimeAtEntry === "GREEN" ? "green" : t.regimeAtEntry === "YELLOW" ? "amber" : "red"}>{t.regimeAtEntry}</Chip>
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Chip tone={t.status === "OPEN" ? "blue" : t.status === "DISCARDED" ? "red" : t.status === "PENDING" ? "amber" : "neutral"}>{t.status}</Chip>
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono-num tabular-nums">{t.entry.toFixed(2)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono-num tabular-nums">{t.exit?.toFixed(2) ?? "—"}</td>
+                  <td className="px-2 py-1.5 text-[10px] text-slate-gray">{new Date(t.openedAt).toLocaleDateString()}</td>
+                  <td className="px-2 py-1.5 text-right">
+                    <button
+                      onClick={() => restore(t)}
+                      data-testid={`button-restore-trade-${t.id}`}
+                      className="px-2 py-1 border border-neon-blue/40 bg-neon-blue/10 text-neon-blue text-[10px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/20"
+                    >
+                      Restore
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
   );
 }
 

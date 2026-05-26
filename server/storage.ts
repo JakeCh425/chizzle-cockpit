@@ -36,7 +36,7 @@ import type {
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and, ne } from "drizzle-orm";
 
 const sqlite = new Database("data.db");
 sqlite.pragma("journal_mode = WAL");
@@ -310,6 +310,9 @@ safeAlter("ALTER TABLE trades ADD COLUMN risk_multiplier_at_entry REAL");
 safeAlter("ALTER TABLE trades ADD COLUMN confidence_rating INTEGER");
 safeAlter("ALTER TABLE trades ADD COLUMN emotion_tag TEXT");
 safeAlter("ALTER TABLE trades ADD COLUMN reflection TEXT");
+// ── trades: lifecycle states (PENDING/OPEN/CLOSED/DISCARDED) + archive ──────
+safeAlter("ALTER TABLE trades ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
+safeAlter("ALTER TABLE trades ADD COLUMN confirmed_at TEXT");
 
 export const db = drizzle(sqlite);
 
@@ -462,14 +465,31 @@ export const storage = {
     db.delete(tickers).where(eq(tickers.id, tickerId)).run();
   },
 
-  // trades
-  listTrades(): Trade[] { return db.select().from(trades).orderBy(desc(trades.openedAt)).all(); },
-  listOpenTrades(): Trade[] { return db.select().from(trades).where(eq(trades.status, "OPEN")).all(); },
+  // trades — main lists exclude archived rows.
+  listTrades(): Trade[] {
+    return db.select().from(trades).where(eq(trades.archived, false)).orderBy(desc(trades.openedAt)).all();
+  },
+  listOpenTrades(): Trade[] {
+    return db.select().from(trades).where(and(eq(trades.status, "OPEN"), eq(trades.archived, false))).all();
+  },
+  listPendingTrades(): Trade[] {
+    return db.select().from(trades).where(and(eq(trades.status, "PENDING"), eq(trades.archived, false))).orderBy(desc(trades.openedAt)).all();
+  },
+  listArchivedTrades(): Trade[] {
+    return db.select().from(trades).where(eq(trades.archived, true)).orderBy(desc(trades.openedAt)).all();
+  },
+  getTrade(id: number): Trade | undefined {
+    return db.select().from(trades).where(eq(trades.id, id)).get();
+  },
   createTrade(t: InsertTrade): Trade {
     return db.insert(trades).values(t as any).returning().get();
   },
   updateTrade(id: number, patch: Partial<InsertTrade>): Trade | undefined {
     db.update(trades).set(patch as any).where(eq(trades.id, id)).run();
+    return db.select().from(trades).where(eq(trades.id, id)).get();
+  },
+  setTradeArchived(id: number, archived: boolean): Trade | undefined {
+    db.update(trades).set({ archived } as any).where(eq(trades.id, id)).run();
     return db.select().from(trades).where(eq(trades.id, id)).get();
   },
 
