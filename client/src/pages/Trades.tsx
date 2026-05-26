@@ -6,7 +6,7 @@ import type { Settings, Trade, SetupCandidateRow } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { validateTrade, fmtR, rMultiple, RISK_PCT, type Regime } from "@/lib/engine";
 import { decideDiscipline, defaultQualityFallback, type Quality, type RegimeCode } from "@shared/discipline";
-import { Sparkles, RefreshCw } from "lucide-react";
+import { Sparkles, RefreshCw, Trash2 } from "lucide-react";
 import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import CandlestickChart, { type OHLCBar } from "@/components/charts/CandlestickChart";
@@ -597,9 +597,10 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                           onClick={() => archive(t)}
                           data-testid={`button-archive-trade-${t.id}`}
                           title="Archive (soft delete — recoverable in Settings)"
-                          className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40 text-slate-gray"
+                          aria-label={`Archive ${t.ticker}`}
+                          className="p-1.5 border border-ink-line rounded-sm hover:bg-signal-red/10 hover:border-signal-red/60 hover:text-signal-red text-slate-gray transition-colors"
                         >
-                          Archive
+                          <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
                     </div>
