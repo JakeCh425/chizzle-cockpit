@@ -113,6 +113,15 @@ CREATE TABLE IF NOT EXISTS trades (
   closed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS trade_events (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  trade_id INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  price REAL,
+  note TEXT,
+  occurred_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS alerts (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   ticker TEXT NOT NULL DEFAULT '',
@@ -279,6 +288,20 @@ function safeAlter(sql: string): void {
 }
 safeAlter("ALTER TABLE setup_candidates ADD COLUMN regime_eligible INTEGER NOT NULL DEFAULT 1");
 safeAlter("ALTER TABLE setup_candidates ADD COLUMN regime_blocked_reason TEXT");
+
+// ── trades: lifecycle + classifier fields (added across Batches 2 & 3) ──────
+safeAlter("ALTER TABLE trades ADD COLUMN t1_filled INTEGER NOT NULL DEFAULT 0");
+safeAlter("ALTER TABLE trades ADD COLUMN t1_filled_at TEXT");
+safeAlter("ALTER TABLE trades ADD COLUMN t2_filled INTEGER NOT NULL DEFAULT 0");
+safeAlter("ALTER TABLE trades ADD COLUMN t2_filled_at TEXT");
+safeAlter("ALTER TABLE trades ADD COLUMN trailing_stop REAL");
+safeAlter("ALTER TABLE trades ADD COLUMN trailing_stop_updated_at TEXT");
+safeAlter("ALTER TABLE trades ADD COLUMN high_water_mark REAL");
+safeAlter("ALTER TABLE trades ADD COLUMN quality_at_entry TEXT");
+safeAlter("ALTER TABLE trades ADD COLUMN risk_multiplier_at_entry REAL");
+safeAlter("ALTER TABLE trades ADD COLUMN confidence_rating INTEGER");
+safeAlter("ALTER TABLE trades ADD COLUMN emotion_tag TEXT");
+safeAlter("ALTER TABLE trades ADD COLUMN reflection TEXT");
 
 export const db = drizzle(sqlite);
 
