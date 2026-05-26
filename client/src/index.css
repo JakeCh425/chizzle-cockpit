@@ -23,7 +23,11 @@
  * lighter neons (cyan-on-white, yellow-on-white) disappear visually.
  */
 
-:root {
+/* ============================================================
+ * THEME: LIGHT (default) — pearl bg, deep neon accents
+ * ============================================================ */
+:root,
+[data-theme="light"] {
   --button-outline: rgba(0, 0, 0, 0.10);
   --badge-outline: rgba(0, 0, 0, 0.06);
   --opaque-button-border-intensity: 9;
@@ -111,59 +115,72 @@
   --destructive-border: hsl(0 78% 40%);
 }
 
-.dark {
-  /* Light theme is the only theme — .dark mirrors :root so any code
-     that conditionally applies .dark still gets the light-neon palette. */
-  --button-outline: rgba(0, 0, 0, 0.10);
-  --badge-outline: rgba(0, 0, 0, 0.06);
+/* ============================================================
+ * THEME: MEDIUM — charcoal bg, vivid neons (terminal feel)
+ * ============================================================ */
+[data-theme="medium"] {
+  --button-outline: rgba(255, 255, 255, 0.12);
+  --badge-outline: rgba(255, 255, 255, 0.06);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(0, 0, 0, 0.04);
-  --elevate-2: rgba(0, 0, 0, 0.08);
+  --elevate-1: rgba(255, 255, 255, 0.04);
+  --elevate-2: rgba(255, 255, 255, 0.08);
 
-  --background: 218 25% 96%;
-  --foreground: 218 33% 12%;
-  --border: 216 16% 82%;
+  --background: 218 18% 22%;
+  --foreground: 210 30% 96%;
+  --border: 216 16% 32%;
 
-  --card: 0 0% 100%;
-  --card-foreground: 218 33% 12%;
-  --card-border: 216 16% 82%;
+  --card: 218 18% 26%;
+  --card-foreground: 210 30% 96%;
+  --card-border: 216 16% 35%;
 
-  --sidebar: 218 25% 93%;
-  --sidebar-foreground: 218 33% 12%;
-  --sidebar-border: 216 16% 82%;
-  --sidebar-primary: 195 100% 42%;
-  --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 216 16% 88%;
-  --sidebar-accent-foreground: 218 33% 12%;
-  --sidebar-ring: 195 100% 42%;
+  --sidebar: 218 20% 18%;
+  --sidebar-foreground: 210 30% 96%;
+  --sidebar-border: 216 16% 32%;
+  --sidebar-primary: 195 100% 55%;
+  --sidebar-primary-foreground: 218 18% 12%;
+  --sidebar-accent: 216 16% 30%;
+  --sidebar-accent-foreground: 210 30% 96%;
+  --sidebar-ring: 195 100% 55%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 218 33% 12%;
-  --popover-border: 216 16% 82%;
+  --popover: 218 18% 26%;
+  --popover-foreground: 210 30% 96%;
+  --popover-border: 216 16% 35%;
 
-  --primary: 195 100% 42%;
-  --primary-foreground: 0 0% 100%;
+  --primary: 195 100% 55%;
+  --primary-foreground: 218 18% 12%;
 
-  --secondary: 216 16% 88%;
-  --secondary-foreground: 218 33% 12%;
+  --secondary: 216 16% 30%;
+  --secondary-foreground: 210 30% 96%;
 
-  --muted: 216 16% 91%;
-  --muted-foreground: 213 13% 40%;
+  --muted: 216 16% 26%;
+  --muted-foreground: 213 13% 70%;
 
-  --accent: 216 16% 88%;
-  --accent-foreground: 218 33% 12%;
+  --accent: 216 16% 30%;
+  --accent-foreground: 210 30% 96%;
 
-  --destructive: 0 78% 47%;
+  --destructive: 0 90% 65%;
   --destructive-foreground: 0 0% 100%;
 
-  --input: 0 0% 100%;
-  --ring: 195 100% 42%;
+  --input: 218 18% 26%;
+  --ring: 195 100% 55%;
 
-  --chart-1: 195 100% 42%;
-  --chart-2: 142 76% 36%;
-  --chart-3: 28 100% 42%;
-  --chart-4: 0 78% 47%;
-  --chart-5: 40 90% 38%;
+  /* Medium neons — brighter, mid-saturation for charcoal bg */
+  --ink-black: 218 18% 22%;
+  --ink-panel: 218 18% 26%;
+  --ink-line: 216 16% 35%;
+  --slate-gray: 213 18% 70%;
+  --soft-white: 210 30% 96%;
+  --neon-blue: 195 100% 60%;
+  --signal-green: 142 80% 55%;
+  --signal-amber: 32 100% 60%;
+  --signal-red: 0 90% 65%;
+  --gold-lux: 42 90% 60%;
+
+  --chart-1: 195 100% 60%;
+  --chart-2: 142 80% 55%;
+  --chart-3: 32 100% 60%;
+  --chart-4: 0 90% 65%;
+  --chart-5: 42 90% 60%;
 
   --shadow-2xs: 0 0 0 0 hsl(0 0% 0% / 0);
   --shadow-xs: 0 0 0 0 hsl(0 0% 0% / 0);
@@ -174,13 +191,99 @@
   --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
   --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
 
-  --sidebar-primary-border: hsl(195 100% 35%);
-  --sidebar-accent-border: hsl(216 16% 75%);
-  --primary-border: hsl(195 100% 35%);
-  --secondary-border: hsl(216 16% 75%);
-  --muted-border: hsl(216 16% 80%);
-  --accent-border: hsl(216 16% 75%);
-  --destructive-border: hsl(0 78% 40%);
+  --sidebar-primary-border: hsl(195 100% 50%);
+  --sidebar-accent-border: hsl(216 16% 38%);
+  --primary-border: hsl(195 100% 50%);
+  --secondary-border: hsl(216 16% 38%);
+  --muted-border: hsl(216 16% 34%);
+  --accent-border: hsl(216 16% 38%);
+  --destructive-border: hsl(0 90% 58%);
+}
+
+/* ============================================================
+ * THEME: DARK — deep navy bg, electric neons (max contrast)
+ * ============================================================ */
+[data-theme="dark"],
+.dark {
+  --button-outline: rgba(255, 255, 255, 0.08);
+  --badge-outline: rgba(255, 255, 255, 0.04);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255, 255, 255, 0.03);
+  --elevate-2: rgba(255, 255, 255, 0.07);
+
+  --background: 218 33% 4%;
+  --foreground: 210 30% 96%;
+  --border: 216 30% 16%;
+
+  --card: 213 33% 8%;
+  --card-foreground: 210 30% 96%;
+  --card-border: 216 30% 16%;
+
+  --sidebar: 213 33% 6%;
+  --sidebar-foreground: 210 30% 96%;
+  --sidebar-border: 216 30% 16%;
+  --sidebar-primary: 195 100% 65%;
+  --sidebar-primary-foreground: 218 33% 4%;
+  --sidebar-accent: 216 30% 16%;
+  --sidebar-accent-foreground: 210 30% 96%;
+  --sidebar-ring: 195 100% 65%;
+
+  --popover: 213 33% 8%;
+  --popover-foreground: 210 30% 96%;
+  --popover-border: 216 30% 16%;
+
+  --primary: 195 100% 65%;
+  --primary-foreground: 218 33% 4%;
+
+  --secondary: 216 30% 16%;
+  --secondary-foreground: 210 30% 96%;
+
+  --muted: 216 30% 12%;
+  --muted-foreground: 213 18% 65%;
+
+  --accent: 216 30% 16%;
+  --accent-foreground: 210 30% 96%;
+
+  --destructive: 0 95% 70%;
+  --destructive-foreground: 0 0% 100%;
+
+  --input: 216 30% 16%;
+  --ring: 195 100% 65%;
+
+  /* Dark neons — max electric for deepest bg */
+  --ink-black: 218 33% 4%;
+  --ink-panel: 213 33% 8%;
+  --ink-line: 216 30% 16%;
+  --slate-gray: 213 18% 60%;
+  --soft-white: 210 30% 96%;
+  --neon-blue: 195 100% 65%;
+  --signal-green: 142 85% 58%;
+  --signal-amber: 34 100% 62%;
+  --signal-red: 0 95% 68%;
+  --gold-lux: 44 95% 62%;
+
+  --chart-1: 195 100% 65%;
+  --chart-2: 142 85% 58%;
+  --chart-3: 34 100% 62%;
+  --chart-4: 0 95% 68%;
+  --chart-5: 44 95% 62%;
+
+  --shadow-2xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xs: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-sm: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-md: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-lg: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
+  --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
+
+  --sidebar-primary-border: hsl(195 100% 55%);
+  --sidebar-accent-border: hsl(216 30% 24%);
+  --primary-border: hsl(195 100% 55%);
+  --secondary-border: hsl(216 30% 24%);
+  --muted-border: hsl(216 30% 20%);
+  --accent-border: hsl(216 30% 24%);
+  --destructive-border: hsl(0 95% 58%);
 }
 
 @layer base {
@@ -189,7 +292,11 @@
   }
 
   html {
-    color-scheme: light;
+    color-scheme: light dark;
+  }
+  html[data-theme="medium"],
+  html[data-theme="dark"] {
+    color-scheme: dark;
   }
 
   body {
@@ -216,6 +323,23 @@
   .font-mono-num {
     font-family: var(--font-mono);
     font-variant-numeric: tabular-nums;
+  }
+
+  /* — Neon label glow —
+     The cockpit uses one consistent label idiom: small (9-11px), uppercase,
+     tracking-wider, slate-gray. We override slate-gray → neon-cyan ONLY when
+     that idiom is used (so body copy in slate-gray stays slate-gray). */
+  .uppercase.tracking-wider.text-slate-gray,
+  .uppercase.tracking-widest.text-slate-gray,
+  .uppercase[class*="tracking-"].text-slate-gray {
+    color: hsl(var(--neon-blue));
+    font-weight: 600;
+    letter-spacing: 0.08em;
+  }
+  /* Brand title — Bloomberg-orange wash */
+  .brand-glow {
+    color: hsl(var(--signal-amber));
+    text-shadow: 0 0 1px hsl(var(--signal-amber) / 0.3);
   }
 }
 

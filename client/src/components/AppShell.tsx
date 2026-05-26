@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Logo } from "./Logo";
+import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, Ticker, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection } from "@/lib/priceFeed";
@@ -110,7 +111,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <FeedBadge state={feedState} ageSec={ageSec} />
 
-          <div className="ml-auto flex items-center gap-5 md:gap-7">
+          <div className="ml-auto flex items-center gap-3 md:gap-5">
+            <ThemeSwitcher />
             <div className="hidden md:flex flex-col items-end leading-tight">
               <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">Equity</div>
               <div className="font-mono-num text-[14px] text-soft-white tabular-nums leading-tight">
