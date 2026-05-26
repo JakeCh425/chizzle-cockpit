@@ -455,7 +455,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       storage.updateLeapReserve({ balance: reserve.balance + 0.25 * pnl });
     }
 
-    res.json(storage.updateTrade(id, {}));
+    res.json(storage.getTrade(id));
   });
 
   // ── alerts ──────────────────────────────────────────────────────
