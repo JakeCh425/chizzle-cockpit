@@ -541,7 +541,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
   return (
     <>
       <div className="overflow-x-auto -m-3.5">
-        <table className="w-full text-[12px]">
+        <table className="w-full text-[12px] min-w-0">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
               <th className="text-left px-3 py-2">Ticker</th>
@@ -555,7 +555,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
               <th className="text-left px-2">Plan</th>
               <th className="text-left px-2">Lesson</th>
               <th className="text-left px-2">Status</th>
-              <th className="px-3"></th>
+              <th className="text-right px-2 sticky right-0 bg-ink-panel">Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -581,7 +581,7 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                   <td className="px-2 py-2">
                     <Chip tone={t.status === "OPEN" ? "blue" : t.status === "PENDING" ? "amber" : t.status === "DISCARDED" ? "red" : "neutral"}>{t.status}</Chip>
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-2 py-2 text-right sticky right-0 bg-ink-panel">
                     <div className="flex justify-end gap-1">
                       {t.status === "OPEN" && (
                         <button
@@ -682,7 +682,7 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="px-3 py-1.5 border border-ink-line text-[11px] uppercase tracking-wider rounded-sm">Cancel</button>
-          <button onClick={submit} data-testid="button-confirm-close" className="px-3 py-1.5 border border-neon-blue/60 bg-neon-blue/20 text-neon-blue text-[11px] uppercase tracking-wider rounded-sm">Confirm Close</button>
+          <button onClick={submit} data-testid="button-confirm-close" className="px-3 py-1.5 border border-neon-blue bg-neon-blue text-ink-black font-semibold text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/90 cursor-pointer">Confirm Close</button>
         </div>
       </div>
     </div>
