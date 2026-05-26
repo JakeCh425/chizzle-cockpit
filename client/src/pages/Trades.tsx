@@ -623,6 +623,7 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
   const [reason, setReason] = useState("T1");
   const [planFollowed, setPlanFollowed] = useState(true);
   const [lessonTag, setLessonTag] = useState("none");
+  const [submitting, setSubmitting] = useState(false);
   const { toast } = useToast();
 
   const r = exit ? rMultiple(trade.entry, trade.stop, Number(exit)) : 0;
@@ -632,22 +633,35 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
       toast({ title: "Exit price required" });
       return;
     }
-    await apiRequest("POST", `/api/trades/${id}/close`, {
-      exit: Number(exit), exitReason: reason, planFollowed, lessonTag,
-    });
-    await apiRequest("POST", "/api/alerts", {
-      ticker: trade.ticker, type: reason === "stop" ? "STOP HIT" : "TRADE CLOSED",
-      severity: reason === "stop" ? "critical" : (r > 0 ? "info" : "action"),
-      message: `${trade.ticker} closed @ ${Number(exit).toFixed(2)} · R ${r.toFixed(2)} · ${reason}`,
-      firedAt: new Date().toISOString(),
-    });
-    queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/equity-history"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/leap-reserve"] });
-    toast({ title: "Trade closed", description: `${trade.ticker} R ${r.toFixed(2)}` });
-    onClose();
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      await apiRequest("POST", `/api/trades/${id}/close`, {
+        exit: Number(exit), exitReason: reason, planFollowed, lessonTag,
+      });
+      // Alert is non-critical — don't block on failure
+      try {
+        await apiRequest("POST", "/api/alerts", {
+          ticker: trade.ticker, type: reason === "stop" ? "STOP HIT" : "TRADE CLOSED",
+          severity: reason === "stop" ? "critical" : (r > 0 ? "info" : "action"),
+          message: `${trade.ticker} closed @ ${Number(exit).toFixed(2)} · R ${r.toFixed(2)} · ${reason}`,
+          firedAt: new Date().toISOString(),
+        });
+      } catch (alertErr) {
+        console.warn("alert log failed (non-critical):", alertErr);
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/equity-history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/leap-reserve"] });
+      toast({ title: "Trade closed", description: `${trade.ticker} R ${r.toFixed(2)}` });
+      onClose();
+    } catch (err: any) {
+      console.error("close trade failed:", err);
+      toast({ title: "Close failed", description: err?.message || String(err) });
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -682,7 +696,7 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
         </div>
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="px-3 py-1.5 border border-ink-line text-[11px] uppercase tracking-wider rounded-sm">Cancel</button>
-          <button onClick={submit} data-testid="button-confirm-close" className="px-3 py-1.5 border border-neon-blue bg-neon-blue text-ink-black font-semibold text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/90 cursor-pointer">Confirm Close</button>
+          <button onClick={submit} disabled={submitting} data-testid="button-confirm-close" className="px-3 py-1.5 border border-neon-blue bg-neon-blue text-ink-black font-semibold text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/90 cursor-pointer disabled:opacity-60 disabled:cursor-wait">{submitting ? "Closing..." : "Confirm Close"}</button>
         </div>
       </div>
     </div>
