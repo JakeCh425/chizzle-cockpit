@@ -325,21 +325,67 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* — Neon label glow —
+  /* — Multi-color neon label rotation —
      The cockpit uses one consistent label idiom: small (9-11px), uppercase,
-     tracking-wider, slate-gray. We override slate-gray → neon-cyan ONLY when
-     that idiom is used (so body copy in slate-gray stays slate-gray). */
+     tracking-wider, slate-gray. We rotate label colors across 5 neon hues
+     using nth-child position so the UI feels like a neon sign. */
   .uppercase.tracking-wider.text-slate-gray,
   .uppercase.tracking-widest.text-slate-gray,
   .uppercase[class*="tracking-"].text-slate-gray {
     color: hsl(var(--neon-blue));
     font-weight: 600;
     letter-spacing: 0.08em;
+    text-shadow: 0 0 6px hsl(var(--neon-blue) / 0.55), 0 0 1px hsl(var(--neon-blue) / 0.85);
   }
-  /* Brand title — Bloomberg-orange wash */
+  /* Rotate hues across siblings — 5-color cycle: cyan→green→amber→red→gold */
+  .uppercase.tracking-wider.text-slate-gray:nth-of-type(5n+2),
+  .uppercase.tracking-widest.text-slate-gray:nth-of-type(5n+2) {
+    color: hsl(var(--signal-green));
+    text-shadow: 0 0 6px hsl(var(--signal-green) / 0.55), 0 0 1px hsl(var(--signal-green) / 0.85);
+  }
+  .uppercase.tracking-wider.text-slate-gray:nth-of-type(5n+3),
+  .uppercase.tracking-widest.text-slate-gray:nth-of-type(5n+3) {
+    color: hsl(var(--signal-amber));
+    text-shadow: 0 0 6px hsl(var(--signal-amber) / 0.55), 0 0 1px hsl(var(--signal-amber) / 0.85);
+  }
+  .uppercase.tracking-wider.text-slate-gray:nth-of-type(5n+4),
+  .uppercase.tracking-widest.text-slate-gray:nth-of-type(5n+4) {
+    color: hsl(var(--signal-red));
+    text-shadow: 0 0 6px hsl(var(--signal-red) / 0.55), 0 0 1px hsl(var(--signal-red) / 0.85);
+  }
+  .uppercase.tracking-wider.text-slate-gray:nth-of-type(5n+5),
+  .uppercase.tracking-widest.text-slate-gray:nth-of-type(5n+5) {
+    color: hsl(var(--gold-lux));
+    text-shadow: 0 0 6px hsl(var(--gold-lux) / 0.55), 0 0 1px hsl(var(--gold-lux) / 0.85);
+  }
+
+  /* App-wide neon glow on color utility classes — turns any colored text
+     into a soft neon-light effect across all themes. */
+  .text-neon-blue {
+    text-shadow: 0 0 6px hsl(var(--neon-blue) / 0.55), 0 0 1px hsl(var(--neon-blue) / 0.9);
+  }
+  .text-signal-green {
+    text-shadow: 0 0 6px hsl(var(--signal-green) / 0.55), 0 0 1px hsl(var(--signal-green) / 0.9);
+  }
+  .text-signal-amber {
+    text-shadow: 0 0 6px hsl(var(--signal-amber) / 0.55), 0 0 1px hsl(var(--signal-amber) / 0.9);
+  }
+  .text-signal-red {
+    text-shadow: 0 0 6px hsl(var(--signal-red) / 0.55), 0 0 1px hsl(var(--signal-red) / 0.9);
+  }
+  .text-gold-lux {
+    text-shadow: 0 0 6px hsl(var(--gold-lux) / 0.55), 0 0 1px hsl(var(--gold-lux) / 0.9);
+  }
+
+  /* Brand title — Bloomberg-orange wash with stronger neon glow */
   .brand-glow {
     color: hsl(var(--signal-amber));
-    text-shadow: 0 0 1px hsl(var(--signal-amber) / 0.3);
+    text-shadow: 0 0 8px hsl(var(--signal-amber) / 0.7), 0 0 2px hsl(var(--signal-amber) / 0.9);
+  }
+
+  /* Headings (h1/h2/h3) get a subtle cyan halo to read as "display neon" */
+  h1, h2, h3 {
+    text-shadow: 0 0 6px hsl(var(--neon-blue) / 0.18);
   }
 }
 
@@ -394,6 +440,16 @@
   }
   .heartbeat {
     animation: heartbeat 1.8s ease-in-out infinite;
+  }
+
+  /* Neon-flicker accent for the brand title and live status */
+  @keyframes neon-flicker {
+    0%, 96%, 100% { opacity: 1; }
+    97%, 99% { opacity: 0.82; }
+    98% { opacity: 0.92; }
+  }
+  .neon-flicker {
+    animation: neon-flicker 6s linear infinite;
   }
 }
 

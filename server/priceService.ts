@@ -17,9 +17,19 @@ import { ProxyAgent, fetch as undiciFetch } from "undici";
 // undici's ProxyAgent. The header X-Finnhub-Token is added by the proxy.
 const PROXY_URL = process.env.HTTPS_PROXY || process.env.https_proxy || "";
 const proxyDispatcher = PROXY_URL ? new ProxyAgent({ uri: PROXY_URL }) : null;
+// Direct Finnhub token (used in production on Render where no credential proxy exists).
+// Set FINNHUB_API_KEY (or FINNHUB_TOKEN) in the deploy environment.
+const FINNHUB_TOKEN = process.env.FINNHUB_API_KEY || process.env.FINNHUB_TOKEN || "";
+
 async function proxiedFetch(url: string, init: any = {}) {
+  // Prefer the credential proxy (sandbox dev). On Render the proxy is absent
+  // and we send X-Finnhub-Token directly using the env var.
   if (proxyDispatcher) {
     return undiciFetch(url, { ...init, dispatcher: proxyDispatcher });
+  }
+  if (FINNHUB_TOKEN) {
+    const headers = { ...(init.headers || {}), "X-Finnhub-Token": FINNHUB_TOKEN } as Record<string, string>;
+    return fetch(url, { ...init, headers });
   }
   return fetch(url, init);
 }
@@ -88,6 +98,12 @@ function pushError() {
 // automatically when the process was launched with the right api_credentials.
 async function fetchQuote(symbol: string): Promise<Quote | null> {
   if (USE_SIMULATOR) return simulatorQuote(symbol);
+  // Auto-fallback: if no proxy and no direct token are configured, run the
+  // simulator so the UI still shows live-feeling prices instead of dead silence.
+  if (!proxyDispatcher && !FINNHUB_TOKEN) {
+    console.warn(`[priceService] No FINNHUB_API_KEY configured — using simulator for ${symbol}`);
+    return simulatorQuote(symbol);
+  }
   const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}`;
   try {
     const res = await proxiedFetch(url, { headers: { "Accept": "application/json" } });
@@ -199,6 +215,16 @@ async function pollOnce() {
   // Schedule next: stagger requests evenly across the cycle window.
   const intervalMs = Math.floor((cadenceSec * 1000) / SYMBOLS.length);
   setTimeout(pollOnce, Math.max(250, intervalMs));
+}
+
+// Force-refresh every symbol once (for the manual refresh endpoint).
+export async function refreshAllSymbolsOnce(): Promise<number> {
+  let ok = 0;
+  for (const sym of SYMBOLS) {
+    const q = await fetchQuote(sym);
+    if (q) { commitQuote(q); ok++; }
+  }
+  return ok;
 }
 
 export function startPricePoller() {

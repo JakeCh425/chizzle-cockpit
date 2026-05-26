@@ -78,7 +78,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <div className="flex items-center gap-2 md:gap-3 text-neon-blue">
             <Logo size={26} />
             <span className="font-display font-semibold tracking-tight text-[15px] md:text-[16px] text-soft-white">
-              CHIZZLE <span className="text-neon-blue">WEALTH ENGINE</span>
+              <span className="brand-glow neon-flicker">CHIZZLE</span>{' '}
+              <span className="text-neon-blue">WEALTH ENGINE</span>
             </span>
           </div>
 

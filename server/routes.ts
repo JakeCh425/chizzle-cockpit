@@ -722,12 +722,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { await storage.resetAll(); res.json({ ok: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
-  // LOW-CREDIT MODE: all background schedulers disabled.
-  // Use the manual endpoints (/api/prices/refresh, /api/regime/recompute, /api/setups/recompute) to refresh on demand.
-  // To re-enable, uncomment the three lines below.
-  // startPricePoller();
-  // startRegimeScheduler();
-  // startSetupScheduler();
+  // Manual price refresh — fetches one tick per symbol on demand.
+  app.post("/api/prices/refresh", async (_req, res) => {
+    try {
+      const { refreshAllSymbolsOnce } = await import("./priceService");
+      const n = await refreshAllSymbolsOnce();
+      res.json({ ok: true, refreshed: n });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // Live ticker feed: keep the price poller running so the badge goes LIVE
+  // and the watchlist updates without manual refresh. Regime/setup schedulers
+  // remain manual (recompute via /api/recompute-all).
+  startPricePoller();
 
   return httpServer;
 }
