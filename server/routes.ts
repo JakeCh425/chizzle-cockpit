@@ -174,20 +174,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       // Server-side regime gate — source of truth. Frontend gates are UX only.
       const gate = regimeGateConfig();
       const incomingSetup = String(req.body?.setup || "").toUpperCase();
+      const testMode = process.env.VITE_TEST_MODE === "true";
 
-      if (gate.effectiveRegime === "red") {
+      if (!testMode && gate.effectiveRegime === "red") {
         return res.status(400).json({
           error: "RED regime \u2014 no new entries permitted. Override at Settings \u2192 Regime Engine if intentional.",
           code: "REGIME_RED_BLOCKED",
         });
       }
-      if (gate.effectiveRegime === "yellow" && incomingSetup === "BREAKOUT") {
+      if (!testMode && gate.effectiveRegime === "yellow" && incomingSetup === "BREAKOUT") {
         return res.status(400).json({
           error: "YELLOW regime \u2014 breakout setups disabled. Trend-Pullback only.",
           code: "REGIME_YELLOW_BREAKOUT_BLOCKED",
         });
       }
-      if (gate.currentOpenPositions >= gate.maxPositions) {
+      if (!testMode && gate.currentOpenPositions >= gate.maxPositions) {
         return res.status(400).json({
           error: `Max positions for ${gate.effectiveRegime.toUpperCase()} regime (${gate.maxPositions}) already in use.`,
           code: "REGIME_MAX_POSITIONS",
@@ -195,7 +196,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       // Earnings block — independent of regime. Spec: even GREEN+A blocked when earnings within buffer.
-      if (earningsBlocksEntry(req.body?.earningsDate, 5)) {
+      if (!testMode && earningsBlocksEntry(req.body?.earningsDate, 5)) {
         return res.status(400).json({
           error: `Earnings within 5 calendar days — entry blocked. Wait for the print.`,
           code: "EARNINGS_WINDOW_BLOCKED",

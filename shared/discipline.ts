@@ -18,6 +18,25 @@ export type SetupKind = "trend_pullback" | "breakout";
 export type Quality = "A" | "B" | "C";
 export type Visibility = "visible" | "dimmed" | "hidden";
 
+// TEST_MODE escape hatch. Read from server env (process.env) and client env
+// (Vite's import.meta.env at build time). When true, every regime/grade combo
+// resolves to visible+full risk so the full trade lifecycle can be exercised
+// on a small test account. Strict mode = false (default).
+function isTestMode(): boolean {
+  // Server side (Node) — process.env.VITE_TEST_MODE is set by render.yaml.
+  if (typeof process !== "undefined" && process.env && process.env.VITE_TEST_MODE === "true") {
+    return true;
+  }
+  // Client side (Vite) — import.meta.env is statically inlined at build.
+  try {
+    // @ts-ignore - import.meta only exists in ESM client bundle
+    if (typeof import.meta !== "undefined" && (import.meta as any).env?.VITE_TEST_MODE === "true") {
+      return true;
+    }
+  } catch { /* not in a module context */ }
+  return false;
+}
+
 export interface DisciplineDecision {
   visibility: Visibility;
   riskMultiplier: number;       // 0.0, 0.5, or 1.0
@@ -37,6 +56,16 @@ export function decideDiscipline(
   quality: Quality | null,
 ): DisciplineDecision {
   const g = (quality || "B") as Quality;
+
+  // TEST_MODE: bypass all suppression so the full lifecycle is exerciseable.
+  if (isTestMode()) {
+    return {
+      visibility: "visible",
+      riskMultiplier: 1.0,
+      blockedReason: null,
+      dimReason: null,
+    };
+  }
 
   // RED: hide everything, no new risk allowed.
   if (regime === "red") {
