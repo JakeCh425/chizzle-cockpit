@@ -3,85 +3,89 @@
 @tailwind utilities;
 
 /*
- * CHIZZLE WEALTH ENGINE — DARK COCKPIT PALETTE
+ * CHIZZLE WEALTH ENGINE — LIGHT NEON BLOOMBERG PALETTE
  *
- * ink.black   #05070A  218 33% 3%   primary background
- * ink.panel   #0C1118  213 33% 7%   panel/card background
- * ink.line    #1A2230  216 30% 14%  borders, dividers
- * slate.gray  #5A6675  213 13% 41%  secondary text, axis labels
- * soft.white  #E8ECF1  213 22% 93%  primary text
- * neon.blue   #3DA9FC  207 97% 62%  primary accent, ARMED states
- * signal.green#22C55E  142 71% 45%  wins, T1/T2, GREEN regime
- * signal.amber#F59E0B  38 92% 50%   warnings, YELLOW regime
- * signal.red  #EF4444  0 84% 60%    stop hit, losses, RED regime
- * gold.lux    #C8A24B  42 53% 54%   milestones, Operator state
+ * Light background with high-contrast neon accents. Designed for readability
+ * during long trading sessions — no eye strain, every number pops.
  *
- * Dark-only. :root mirrors .dark so any consumer reading without .dark still works.
+ * ink.black (bg)   #F1F3F7  218 25% 96%  primary background (soft pearl)
+ * ink.panel        #FFFFFF  0 0% 100%    panel/card background (pure white)
+ * ink.line         #C8CFD9  216 16% 82%  borders, dividers (soft slate)
+ * slate.gray       #4F5868  213 13% 35%  secondary text (mid slate)
+ * soft.white (txt) #15192A  218 33% 12%  primary text (deep charcoal)
+ * neon.blue        #00A8E0  195 100% 42% electric cyan accent
+ * signal.green     #0F9F4C  142 76% 36%  wins, T1/T2 (darker emerald)
+ * signal.amber     #D66400  28 100% 42%  Bloomberg orange (warnings, YELLOW)
+ * signal.red       #D31E1E  0 78% 47%    losses, RED regime (deep crimson)
+ * gold.lux         #B88B14  40 90% 38%   milestones, Operator state
+ *
+ * The neons are darker/more saturated than the dark-theme versions because
+ * lighter neons (cyan-on-white, yellow-on-white) disappear visually.
  */
 
 :root {
-  --button-outline: rgba(255, 255, 255, 0.08);
-  --badge-outline: rgba(255, 255, 255, 0.04);
+  --button-outline: rgba(0, 0, 0, 0.10);
+  --badge-outline: rgba(0, 0, 0, 0.06);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255, 255, 255, 0.03);
-  --elevate-2: rgba(255, 255, 255, 0.07);
+  --elevate-1: rgba(0, 0, 0, 0.04);
+  --elevate-2: rgba(0, 0, 0, 0.08);
 
-  --background: 218 33% 3%;
-  --foreground: 213 22% 93%;
-  --border: 216 30% 14%;
+  --background: 218 25% 96%;
+  --foreground: 218 33% 12%;
+  --border: 216 16% 82%;
 
-  --card: 213 33% 7%;
-  --card-foreground: 213 22% 93%;
-  --card-border: 216 30% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 218 33% 12%;
+  --card-border: 216 16% 82%;
 
-  --sidebar: 213 33% 5%;
-  --sidebar-foreground: 213 22% 93%;
-  --sidebar-border: 216 30% 14%;
-  --sidebar-primary: 207 97% 62%;
-  --sidebar-primary-foreground: 218 33% 3%;
-  --sidebar-accent: 216 30% 14%;
-  --sidebar-accent-foreground: 213 22% 93%;
-  --sidebar-ring: 207 97% 62%;
+  --sidebar: 218 25% 93%;
+  --sidebar-foreground: 218 33% 12%;
+  --sidebar-border: 216 16% 82%;
+  --sidebar-primary: 195 100% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 216 16% 88%;
+  --sidebar-accent-foreground: 218 33% 12%;
+  --sidebar-ring: 195 100% 42%;
 
-  --popover: 213 33% 7%;
-  --popover-foreground: 213 22% 93%;
-  --popover-border: 216 30% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 218 33% 12%;
+  --popover-border: 216 16% 82%;
 
-  --primary: 207 97% 62%;
-  --primary-foreground: 218 33% 3%;
+  --primary: 195 100% 42%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 216 30% 14%;
-  --secondary-foreground: 213 22% 93%;
+  --secondary: 216 16% 88%;
+  --secondary-foreground: 218 33% 12%;
 
-  --muted: 216 30% 11%;
-  --muted-foreground: 213 13% 55%;
+  --muted: 216 16% 91%;
+  --muted-foreground: 213 13% 40%;
 
-  --accent: 216 30% 14%;
-  --accent-foreground: 213 22% 93%;
+  --accent: 216 16% 88%;
+  --accent-foreground: 218 33% 12%;
 
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 213 22% 93%;
+  --destructive: 0 78% 47%;
+  --destructive-foreground: 0 0% 100%;
 
-  --input: 216 30% 14%;
-  --ring: 207 97% 62%;
+  --input: 0 0% 100%;
+  --ring: 195 100% 42%;
 
-  /* Cockpit semantic tokens */
-  --ink-black: 218 33% 3%;
-  --ink-panel: 213 33% 7%;
-  --ink-line: 216 30% 14%;
-  --slate-gray: 213 13% 41%;
-  --soft-white: 213 22% 93%;
-  --neon-blue: 207 97% 62%;
-  --signal-green: 142 71% 45%;
-  --signal-amber: 38 92% 50%;
-  --signal-red: 0 84% 60%;
-  --gold-lux: 42 53% 54%;
+  /* Cockpit semantic tokens — light-neon Bloomberg palette */
+  --ink-black: 218 25% 96%;
+  --ink-panel: 0 0% 100%;
+  --ink-line: 216 16% 82%;
+  --slate-gray: 213 13% 35%;
+  --soft-white: 218 33% 12%;
+  --neon-blue: 195 100% 42%;
+  --signal-green: 142 76% 36%;
+  --signal-amber: 28 100% 42%;
+  --signal-red: 0 78% 47%;
+  --gold-lux: 40 90% 38%;
 
-  --chart-1: 207 97% 62%;
-  --chart-2: 142 71% 45%;
-  --chart-3: 38 92% 50%;
-  --chart-4: 0 84% 60%;
-  --chart-5: 42 53% 54%;
+  --chart-1: 195 100% 42%;
+  --chart-2: 142 76% 36%;
+  --chart-3: 28 100% 42%;
+  --chart-4: 0 78% 47%;
+  --chart-5: 40 90% 38%;
 
   --font-sans: "Inter", "system-ui", sans-serif;
   --font-display: "Space Grotesk", "Inter", sans-serif;
@@ -98,66 +102,68 @@
   --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
   --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
 
-  --sidebar-primary-border: hsl(207 97% 50%);
-  --sidebar-accent-border: hsl(216 30% 22%);
-  --primary-border: hsl(207 97% 50%);
-  --secondary-border: hsl(216 30% 22%);
-  --muted-border: hsl(216 30% 18%);
-  --accent-border: hsl(216 30% 22%);
-  --destructive-border: hsl(0 84% 50%);
+  --sidebar-primary-border: hsl(195 100% 35%);
+  --sidebar-accent-border: hsl(216 16% 75%);
+  --primary-border: hsl(195 100% 35%);
+  --secondary-border: hsl(216 16% 75%);
+  --muted-border: hsl(216 16% 80%);
+  --accent-border: hsl(216 16% 75%);
+  --destructive-border: hsl(0 78% 40%);
 }
 
 .dark {
-  --button-outline: rgba(255, 255, 255, 0.08);
-  --badge-outline: rgba(255, 255, 255, 0.04);
+  /* Light theme is the only theme — .dark mirrors :root so any code
+     that conditionally applies .dark still gets the light-neon palette. */
+  --button-outline: rgba(0, 0, 0, 0.10);
+  --badge-outline: rgba(0, 0, 0, 0.06);
   --opaque-button-border-intensity: 9;
-  --elevate-1: rgba(255, 255, 255, 0.03);
-  --elevate-2: rgba(255, 255, 255, 0.07);
+  --elevate-1: rgba(0, 0, 0, 0.04);
+  --elevate-2: rgba(0, 0, 0, 0.08);
 
-  --background: 218 33% 3%;
-  --foreground: 213 22% 93%;
-  --border: 216 30% 14%;
+  --background: 218 25% 96%;
+  --foreground: 218 33% 12%;
+  --border: 216 16% 82%;
 
-  --card: 213 33% 7%;
-  --card-foreground: 213 22% 93%;
-  --card-border: 216 30% 14%;
+  --card: 0 0% 100%;
+  --card-foreground: 218 33% 12%;
+  --card-border: 216 16% 82%;
 
-  --sidebar: 213 33% 5%;
-  --sidebar-foreground: 213 22% 93%;
-  --sidebar-border: 216 30% 14%;
-  --sidebar-primary: 207 97% 62%;
-  --sidebar-primary-foreground: 218 33% 3%;
-  --sidebar-accent: 216 30% 14%;
-  --sidebar-accent-foreground: 213 22% 93%;
-  --sidebar-ring: 207 97% 62%;
+  --sidebar: 218 25% 93%;
+  --sidebar-foreground: 218 33% 12%;
+  --sidebar-border: 216 16% 82%;
+  --sidebar-primary: 195 100% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 216 16% 88%;
+  --sidebar-accent-foreground: 218 33% 12%;
+  --sidebar-ring: 195 100% 42%;
 
-  --popover: 213 33% 7%;
-  --popover-foreground: 213 22% 93%;
-  --popover-border: 216 30% 14%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 218 33% 12%;
+  --popover-border: 216 16% 82%;
 
-  --primary: 207 97% 62%;
-  --primary-foreground: 218 33% 3%;
+  --primary: 195 100% 42%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 216 30% 14%;
-  --secondary-foreground: 213 22% 93%;
+  --secondary: 216 16% 88%;
+  --secondary-foreground: 218 33% 12%;
 
-  --muted: 216 30% 11%;
-  --muted-foreground: 213 13% 55%;
+  --muted: 216 16% 91%;
+  --muted-foreground: 213 13% 40%;
 
-  --accent: 216 30% 14%;
-  --accent-foreground: 213 22% 93%;
+  --accent: 216 16% 88%;
+  --accent-foreground: 218 33% 12%;
 
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 213 22% 93%;
+  --destructive: 0 78% 47%;
+  --destructive-foreground: 0 0% 100%;
 
-  --input: 216 30% 14%;
-  --ring: 207 97% 62%;
+  --input: 0 0% 100%;
+  --ring: 195 100% 42%;
 
-  --chart-1: 207 97% 62%;
-  --chart-2: 142 71% 45%;
-  --chart-3: 38 92% 50%;
-  --chart-4: 0 84% 60%;
-  --chart-5: 42 53% 54%;
+  --chart-1: 195 100% 42%;
+  --chart-2: 142 76% 36%;
+  --chart-3: 28 100% 42%;
+  --chart-4: 0 78% 47%;
+  --chart-5: 40 90% 38%;
 
   --shadow-2xs: 0 0 0 0 hsl(0 0% 0% / 0);
   --shadow-xs: 0 0 0 0 hsl(0 0% 0% / 0);
@@ -168,13 +174,13 @@
   --shadow-xl: 0 0 0 0 hsl(0 0% 0% / 0);
   --shadow-2xl: 0 0 0 0 hsl(0 0% 0% / 0);
 
-  --sidebar-primary-border: hsl(207 97% 50%);
-  --sidebar-accent-border: hsl(216 30% 22%);
-  --primary-border: hsl(207 97% 50%);
-  --secondary-border: hsl(216 30% 22%);
-  --muted-border: hsl(216 30% 18%);
-  --accent-border: hsl(216 30% 22%);
-  --destructive-border: hsl(0 84% 50%);
+  --sidebar-primary-border: hsl(195 100% 35%);
+  --sidebar-accent-border: hsl(216 16% 75%);
+  --primary-border: hsl(195 100% 35%);
+  --secondary-border: hsl(216 16% 75%);
+  --muted-border: hsl(216 16% 80%);
+  --accent-border: hsl(216 16% 75%);
+  --destructive-border: hsl(0 78% 40%);
 }
 
 @layer base {
@@ -183,7 +189,7 @@
   }
 
   html {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   body {

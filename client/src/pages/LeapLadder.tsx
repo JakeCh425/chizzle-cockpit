@@ -175,7 +175,7 @@ function AddLeapModal({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <div className="fixed inset-0 bg-ink-black/80 z-50 flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
       <div className="bg-ink-panel border border-ink-line rounded-sm w-full max-w-md p-5" onClick={e => e.stopPropagation()}>
         <h3 className="font-display text-[13px] uppercase tracking-widest mb-4">Add LEAP</h3>
         <div className="grid grid-cols-2 gap-3">
