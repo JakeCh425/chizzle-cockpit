@@ -391,7 +391,8 @@ async function detectTrendPullback(ticker: string, bars: DailyBar[], lp: number,
   if (q1 && bars[lastIdx].close < sma50) invalidated = true;
   if (swing && pullbackPct > pullbackHigh + 2) invalidated = true;
 
-  const hasOpenTrade = storage.listOpenTrades().some(t => t.ticker === ticker && t.setup === "TREND_PULLBACK");
+  const _openTradesTrendPullback = await storage.listOpenTrades();
+  const hasOpenTrade = _openTradesTrendPullback.some(t => t.ticker === ticker && t.setup === "TREND_PULLBACK");
 
   const blockedReason = regimeBlockReason(regimeCode, "trend_pullback");
   const regimeEligible = blockedReason === null;
@@ -499,7 +500,8 @@ async function detectBreakout(ticker: string, bars: DailyBar[], spyBars: DailyBa
   // Invalidation: closed below 50 SMA
   const invalidated = closes[lastIdx] < sma50;
 
-  const hasOpenTrade = storage.listOpenTrades().some(t => t.ticker === ticker && t.setup === "BREAKOUT");
+  const _openTradesBreakout = await storage.listOpenTrades();
+  const hasOpenTrade = _openTradesBreakout.some(t => t.ticker === ticker && t.setup === "BREAKOUT");
 
   const blockedReason = regimeBlockReason(regimeCode, "breakout");
   const regimeEligible = blockedReason === null;
@@ -620,39 +622,39 @@ function shouldFireBlockedTrigger(ticker: string, setup: SetupKind): boolean {
   return true;
 }
 
-function emitTransitionAlert(c: SetupCandidate, prevState: SetupState) {
+async function emitTransitionAlert(c: SetupCandidate, prevState: SetupState) {
   // Suppress redundant alerts when current state is same as prev (transition dedupe).
   if (prevState === c.state) return;
   const setupLabel = c.setup === "trend_pullback" ? "Trend-Pullback" : "Breakout";
   if (c.state === "approaching") {
-    storage.createAlert({
+    await storage.createAlert({
       ticker: c.ticker, type: "APPROACHING_ZONE", severity: "info",
       message: `${c.ticker} ${setupLabel} approaching entry zone $${c.entryZoneLow?.toFixed(2)}–$${c.entryZoneHigh?.toFixed(2)}`,
       firedAt: new Date().toISOString(),
     });
   } else if (c.state === "in_zone") {
-    storage.createAlert({
+    await storage.createAlert({
       ticker: c.ticker, type: "IN_ZONE", severity: "action",
       message: `${c.ticker} ${setupLabel} inside entry zone $${c.entryZoneLow?.toFixed(2)}–$${c.entryZoneHigh?.toFixed(2)}`,
       firedAt: new Date().toISOString(),
     });
   } else if (c.state === "armed") {
     if (shouldFireTrigger(c.ticker)) {
-      storage.createAlert({
+      await storage.createAlert({
         ticker: c.ticker, type: "trigger_fired", severity: "action",
         message: `${c.ticker} ${setupLabel} trigger fired — ${c.triggerNote || "trigger condition met"}`,
         firedAt: new Date().toISOString(),
       });
     }
   } else if (c.state === "invalidated") {
-    storage.createAlert({
+    await storage.createAlert({
       ticker: c.ticker, type: "INVALIDATED", severity: "info",
       message: `${c.ticker} ${setupLabel} invalidated — closed below 50 SMA or pullback band breached`,
       firedAt: new Date().toISOString(),
     });
   }
   // Record transition history
-  storage.recordSetupTransition({
+  await storage.recordSetupTransition({
     ticker: c.ticker, setup: c.setup,
     prevState, newState: c.state,
     transitionedAt: new Date().toISOString(),
@@ -665,10 +667,10 @@ function emitTransitionAlert(c: SetupCandidate, prevState: SetupState) {
   });
 }
 
-function persistAndEmit(c: SetupCandidate) {
-  const existing = storage.getSetupCandidate(c.ticker, c.setup);
+async function persistAndEmit(c: SetupCandidate) {
+  const existing = await storage.getSetupCandidate(c.ticker, c.setup);
   const prevState = (existing?.state as SetupState) || "dormant";
-  storage.upsertSetupCandidate({
+  await storage.upsertSetupCandidate({
     ticker: c.ticker, setup: c.setup, state: c.state,
     qualificationsPassed: c.qualificationsPassed,
     qualificationsTotal: c.qualificationsTotal,
@@ -696,13 +698,13 @@ function persistAndEmit(c: SetupCandidate) {
     earningsRisk: c.earningsRisk ?? null,
     quality: c.quality ?? null,
   });
-  if (prevState !== c.state) emitTransitionAlert(c, prevState);
+  if (prevState !== c.state) await emitTransitionAlert(c, prevState);
   // Emit a regime_blocked_trigger alert when the trigger fired but regime
   // blocked the setup from ARMING. At most once per ticker/setup/session.
   if (c.triggerFired && !c.regimeEligible && shouldFireBlockedTrigger(c.ticker, c.setup)) {
     const regimeCode = getEffectiveRegime().code.toUpperCase();
     const setupLabel = c.setup === "breakout" ? "breakouts" : "trend-pullbacks";
-    storage.createAlert({
+    await storage.createAlert({
       ticker: c.ticker, type: "regime_blocked_trigger", severity: "action",
       message: `${c.ticker} trigger fired but regime ${regimeCode} blocks ${setupLabel} \u2014 setup parked`,
       firedAt: new Date().toISOString(),
@@ -714,7 +716,7 @@ function persistAndEmit(c: SetupCandidate) {
 export async function runFullScan(opts: { forceRefresh?: boolean } = {}): Promise<Record<string, SetupCandidate[]>> {
   const all = await getAllSetups(opts);
   for (const sym of Object.keys(all)) {
-    for (const c of all[sym]) persistAndEmit(c);
+    for (const c of all[sym]) await persistAndEmit(c);
   }
   return all;
 }

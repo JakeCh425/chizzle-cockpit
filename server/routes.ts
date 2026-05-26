@@ -66,43 +66,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── settings ────────────────────────────────────────────────────
-  app.get("/api/settings", (_req, res) => res.json(storage.getSettings()));
-  app.patch("/api/settings", (req, res) => {
-    res.json(storage.updateSettings(req.body));
+  app.get("/api/settings", async (_req, res) => {
+    try { res.json(await storage.getSettings()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.patch("/api/settings", async (req, res) => {
+    try { res.json(await storage.updateSettings(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── tickers ─────────────────────────────────────────────────────
-  app.get("/api/tickers", (_req, res) => res.json(storage.listTickers()));
-  app.patch("/api/tickers/:id", (req, res) => {
-    const id = Number(req.params.id);
-    res.json(storage.updateTicker(id, req.body));
+  app.get("/api/tickers", async (_req, res) => {
+    try { res.json(await storage.listTickers()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.post("/api/tickers/prices", (req, res) => {
-    storage.bulkUpdatePrices(req.body || {});
-    res.json({ ok: true });
+  app.patch("/api/tickers/:id", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      res.json(await storage.updateTicker(id, req.body));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.post("/api/tickers", (req, res) => {
-    const { symbol, price, tier } = req.body;
-    if (!symbol || price == null) return res.status(400).json({ error: "symbol & price required" });
-    res.json(storage.createTickerWithWatchlist(String(symbol).toUpperCase(), Number(price), tier || 2));
+  app.post("/api/tickers/prices", async (req, res) => {
+    try {
+      await storage.bulkUpdatePrices(req.body || {});
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.delete("/api/tickers/:id", (req, res) => {
-    storage.deleteWatchlistAndTicker(Number(req.params.id));
-    res.json({ ok: true });
+  app.post("/api/tickers", async (req, res) => {
+    try {
+      const { symbol, price, tier } = req.body;
+      if (!symbol || price == null) return res.status(400).json({ error: "symbol & price required" });
+      res.json(await storage.createTickerWithWatchlist(String(symbol).toUpperCase(), Number(price), tier || 2));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.delete("/api/tickers/:id", async (req, res) => {
+    try {
+      await storage.deleteWatchlistAndTicker(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── watchlist ───────────────────────────────────────────────────
-  app.get("/api/watchlist", (_req, res) => res.json(storage.listWatchlist()));
-  app.patch("/api/watchlist/:id", (req, res) => {
-    res.json(storage.updateWatchlistItem(Number(req.params.id), req.body));
+  app.get("/api/watchlist", async (_req, res) => {
+    try { res.json(await storage.listWatchlist()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.patch("/api/watchlist/:id", async (req, res) => {
+    try { res.json(await storage.updateWatchlistItem(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── trades ──────────────────────────────────────────────────────
   // Regime gate helper. Server is the source of truth for trade entry gating.
-  function regimeGateConfig() {
+  async function regimeGateConfig() {
     const eff = getEffectiveRegime();
     const code = eff.code; // "green" | "yellow" | "red"
-    const settings = storage.getSettings();
+    const settings = await storage.getSettings();
     const riskPct = code === "green"
       ? settings.riskPctGreen / 100
       : code === "yellow"
@@ -133,7 +147,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       : code === "yellow"
         ? "STANDBY \u2014 SELECTIVE"
         : "STAND DOWN \u2014 CAPITAL PROTECTION";
-    const currentOpenPositions = storage.listOpenTrades().length;
+    const currentOpenPositions = (await storage.listOpenTrades()).length;
     return {
       effectiveRegime: code,
       source: eff.source,
@@ -149,31 +163,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   }
 
   // Helper: apply exit P&L to equity history + LEAP reserve.
-  // Mirrors the logic inside POST /api/trades/:id/close so lifecycle exits
-  // produce the same accounting side effects.
-  function applyExitToEquity(trade: any, exitPrice: number) {
+  async function applyExitToEquity(trade: any, exitPrice: number) {
     try {
       const pnl = (Number(exitPrice) - Number(trade.entry)) * Number(trade.shares);
-      const settings = storage.getSettings();
+      const settings = await storage.getSettings();
       const newEquity = settings.equity + pnl;
-      storage.updateSettings({ equity: newEquity });
-      const history = storage.listEquityHistory();
-      const peak = Math.max(...history.map(h => h.equity), newEquity);
+      await storage.updateSettings({ equity: newEquity });
+      const history = await storage.listEquityHistory();
+      const peak = Math.max(...history.map((h: any) => h.equity), newEquity);
       const dd = peak > 0 ? ((newEquity - peak) / peak) * 100 : 0;
-      storage.appendEquity({ date: new Date().toISOString().slice(0, 10), equity: newEquity, drawdownPct: dd });
+      await storage.appendEquity({ date: new Date().toISOString().slice(0, 10), equity: newEquity, drawdownPct: dd });
       if (pnl > 0) {
-        const reserve = storage.getLeapReserve();
-        storage.updateLeapReserve({ balance: reserve.balance + 0.25 * pnl });
+        const reserve = await storage.getLeapReserve();
+        await storage.updateLeapReserve({ balance: reserve.balance + 0.25 * pnl });
       }
     } catch (_e) { /* ignore */ }
   }
 
-  app.get("/api/trades", (_req, res) => res.json(storage.listTrades()));
-  app.get("/api/trades/archived", (_req, res) => res.json(storage.listArchivedTrades()));
-  app.post("/api/trades", (req, res) => {
+  app.get("/api/trades", async (_req, res) => {
+    try { res.json(await storage.listTrades()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.get("/api/trades/archived", async (_req, res) => {
+    try { res.json(await storage.listArchivedTrades()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/trades", async (req, res) => {
     try {
       // Server-side regime gate — source of truth. Frontend gates are UX only.
-      const gate = regimeGateConfig();
+      const gate = await regimeGateConfig();
       const incomingSetup = String(req.body?.setup || "").toUpperCase();
       const testMode = process.env.VITE_TEST_MODE === "true";
 
@@ -223,9 +239,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         qualityAtEntry: req.body.qualityAtEntry ?? null,
         riskMultiplierAtEntry: req.body.riskMultiplierAtEntry ?? disc.riskMultiplier,
       });
-      const created = storage.createTrade(data);
+      const created = await storage.createTrade(data);
       try {
-        storage.createTradeEvent({
+        await storage.createTradeEvent({
           tradeId: created.id,
           kind: "ARMED",
           price: created.entry,
@@ -240,11 +256,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── trade events (audit trail) ─────────────────────────────────────────
-  app.get("/api/trades/:id/events", (req, res) => {
+  app.get("/api/trades/:id/events", async (req, res) => {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
-      res.json(storage.listTradeEvents(id));
+      res.json(await storage.listTradeEvents(id));
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }
@@ -252,14 +268,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── trade lifecycle: evaluate live price + apply decision ─────────────
   // POST { livePrice } → { decision, trade }
-  app.post("/api/trades/:id/evaluate-lifecycle", (req, res) => {
+  app.post("/api/trades/:id/evaluate-lifecycle", async (req, res) => {
     try {
       const id = Number(req.params.id);
       const livePrice = Number(req.body?.livePrice);
       if (!Number.isFinite(livePrice) || livePrice <= 0) {
         return res.status(400).json({ error: "livePrice must be a positive number" });
       }
-      const trade = storage.listTrades().find(t => t.id === id);
+      const allTrades = await storage.listTrades();
+      const trade = allTrades.find(t => t.id === id);
       if (!trade) return res.status(404).json({ error: "trade not found" });
       if (trade.status !== "OPEN") {
         return res.json({ decision: { action: "NONE", note: "Trade not open." }, trade });
@@ -269,9 +286,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const now = new Date().toISOString();
       switch (decision.action) {
         case "T1_FILL": {
-          updated = storage.applyT1Fill(id, livePrice, decision.newTrailingStop ?? trade.entry);
-          storage.createTradeEvent({ tradeId: id, kind: "T1_FILL", price: trade.t1, note: decision.note, occurredAt: now });
-          storage.createAlert({
+          updated = await storage.applyT1Fill(id, livePrice, decision.newTrailingStop ?? trade.entry);
+          await storage.createTradeEvent({ tradeId: id, kind: "T1_FILL", price: trade.t1, note: decision.note, occurredAt: now });
+          await storage.createAlert({
             ticker: trade.ticker, type: "T1_FILL", severity: "action",
             message: `${trade.ticker} — ${decision.note}`,
             firedAt: now,
@@ -280,33 +297,33 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         case "T2_FILL": {
           const rMult = decision.rMultiple ?? 0;
-          updated = storage.applyT2Fill(id, decision.exitPrice ?? trade.t2 ?? livePrice, rMult);
-          storage.createTradeEvent({ tradeId: id, kind: "T2_FILL", price: decision.exitPrice ?? null, note: decision.note, occurredAt: now });
-          storage.createAlert({
+          updated = await storage.applyT2Fill(id, decision.exitPrice ?? trade.t2 ?? livePrice, rMult);
+          await storage.createTradeEvent({ tradeId: id, kind: "T2_FILL", price: decision.exitPrice ?? null, note: decision.note, occurredAt: now });
+          await storage.createAlert({
             ticker: trade.ticker, type: "T2_FILL", severity: "action",
             message: `${trade.ticker} — ${decision.note}`,
             firedAt: now,
           });
           // Equity + LEAP reserve update on closed trade.
-          applyExitToEquity(trade, decision.exitPrice ?? trade.t2 ?? livePrice);
+          await applyExitToEquity(trade, decision.exitPrice ?? trade.t2 ?? livePrice);
           break;
         }
         case "TRAIL_UPDATE": {
-          updated = storage.applyTrailUpdate(id, decision.newTrailingStop, decision.newHighWaterMark);
-          storage.createTradeEvent({ tradeId: id, kind: "TRAIL_UPDATE", price: livePrice, note: decision.note, occurredAt: now });
+          updated = await storage.applyTrailUpdate(id, decision.newTrailingStop, decision.newHighWaterMark);
+          await storage.createTradeEvent({ tradeId: id, kind: "TRAIL_UPDATE", price: livePrice, note: decision.note, occurredAt: now });
           break;
         }
         case "STOP_HIT": {
           const exitPx = decision.exitPrice ?? trade.stop;
           const rMult = decision.rMultiple ?? computeFinalRMultiple(trade, exitPx);
-          updated = storage.applyStopHit(id, exitPx, decision.exitReason ?? "Stop hit", rMult);
-          storage.createTradeEvent({ tradeId: id, kind: "STOP_HIT", price: exitPx, note: decision.note, occurredAt: now });
-          storage.createAlert({
+          updated = await storage.applyStopHit(id, exitPx, decision.exitReason ?? "Stop hit", rMult);
+          await storage.createTradeEvent({ tradeId: id, kind: "STOP_HIT", price: exitPx, note: decision.note, occurredAt: now });
+          await storage.createAlert({
             ticker: trade.ticker, type: "STOP_HIT", severity: "critical",
             message: `${trade.ticker} — ${decision.note}`,
             firedAt: now,
           });
-          applyExitToEquity(trade, exitPx);
+          await applyExitToEquity(trade, exitPx);
           break;
         }
         case "NONE":
@@ -320,7 +337,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── trade journal patch: emotion / confidence / reflection ────────────
-  app.patch("/api/trades/:id/journal", (req, res) => {
+  app.patch("/api/trades/:id/journal", async (req, res) => {
     try {
       const id = Number(req.params.id);
       const { confidenceRating, emotionTag, reflection } = req.body || {};
@@ -331,7 +348,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (emotionTag != null && !allowedEmotions.includes(String(emotionTag))) {
         return res.status(400).json({ error: `emotionTag must be one of ${allowedEmotions.join(", ")}` });
       }
-      const updated = storage.updateTradeJournal(id, { confidenceRating, emotionTag, reflection });
+      const updated = await storage.updateTradeJournal(id, { confidenceRating, emotionTag, reflection });
       if (!updated) return res.status(404).json({ error: "trade not found" });
       res.json(updated);
     } catch (e: any) {
@@ -345,8 +362,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const regimeResult = await recomputeRegime({ forceRefresh: true });
       const setupResult = await runFullScan({ forceRefresh: true });
-      const state = storage.getRegimeState();
-      const latest = storage.latestRegimeInputs();
+      const state = await storage.getRegimeState();
+      const latest = await storage.latestRegimeInputs();
       res.json({
         ok: regimeResult.ok && (setupResult as any).ok !== false,
         regime: { ok: regimeResult.ok, error: regimeResult.error, state, latestInputs: latest, effective: getEffectiveRegime() },
@@ -356,22 +373,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
   });
-  app.patch("/api/trades/:id", (req, res) => {
-    res.json(storage.updateTrade(Number(req.params.id), req.body));
+
+  app.patch("/api/trades/:id", async (req, res) => {
+    try { res.json(await storage.updateTrade(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── PENDING → OPEN: user has placed the order in their broker ───────────
-  app.post("/api/trades/:id/confirm", (req, res) => {
+  app.post("/api/trades/:id/confirm", async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const trade = storage.getTrade(id);
+      const trade = await storage.getTrade(id);
       if (!trade) return res.status(404).json({ error: "trade not found" });
       if (trade.status !== "PENDING") {
         return res.status(400).json({ error: `Trade is ${trade.status}, only PENDING trades can be confirmed.` });
       }
       const now = new Date().toISOString();
-      const updated = storage.updateTrade(id, { status: "OPEN", confirmedAt: now } as any);
-      storage.createTradeEvent({
+      const updated = await storage.updateTrade(id, { status: "OPEN", confirmedAt: now } as any);
+      await storage.createTradeEvent({
         tradeId: id,
         kind: "ENTRY",
         price: trade.entry,
@@ -385,16 +403,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── PENDING → DISCARDED + archived: user did not actually place the trade ─
-  app.post("/api/trades/:id/discard", (req, res) => {
+  app.post("/api/trades/:id/discard", async (req, res) => {
     try {
       const id = Number(req.params.id);
-      const trade = storage.getTrade(id);
+      const trade = await storage.getTrade(id);
       if (!trade) return res.status(404).json({ error: "trade not found" });
       if (trade.status !== "PENDING") {
         return res.status(400).json({ error: `Trade is ${trade.status}, only PENDING trades can be discarded.` });
       }
-      const updated = storage.updateTrade(id, { status: "DISCARDED", archived: true } as any);
-      storage.createTradeEvent({
+      const updated = await storage.updateTrade(id, { status: "DISCARDED", archived: true } as any);
+      await storage.createTradeEvent({
         tradeId: id,
         kind: "DISCARDED",
         price: null,
@@ -408,186 +426,218 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── archive / restore (soft delete) ─────────────────────────────────────
-  app.post("/api/trades/:id/archive", (req, res) => {
-    const id = Number(req.params.id);
-    const updated = storage.setTradeArchived(id, true);
-    if (!updated) return res.status(404).json({ error: "trade not found" });
-    res.json(updated);
+  app.post("/api/trades/:id/archive", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updated = await storage.setTradeArchived(id, true);
+      if (!updated) return res.status(404).json({ error: "trade not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.post("/api/trades/:id/restore", (req, res) => {
-    const id = Number(req.params.id);
-    const updated = storage.setTradeArchived(id, false);
-    if (!updated) return res.status(404).json({ error: "trade not found" });
-    res.json(updated);
+  app.post("/api/trades/:id/restore", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const updated = await storage.setTradeArchived(id, false);
+      if (!updated) return res.status(404).json({ error: "trade not found" });
+      res.json(updated);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+
   // close-trade convenience endpoint
-  app.post("/api/trades/:id/close", (req, res) => {
-    const id = Number(req.params.id);
-    const { exit, exitReason, planFollowed, lessonTag } = req.body;
-    const trade = storage.updateTrade(id, {
-      exit, exitReason, planFollowed, lessonTag,
-      status: "CLOSED",
-      closedAt: new Date().toISOString(),
-    });
-    if (!trade) return res.status(404).json({ error: "not found" });
+  app.post("/api/trades/:id/close", async (req, res) => {
+    try {
+      const id = Number(req.params.id);
+      const { exit, exitReason, planFollowed, lessonTag } = req.body;
+      const trade = await storage.updateTrade(id, {
+        exit, exitReason, planFollowed, lessonTag,
+        status: "CLOSED",
+        closedAt: new Date().toISOString(),
+      });
+      if (!trade) return res.status(404).json({ error: "not found" });
 
-    // R multiple
-    const r = trade.entry && trade.stop && trade.exit
-      ? (trade.exit - trade.entry) / (trade.entry - trade.stop)
-      : 0;
-    storage.updateTrade(id, { rMultiple: r });
+      // R multiple
+      const r = trade.entry && trade.stop && trade.exit
+        ? (trade.exit - trade.entry) / (trade.entry - trade.stop)
+        : 0;
+      await storage.updateTrade(id, { rMultiple: r });
 
-    // Update equity history + LEAP reserve on a winning swing
-    const pnl = (Number(trade.exit) - Number(trade.entry)) * Number(trade.shares);
-    const settings = storage.getSettings();
-    const newEquity = settings.equity + pnl;
-    storage.updateSettings({ equity: newEquity });
+      // Update equity history + LEAP reserve on a winning swing
+      const pnl = (Number(trade.exit) - Number(trade.entry)) * Number(trade.shares);
+      const settings = await storage.getSettings();
+      const newEquity = settings.equity + pnl;
+      await storage.updateSettings({ equity: newEquity });
 
-    // Equity history snapshot
-    const history = storage.listEquityHistory();
-    const peak = Math.max(...history.map(h => h.equity), newEquity);
-    const dd = peak > 0 ? ((newEquity - peak) / peak) * 100 : 0;
-    storage.appendEquity({ date: new Date().toISOString().slice(0, 10), equity: newEquity, drawdownPct: dd });
+      // Equity history snapshot
+      const history = await storage.listEquityHistory();
+      const peak = Math.max(...history.map(h => h.equity), newEquity);
+      const dd = peak > 0 ? ((newEquity - peak) / peak) * 100 : 0;
+      await storage.appendEquity({ date: new Date().toISOString().slice(0, 10), equity: newEquity, drawdownPct: dd });
 
-    // 25% of every winning swing → LEAP Reserve
-    if (pnl > 0) {
-      const reserve = storage.getLeapReserve();
-      storage.updateLeapReserve({ balance: reserve.balance + 0.25 * pnl });
-    }
+      // 25% of every winning swing → LEAP Reserve
+      if (pnl > 0) {
+        const reserve = await storage.getLeapReserve();
+        await storage.updateLeapReserve({ balance: reserve.balance + 0.25 * pnl });
+      }
 
-    res.json(storage.getTrade(id));
+      res.json(await storage.getTrade(id));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── alerts ──────────────────────────────────────────────────────
-  app.get("/api/alerts", (_req, res) => res.json(storage.listAlerts()));
-  app.post("/api/alerts", (req, res) => {
+  app.get("/api/alerts", async (_req, res) => {
+    try { res.json(await storage.listAlerts()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/alerts", async (req, res) => {
     try {
       const data = insertAlertSchema.parse({ ...req.body, firedAt: req.body.firedAt || new Date().toISOString() });
-      res.json(storage.createAlert(data));
+      res.json(await storage.createAlert(data));
     } catch (e: any) { res.status(400).json({ error: e.message }); }
   });
-  app.post("/api/alerts/:id/ack", (req, res) => {
-    storage.acknowledgeAlert(Number(req.params.id));
-    res.json({ ok: true });
+  app.post("/api/alerts/:id/ack", async (req, res) => {
+    try {
+      await storage.acknowledgeAlert(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── journal ─────────────────────────────────────────────────────
-  app.get("/api/journal", (_req, res) => res.json(storage.listJournal()));
-  app.post("/api/journal", (req, res) => {
+  app.get("/api/journal", async (_req, res) => {
+    try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/journal", async (req, res) => {
     try {
       const data = insertJournalEntrySchema.parse(req.body);
-      res.json(storage.upsertJournal(data));
+      res.json(await storage.upsertJournal(data));
     } catch (e: any) { res.status(400).json({ error: e.message }); }
   });
 
   // ── LEAP positions ─────────────────────────────────────────────
-  app.get("/api/leap", (_req, res) => res.json(storage.listLeapPositions()));
-  app.post("/api/leap", (req, res) => {
+  app.get("/api/leap", async (_req, res) => {
+    try { res.json(await storage.listLeapPositions()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/leap", async (req, res) => {
     try {
       const data = insertLeapPositionSchema.parse(req.body);
-      res.json(storage.createLeapPosition(data));
+      res.json(await storage.createLeapPosition(data));
     } catch (e: any) { res.status(400).json({ error: e.message }); }
   });
-  app.patch("/api/leap/:id", (req, res) => {
-    res.json(storage.updateLeapPosition(Number(req.params.id), req.body));
+  app.patch("/api/leap/:id", async (req, res) => {
+    try { res.json(await storage.updateLeapPosition(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.delete("/api/leap/:id", (req, res) => {
-    storage.deleteLeapPosition(Number(req.params.id));
-    res.json({ ok: true });
+  app.delete("/api/leap/:id", async (req, res) => {
+    try {
+      await storage.deleteLeapPosition(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── LEAP reserve ───────────────────────────────────────────────
-  app.get("/api/leap-reserve", (_req, res) => res.json(storage.getLeapReserve()));
-  app.patch("/api/leap-reserve", (req, res) => res.json(storage.updateLeapReserve(req.body)));
+  app.get("/api/leap-reserve", async (_req, res) => {
+    try { res.json(await storage.getLeapReserve()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.patch("/api/leap-reserve", async (req, res) => {
+    try { res.json(await storage.updateLeapReserve(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // ── equity history ─────────────────────────────────────────────
-  app.get("/api/equity-history", (_req, res) => res.json(storage.listEquityHistory()));
-  app.post("/api/equity-history", (req, res) => {
-    res.json(storage.appendEquity({
-      date: req.body.date || new Date().toISOString().slice(0, 10),
-      equity: req.body.equity,
-      drawdownPct: req.body.drawdownPct || 0,
-    }));
+  app.get("/api/equity-history", async (_req, res) => {
+    try { res.json(await storage.listEquityHistory()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/equity-history", async (req, res) => {
+    try {
+      res.json(await storage.appendEquity({
+        date: req.body.date || new Date().toISOString().slice(0, 10),
+        equity: req.body.equity,
+        drawdownPct: req.body.drawdownPct || 0,
+      }));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── Chizzle scores ─────────────────────────────────────────────
-  app.get("/api/chizzle-scores", (_req, res) => res.json(storage.listChizzleScores()));
-  app.post("/api/chizzle-scores", (req, res) => res.json(storage.upsertChizzleScore(req.body)));
+  app.get("/api/chizzle-scores", async (_req, res) => {
+    try { res.json(await storage.listChizzleScores()); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.post("/api/chizzle-scores", async (req, res) => {
+    try { res.json(await storage.upsertChizzleScore(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // ── regime engine ──────────────────────────────────────────────
-  app.get("/api/regime", (_req, res) => {
-    const state = storage.getRegimeState();
-    const latest = storage.latestRegimeInputs();
-    const eff = getEffectiveRegime();
-    res.json({
-      state,
-      latestInputs: latest || null,
-      effective: eff,
-    });
+  app.get("/api/regime", async (_req, res) => {
+    try {
+      const state = await storage.getRegimeState();
+      const latest = await storage.latestRegimeInputs();
+      const eff = getEffectiveRegime();
+      res.json({
+        state,
+        latestInputs: latest || null,
+        effective: eff,
+      });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.get("/api/regime/history", (req, res) => {
-    const days = Math.min(90, Math.max(1, Number(req.query.days || 30)));
-    res.json(storage.listRegimeInputs(days));
+  app.get("/api/regime/history", async (req, res) => {
+    try {
+      const days = Math.min(90, Math.max(1, Number(req.query.days || 30)));
+      res.json(await storage.listRegimeInputs(days));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/regime/recompute", async (_req, res) => {
     try {
       const result = await recomputeRegime({ forceRefresh: true });
-      const state = storage.getRegimeState();
-      const latest = storage.latestRegimeInputs();
+      const state = await storage.getRegimeState();
+      const latest = await storage.latestRegimeInputs();
       res.json({ ok: result.ok, error: result.error, state, latestInputs: latest, effective: getEffectiveRegime() });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
   });
-  app.get("/api/regime/gates", (_req, res) => {
-    res.json(regimeGateConfig());
+  app.get("/api/regime/gates", async (_req, res) => {
+    try { res.json(await regimeGateConfig()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.post("/api/regime/override", (req, res) => {
-    const { enabled, regime } = req.body || {};
-    // Capture effective regime BEFORE override change — for shift-bypass alert.
-    const prevEff = getEffectiveRegime().code;
-
-    const patch: any = { manualOverride: !!enabled };
-    if (enabled && regime) {
-      const r = String(regime).toLowerCase();
-      if (!["green", "yellow", "red"].includes(r)) {
-        return res.status(400).json({ error: "regime must be green|yellow|red" });
-      }
-      patch.manualOverrideRegime = r;
-    }
-    if (!enabled) {
-      // keep manualOverrideRegime as last value for UI continuity; toggle simply disables it
-    }
-    storage.updateRegimeState(patch);
-    // Mirror to legacy settings.regime so existing UI keeps in sync.
-    const state = storage.getRegimeState();
-    const eff = state.manualOverride && state.manualOverrideRegime
-      ? state.manualOverrideRegime
-      : state.currentRegime;
-    storage.updateSettings({
-      regime: (eff || "yellow").toUpperCase(),
-      regimeOverride: !!state.manualOverride,
-    });
-
-    // REGIME_SHIFT_BYPASS alert on manual-override-induced effective change.
+  app.post("/api/regime/override", async (req, res) => {
     try {
-      const newEff = getEffectiveRegime().code;
-      if (newEff !== prevEff) {
-        const openTrades = storage.listOpenTrades();
-        if (openTrades.length > 0) {
-          const tickers = openTrades.map(t => t.ticker).join(", ");
-          storage.createAlert({
-            ticker: openTrades[0].ticker,
-            type: "REGIME_SHIFT_BYPASS",
-            severity: "critical",
-            message: `Regime override shifted ${prevEff.toUpperCase()} → ${newEff.toUpperCase()} while holding ${openTrades.length} open position(s): ${tickers}. Review stops and exposure.`,
-            firedAt: new Date().toISOString(),
-          });
-        }
-      }
-    } catch (e) { /* ignore */ }
+      const { enabled, regime } = req.body || {};
+      // Capture effective regime BEFORE override change — for shift-bypass alert.
+      const prevEff = getEffectiveRegime().code;
 
-    res.json({ state, effective: getEffectiveRegime() });
+      const patch: any = { manualOverride: !!enabled };
+      if (enabled && regime) {
+        const r = String(regime).toLowerCase();
+        if (!["green", "yellow", "red"].includes(r)) {
+          return res.status(400).json({ error: "regime must be green|yellow|red" });
+        }
+        patch.manualOverrideRegime = r;
+      }
+      await storage.updateRegimeState(patch);
+      // Mirror to legacy settings.regime so existing UI keeps in sync.
+      const state = await storage.getRegimeState();
+      const eff = state.manualOverride && state.manualOverrideRegime
+        ? state.manualOverrideRegime
+        : state.currentRegime;
+      await storage.updateSettings({
+        regime: (eff || "yellow").toUpperCase(),
+        regimeOverride: !!state.manualOverride,
+      });
+
+      // REGIME_SHIFT_BYPASS alert on manual-override-induced effective change.
+      try {
+        const newEff = getEffectiveRegime().code;
+        if (newEff !== prevEff) {
+          const openTrades = await storage.listOpenTrades();
+          if (openTrades.length > 0) {
+            const tickerList = openTrades.map(t => t.ticker).join(", ");
+            await storage.createAlert({
+              ticker: openTrades[0].ticker,
+              type: "REGIME_SHIFT_BYPASS",
+              severity: "critical",
+              message: `Regime override shifted ${prevEff.toUpperCase()} → ${newEff.toUpperCase()} while holding ${openTrades.length} open position(s): ${tickerList}. Review stops and exposure.`,
+              firedAt: new Date().toISOString(),
+            });
+          }
+        }
+      } catch (e) { /* ignore */ }
+
+      res.json({ state, effective: getEffectiveRegime() });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── live prices (Finnhub) ──────────────────────────────────────
@@ -616,17 +666,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(q);
   });
   app.get("/api/price-feed-status", (_req, res) => res.json(feedStatus()));
-  app.get("/api/price-ticks/:symbol", (req, res) => {
-    const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 200)));
-    const ticks = storage.listPriceTicks(String(req.params.symbol).toUpperCase(), limit);
-    res.json(ticks);
+  app.get("/api/price-ticks/:symbol", async (req, res) => {
+    try {
+      const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 200)));
+      const ticks = await storage.listPriceTicks(String(req.params.symbol).toUpperCase(), limit);
+      res.json(ticks);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── setup detector ─────────────────────────────────────────────
   app.get("/api/setups", async (_req, res) => {
     try {
       // Read directly from DB (fast). Detector populates this asynchronously.
-      const rows = storage.listSetupCandidates();
+      const rows = await storage.listSetupCandidates();
       const grouped: Record<string, any[]> = {};
       for (const r of rows) {
         if (!grouped[r.ticker]) grouped[r.ticker] = [];
@@ -637,14 +689,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ error: e?.message || String(e) });
     }
   });
-  app.get("/api/setups/transitions", (req, res) => {
-    const limit = Math.min(200, Math.max(1, Number(req.query.limit || 20)));
-    res.json(storage.getRecentSetupTransitions(limit));
+  app.get("/api/setups/transitions", async (req, res) => {
+    try {
+      const limit = Math.min(200, Math.max(1, Number(req.query.limit || 20)));
+      res.json(await storage.getRecentSetupTransitions(limit));
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
-  app.get("/api/setups/:ticker", (req, res) => {
-    const ticker = String(req.params.ticker).toUpperCase();
-    const rows = storage.getSetupCandidatesForTicker(ticker);
-    res.json(rows);
+  app.get("/api/setups/:ticker", async (req, res) => {
+    try {
+      const ticker = String(req.params.ticker).toUpperCase();
+      const rows = await storage.getSetupCandidatesForTicker(ticker);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/setups/recompute", async (req, res) => {
     try {
@@ -662,7 +718,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── reset ──────────────────────────────────────────────────────
-  app.post("/api/reset", (_req, res) => { storage.resetAll(); res.json({ ok: true }); });
+  app.post("/api/reset", async (_req, res) => {
+    try { await storage.resetAll(); res.json({ ok: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // LOW-CREDIT MODE: all background schedulers disabled.
   // Use the manual endpoints (/api/prices/refresh, /api/regime/recompute, /api/setups/recompute) to refresh on demand.

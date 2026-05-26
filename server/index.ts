@@ -2,6 +2,8 @@ import "dotenv/config";
 import express, { Response, NextFunction } from 'express';
 import type { Request } from 'express';
 import { registerRoutes } from "./routes";
+import { initStorage, storage } from "./storage";
+import { _updateRegimeCache } from "./regimeService";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -75,6 +77,17 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize DB schema + seed before anything else
+  await initStorage();
+
+  // Warm the regime cache so getEffectiveRegime() works synchronously
+  try {
+    const regState = await storage.getRegimeState();
+    _updateRegimeCache(regState);
+  } catch (e) {
+    console.warn("[boot] Could not warm regime cache:", e);
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

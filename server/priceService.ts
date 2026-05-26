@@ -150,17 +150,14 @@ function commitQuote(q: Quote) {
   quotes.set(q.symbol, q);
   lastPollOk.set(q.symbol, q.receivedAt);
   lastFetchAt = q.receivedAt;
-  // Persist tick history (best-effort)
-  try {
-    storage.appendPriceTick({ symbol: q.symbol, price: q.price, ts: q.receivedAt });
-  } catch (e) { /* ignore */ }
+  // Persist tick history (best-effort, fire-and-forget async)
+  storage.appendPriceTick({ symbol: q.symbol, price: q.price, ts: q.receivedAt }).catch(() => {});
   // Update tickers table currentPrice so other pages without SSE still see fresh values.
   // VIXY is an internal regime input and is NOT in the tickers table.
   if (WATCHLIST_SYMS.includes(q.symbol)) {
-    try {
-      const t = storage.getTickerBySymbol(q.symbol);
-      if (t) storage.updateTicker(t.id, { currentPrice: q.price });
-    } catch (e) { /* ignore */ }
+    storage.getTickerBySymbol(q.symbol).then(t => {
+      if (t) return storage.updateTicker(t.id, { currentPrice: q.price });
+    }).catch(() => {});
     broadcast({ type: "tick", quote: q });
   }
 }

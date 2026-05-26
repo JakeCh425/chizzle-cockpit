@@ -1,91 +1,91 @@
-import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import { pgTable, text, integer, boolean, doublePrecision, serial } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 // ─── settings (singleton id=1) ────────────────────────────────────────────────
-export const settings = sqliteTable("settings", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  equity: real("equity").notNull().default(1000),
+export const settings = pgTable("settings", {
+  id: serial("id").primaryKey(),
+  equity: doublePrecision("equity").notNull().default(1000),
   regime: text("regime").notNull().default("GREEN"), // GREEN | YELLOW | RED
-  regimeOverride: integer("regime_override", { mode: "boolean" }).notNull().default(false),
+  regimeOverride: boolean("regime_override").notNull().default(false),
   regimeChangedAt: text("regime_changed_at").notNull().default(""),
   watchlistTier: integer("watchlist_tier").notNull().default(1),
-  riskPctGreen: real("risk_pct_green").notNull().default(3),
-  riskPctYellow: real("risk_pct_yellow").notNull().default(2),
-  riskPctRed: real("risk_pct_red").notNull().default(1),
+  riskPctGreen: doublePrecision("risk_pct_green").notNull().default(3),
+  riskPctYellow: doublePrecision("risk_pct_yellow").notNull().default(2),
+  riskPctRed: doublePrecision("risk_pct_red").notNull().default(1),
   maxPositionsGreen: integer("max_positions_green").notNull().default(4),
   maxPositionsYellow: integer("max_positions_yellow").notNull().default(3),
   maxPositionsRed: integer("max_positions_red").notNull().default(2),
-  maxOpenRiskPct: real("max_open_risk_pct").notNull().default(6),
-  minRR: real("min_rr").notNull().default(2.0),
+  maxOpenRiskPct: doublePrecision("max_open_risk_pct").notNull().default(6),
+  minRR: doublePrecision("min_rr").notNull().default(2.0),
 });
 
 // ─── tickers ──────────────────────────────────────────────────────────────────
-export const tickers = sqliteTable("tickers", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const tickers = pgTable("tickers", {
+  id: serial("id").primaryKey(),
   symbol: text("symbol").notNull().unique(),
   tier: integer("tier").notNull().default(1),
-  currentPrice: real("current_price").notNull().default(0),
-  manualOverride: real("manual_override"), // nullable
-  priorDayClose: real("prior_day_close").notNull().default(0),
-  sma20: real("sma_20").notNull().default(0),
-  sma50: real("sma_50").notNull().default(0),
-  sma200: real("sma_200").notNull().default(0),
-  atr14: real("atr_14").notNull().default(0),
+  currentPrice: doublePrecision("current_price").notNull().default(0),
+  manualOverride: doublePrecision("manual_override"), // nullable
+  priorDayClose: doublePrecision("prior_day_close").notNull().default(0),
+  sma20: doublePrecision("sma_20").notNull().default(0),
+  sma50: doublePrecision("sma_50").notNull().default(0),
+  sma200: doublePrecision("sma_200").notNull().default(0),
+  atr14: doublePrecision("atr_14").notNull().default(0),
   earningsDate: text("earnings_date"), // ISO date or null
 });
 
 // ─── watchlist (one row per ticker on watchlist with setup info) ─────────────
-export const watchlist = sqliteTable("watchlist", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const watchlist = pgTable("watchlist", {
+  id: serial("id").primaryKey(),
   tickerId: integer("ticker_id").notNull(),
   setupType: text("setup_type").notNull().default("TREND_PULLBACK"), // TREND_PULLBACK | BREAKOUT
-  entryZoneLow: real("entry_zone_low").notNull().default(0),
-  entryZoneHigh: real("entry_zone_high").notNull().default(0),
-  stop: real("stop").notNull().default(0),
-  t1: real("t1").notNull().default(0),
-  t2: real("t2").notNull().default(0),
+  entryZoneLow: doublePrecision("entry_zone_low").notNull().default(0),
+  entryZoneHigh: doublePrecision("entry_zone_high").notNull().default(0),
+  stop: doublePrecision("stop").notNull().default(0),
+  t1: doublePrecision("t1").notNull().default(0),
+  t2: doublePrecision("t2").notNull().default(0),
   state: text("state").notNull().default("DORMANT"),
   scoreComponents: text("score_components").notNull().default("{}"), // json
-  totalScore: real("total_score").notNull().default(0),
+  totalScore: doublePrecision("total_score").notNull().default(0),
   grade: text("grade").notNull().default("Ignore"), // A | B | Ignore
 });
 
 // ─── trades ───────────────────────────────────────────────────────────────────
-export const trades = sqliteTable("trades", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const trades = pgTable("trades", {
+  id: serial("id").primaryKey(),
   ticker: text("ticker").notNull(),
   setup: text("setup").notNull(),
   regimeAtEntry: text("regime_at_entry").notNull(),
-  entry: real("entry").notNull(),
-  stop: real("stop").notNull(),
-  t1: real("t1").notNull(),
-  t2: real("t2"),
-  exit: real("exit"),
+  entry: doublePrecision("entry").notNull(),
+  stop: doublePrecision("stop").notNull(),
+  t1: doublePrecision("t1").notNull(),
+  t2: doublePrecision("t2"),
+  exit: doublePrecision("exit"),
   shares: integer("shares").notNull(),
-  riskDollars: real("risk_dollars").notNull(),
-  rr: real("rr").notNull(),
+  riskDollars: doublePrecision("risk_dollars").notNull(),
+  rr: doublePrecision("rr").notNull(),
   status: text("status").notNull().default("PENDING"), // PENDING | OPEN | CLOSED | DISCARDED
-  archived: integer("archived", { mode: "boolean" }).notNull().default(false),
+  archived: boolean("archived").notNull().default(false),
   confirmedAt: text("confirmed_at"),
   exitReason: text("exit_reason"),
-  rMultiple: real("r_multiple"),
-  planFollowed: integer("plan_followed", { mode: "boolean" }),
+  rMultiple: doublePrecision("r_multiple"),
+  planFollowed: boolean("plan_followed"),
   lessonTag: text("lesson_tag"),
   thesis: text("thesis").notNull().default(""),
   emotionalState: integer("emotional_state").notNull().default(5),
   openedAt: text("opened_at").notNull(),
   closedAt: text("closed_at"),
-  t1Filled: integer("t1_filled", { mode: "boolean" }).notNull().default(false),
+  t1Filled: boolean("t1_filled").notNull().default(false),
   // Batch 2: full lifecycle tracking.
   t1FilledAt: text("t1_filled_at"),
-  t2Filled: integer("t2_filled", { mode: "boolean" }).notNull().default(false),
+  t2Filled: boolean("t2_filled").notNull().default(false),
   t2FilledAt: text("t2_filled_at"),
-  trailingStop: real("trailing_stop"),                 // current trailing stop level
+  trailingStop: doublePrecision("trailing_stop"),                 // current trailing stop level
   trailingStopUpdatedAt: text("trailing_stop_updated_at"),
-  highWaterMark: real("high_water_mark"),              // highest price seen since entry (for trailing)
+  highWaterMark: doublePrecision("high_water_mark"),              // highest price seen since entry (for trailing)
   qualityAtEntry: text("quality_at_entry"),            // A | B | C  (snapshot from classifier)
-  riskMultiplierAtEntry: real("risk_multiplier_at_entry"), // 0/0.5/1.0
+  riskMultiplierAtEntry: doublePrecision("risk_multiplier_at_entry"), // 0/0.5/1.0
   // Batch 3: journal enhancement.
   confidenceRating: integer("confidence_rating"),      // 1-10
   emotionTag: text("emotion_tag"),                     // calm | excited | anxious | fomo | doubt
@@ -93,29 +93,29 @@ export const trades = sqliteTable("trades", {
 });
 
 // ─── Trade lifecycle events (audit log) ────────────────────────────
-export const tradeEvents = sqliteTable("trade_events", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const tradeEvents = pgTable("trade_events", {
+  id: serial("id").primaryKey(),
   tradeId: integer("trade_id").notNull(),
   kind: text("kind").notNull(),         // ENTRY | T1_FILL | T2_FILL | TRAIL_UPDATE | STOP_HIT | MANUAL_EXIT | INVALIDATED
-  price: real("price"),                 // price at event (null for non-price events)
+  price: doublePrecision("price"),                 // price at event (null for non-price events)
   note: text("note"),
   occurredAt: text("occurred_at").notNull(),
 });
 
 // ─── alerts ───────────────────────────────────────────────────────────────────
-export const alerts = sqliteTable("alerts", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const alerts = pgTable("alerts", {
+  id: serial("id").primaryKey(),
   ticker: text("ticker").notNull().default(""),
   type: text("type").notNull(),
   severity: text("severity").notNull().default("info"), // info | action | critical
   message: text("message").notNull(),
   firedAt: text("fired_at").notNull(),
-  acknowledged: integer("acknowledged", { mode: "boolean" }).notNull().default(false),
+  acknowledged: boolean("acknowledged").notNull().default(false),
 });
 
 // ─── journal entries ──────────────────────────────────────────────────────────
-export const journalEntries = sqliteTable("journal_entries", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const journalEntries = pgTable("journal_entries", {
+  id: serial("id").primaryKey(),
   type: text("type").notNull(), // weekly | monthly
   periodStart: text("period_start").notNull(),
   periodEnd: text("period_end").notNull(),
@@ -125,128 +125,128 @@ export const journalEntries = sqliteTable("journal_entries", {
 });
 
 // ─── LEAP positions ───────────────────────────────────────────────────────────
-export const leapPositions = sqliteTable("leap_positions", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const leapPositions = pgTable("leap_positions", {
+  id: serial("id").primaryKey(),
   ticker: text("ticker").notNull(),
   contracts: integer("contracts").notNull(),
-  strike: real("strike").notNull(),
+  strike: doublePrecision("strike").notNull(),
   expiry: text("expiry").notNull(),
-  deltaAtEntry: real("delta_at_entry").notNull(),
-  premiumPaid: real("premium_paid").notNull(),
-  currentPremium: real("current_premium").notNull(),
-  currentDelta: real("current_delta").notNull(),
+  deltaAtEntry: doublePrecision("delta_at_entry").notNull(),
+  premiumPaid: doublePrecision("premium_paid").notNull(),
+  currentPremium: doublePrecision("current_premium").notNull(),
+  currentDelta: doublePrecision("current_delta").notNull(),
   openedAt: text("opened_at").notNull(),
 });
 
 // ─── LEAP reserve (singleton) ─────────────────────────────────────────────────
-export const leapReserve = sqliteTable("leap_reserve", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
-  balance: real("balance").notNull().default(0),
-  realizedRollPnlYtd: real("realized_roll_pnl_ytd").notNull().default(0),
+export const leapReserve = pgTable("leap_reserve", {
+  id: serial("id").primaryKey(),
+  balance: doublePrecision("balance").notNull().default(0),
+  realizedRollPnlYtd: doublePrecision("realized_roll_pnl_ytd").notNull().default(0),
 });
 
 // ─── equity history ──────────────────────────────────────────────────────────
-export const equityHistory = sqliteTable("equity_history", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const equityHistory = pgTable("equity_history", {
+  id: serial("id").primaryKey(),
   date: text("date").notNull(),
-  equity: real("equity").notNull(),
-  drawdownPct: real("drawdown_pct").notNull().default(0),
+  equity: doublePrecision("equity").notNull(),
+  drawdownPct: doublePrecision("drawdown_pct").notNull().default(0),
 });
 
 // ─── price ticks (real Finnhub history for sparklines) ───────────────────────
-export const priceTicks = sqliteTable("price_ticks", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const priceTicks = pgTable("price_ticks", {
+  id: serial("id").primaryKey(),
   symbol: text("symbol").notNull(),
-  price: real("price").notNull(),
+  price: doublePrecision("price").notNull(),
   ts: integer("ts").notNull(),
 });
 
 // ─── Regime state (singleton id=1) ───────────────────────────────────────────
-export const regimeState = sqliteTable("regime_state", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const regimeState = pgTable("regime_state", {
+  id: serial("id").primaryKey(),
   currentRegime: text("current_regime").notNull().default("yellow"), // green | yellow | red
   currentRegimeSince: text("current_regime_since").notNull().default(""),
   pendingRegime: text("pending_regime"),
   pendingSince: text("pending_since"),
   pendingConsecutiveCount: integer("pending_consecutive_count").notNull().default(0),
-  manualOverride: integer("manual_override", { mode: "boolean" }).notNull().default(false),
+  manualOverride: boolean("manual_override").notNull().default(false),
   manualOverrideRegime: text("manual_override_regime"),
   lastClassifiedAt: text("last_classified_at").notNull().default(""),
   lastError: text("last_error"),
-  stale: integer("stale", { mode: "boolean" }).notNull().default(false),
+  stale: boolean("stale").notNull().default(false),
 });
 
 // ─── Regime inputs history ───────────────────────────────────────────────────
-export const regimeInputs = sqliteTable("regime_inputs", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const regimeInputs = pgTable("regime_inputs", {
+  id: serial("id").primaryKey(),
   computedAt: text("computed_at").notNull(),
-  spyPrice: real("spy_price").notNull().default(0),
-  spySma20: real("spy_sma20").notNull().default(0),
-  spySma50: real("spy_sma50").notNull().default(0),
-  spySma200: real("spy_sma200").notNull().default(0),
-  spySma20Rising: integer("spy_sma20_rising", { mode: "boolean" }).notNull().default(false),
-  spySma50Rising: integer("spy_sma50_rising", { mode: "boolean" }).notNull().default(false),
-  spyAbove20: integer("spy_above_20", { mode: "boolean" }).notNull().default(false),
-  spyAbove50: integer("spy_above_50", { mode: "boolean" }).notNull().default(false),
-  spyAbove200: integer("spy_above_200", { mode: "boolean" }).notNull().default(false),
-  qqqPrice: real("qqq_price").notNull().default(0),
-  qqqSma20: real("qqq_sma20").notNull().default(0),
-  qqqSma50: real("qqq_sma50").notNull().default(0),
-  qqqSma200: real("qqq_sma200").notNull().default(0),
-  qqqSma20Rising: integer("qqq_sma20_rising", { mode: "boolean" }).notNull().default(false),
-  qqqSma50Rising: integer("qqq_sma50_rising", { mode: "boolean" }).notNull().default(false),
-  qqqAbove20: integer("qqq_above_20", { mode: "boolean" }).notNull().default(false),
-  qqqAbove50: integer("qqq_above_50", { mode: "boolean" }).notNull().default(false),
-  qqqAbove200: integer("qqq_above_200", { mode: "boolean" }).notNull().default(false),
-  vixLevel: real("vix_level").notNull().default(0),
-  vixSlope5d: real("vix_slope_5d").notNull().default(0),
-  breadthProxyPct: real("breadth_proxy_pct").notNull().default(50),
-  rspAbove50Sma: integer("rsp_above_50sma", { mode: "boolean" }).notNull().default(false),
-  rspSpyRatioTrend: real("rsp_spy_ratio_trend").notNull().default(1),
+  spyPrice: doublePrecision("spy_price").notNull().default(0),
+  spySma20: doublePrecision("spy_sma20").notNull().default(0),
+  spySma50: doublePrecision("spy_sma50").notNull().default(0),
+  spySma200: doublePrecision("spy_sma200").notNull().default(0),
+  spySma20Rising: boolean("spy_sma20_rising").notNull().default(false),
+  spySma50Rising: boolean("spy_sma50_rising").notNull().default(false),
+  spyAbove20: boolean("spy_above_20").notNull().default(false),
+  spyAbove50: boolean("spy_above_50").notNull().default(false),
+  spyAbove200: boolean("spy_above_200").notNull().default(false),
+  qqqPrice: doublePrecision("qqq_price").notNull().default(0),
+  qqqSma20: doublePrecision("qqq_sma20").notNull().default(0),
+  qqqSma50: doublePrecision("qqq_sma50").notNull().default(0),
+  qqqSma200: doublePrecision("qqq_sma200").notNull().default(0),
+  qqqSma20Rising: boolean("qqq_sma20_rising").notNull().default(false),
+  qqqSma50Rising: boolean("qqq_sma50_rising").notNull().default(false),
+  qqqAbove20: boolean("qqq_above_20").notNull().default(false),
+  qqqAbove50: boolean("qqq_above_50").notNull().default(false),
+  qqqAbove200: boolean("qqq_above_200").notNull().default(false),
+  vixLevel: doublePrecision("vix_level").notNull().default(0),
+  vixSlope5d: doublePrecision("vix_slope_5d").notNull().default(0),
+  breadthProxyPct: doublePrecision("breadth_proxy_pct").notNull().default(50),
+  rspAbove50Sma: boolean("rsp_above_50sma").notNull().default(false),
+  rspSpyRatioTrend: doublePrecision("rsp_spy_ratio_trend").notNull().default(1),
   distributionDays: integer("distribution_days").notNull().default(0),
   distributionDayDates: text("distribution_day_dates").notNull().default("[]"),
-  followThroughDay: integer("follow_through_day", { mode: "boolean" }).notNull().default(false),
+  followThroughDay: boolean("follow_through_day").notNull().default(false),
   rawRegime: text("raw_regime").notNull().default("yellow"),
 });
 
 // ─── Setup candidates (auto-detection) ──────────────────────────────────────
-export const setupCandidates = sqliteTable("setup_candidates", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const setupCandidates = pgTable("setup_candidates", {
+  id: serial("id").primaryKey(),
   ticker: text("ticker").notNull(),
   setup: text("setup").notNull(), // 'trend_pullback' | 'breakout'
   state: text("state").notNull().default("dormant"),
   qualificationsPassed: integer("qualifications_passed").notNull().default(0),
   qualificationsTotal: integer("qualifications_total").notNull().default(6),
   qualificationDetails: text("qualification_details").notNull().default("[]"),
-  entryZoneLow: real("entry_zone_low"),
-  entryZoneHigh: real("entry_zone_high"),
-  stop: real("stop"),
-  t1: real("t1"),
-  t2: real("t2"),
-  rrToT1: real("rr_to_t1"),
-  atr14: real("atr14").notNull().default(0),
-  swingHigh: real("swing_high"),
-  pullbackPct: real("pullback_pct"),
-  basePivot: real("base_pivot"),
-  baseDepth: real("base_depth"),
+  entryZoneLow: doublePrecision("entry_zone_low"),
+  entryZoneHigh: doublePrecision("entry_zone_high"),
+  stop: doublePrecision("stop"),
+  t1: doublePrecision("t1"),
+  t2: doublePrecision("t2"),
+  rrToT1: doublePrecision("rr_to_t1"),
+  atr14: doublePrecision("atr14").notNull().default(0),
+  swingHigh: doublePrecision("swing_high"),
+  pullbackPct: doublePrecision("pullback_pct"),
+  basePivot: doublePrecision("base_pivot"),
+  baseDepth: doublePrecision("base_depth"),
   baseLength: integer("base_length"),
-  triggerFired: integer("trigger_fired", { mode: "boolean" }).notNull().default(false),
+  triggerFired: boolean("trigger_fired").notNull().default(false),
   triggerNote: text("trigger_note"),
   disqualifiers: text("disqualifiers").notNull().default("[]"),
   lastComputedAt: text("last_computed_at").notNull().default(""),
-  regimeEligible: integer("regime_eligible", { mode: "boolean" }).notNull().default(true),
+  regimeEligible: boolean("regime_eligible").notNull().default(true),
   regimeBlockedReason: text("regime_blocked_reason"),
   relativeStrength: integer("relative_strength"),
   trendStrength: integer("trend_strength"),
   volumeScore: integer("volume_score"),
   cleanlinessScore: integer("cleanliness_score"),
-  marketAlignment: integer("market_alignment", { mode: "boolean" }),
-  earningsRisk: integer("earnings_risk", { mode: "boolean" }),
+  marketAlignment: boolean("market_alignment"),
+  earningsRisk: boolean("earnings_risk"),
   quality: text("quality"), // 'A' | 'B' | 'C'
 });
 
-export const setupHistory = sqliteTable("setup_history", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const setupHistory = pgTable("setup_history", {
+  id: serial("id").primaryKey(),
   ticker: text("ticker").notNull(),
   setup: text("setup").notNull(),
   prevState: text("prev_state").notNull().default(""),
@@ -256,11 +256,11 @@ export const setupHistory = sqliteTable("setup_history", {
 });
 
 // ─── Chizzle scores ──────────────────────────────────────────────────────────
-export const chizzleScores = sqliteTable("chizzle_scores", {
-  id: integer("id").primaryKey({ autoIncrement: true }),
+export const chizzleScores = pgTable("chizzle_scores", {
+  id: serial("id").primaryKey(),
   date: text("date").notNull(),
   components: text("components").notNull().default("{}"),
-  total: real("total").notNull().default(0),
+  total: doublePrecision("total").notNull().default(0),
   identityState: text("identity_state").notNull().default("WORKING"),
 });
 

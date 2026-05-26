@@ -159,13 +159,14 @@ export async function computeAndPersist(opts: { forceRefresh?: boolean; intraday
 
   if (!spyBars.length || !qqqBars.length || !rspBars.length || !vixyBars.length) {
     lastError = lastError || "incomplete-data";
-    storage.updateRegimeState({ lastError, stale: true, lastClassifiedAt: new Date().toISOString() });
+    await storage.updateRegimeState({ lastError, stale: true, lastClassifiedAt: new Date().toISOString() });
     // Without bars we can't classify. Return a benign yellow.
     const empty: SymbolMetrics = { price: 0, sma20: 0, sma50: 0, sma200: 0, sma20_rising: false, sma50_rising: false, above_20: false, above_50: false, above_200: false };
+    const currentState = await storage.getRegimeState();
     return {
       raw: { spy: empty, qqq: empty, breadthProxyPct: 50, rspAbove50Sma: false, rspSpyRatioTrend: 1, vixLevel: 0, vixSlope5d: 0, distributionDays: 0, distributionDayDates: [], followThroughDay: false },
       rawRegime: "yellow",
-      effectiveRegime: storage.getRegimeState().currentRegime as RegimeCode,
+      effectiveRegime: currentState.currentRegime as RegimeCode,
       ok: false,
       error: lastError,
     };
@@ -226,10 +227,10 @@ export async function computeAndPersist(opts: { forceRefresh?: boolean; intraday
     followThroughDay: fts,
     rawRegime,
   };
-  storage.appendRegimeInputs(inputsRow);
+  await storage.appendRegimeInputs(inputsRow);
 
   // Update regime_state with 2-consecutive-close confirmation logic.
-  const state = storage.getRegimeState();
+  const state = await storage.getRegimeState();
   const nowIso = new Date().toISOString();
   // Capture effective regime BEFORE the update — needed to detect shifts.
   const prevEffective: RegimeCode = state.manualOverride && state.manualOverrideRegime
@@ -265,7 +266,7 @@ export async function computeAndPersist(opts: { forceRefresh?: boolean; intraday
   nextState.lastError = null;
   nextState.stale = false;
 
-  storage.updateRegimeState({
+  await storage.updateRegimeState({
     currentRegime: nextState.currentRegime,
     currentRegimeSince: nextState.currentRegimeSince,
     pendingRegime: nextState.pendingRegime,
@@ -277,12 +278,13 @@ export async function computeAndPersist(opts: { forceRefresh?: boolean; intraday
   });
 
   // Mirror effective regime into settings.regime so legacy UI keeps working.
-  const finalState = storage.getRegimeState();
+  const finalState = await storage.getRegimeState();
+  _updateRegimeCache(finalState);
   const effective = finalState.manualOverride && finalState.manualOverrideRegime
     ? (finalState.manualOverrideRegime as RegimeCode)
     : (finalState.currentRegime as RegimeCode);
   try {
-    storage.updateSettings({
+    await storage.updateSettings({
       regime: effective.toUpperCase(),
       regimeOverride: !!finalState.manualOverride,
       regimeChangedAt: finalState.currentRegimeSince,
@@ -295,10 +297,10 @@ export async function computeAndPersist(opts: { forceRefresh?: boolean; intraday
   // (per regime_gate_spec.md "Always-on bypass lane").
   if (effective !== prevEffective) {
     try {
-      const openTrades = storage.listOpenTrades();
+      const openTrades = await storage.listOpenTrades();
       if (openTrades.length > 0) {
         const tickers = openTrades.map(t => t.ticker).join(", ");
-        storage.createAlert({
+        await storage.createAlert({
           ticker: openTrades[0].ticker, // primary ticker; message lists all
           type: "REGIME_SHIFT_BYPASS",
           severity: "critical",
@@ -368,8 +370,20 @@ export function stopRegimeScheduler() {
 }
 
 // ─── Public read API ───────────────────────────────────────────────────────
+// Cache for synchronous getEffectiveRegime access (updated after each async call)
+let _cachedRegimeState: { currentRegime: string; manualOverride: boolean; manualOverrideRegime: string | null } = {
+  currentRegime: "yellow",
+  manualOverride: false,
+  manualOverrideRegime: null,
+};
+
+// Update the cache whenever we read regime state
+export function _updateRegimeCache(state: { currentRegime: string; manualOverride: boolean; manualOverrideRegime: string | null }) {
+  _cachedRegimeState = state;
+}
+
 export function getEffectiveRegime(): { code: RegimeCode; source: "AUTO" | "MANUAL" } {
-  const s = storage.getRegimeState();
+  const s = _cachedRegimeState;
   if (s.manualOverride && s.manualOverrideRegime) {
     return { code: s.manualOverrideRegime as RegimeCode, source: "MANUAL" };
   }
