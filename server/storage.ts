@@ -331,6 +331,9 @@ CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at
     // 2026-05: support fractional shares (was integer). DOUBLE PRECISION is
     // wider than INTEGER so this is a lossless upgrade for existing rows.
     "ALTER TABLE trades ALTER COLUMN shares TYPE DOUBLE PRECISION USING shares::double precision",
+    // 2026-05: bump existing settings row to new defaults (5/3/1) ONLY if
+    // it's still on the legacy defaults (3/2/1). Preserves user customization.
+    "UPDATE settings SET risk_pct_green = 5, risk_pct_yellow = 3, risk_pct_red = 1 WHERE risk_pct_green = 3 AND risk_pct_yellow = 2 AND risk_pct_red = 1",
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
