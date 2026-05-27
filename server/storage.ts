@@ -538,6 +538,13 @@ export const storage = {
   async acknowledgeAlert(id: number): Promise<void> {
     await db.update(alerts).set({ acknowledged: true }).where(eq(alerts.id, id));
   },
+  async deleteAlert(id: number): Promise<void> {
+    await db.delete(alerts).where(eq(alerts.id, id));
+  },
+  async clearAllAlerts(): Promise<number> {
+    const result = await db.delete(alerts).returning();
+    return result.length;
+  },
 
   // journal
   async listJournal(): Promise<JournalEntry[]> {

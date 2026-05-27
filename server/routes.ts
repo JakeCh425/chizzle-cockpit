@@ -499,6 +499,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ok: true });
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  app.delete("/api/alerts/:id", async (req, res) => {
+    try {
+      await storage.deleteAlert(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  app.delete("/api/alerts", async (_req, res) => {
+    try {
+      const n = await storage.clearAllAlerts();
+      res.json({ ok: true, deleted: n });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
 
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {

@@ -3,7 +3,7 @@ import { useState, useMemo } from "react";
 import { Panel, StatRow, Chip } from "@/components/Panel";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { RefreshCw, Cpu, AlertTriangle, AlertCircle, Info as InfoIcon, Sparkles as SparklesIcon, Inbox } from "lucide-react";
+import { RefreshCw, Cpu, AlertTriangle, AlertCircle, Info as InfoIcon, Sparkles as SparklesIcon, Inbox, X as XIcon, Trash2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import type { Settings, Ticker, WatchlistItem, Trade, Alert, ChizzleScore, EquityHistory, LeapPosition, LeapReserve, RegimeState, RegimeInputsRow, SetupCandidateRow } from "@shared/schema";
 import { decideDiscipline, defaultQualityFallback, type RegimeCode, type Quality } from "@shared/discipline";
@@ -223,7 +223,28 @@ export default function Cockpit() {
         <Panel title="Watchlist · Auto Setups" hint={`${wlRows.length} setups · Tier ${settings?.watchlistTier ?? 1}`} className="lg:col-span-8">
           <WatchlistTable rows={wlRows} hiddenCount={wlHiddenCount} />
         </Panel>
-        <Panel title="Alerts Feed" hint={`${feed.length} recent`} className="lg:col-span-4">
+        <Panel
+          title="Alerts Feed"
+          hint={`${feed.length} recent`}
+          className="lg:col-span-4"
+          action={
+            (alerts?.length || 0) > 0 ? (
+              <button
+                onClick={async () => {
+                  if (!confirm(`Clear all ${alerts!.length} alerts? This cannot be undone.`)) return;
+                  await apiRequest("DELETE", "/api/alerts", undefined);
+                  queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+                }}
+                className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-signal-red transition-colors flex items-center gap-1"
+                title="Delete all alerts"
+                data-testid="button-clear-alerts"
+              >
+                <Trash2 className="w-3 h-3" />
+                Clear all
+              </button>
+            ) : null
+          }
+        >
           <AlertFilterChips current={alertFilter} onChange={setAlertFilter} alerts={alerts || []} />
           <AlertsFeed alerts={feed} />
         </Panel>
@@ -730,6 +751,10 @@ function AlertsFeed({ alerts }: { alerts: Alert[] }) {
       </div>
     );
   }
+  const deleteAlert = async (id: number) => {
+    await apiRequest("DELETE", `/api/alerts/${id}`, undefined);
+    queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+  };
   return (
     <ul className="space-y-1.5">
       {alerts.map(a => {
@@ -738,7 +763,7 @@ function AlertsFeed({ alerts }: { alerts: Alert[] }) {
         const Icon = isCrit ? AlertCircle : isAction ? AlertTriangle : InfoIcon;
         const tone = isCrit ? "text-signal-red" : isAction ? "text-signal-amber" : "text-neon-blue";
         return (
-          <li key={a.id} className="flex gap-2 items-start py-1.5 border-b border-ink-line/60 last:border-0">
+          <li key={a.id} className="group flex gap-2 items-start py-1.5 border-b border-ink-line/60 last:border-0">
             <Icon className={`mt-0.5 w-3 h-3 flex-shrink-0 ${tone}`} />
             <div className="flex-1 min-w-0">
               <div className="flex items-baseline gap-2 text-[11px]">
@@ -748,6 +773,15 @@ function AlertsFeed({ alerts }: { alerts: Alert[] }) {
               </div>
               <div className="text-[12px] text-soft-white">{a.message}</div>
             </div>
+            <button
+              onClick={() => deleteAlert(a.id)}
+              className="mt-0.5 p-1 -mr-1 rounded-sm text-slate-gray hover:text-signal-red hover:bg-signal-red/10 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+              title="Delete alert"
+              aria-label={`Delete alert ${a.id}`}
+              data-testid={`button-delete-alert-${a.id}`}
+            >
+              <XIcon className="w-3 h-3" />
+            </button>
           </li>
         );
       })}
