@@ -514,6 +514,29 @@ export const storage = {
   async listArchivedTrades(): Promise<Trade[]> {
     return db.select().from(trades).where(eq(trades.archived, true)).orderBy(desc(trades.openedAt));
   },
+  // Permanently remove a single trade (archived OR not). Used by the
+  // "Delete" button on the Archived Trades panel.
+  async deleteTradeForever(id: number): Promise<void> {
+    await db.delete(trades).where(eq(trades.id, id));
+  },
+  // Permanently remove EVERY archived trade. Returns count deleted.
+  async deleteAllArchivedTrades(): Promise<number> {
+    const result = await db.delete(trades).where(eq(trades.archived, true)).returning();
+    return result.length;
+  },
+  // Auto-cleanup: permanently delete archived trades whose closedAt (or
+  // openedAt fallback) is older than `days` days. Returns count deleted.
+  async pruneArchivedOlderThan(days: number): Promise<number> {
+    const cutoffMs = Date.now() - days * 24 * 60 * 60 * 1000;
+    const cutoffIso = new Date(cutoffMs).toISOString();
+    // Postgres can compare ISO 8601 strings lexicographically (sortable).
+    // Use COALESCE so trades without closedAt fall back to openedAt.
+    const result = await pool.query(
+      `DELETE FROM trades WHERE archived = true AND COALESCE(closed_at, opened_at) < $1 RETURNING id`,
+      [cutoffIso],
+    );
+    return result.rowCount || 0;
+  },
   async getTrade(id: number): Promise<Trade | undefined> {
     const rows = await db.select().from(trades).where(eq(trades.id, id)).limit(1);
     return rows[0];

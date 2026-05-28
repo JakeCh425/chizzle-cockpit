@@ -234,9 +234,58 @@ function ArchivedTradesPanel() {
       toast({ title: "Restore failed", description: e?.message || String(e) });
     }
   };
+  const deleteForever = async (t: Trade) => {
+    if (!confirm(
+      `Permanently delete ${t.ticker} from system?\n\nThis CANNOT be undone. The trade will be removed from history and analytics forever.`
+    )) return;
+    try {
+      await apiRequest("DELETE", `/api/trades/${t.id}/forever`, undefined);
+      queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
+      toast({ title: "Deleted", description: `${t.ticker} permanently removed.` });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e?.message || String(e) });
+    }
+  };
+  const deleteAll = async () => {
+    const n = list.length;
+    if (!confirm(
+      `Permanently delete ALL ${n} archived trade${n === 1 ? "" : "s"} from system?\n\nThis CANNOT be undone. Every archived trade will be wiped from history and analytics forever.\n\nType OK in the next prompt to confirm.`
+    )) return;
+    const confirm2 = prompt(`Type DELETE to confirm permanent deletion of ${n} archived trade${n === 1 ? "" : "s"}:`);
+    if (confirm2 !== "DELETE") {
+      toast({ title: "Cancelled", description: "Nothing was deleted." });
+      return;
+    }
+    try {
+      const res: any = await apiRequest("DELETE", "/api/trades/archived", undefined);
+      queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
+      toast({ title: "All cleared", description: `${res?.deleted ?? n} archived trade${(res?.deleted ?? n) === 1 ? "" : "s"} permanently removed.` });
+    } catch (e: any) {
+      toast({ title: "Delete failed", description: e?.message || String(e) });
+    }
+  };
   const list = archived || [];
   return (
-    <Panel title="Archived Trades" hint={`${list.length} soft-deleted — restore to bring back into history`}>
+    <Panel
+      title="Archived Trades"
+      hint={`${list.length} soft-deleted · auto-cleanup after 45 days`}
+      action={
+        list.length > 0 ? (
+          <button
+            onClick={deleteAll}
+            data-testid="button-delete-all-archived"
+            className="text-[10px] uppercase tracking-wider text-signal-red hover:text-signal-red/80 transition-colors flex items-center gap-1 px-2 py-1 border border-signal-red/40 hover:bg-signal-red/10 rounded-sm"
+            title="Permanently delete all archived trades"
+          >
+            × Delete All
+          </button>
+        ) : null
+      }
+    >
+      <div className="text-[11px] text-slate-gray mb-2">
+        Soft-deleted trades are kept here for 45 days, then auto-removed from the system.
+        Restore brings a trade back into history. Delete permanently removes it from analytics.
+      </div>
       {list.length === 0 ? (
         <div className="text-[12px] text-slate-gray py-2">No archived trades.</div>
       ) : (
@@ -267,13 +316,23 @@ function ArchivedTradesPanel() {
                   <td className="px-2 py-1.5 text-right font-mono-num tabular-nums">{t.exit?.toFixed(2) ?? "—"}</td>
                   <td className="px-2 py-1.5 text-[10px] text-slate-gray">{new Date(t.openedAt).toLocaleDateString()}</td>
                   <td className="px-2 py-1.5 text-right">
-                    <button
-                      onClick={() => restore(t)}
-                      data-testid={`button-restore-trade-${t.id}`}
-                      className="px-2 py-1 border border-neon-blue/40 bg-neon-blue/10 text-neon-blue text-[10px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/20"
-                    >
-                      Restore
-                    </button>
+                    <div className="inline-flex items-center gap-1 justify-end">
+                      <button
+                        onClick={() => restore(t)}
+                        data-testid={`button-restore-trade-${t.id}`}
+                        className="px-2 py-1 border border-neon-blue/40 bg-neon-blue/10 text-neon-blue text-[10px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/20"
+                      >
+                        Restore
+                      </button>
+                      <button
+                        onClick={() => deleteForever(t)}
+                        data-testid={`button-delete-trade-${t.id}`}
+                        className="px-2 py-1 border border-signal-red/40 bg-signal-red/10 text-signal-red text-[10px] uppercase tracking-wider rounded-sm hover:bg-signal-red/20"
+                        title="Permanently delete this trade"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -186,6 +186,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/trades/archived", async (_req, res) => {
     try { res.json(await storage.listArchivedTrades()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  // Permanently delete a single archived trade.
+  app.delete("/api/trades/:id/forever", async (req, res) => {
+    try {
+      await storage.deleteTradeForever(Number(req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  // Permanently delete ALL archived trades.
+  app.delete("/api/trades/archived", async (_req, res) => {
+    try {
+      const n = await storage.deleteAllArchivedTrades();
+      res.json({ ok: true, deleted: n });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
+  // Manually trigger the 45-day archive prune (for testing / on-demand).
+  app.post("/api/trades/archived/prune", async (req, res) => {
+    try {
+      const days = Number(req.body?.days) || 45;
+      const n = await storage.pruneArchivedOlderThan(days);
+      res.json({ ok: true, pruned: n, days });
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
+  });
   app.post("/api/trades", async (req, res) => {
     try {
       // Server-side regime gate — source of truth. Frontend gates are UX only.
@@ -749,6 +771,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // and the watchlist updates without manual refresh. Regime/setup schedulers
   // remain manual (recompute via /api/recompute-all).
   startPricePoller();
+
+  // Auto-prune archived trades older than 45 days. Runs once on boot, then
+  // every 24 hours. Safe to no-op when nothing matches.
+  const ARCHIVE_RETENTION_DAYS = 45;
+  const runArchivePrune = async () => {
+    try {
+      const n = await storage.pruneArchivedOlderThan(ARCHIVE_RETENTION_DAYS);
+      if (n > 0) console.log(`[archive-prune] removed ${n} archived trades > ${ARCHIVE_RETENTION_DAYS} days old`);
+    } catch (e: any) {
+      console.error("[archive-prune] failed:", e?.message || e);
+    }
+  };
+  runArchivePrune();
+  setInterval(runArchivePrune, 24 * 60 * 60 * 1000);
 
   return httpServer;
 }
