@@ -11,7 +11,20 @@ export type WatchlistState =
 export type IdentityState = "OPERATOR" | "DISCIPLINED" | "WORKING" | "OFF_PROCESS";
 
 // â”€â”€â”€ Risk Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-export const RISK_PCT: Record<Regime, number> = { GREEN: 0.03, YELLOW: 0.02, RED: 0.01 };
+// Defaults (in fractions, not percent) — match shared/schema.ts settings defaults of 5/3/1.
+// At runtime, prefer reading from settings (riskPctFromSettings) — these are only the
+// fallback when settings haven't loaded yet.
+export const RISK_PCT: Record<Regime, number> = { GREEN: 0.05, YELLOW: 0.03, RED: 0.01 };
+
+// Build a customRiskPct map (fractions) from the live settings row. Use this
+// everywhere instead of the hardcoded RISK_PCT constant once settings are loaded.
+export function riskPctFromSettings(s?: { riskPctGreen?: number | null; riskPctYellow?: number | null; riskPctRed?: number | null } | null): Record<Regime, number> {
+  return {
+    GREEN: (s?.riskPctGreen ?? RISK_PCT.GREEN * 100) / 100,
+    YELLOW: (s?.riskPctYellow ?? RISK_PCT.YELLOW * 100) / 100,
+    RED: (s?.riskPctRed ?? RISK_PCT.RED * 100) / 100,
+  };
+}
 export const MAX_POSITIONS: Record<Regime, number> = { GREEN: 4, YELLOW: 3, RED: 2 };
 export const NOTIONAL_CAP_PCT: Record<Regime, number> = { GREEN: 0.8, YELLOW: 0.6, RED: 0.4 };
 export const MAX_OPEN_RISK_PCT = 6;
@@ -350,7 +363,7 @@ export function validateTrade(args: {
   if (psr <= 0) return { ok: false, reason: "Stop must be below entry.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   if (rr < MIN_RR) return { ok: false, reason: "Reward:Risk below 2.0 â€” trade rejected.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   if (newOpen > MAX_OPEN_RISK_PCT) return { ok: false, reason: "Open risk cap breached.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
-  if (sh < 1) return { ok: false, reason: "Position size rounds to 0 shares â€” UNDER-FUNDED.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
+  if (sh <= 0) return { ok: false, reason: "Position size rounds to 0 shares â€” UNDER-FUNDED.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   if (args.rollingChizzle != null && args.rollingChizzle < 60) {
     return { ok: false, reason: "OFF-PROCESS â€” 7-day Chizzle Score < 60. No new entries.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   }

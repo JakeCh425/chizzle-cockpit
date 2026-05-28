@@ -11,9 +11,12 @@ import { useLivePrices } from "@/lib/useLivePrices";
 import {
   regimeLabel, identityState, openRiskPct, expectancy, drawdown,
   rrRatio, fmtPct, fmtR, MAX_OPEN_RISK_PCT, MAX_POSITIONS, RISK_PCT,
+  riskPctFromSettings,
   formatSetupState, setupStateColor, setupStatePriority, formatSetupKind,
   regimeAllowedSetupsLabel,
 } from "@/lib/engine";
+import { TermTooltip } from "@/components/TermTooltip";
+import { RiskChipPopover } from "@/components/RiskChipPopover";
 
 import { LineChart, Line, AreaChart, Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine, BarChart, Bar, CartesianGrid } from "recharts";
 import Sparkline from "@/components/charts/Sparkline";
@@ -52,7 +55,8 @@ export default function Cockpit() {
   const openTrades = (trades || []).filter(t => t.status === "OPEN");
   const openRisk = openRiskPct(openTrades.map(t => ({ entry: t.entry, stop: t.stop, shares: t.shares })), equity);
   const todayRiskAtRisk = (openRisk / 100) * equity;
-  const allowedRiskPct = RISK_PCT[regime] * 100;
+  const riskMap = riskPctFromSettings(settings);
+  const allowedRiskPct = riskMap[regime] * 100;
   const allowed$ = equity * (allowedRiskPct / 100);
 
   const todayScore = scores?.[0]?.total ?? 0;
@@ -207,7 +211,7 @@ export default function Cockpit() {
       {/* Row 1: regime / risk / chizzle */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <RegimePanel regime={regime} payload={regimePayload} history={regimeHistory || []} />
-        <RiskPanel openRisk={openRisk} todayRiskAtRisk={todayRiskAtRisk} allowed$={allowed$} positions={openTrades.length} maxPositions={MAX_POSITIONS[regime]} regime={regime} allowedSetupsLabel={regimeAllowedSetupsLabel(regime)} />
+        <RiskPanel openRisk={openRisk} todayRiskAtRisk={todayRiskAtRisk} allowed$={allowed$} positions={openTrades.length} maxPositions={MAX_POSITIONS[regime]} regime={regime} allowedSetupsLabel={regimeAllowedSetupsLabel(regime)} riskMap={riskMap} />
         <ChizzleScorePanel today={todayScore} rolling={rolling} istate={istate} scores={scores || []} />
       </div>
 
@@ -431,20 +435,16 @@ function DualSpark({ label, tone, primary, secondary }: { label: string; tone: S
 }
 
 // ─── Risk Panel ─────────────────────────────────────────────────────────────
-function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPositions, regime, allowedSetupsLabel }: any) {
+function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPositions, regime, allowedSetupsLabel, riskMap }: any) {
   const pct = Math.min(100, (openRisk / MAX_OPEN_RISK_PCT) * 100);
   const gaugeTone = openRisk >= 6 ? "signal-red" : openRisk >= 5 ? "signal-amber" : "neon-blue";
-  const riskPctNum = RISK_PCT[regime as keyof typeof RISK_PCT] * 100;
+  const map = (riskMap || { GREEN: 0.05, YELLOW: 0.03, RED: 0.01 }) as Record<string, number>;
+  const riskPctNum = (map[regime as string] ?? 0.02) * 100;
   return (
-    <Panel title="Risk" hint={`${riskPctNum}% per trade`}>
+    <Panel title="Risk" hint={`${riskPctNum.toFixed(1)}% per trade · click to change`}>
       <div className="space-y-3">
         <div className="flex items-baseline justify-between">
-          <span
-            data-testid="chip-risk-pct"
-            className="inline-flex items-center px-1.5 py-0.5 rounded-sm border border-neon-blue/40 bg-neon-blue/10 text-neon-blue font-mono-num tabular-nums text-[10px] tracking-tight uppercase animate-pulse"
-          >
-            {riskPctNum}% per trade
-          </span>
+          <RiskChipPopover valuePct={riskPctNum} regime={regime} testId="chip-risk-pct" />
           <span className="sr-only">risk pct chip</span>
         </div>
         <div className="flex items-baseline justify-between">
@@ -481,9 +481,9 @@ function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPosition
           } />
           <StatRow label="Risk profile" value={
             <span className="text-slate-gray">
-              <span className={regime === "GREEN" ? "text-signal-green" : ""}>3%</span> /{" "}
-              <span className={regime === "YELLOW" ? "text-signal-amber" : ""}>2%</span> /{" "}
-              <span className={regime === "RED" ? "text-signal-red" : ""}>1%</span>
+              <span className={regime === "GREEN" ? "text-signal-green" : ""}>{(map.GREEN * 100).toFixed(1)}%</span> /{" "}
+              <span className={regime === "YELLOW" ? "text-signal-amber" : ""}>{(map.YELLOW * 100).toFixed(1)}%</span> /{" "}
+              <span className={regime === "RED" ? "text-signal-red" : ""}>{(map.RED * 100).toFixed(1)}%</span>
             </span>
           } />
         </div>
@@ -564,16 +564,16 @@ function WatchlistTable({ rows, hiddenCount }: {
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
-            <th className="text-left px-3.5 py-2 font-medium">Ticker</th>
-            <th className="text-left px-2 py-2 font-medium">Setup</th>
-            <th className="text-left px-2 py-2 font-medium">State</th>
-            <th className="text-right px-2 py-2 font-medium">Quals</th>
-            <th className="text-right px-2 py-2 font-medium">Entry Zone</th>
-            <th className="text-right px-2 py-2 font-medium">Stop</th>
-            <th className="text-right px-2 py-2 font-medium">T1</th>
-            <th className="text-right px-2 py-2 font-medium">RR→T1</th>
-            <th className="text-right px-2 py-2 font-medium">LP</th>
-            <th className="text-right px-3.5 py-2 font-medium">% to Zone</th>
+            <th className="text-left px-3.5 py-2 font-medium"><TermTooltip term="Ticker" /></th>
+            <th className="text-left px-2 py-2 font-medium"><TermTooltip term="Setup" /></th>
+            <th className="text-left px-2 py-2 font-medium"><TermTooltip term="State" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="Quals" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="Entry Zone" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="Stop" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="T1" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="RR→T1" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="LP" /></th>
+            <th className="text-right px-3.5 py-2 font-medium"><TermTooltip term="% to Zone" /></th>
           </tr>
         </thead>
         <tbody>
@@ -703,7 +703,7 @@ function TodaysOpportunities({
               <span className={stateTextClass}>{stateLabel}</span>
             </div>
             <div className="flex items-baseline justify-between text-[11px]">
-              <span className="text-slate-gray">LP</span>
+              <TermTooltip term="LP" className="text-slate-gray" />
               <span className="font-mono-num tabular-nums text-soft-white">{lp.toFixed(2)}</span>
             </div>
             {candidate.entryZoneLow != null && candidate.entryZoneHigh != null && (
@@ -804,15 +804,15 @@ function OpenPositionsTable({ trades, livePrices }: { trades: Trade[]; livePrice
       <table className="w-full text-[12px]">
         <thead>
           <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
-            <th className="text-left px-3.5 py-2 font-medium">Ticker</th>
-            <th className="text-right px-2 py-2 font-medium">Entry</th>
-            <th className="text-right px-2 py-2 font-medium">Stop</th>
-            <th className="text-right px-2 py-2 font-medium">T1</th>
-            <th className="text-right px-2 py-2 font-medium">LP</th>
-            <th className="text-right px-2 py-2 font-medium">R</th>
-            <th className="text-right px-2 py-2 font-medium">P/L $</th>
-            <th className="text-right px-2 py-2 font-medium">% to T1</th>
-            <th className="text-right px-3.5 py-2 font-medium">Days</th>
+            <th className="text-left px-3.5 py-2 font-medium"><TermTooltip term="Ticker" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="Entry" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="Stop" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="T1" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="LP" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="R" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="P/L $" /></th>
+            <th className="text-right px-2 py-2 font-medium"><TermTooltip term="% to T1" /></th>
+            <th className="text-right px-3.5 py-2 font-medium"><TermTooltip term="Days" /></th>
           </tr>
         </thead>
         <tbody>

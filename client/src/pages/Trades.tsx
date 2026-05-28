@@ -1,10 +1,12 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, Trade, SetupCandidateRow } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
-import { validateTrade, fmtR, rMultiple, RISK_PCT, formatShares, type Regime } from "@/lib/engine";
+import { validateTrade, fmtR, rMultiple, RISK_PCT, riskPctFromSettings, formatShares, type Regime } from "@/lib/engine";
+import { TermTooltip } from "@/components/TermTooltip";
+import { RiskChipPopover } from "@/components/RiskChipPopover";
 import { decideDiscipline, defaultQualityFallback, type Quality, type RegimeCode } from "@shared/discipline";
 import { Sparkles, RefreshCw, Trash2 } from "lucide-react";
 import Sparkline from "@/components/charts/Sparkline";
@@ -95,12 +97,15 @@ export default function Trades() {
   const regimeLower = (regime as string).toLowerCase() as RegimeCode;
   const discipline = decideDiscipline(regimeLower, candidateQuality);
 
-  // Live preview
+  // Live preview — use customRiskPct from settings so the % the user set actually flows through
+  const riskMap = riskPctFromSettings(settings);
+  const riskPctNum = riskMap[regime] * 100;
   const e = Number(entry || 0), s = Number(stop || 0), t1n = Number(t1 || 0);
   const preview = entry && stop && t1
     ? validateTrade({
         equity, regime, entry: e, stop: s, t1: t1n,
         existingPositions: openTrades.map(t => ({ entry: t.entry, stop: t.stop, shares: t.shares })),
+        customRiskPct: riskMap,
       })
     : null;
 
@@ -112,6 +117,7 @@ export default function Trades() {
     const v = validateTrade({
       equity, regime, entry: e, stop: s, t1: t1n,
       existingPositions: openTrades.map(t => ({ entry: t.entry, stop: t.stop, shares: t.shares })),
+      customRiskPct: riskMap,
     });
     if (!v.ok) {
       toast({ title: "Trade rejected", description: v.reason });
@@ -153,7 +159,7 @@ export default function Trades() {
       {/* Form */}
       <Panel
         title="Log New Trade"
-        hint={`Regime ${regime} · risk ${RISK_PCT[regime] * 100}% · min RR 2.0`}
+        hint={`Regime ${regime} · risk ${riskPctNum.toFixed(1)}% · min RR 2.0`}
         action={
           <div className="flex items-center gap-2">
             {autoFilledFrom && (
@@ -227,6 +233,8 @@ export default function Trades() {
           >
             Grade {candidateQuality}
           </span>
+          {/* Clickable risk % chip — cycles 1-10%, persists to settings for active regime */}
+          <RiskChipPopover valuePct={riskPctNum} regime={regime} testId="chip-trades-risk-pct" />
           <span
             data-testid="badge-discipline-risk"
             className={`inline-flex items-center px-2 py-0.5 border text-[10px] uppercase tracking-wider font-display rounded-sm ${
@@ -257,16 +265,16 @@ export default function Trades() {
         {/* Live preview */}
         {preview && (
           <div className="mt-4 grid grid-cols-2 md:grid-cols-6 gap-3 border-t border-ink-line pt-3">
-            <Stat label="Per-Share Risk" value={`$${preview.perShareRiskValue.toFixed(2)}`} />
+            <Stat label={<TermTooltip term="Per-Share Risk" />} value={`$${preview.perShareRiskValue.toFixed(2)}`} />
             <Stat
-              label="Risk $ (× mult)"
+              label={<TermTooltip term="Risk $ (× mult)" />}
               value={`$${(preview.riskDollarsValue * discipline.riskMultiplier).toFixed(2)}`}
               tone={discipline.riskMultiplier === 0 ? "red" : discipline.riskMultiplier < 1 ? "amber" : "neutral"}
             />
-            <Stat label="Shares" value={formatShares(preview.shares)} />
-            <Stat label="Notional" value={`$${preview.notional.toFixed(2)}`} />
-            <Stat label="RR" value={preview.rr.toFixed(2)} tone={preview.rr >= 2 ? "green" : "red"} />
-            <Stat label="New Open Risk %" value={`${preview.newOpenRiskPct.toFixed(2)}%`} tone={preview.newOpenRiskPct > 6 ? "red" : preview.newOpenRiskPct > 5 ? "amber" : "neutral"} />
+            <Stat label={<TermTooltip term="Shares" />} value={formatShares(preview.shares)} />
+            <Stat label={<TermTooltip term="Notional" />} value={`$${preview.notional.toFixed(2)}`} />
+            <Stat label={<TermTooltip term="RR" />} value={preview.rr.toFixed(2)} tone={preview.rr >= 2 ? "green" : "red"} />
+            <Stat label={<TermTooltip term="New Open Risk %" />} value={`${preview.newOpenRiskPct.toFixed(2)}%`} tone={preview.newOpenRiskPct > 6 ? "red" : preview.newOpenRiskPct > 5 ? "amber" : "neutral"} />
             {!preview.ok && (
               <div className="col-span-2 md:col-span-6 bg-signal-red/10 border border-signal-red/40 px-3 py-2 text-[12px] text-signal-red font-display tracking-wider uppercase rounded-sm">
                 {preview.reason}
@@ -346,7 +354,7 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
-function Stat({ label, value, tone }: { label: string; value: string; tone?: "green" | "amber" | "red" | "neutral" }) {
+function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: "green" | "amber" | "red" | "neutral" }) {
   const color = tone === "green" ? "text-signal-green" : tone === "amber" ? "text-signal-amber" : tone === "red" ? "text-signal-red" : "text-soft-white";
   return (
     <div>
@@ -425,23 +433,23 @@ function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: numb
       )}
       <div className="grid grid-cols-5 gap-2 text-[11px]">
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-gray">LP</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="LP" /></div>
           <div className="font-mono-num tabular-nums text-soft-white">{lp.toFixed(2)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-gray">Entry</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="Entry" /></div>
           <div className="font-mono-num tabular-nums text-soft-white/80">{trade.entry.toFixed(2)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-gray">Stop</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="Stop" /></div>
           <div className="font-mono-num tabular-nums text-signal-red/80">{trade.stop.toFixed(2)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-gray">R</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="R" /></div>
           <div className={`font-mono-num tabular-nums ${r > 0 ? "text-signal-green" : r < 0 ? "text-signal-red" : "text-soft-white/80"}`}>{fmtR(r)}</div>
         </div>
         <div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-gray">P/L $</div>
+          <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="P/L $" /></div>
           <div className={`font-mono-num tabular-nums ${pnl > 0 ? "text-signal-green" : pnl < 0 ? "text-signal-red" : "text-soft-white/80"}`}>{pnl >= 0 ? "+" : ""}${pnl.toFixed(2)}</div>
         </div>
       </div>
@@ -486,19 +494,19 @@ function PendingTradesList({ trades }: { trades: Trade[] }) {
           </div>
           <div className="grid grid-cols-4 gap-2 text-[11px]">
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Entry</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="Entry" /></div>
               <div className="font-mono-num tabular-nums text-soft-white">{t.entry.toFixed(2)}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Stop</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="Stop" /></div>
               <div className="font-mono-num tabular-nums text-signal-red/80">{t.stop.toFixed(2)}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-gray">T1</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="T1" /></div>
               <div className="font-mono-num tabular-nums text-soft-white">{t.t1.toFixed(2)}</div>
             </div>
             <div>
-              <div className="text-[10px] uppercase tracking-wider text-slate-gray">Shares</div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-gray"><TermTooltip term="Shares" /></div>
               <div className="font-mono-num tabular-nums text-soft-white">{formatShares(t.shares)}</div>
             </div>
           </div>
@@ -549,18 +557,18 @@ function TradesTable({ trades }: { trades: Trade[] }) {
         <table className="w-full text-[12px] min-w-0">
           <thead>
             <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
-              <th className="text-left px-3 py-2">Ticker</th>
-              <th className="text-left px-2">Setup</th>
-              <th className="text-left px-2">Regime</th>
-              <th className="text-right px-2">Entry</th>
-              <th className="text-right px-2">Exit</th>
-              <th className="text-right px-2">Shares</th>
-              <th className="text-right px-2">R</th>
-              <th className="text-right px-2">Hold (d)</th>
-              <th className="text-left px-2">Plan</th>
-              <th className="text-left px-2">Lesson</th>
-              <th className="text-left px-2">Status</th>
-              <th className="text-right px-2 sticky right-0 bg-ink-panel">Actions</th>
+              <th className="text-left px-3 py-2"><TermTooltip term="Ticker" /></th>
+              <th className="text-left px-2"><TermTooltip term="Setup" /></th>
+              <th className="text-left px-2"><TermTooltip term="Regime" /></th>
+              <th className="text-right px-2"><TermTooltip term="Entry" /></th>
+              <th className="text-right px-2"><TermTooltip term="Exit" /></th>
+              <th className="text-right px-2"><TermTooltip term="Shares" /></th>
+              <th className="text-right px-2"><TermTooltip term="R" /></th>
+              <th className="text-right px-2"><TermTooltip term="Hold (d)" /></th>
+              <th className="text-left px-2"><TermTooltip term="Plan" /></th>
+              <th className="text-left px-2"><TermTooltip term="Lesson" /></th>
+              <th className="text-left px-2"><TermTooltip term="Status" /></th>
+              <th className="text-right px-2 sticky right-0 bg-ink-panel"><TermTooltip term="Actions" /></th>
             </tr>
           </thead>
           <tbody>
