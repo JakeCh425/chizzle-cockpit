@@ -776,7 +776,9 @@ function EditTradeDialog({ trade, onClose }: { trade: Trade; onClose: () => void
   const rAtT2 = t2Num != null && riskPerShare > 0 ? (t2Num - entryNum) / (entryNum - stopNum || 1) : null;
 
   const submit = async () => {
-    // Basic validation
+    // Light validation only — we let the user edit freely. The backend is
+    // the source of truth for hard rules (regime gate is intentionally
+    // skipped on PATCH so already-open trades can always be adjusted).
     if (!entry || !stop || !shares) {
       toast({ title: "Entry, stop, and shares are required" });
       return;
@@ -806,16 +808,20 @@ function EditTradeDialog({ trade, onClose }: { trade: Trade; onClose: () => void
     if (submitting) return;
     setSubmitting(true);
     try {
+      // Note: thesis & emotionalState are NOT NULL in the DB schema (default ""
+      // and 5 respectively). Send safe defaults rather than null to avoid
+      // a Postgres NOT NULL constraint violation.
       const patch: Record<string, unknown> = {
         entry: entryNum,
         stop: stopNum,
         t1: t1Num,
+        // t2 is nullable on the column — null is fine when cleared.
         t2: t2Num,
         shares: Math.round(sharesNum * 100) / 100,
         setup: setupVal,
-        thesis: thesis.trim() === "" ? null : thesis.trim(),
-        emotionalState: emoNum,
+        thesis: thesis.trim(),
       };
+      if (emoNum != null) patch.emotionalState = emoNum;
       await apiRequest("PATCH", `/api/trades/${trade.id}`, patch);
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       toast({ title: "Trade updated", description: `${trade.ticker} saved.` });

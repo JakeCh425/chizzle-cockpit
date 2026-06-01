@@ -397,7 +397,67 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   app.patch("/api/trades/:id", async (req, res) => {
-    try { res.json(await storage.updateTrade(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    try {
+      const id = Number(req.params.id);
+      if (!Number.isFinite(id)) return res.status(400).json({ error: "invalid id" });
+      const body = req.body || {};
+      // Sanitize incoming patch so common UI footguns (empty strings, null on
+      // NOT NULL columns, stringified numbers) don't blow up Postgres.
+      const patch: Record<string, unknown> = {};
+      const toNumOrNull = (v: any) => {
+        if (v === "" || v === null || v === undefined) return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+      const toNum = (v: any) => {
+        if (v === "" || v === null || v === undefined) return undefined;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : undefined;
+      };
+      // Required numeric columns — only update when a valid number is provided.
+      if ("entry" in body) { const n = toNum(body.entry); if (n !== undefined) patch.entry = n; }
+      if ("stop" in body) { const n = toNum(body.stop); if (n !== undefined) patch.stop = n; }
+      if ("t1" in body) { const n = toNum(body.t1); if (n !== undefined) patch.t1 = n; }
+      if ("shares" in body) {
+        const n = toNum(body.shares);
+        if (n !== undefined && n > 0) patch.shares = Math.round(n * 100) / 100;
+      }
+      // Nullable numeric column.
+      if ("t2" in body) patch.t2 = toNumOrNull(body.t2);
+      // Required text/integer columns with defaults — coerce blank to default.
+      if ("thesis" in body) {
+        patch.thesis = typeof body.thesis === "string" ? body.thesis : "";
+      }
+      if ("emotionalState" in body) {
+        const n = toNum(body.emotionalState);
+        if (n !== undefined && n >= 1 && n <= 10) patch.emotionalState = Math.round(n);
+      }
+      // Setup — accept TREND_PULLBACK or BREAKOUT only.
+      if ("setup" in body) {
+        const s = String(body.setup || "").toUpperCase();
+        if (s === "TREND_PULLBACK" || s === "BREAKOUT") patch.setup = s;
+      }
+      // Pass-through fields we trust the caller for (lifecycle updates).
+      for (const k of ["status", "archived", "confirmedAt", "exitReason", "rMultiple",
+        "planFollowed", "lessonTag", "closedAt", "t1Filled", "t1FilledAt",
+        "t2Filled", "t2FilledAt", "trailingStop", "trailingStopUpdatedAt",
+        "highWaterMark", "exit", "rr", "riskDollars"]) {
+        if (k in body) patch[k] = body[k];
+      }
+      if (Object.keys(patch).length === 0) {
+        return res.status(400).json({ error: "No valid fields to update." });
+      }
+      // Coherence check — entry === stop would cause infinite R math elsewhere.
+      const finalEntry = (patch.entry as number | undefined) ?? undefined;
+      const finalStop = (patch.stop as number | undefined) ?? undefined;
+      if (finalEntry !== undefined && finalStop !== undefined && finalEntry === finalStop) {
+        return res.status(400).json({ error: "Entry and stop cannot be equal." });
+      }
+      const updated = await storage.updateTrade(id, patch as any);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
   });
 
   // ── PENDING → OPEN: user has placed the order in their broker ───────────
