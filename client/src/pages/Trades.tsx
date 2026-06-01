@@ -8,7 +8,7 @@ import { validateTrade, fmtR, rMultiple, RISK_PCT, riskPctFromSettings, formatSh
 import { TermTooltip } from "@/components/TermTooltip";
 import { RiskChipPopover } from "@/components/RiskChipPopover";
 import { decideDiscipline, defaultQualityFallback, type Quality, type RegimeCode } from "@shared/discipline";
-import { Sparkles, RefreshCw, Trash2 } from "lucide-react";
+import { Sparkles, RefreshCw, Trash2, Pencil } from "lucide-react";
 import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import CandlestickChart, { type OHLCBar } from "@/components/charts/CandlestickChart";
@@ -367,16 +367,23 @@ function Stat({ label, value, tone }: { label: ReactNode; value: string; tone?: 
 // ─── open positions detail with charts ──────────────────────────────────────
 function OpenPositionsDetail({ trades }: { trades: Trade[] }) {
   const { data: prices } = useQuery<Record<string, { price: number }>>({ queryKey: ["/api/prices"] });
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const editingTrade = editingId != null ? trades.find(t => t.id === editingId) ?? null : null;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-      {trades.map(t => (
-        <OpenPositionCard key={t.id} trade={t} livePrice={prices?.[t.ticker]?.price} />
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {trades.map(t => (
+          <OpenPositionCard key={t.id} trade={t} livePrice={prices?.[t.ticker]?.price} onEdit={() => setEditingId(t.id)} />
+        ))}
+      </div>
+      {editingTrade && (
+        <EditTradeDialog trade={editingTrade} onClose={() => setEditingId(null)} />
+      )}
+    </>
   );
 }
 
-function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: number }) {
+function OpenPositionCard({ trade, livePrice, onEdit }: { trade: Trade; livePrice?: number; onEdit?: () => void }) {
   const lp = livePrice ?? trade.entry;
   const r = (lp - trade.entry) / (trade.entry - trade.stop || 1);
   const pnl = (lp - trade.entry) * trade.shares;
@@ -398,7 +405,20 @@ function OpenPositionCard({ trade, livePrice }: { trade: Trade; livePrice?: numb
     <div className="border border-ink-line/80 bg-ink-deep/40 rounded-sm p-3 flex flex-col gap-2">
       <div className="flex items-baseline justify-between">
         <span className="font-mono-num text-[14px] text-soft-white">{trade.ticker}</span>
-        <span className="text-[10px] uppercase tracking-wider text-slate-gray">{trade.setup === "BREAKOUT" ? "Breakout" : "Trend"} · {days}d</span>
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] uppercase tracking-wider text-slate-gray">{trade.setup === "BREAKOUT" ? "Breakout" : "Trend"} · {days}d</span>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              data-testid={`button-edit-trade-${trade.id}`}
+              title="Edit trade"
+              aria-label={`Edit ${trade.ticker}`}
+              className="p-1 border border-ink-line rounded-sm hover:bg-neon-blue/10 hover:border-neon-blue/60 hover:text-neon-blue text-slate-gray transition-colors"
+            >
+              <Pencil className="w-3 h-3" />
+            </button>
+          )}
+        </div>
       </div>
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
@@ -538,6 +558,7 @@ function PendingTradesList({ trades }: { trades: Trade[] }) {
 function TradesTable({ trades }: { trades: Trade[] }) {
   const { toast } = useToast();
   const [closingId, setClosingId] = useState<number | null>(null);
+  const [editingId, setEditingId] = useState<number | null>(null);
   const archive = async (t: Trade) => {
     if (!confirm(`Archive ${t.ticker}? You can restore it later from Settings.`)) return;
     try {
@@ -597,13 +618,24 @@ function TradesTable({ trades }: { trades: Trade[] }) {
                   <td className="px-2 py-2 text-right sticky right-0 bg-ink-panel">
                     <div className="flex justify-end gap-1">
                       {t.status === "OPEN" && (
-                        <button
-                          onClick={() => setClosingId(t.id)}
-                          data-testid={`button-close-trade-${t.id}`}
-                          className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40"
-                        >
-                          Close
-                        </button>
+                        <>
+                          <button
+                            onClick={() => setEditingId(t.id)}
+                            data-testid={`button-edit-trade-${t.id}`}
+                            title="Edit trade"
+                            aria-label={`Edit ${t.ticker}`}
+                            className="p-1.5 border border-ink-line rounded-sm hover:bg-neon-blue/10 hover:border-neon-blue/60 hover:text-neon-blue text-slate-gray transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => setClosingId(t.id)}
+                            data-testid={`button-close-trade-${t.id}`}
+                            className="px-2 py-1 border border-ink-line rounded-sm text-[10px] uppercase tracking-wider hover:bg-ink-line/40"
+                          >
+                            Close
+                          </button>
+                        </>
                       )}
                       {t.status !== "PENDING" && (
                         <button
@@ -626,6 +658,9 @@ function TradesTable({ trades }: { trades: Trade[] }) {
       </div>
       {closingId != null && (
         <CloseModal id={closingId} trade={trades.find(t => t.id === closingId)!} onClose={() => setClosingId(null)} />
+      )}
+      {editingId != null && trades.find(t => t.id === editingId) && (
+        <EditTradeDialog trade={trades.find(t => t.id === editingId)!} onClose={() => setEditingId(null)} />
       )}
     </>
   );
@@ -710,6 +745,143 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
         <div className="flex justify-end gap-2 mt-5">
           <button onClick={onClose} className="px-3 py-1.5 border border-ink-line text-[11px] uppercase tracking-wider rounded-sm">Cancel</button>
           <button onClick={submit} disabled={submitting} data-testid="button-confirm-close" className="px-3 py-1.5 border border-neon-blue bg-neon-blue text-ink-black font-semibold text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/90 cursor-pointer disabled:opacity-60 disabled:cursor-wait">{submitting ? "Closing..." : "Confirm Close"}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── edit trade dialog ──────────────────────────────────────────────────────
+function EditTradeDialog({ trade, onClose }: { trade: Trade; onClose: () => void }) {
+  const [entry, setEntry] = useState(String(trade.entry));
+  const [stop, setStop] = useState(String(trade.stop));
+  const [t1, setT1] = useState(trade.t1 != null ? String(trade.t1) : "");
+  const [t2, setT2] = useState(trade.t2 != null ? String(trade.t2) : "");
+  const [shares, setShares] = useState(String(trade.shares));
+  const [setupVal, setSetupVal] = useState<string>(trade.setup);
+  const [emotionalState, setEmotionalState] = useState<string>(
+    trade.emotionalState != null ? String(trade.emotionalState) : ""
+  );
+  const [thesis, setThesis] = useState(trade.thesis ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const { toast } = useToast();
+
+  // Preview R-multiple at T1 / T2 using edited values
+  const entryNum = Number(entry);
+  const stopNum = Number(stop);
+  const t1Num = t1 ? Number(t1) : null;
+  const t2Num = t2 ? Number(t2) : null;
+  const riskPerShare = Math.abs(entryNum - stopNum);
+  const rAtT1 = t1Num != null && riskPerShare > 0 ? (t1Num - entryNum) / (entryNum - stopNum || 1) : null;
+  const rAtT2 = t2Num != null && riskPerShare > 0 ? (t2Num - entryNum) / (entryNum - stopNum || 1) : null;
+
+  const submit = async () => {
+    // Basic validation
+    if (!entry || !stop || !shares) {
+      toast({ title: "Entry, stop, and shares are required" });
+      return;
+    }
+    if (Number.isNaN(entryNum) || Number.isNaN(stopNum)) {
+      toast({ title: "Entry and stop must be numbers" });
+      return;
+    }
+    const sharesNum = Number(shares);
+    if (Number.isNaN(sharesNum) || sharesNum <= 0) {
+      toast({ title: "Shares must be a positive number" });
+      return;
+    }
+    if (entryNum === stopNum) {
+      toast({ title: "Entry and stop must differ" });
+      return;
+    }
+    let emoNum: number | null = null;
+    if (emotionalState !== "") {
+      emoNum = Number(emotionalState);
+      if (Number.isNaN(emoNum) || emoNum < 1 || emoNum > 10) {
+        toast({ title: "Emotional state must be 1-10" });
+        return;
+      }
+    }
+
+    if (submitting) return;
+    setSubmitting(true);
+    try {
+      const patch: Record<string, unknown> = {
+        entry: entryNum,
+        stop: stopNum,
+        t1: t1Num,
+        t2: t2Num,
+        shares: Math.round(sharesNum * 100) / 100,
+        setup: setupVal,
+        thesis: thesis.trim() === "" ? null : thesis.trim(),
+        emotionalState: emoNum,
+      };
+      await apiRequest("PATCH", `/api/trades/${trade.id}`, patch);
+      queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
+      toast({ title: "Trade updated", description: `${trade.ticker} saved.` });
+      onClose();
+    } catch (err: any) {
+      console.error("edit trade failed:", err);
+      toast({ title: "Edit failed", description: err?.message || String(err) });
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-ink-panel border border-ink-line rounded-sm w-full max-w-lg p-5 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <h3 className="font-display text-[13px] uppercase tracking-widest mb-4">Edit {trade.ticker}</h3>
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">Entry</label>
+              <input type="number" step="0.01" value={entry} onChange={e => setEntry(e.target.value)} data-testid="input-edit-entry" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">Stop</label>
+              <input type="number" step="0.01" value={stop} onChange={e => setStop(e.target.value)} data-testid="input-edit-stop" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">T1</label>
+              <input type="number" step="0.01" value={t1} onChange={e => setT1(e.target.value)} data-testid="input-edit-t1" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+              {rAtT1 != null && (
+                <div className="text-[10px] text-slate-gray mt-1">R @ T1 = <span className={`font-mono-num ${rAtT1 > 0 ? "text-signal-green" : "text-signal-red"}`}>{fmtR(rAtT1)}</span></div>
+              )}
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">T2 <span className="text-slate-gray/60 normal-case">(optional)</span></label>
+              <input type="number" step="0.01" value={t2} onChange={e => setT2(e.target.value)} data-testid="input-edit-t2" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+              {rAtT2 != null && (
+                <div className="text-[10px] text-slate-gray mt-1">R @ T2 = <span className={`font-mono-num ${rAtT2 > 0 ? "text-signal-green" : "text-signal-red"}`}>{fmtR(rAtT2)}</span></div>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">Shares</label>
+              <input type="number" step="0.01" value={shares} onChange={e => setShares(e.target.value)} data-testid="input-edit-shares" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+            </div>
+            <div>
+              <label className="text-[10px] uppercase tracking-wider text-slate-gray">Setup</label>
+              <select value={setupVal} onChange={e => setSetupVal(e.target.value)} data-testid="select-edit-setup" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm text-[13px]">
+                {SETUPS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-gray">Emotional State (1-10) <span className="text-slate-gray/60 normal-case">(optional)</span></label>
+            <input type="number" min="1" max="10" step="1" value={emotionalState} onChange={e => setEmotionalState(e.target.value)} data-testid="input-edit-emotional-state" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num tabular-nums" />
+          </div>
+          <div>
+            <label className="text-[10px] uppercase tracking-wider text-slate-gray">Thesis</label>
+            <textarea value={thesis} onChange={e => setThesis(e.target.value)} rows={3} data-testid="textarea-edit-thesis" className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm text-[12px] resize-y" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 mt-5">
+          <button onClick={onClose} className="px-3 py-1.5 border border-ink-line text-[11px] uppercase tracking-wider rounded-sm">Cancel</button>
+          <button onClick={submit} disabled={submitting} data-testid="button-confirm-edit" className="px-3 py-1.5 border border-neon-blue bg-neon-blue text-ink-black font-semibold text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/90 cursor-pointer disabled:opacity-60 disabled:cursor-wait">{submitting ? "Saving..." : "Save Changes"}</button>
         </div>
       </div>
     </div>
