@@ -23,6 +23,11 @@ import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import WatchlistEditor from "@/components/WatchlistEditor";
+import RegimePanel from "@/components/RegimePanel";
+import PortfolioHeatmap from "@/components/PortfolioHeatmap";
+import ScoringDashboard from "@/components/ScoringDashboard";
+import AScoreLegend from "@/components/AScoreLegend";
+import { Zap } from "lucide-react";
 
 interface RegimePayload {
   state: RegimeState;
@@ -224,15 +229,33 @@ export default function Cockpit() {
         </Panel>
       )}
 
+      {/* Row 1.6: Regime read-out (trend · volatility · breadth · distribution) */}
+      <RegimePanel />
+
+      {/* Row 1.7: Portfolio heatmap (A-score at a glance) */}
+      <Panel title="Watchlist Heatmap" hint={`${(watchlist || []).length} symbols · A-score tone · click to expand`}>
+        <PortfolioHeatmap />
+      </Panel>
+
       {/* Row 1.75: Mini-chart watchlist (SMA20/50/200 + A2/A3/A4 signals) */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <Panel title="Mini Charts" hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200 · click to expand`} className="lg:col-span-9">
+        <Panel
+          title="Mini Charts"
+          hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200 · click to expand`}
+          className="lg:col-span-9"
+          action={<AScoreLegend />}
+        >
           <MiniChartGrid />
         </Panel>
         <Panel title="Watchlist Editor" hint={`${(watchlist || []).length} symbols · CRUD + reorder`} className="lg:col-span-3">
           <WatchlistEditor />
         </Panel>
       </div>
+
+      {/* Row 1.8: Sortable scoring dashboard (scanner) */}
+      <Panel title="Scanner" hint={`${(watchlist || []).length} symbols · sort by A-score / Δ SMA20 / trend`}>
+        <ScoringDashboard />
+      </Panel>
 
       {/* Row 2: watchlist + alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
@@ -244,21 +267,37 @@ export default function Cockpit() {
           hint={`${feed.length} recent`}
           className="lg:col-span-4"
           action={
-            (alerts?.length || 0) > 0 ? (
+            <div className="flex items-center gap-3">
               <button
                 onClick={async () => {
-                  if (!confirm(`Clear all ${alerts!.length} alerts? This cannot be undone.`)) return;
-                  await apiRequest("DELETE", "/api/alerts", undefined);
-                  queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+                  try {
+                    await apiRequest("POST", "/api/alerts/scan-sma20", undefined);
+                    setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }), 5000);
+                  } catch (e) { /* surfaced via existing toast layer */ }
                 }}
-                className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-signal-red transition-colors flex items-center gap-1"
-                title="Delete all alerts"
-                data-testid="button-clear-alerts"
+                className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-neon-blue transition-colors flex items-center gap-1"
+                title="Run SMA20 alert scan now"
+                data-testid="button-scan-alerts"
               >
-                <Trash2 className="w-3 h-3" />
-                Clear all
+                <Zap className="w-3 h-3" />
+                Scan now
               </button>
-            ) : null
+              {(alerts?.length || 0) > 0 ? (
+                <button
+                  onClick={async () => {
+                    if (!confirm(`Clear all ${alerts!.length} alerts? This cannot be undone.`)) return;
+                    await apiRequest("DELETE", "/api/alerts", undefined);
+                    queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
+                  }}
+                  className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-signal-red transition-colors flex items-center gap-1"
+                  title="Delete all alerts"
+                  data-testid="button-clear-alerts"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  Clear all
+                </button>
+              ) : null}
+            </div>
           }
         >
           <AlertFilterChips current={alertFilter} onChange={setAlertFilter} alerts={alerts || []} />

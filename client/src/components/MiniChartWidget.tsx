@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from "recharts";
+import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { Maximize2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, computeSignal, getAScore, type SignalColor } from "@/lib/sma";
@@ -64,6 +64,7 @@ function ChartView({ rows, height }: { rows: ChartRow[]; height: number }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <LineChart data={rows} margin={{ top: 4, right: 4, bottom: 4, left: 4 }}>
+        <CartesianGrid stroke="hsl(var(--ink-line))" strokeOpacity={0.25} vertical={false} />
         <YAxis hide domain={["auto", "auto"]} />
         <Tooltip
           contentStyle={{
