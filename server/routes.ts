@@ -760,6 +760,41 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json(q);
   });
   app.get("/api/price-feed-status", (_req, res) => res.json(feedStatus()));
+
+  // ── historical candles for mini-chart widgets (Stooq, free, no key) ─────
+  // 60s in-memory cache keyed by symbol+interval avoids hammering Stooq when
+  // multiple widgets share tickers.
+  const candleCache = new Map<string, { t: number; data: { time: number; close: number }[] }>();
+  const CANDLE_TTL_MS = 60_000;
+  app.get("/api/candles/:symbol", async (req, res) => {
+    try {
+      const symbol = String(req.params.symbol || "").toUpperCase().trim();
+      const interval = (String(req.query.interval || "1D")).toUpperCase() === "1H" ? "h" : "d";
+      if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: "invalid symbol" });
+      const key = `${symbol}:${interval}`;
+      const now = Date.now();
+      const hit = candleCache.get(key);
+      if (hit && (now - hit.t) < CANDLE_TTL_MS) return res.json(hit.data);
+      const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${interval}`;
+      const r = await fetch(url);
+      if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
+      const csv = await r.text();
+      const lines = csv.trim().split("\n").slice(1);
+      const out: { time: number; close: number }[] = [];
+      for (const line of lines) {
+        const [date, , , , close] = line.split(",");
+        const ts = Math.floor(new Date(date).getTime() / 1000);
+        const c = parseFloat(close);
+        if (Number.isFinite(c) && Number.isFinite(ts)) out.push({ time: ts, close: c });
+      }
+      // Keep last ~400 bars; plenty for SMA200 and keeps payload small.
+      const trimmed = out.slice(-400);
+      candleCache.set(key, { t: now, data: trimmed });
+      res.json(trimmed);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
   app.get("/api/price-ticks/:symbol", async (req, res) => {
     try {
       const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 200)));
