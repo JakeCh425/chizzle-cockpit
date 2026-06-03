@@ -28,6 +28,7 @@ import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
+import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
 import { Zap } from "lucide-react";
 
 interface RegimePayload {
@@ -176,6 +177,8 @@ export default function Cockpit() {
   };
 
   const [recomputing, setRecomputing] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpTab, setHelpTab] = useState<"ascore" | "minicharts">("ascore");
   const recomputeAll = async () => {
     if (recomputing) return;
     setRecomputing(true);
@@ -221,8 +224,10 @@ export default function Cockpit() {
             <RefreshCw className="w-3 h-3" />
             Refresh
           </button>
+          <HelpDrawerButton onClick={() => { setHelpTab("ascore"); setHelpOpen(true); }} />
         </div>
       </div>
+      <HelpDrawer open={helpOpen} onOpenChange={setHelpOpen} initialTab={helpTab} />
       {offProcess && (
         <div className="bg-signal-red/15 border-l-4 border-signal-red border-y border-r border-y-signal-red/40 border-r-signal-red/40 px-4 py-2.5 flex items-center gap-3 rounded-sm">
           <span className="inline-block w-2 h-2 bg-signal-red rounded-full animate-pulse" />
@@ -262,7 +267,19 @@ export default function Cockpit() {
           title="Mini Charts"
           hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200 · click to expand`}
           className="lg:col-span-9"
-          action={<AScoreLegend />}
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => { setHelpTab("minicharts"); setHelpOpen(true); }}
+                data-testid="button-minicharts-help"
+                title="How to read the mini-charts"
+                className="text-[10px] uppercase tracking-wider text-signal-amber hover:underline"
+              >
+                How to read
+              </button>
+              <AScoreLegend />
+            </div>
+          }
         >
           <MiniChartGrid />
         </Panel>
