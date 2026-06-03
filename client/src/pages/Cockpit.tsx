@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { useState, useMemo } from "react";
 import { Panel, StatRow, Chip } from "@/components/Panel";
 import { queryClient } from "@/lib/queryClient";
@@ -23,7 +23,7 @@ import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import WatchlistEditor from "@/components/WatchlistEditor";
-import RegimePanel from "@/components/RegimePanel";
+import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import AScoreLegend from "@/components/AScoreLegend";
@@ -53,6 +53,21 @@ export default function Cockpit() {
   });
   const { data: regimeHistory } = useQuery<RegimeInputsRow[]>({
     queryKey: ["/api/regime/history"],
+  });
+
+  // Manual SMA20 alert sweep — surfaces success/failure via toast,
+  // shared shape with the WatchlistEditor version for consistency.
+  const scanAlertsM = useMutation({
+    mutationFn: async () => { await apiRequest("POST", "/api/alerts/scan-sma20", undefined); },
+    onSuccess: () => {
+      toast({ title: "Scan started", description: "SMA20 alert sweep running in background" });
+      setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }), 5000);
+    },
+    onError: (err: any) => toast({
+      title: "Scan failed",
+      description: err?.message || "Could not start scan",
+      variant: "destructive",
+    }),
   });
 
   const livePrices = useLivePrices(tickers);
@@ -230,7 +245,7 @@ export default function Cockpit() {
       )}
 
       {/* Row 1.6: Regime read-out (trend · volatility · breadth · distribution) */}
-      <RegimePanel />
+      <RegimeAxisPanel />
 
       {/* Row 1.7: Portfolio heatmap (A-score at a glance) */}
       <Panel title="Watchlist Heatmap" hint={`${(watchlist || []).length} symbols · A-score tone · click to expand`}>
@@ -269,18 +284,14 @@ export default function Cockpit() {
           action={
             <div className="flex items-center gap-3">
               <button
-                onClick={async () => {
-                  try {
-                    await apiRequest("POST", "/api/alerts/scan-sma20", undefined);
-                    setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }), 5000);
-                  } catch (e) { /* surfaced via existing toast layer */ }
-                }}
-                className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-neon-blue transition-colors flex items-center gap-1"
+                onClick={() => scanAlertsM.mutate()}
+                disabled={scanAlertsM.isPending}
+                className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-neon-blue transition-colors flex items-center gap-1 disabled:opacity-50"
                 title="Run SMA20 alert scan now"
                 data-testid="button-scan-alerts"
               >
                 <Zap className="w-3 h-3" />
-                Scan now
+                {scanAlertsM.isPending ? "Scanning…" : "Scan now"}
               </button>
               {(alerts?.length || 0) > 0 ? (
                 <button

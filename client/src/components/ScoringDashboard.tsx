@@ -3,7 +3,7 @@
 // Sortable scanner table for the entire watchlist. Sort by A-score by default.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo, useState } from "react";
+import { memo, useCallback, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import FullChartModal from "@/components/FullChartModal";
 import { useWatchlistSymbols, useWatchlistCandles, type WatchlistRow } from "@/lib/useWatchlistCandles";
@@ -67,25 +67,37 @@ export default function ScoringDashboard({ className = "" }: { className?: strin
     else { setSort(k); setDir(k === "symbol" ? "asc" : "desc"); }
   };
 
+  // Strongly-typed sort comparator. `symbol` returns string; every other key
+  // returns number. The discriminated return lets us compare without `as any`.
+  const sortValue = useCallback((r: WatchlistRow): string | number => {
+    switch (sort) {
+      case "symbol":      return r.symbol;
+      case "aScore":      return r.aScore?.numeric ?? -99;
+      case "dist":        return r.distToSma20Pct ?? 0;
+      case "trend":       return TREND_RANK(r);
+      case "atr":         return r.atr14 ?? 0;
+      case "lastUpdated": return r.lastUpdated ?? 0;
+    }
+  }, [sort]);
+
   const sorted = useMemo(() => {
-    const m = (r: WatchlistRow) => {
-      switch (sort) {
-        case "symbol":      return r.symbol;
-        case "aScore":      return r.aScore?.numeric ?? -99;
-        case "dist":        return r.distToSma20Pct ?? 0;
-        case "trend":       return TREND_RANK(r);
-        case "atr":         return r.atr14 ?? 0;
-        case "lastUpdated": return r.lastUpdated ?? 0;
-      }
-    };
     const arr = [...rows];
     arr.sort((a, b) => {
-      const va = m(a) as any, vb = m(b) as any;
-      if (typeof va === "string") return dir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
-      return dir === "asc" ? va - vb : vb - va;
+      const va = sortValue(a);
+      const vb = sortValue(b);
+      if (typeof va === "string" && typeof vb === "string") {
+        return dir === "asc" ? va.localeCompare(vb) : vb.localeCompare(va);
+      }
+      const na = typeof va === "number" ? va : 0;
+      const nb = typeof vb === "number" ? vb : 0;
+      return dir === "asc" ? na - nb : nb - na;
     });
     return arr;
-  }, [rows, sort, dir]);
+  }, [rows, dir, sortValue]);
+
+  // Stable handler so memoized rows don't invalidate on every parent render.
+  const openModal = useCallback((symbol: string) => setModal(symbol), []);
+  const closeModal = useCallback(() => setModal(null), []);
 
   if (symbols.length === 0) {
     return (
@@ -111,36 +123,9 @@ export default function ScoringDashboard({ className = "" }: { className?: strin
             </tr>
           </thead>
           <tbody>
-            {sorted.map(r => {
-              const trend = trendLabel(r);
-              const score = r.aScore?.score ?? "A1";
-              const tone = ASCORE_TONE[score] || ASCORE_TONE.A1;
-              const dist = r.distToSma20Pct;
-              const distTone = dist == null ? "text-slate-gray" : Math.abs(dist) <= 0.2 ? "text-signal-amber" : dist >= 0 ? "text-signal-green" : "text-signal-red";
-              return (
-                <tr
-                  key={r.symbol}
-                  onClick={() => setModal(r.symbol)}
-                  className="border-b border-ink-line/30 hover:bg-ink-line/20 cursor-pointer transition-colors"
-                  data-testid={`scoring-row-${r.symbol}`}
-                >
-                  <td className="px-2 py-1.5 font-semibold uppercase tracking-wider text-soft-white">{r.symbol}</td>
-                  <td className="px-2 py-1.5">
-                    <span
-                      className={`inline-block px-1.5 py-0.5 text-[9px] uppercase tracking-wider border rounded-sm ${tone}`}
-                      title={r.aScore?.tooltip}
-                    >{r.aScore?.label ?? "—"}</span>
-                  </td>
-                  <td className={`px-2 py-1.5 text-right tabular-nums ${distTone}`}>{dist == null ? "—" : `${dist >= 0 ? "+" : ""}${dist.toFixed(2)}%`}</td>
-                  <td className={`px-2 py-1.5 text-[10px] uppercase tracking-wider ${trend.tone}`}>{trend.text}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-soft-white/70">{r.atr14 != null ? r.atr14.toFixed(2) : "—"}</td>
-                  <td className="px-2 py-1.5 text-right tabular-nums text-soft-white">{r.lastPrice != null ? `$${r.lastPrice.toFixed(2)}` : "—"}</td>
-                  <td className="px-2 py-1.5 text-right text-[10px] text-slate-gray">
-                    {r.lastUpdated ? new Date(r.lastUpdated).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
-                  </td>
-                </tr>
-              );
-            })}
+            {sorted.map(r => (
+              <ScoringRow key={r.symbol} row={r} onSelect={openModal} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -148,8 +133,50 @@ export default function ScoringDashboard({ className = "" }: { className?: strin
         open={!!modal}
         symbol={modal || ""}
         defaultInterval="1D"
-        onClose={() => setModal(null)}
+        onClose={closeModal}
       />
     </>
   );
 }
+
+// ─── Memoized row ────────────────────────────────────────────────────────────
+// Re-renders only when the row's own fields change. The parent passes a
+// stable onSelect callback so identity doesn't bust memo.
+interface ScoringRowProps { row: WatchlistRow; onSelect: (symbol: string) => void }
+
+const ScoringRow = memo(function ScoringRow({ row: r, onSelect }: ScoringRowProps) {
+  const trend = trendLabel(r);
+  const score = r.aScore?.score ?? "A1";
+  const tone = ASCORE_TONE[score] || ASCORE_TONE.A1;
+  const dist = r.distToSma20Pct;
+  const distTone =
+    dist == null ? "text-slate-gray" :
+    Math.abs(dist) <= 0.2 ? "text-signal-amber" :
+    dist >= 0 ? "text-signal-green" : "text-signal-red";
+  return (
+    <tr
+      onClick={() => onSelect(r.symbol)}
+      className="border-b border-ink-line/30 hover:bg-ink-line/20 cursor-pointer transition-colors"
+      data-testid={`scoring-row-${r.symbol}`}
+    >
+      <td className="px-2 py-1.5 font-semibold uppercase tracking-wider text-soft-white">{r.symbol}</td>
+      <td className="px-2 py-1.5">
+        <span
+          className={`inline-block px-1.5 py-0.5 text-[9px] uppercase tracking-wider border rounded-sm ${tone}`}
+          title={r.aScore?.tooltip}
+        >{r.aScore?.label ?? "—"}</span>
+      </td>
+      <td className={`px-2 py-1.5 text-right tabular-nums ${distTone}`} title="Distance from SMA20 — negative means price is below the 20-day moving average.">
+        {dist == null ? "—" : `${dist >= 0 ? "+" : ""}${dist.toFixed(2)}%`}
+      </td>
+      <td className={`px-2 py-1.5 text-[10px] uppercase tracking-wider ${trend.tone}`}>{trend.text}</td>
+      <td className="px-2 py-1.5 text-right tabular-nums text-soft-white/70" title="Average True Range (14) — typical daily move in dollars.">
+        {r.atr14 != null ? r.atr14.toFixed(2) : "—"}
+      </td>
+      <td className="px-2 py-1.5 text-right tabular-nums text-soft-white">{r.lastPrice != null ? `$${r.lastPrice.toFixed(2)}` : "—"}</td>
+      <td className="px-2 py-1.5 text-right text-[10px] text-slate-gray">
+        {r.lastUpdated ? new Date(r.lastUpdated).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "—"}
+      </td>
+    </tr>
+  );
+});

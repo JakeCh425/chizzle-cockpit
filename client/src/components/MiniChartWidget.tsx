@@ -267,8 +267,17 @@ export default function MiniChartWidget({
           </div>
         )}
         {!isLoading && !error && rows.length === 0 && (
-          <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-wider text-slate-gray">
-            No {interval} data yet
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 text-[10px] uppercase tracking-wider text-slate-gray text-center px-2">
+            {interval === "5M" || interval === "30M" ? (
+              <>
+                <span>Intraday data warming up</span>
+                <span className="text-[9px] normal-case tracking-normal text-slate-gray/70">
+                  Ticks populate as the market trades.
+                </span>
+              </>
+            ) : (
+              <span>No {interval} data yet</span>
+            )}
           </div>
         )}
         {rows.length > 0 && <ChartView rows={rows} height={height} />}
