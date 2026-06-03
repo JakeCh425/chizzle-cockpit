@@ -761,36 +761,78 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.get("/api/price-feed-status", (_req, res) => res.json(feedStatus()));
 
-  // ── historical candles for mini-chart widgets (Stooq, free, no key) ─────
-  // 60s in-memory cache keyed by symbol+interval avoids hammering Stooq when
-  // multiple widgets share tickers.
+  // ── historical candles for mini-chart widgets ────────────────────
+  //
+  // Strategy by interval:
+  //   1D / 1H  → Stooq (free, no key, full history)
+  //   30m / 5m → derived from live tick history we already record in
+  //              storage.listPriceTicks() (Finnhub-backed). We bucket ticks
+  //              into the requested resolution and emit a close per bucket.
+  //
+  // In-memory cache keyed by `symbol:interval`; TTL scales with resolution so
+  // we never refresh more aggressively than the data can change.
   const candleCache = new Map<string, { t: number; data: { time: number; close: number }[] }>();
-  const CANDLE_TTL_MS = 60_000;
+  const CANDLE_TTL = { "1D": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000 } as const;
+  type Interval = keyof typeof CANDLE_TTL;
+
+  const bucketTicks = (ticks: Array<{ at: string | Date; price: number }>, secondsPerBucket: number) => {
+    if (!ticks.length) return [] as { time: number; close: number }[];
+    const sorted = [...ticks].sort((a, b) =>
+      new Date(a.at as any).getTime() - new Date(b.at as any).getTime()
+    );
+    const out: { time: number; close: number }[] = [];
+    let bucketStart = -1;
+    let lastClose = NaN;
+    for (const tk of sorted) {
+      const ts = Math.floor(new Date(tk.at as any).getTime() / 1000);
+      const b = Math.floor(ts / secondsPerBucket) * secondsPerBucket;
+      if (b !== bucketStart) {
+        if (bucketStart !== -1) out.push({ time: bucketStart, close: lastClose });
+        bucketStart = b;
+      }
+      lastClose = tk.price;
+    }
+    if (bucketStart !== -1 && Number.isFinite(lastClose)) out.push({ time: bucketStart, close: lastClose });
+    return out;
+  };
+
   app.get("/api/candles/:symbol", async (req, res) => {
     try {
       const symbol = String(req.params.symbol || "").toUpperCase().trim();
-      const interval = (String(req.query.interval || "1D")).toUpperCase() === "1H" ? "h" : "d";
       if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: "invalid symbol" });
+      const raw = String(req.query.interval || "1D").toUpperCase();
+      const interval: Interval = (raw === "1H" || raw === "30M" || raw === "5M") ? raw : "1D";
       const key = `${symbol}:${interval}`;
       const now = Date.now();
       const hit = candleCache.get(key);
-      if (hit && (now - hit.t) < CANDLE_TTL_MS) return res.json(hit.data);
-      const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${interval}`;
-      const r = await fetch(url);
-      if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
-      const csv = await r.text();
-      const lines = csv.trim().split("\n").slice(1);
-      const out: { time: number; close: number }[] = [];
-      for (const line of lines) {
-        const [date, , , , close] = line.split(",");
-        const ts = Math.floor(new Date(date).getTime() / 1000);
-        const c = parseFloat(close);
-        if (Number.isFinite(c) && Number.isFinite(ts)) out.push({ time: ts, close: c });
+      if (hit && (now - hit.t) < CANDLE_TTL[interval]) return res.json(hit.data);
+
+      let data: { time: number; close: number }[] = [];
+      if (interval === "1D" || interval === "1H") {
+        const stooqI = interval === "1H" ? "h" : "d";
+        const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}`;
+        const r = await fetch(url);
+        if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
+        const csv = await r.text();
+        const lines = csv.trim().split("\n").slice(1);
+        for (const line of lines) {
+          const [date, , , , close] = line.split(",");
+          const ts = Math.floor(new Date(date).getTime() / 1000);
+          const c = parseFloat(close);
+          if (Number.isFinite(c) && Number.isFinite(ts)) data.push({ time: ts, close: c });
+        }
+        // Keep last ~400 bars — plenty for SMA200, small payload.
+        data = data.slice(-400);
+      } else {
+        // Intraday: bucket recorded ticks. 1000 ticks is enough for SMA200 on
+        // 5m (≈ several sessions) and well over for 30m.
+        const ticks = await storage.listPriceTicks(symbol, 1000);
+        const secs = interval === "30M" ? 1800 : 300;
+        data = bucketTicks(ticks as any, secs).slice(-400);
       }
-      // Keep last ~400 bars; plenty for SMA200 and keeps payload small.
-      const trimmed = out.slice(-400);
-      candleCache.set(key, { t: now, data: trimmed });
-      res.json(trimmed);
+
+      candleCache.set(key, { t: now, data });
+      res.json(data);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }

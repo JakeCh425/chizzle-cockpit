@@ -21,7 +21,7 @@ import { RiskChipPopover } from "@/components/RiskChipPopover";
 import { LineChart, Line, AreaChart, Area, ComposedChart, ResponsiveContainer, XAxis, YAxis, Tooltip, ReferenceLine, BarChart, Bar, CartesianGrid } from "recharts";
 import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
-import MiniChartWidget from "@/components/MiniChartWidget";
+import MiniChartGrid from "@/components/MiniChartGrid";
 
 interface RegimePayload {
   state: RegimeState;
@@ -224,12 +224,8 @@ export default function Cockpit() {
       )}
 
       {/* Row 1.75: Mini-chart watchlist (SMA20/50/200 + proximity signals) */}
-      <Panel title="Mini Charts" hint="SMA 20/50/200 · proximity signal">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <MiniChartWidget ticker="SMH" />
-          <MiniChartWidget ticker="QQQ" />
-          <MiniChartWidget ticker="SPY" />
-        </div>
+      <Panel title="Mini Charts" hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200`}>
+        <MiniChartGrid />
       </Panel>
 
       {/* Row 2: watchlist + alerts */}
