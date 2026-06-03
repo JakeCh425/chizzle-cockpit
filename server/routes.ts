@@ -851,10 +851,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let data: { time: number; close: number; volume?: number }[] = [];
       if (interval === "1D" || interval === "1H") {
         const stooqI = interval === "1H" ? "h" : "d";
-        const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}`;
+        const apikey = process.env.STOOQ_APIKEY || "";
+        const qs = apikey ? `&apikey=${apikey}` : "";
+        const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}${qs}`;
         const r = await fetch(url);
         if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
         const csv = await r.text();
+        // Stooq returns 200 OK with an error-text body when the apikey is
+        // missing or the symbol is unknown. Detect and surface clearly.
+        if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
+          return res.status(502).json({ error: "stooq apikey missing or invalid" });
+        }
         const lines = csv.trim().split("\n").slice(1);
         for (const line of lines) {
           // Stooq daily/hourly CSV: Date,Open,High,Low,Close,Volume
