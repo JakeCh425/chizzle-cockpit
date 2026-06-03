@@ -772,6 +772,92 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // ── pre-market briefing (one-tap aggregator) ───────────────────
+  // Combines regime, overnight % moves vs prior close, and any active
+  // setups in entry-zone into a single payload — used by the cockpit's
+  // "Pre-Market Scan" button. Zero new external calls beyond what the
+  // existing candle/regime endpoints already use (Stooq daily + DB setups).
+  app.get("/api/premarket-scan", async (_req, res) => {
+    try {
+      const SCAN_TICKERS = ["SMH", "QQQ", "SPY", "IWM", "AAPL", "META"] as const;
+
+      // Regime state
+      const regimeState = await storage.getRegimeState();
+      const effective = getEffectiveRegime();
+
+      // Overnight moves: latest daily close vs prior daily close, from Stooq.
+      const apikey = process.env.STOOQ_APIKEY || "";
+      const qs = apikey ? `&apikey=${apikey}` : "";
+      const movers = await Promise.all(SCAN_TICKERS.map(async (sym) => {
+        try {
+          const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d${qs}`;
+          const r = await fetch(url);
+          if (!r.ok) return { ticker: sym, error: `stooq ${r.status}` };
+          const csv = await r.text();
+          if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
+            return { ticker: sym, error: "stooq apikey missing" };
+          }
+          const lines = csv.trim().split("\n").slice(1);
+          // last two valid Close values
+          const closes: { date: string; close: number }[] = [];
+          for (let i = lines.length - 1; i >= 0 && closes.length < 2; i--) {
+            const parts = lines[i].split(",");
+            const c = parseFloat(parts[4]);
+            if (Number.isFinite(c)) closes.push({ date: parts[0], close: c });
+          }
+          if (closes.length < 2) return { ticker: sym, error: "insufficient bars" };
+          const [latest, prior] = closes;
+          const pct = ((latest.close - prior.close) / prior.close) * 100;
+          return {
+            ticker: sym,
+            latestDate: latest.date,
+            latestClose: latest.close,
+            priorClose: prior.close,
+            pct,
+          };
+        } catch (e: any) {
+          return { ticker: sym, error: e?.message || String(e) };
+        }
+      }));
+
+      // Active setups in entry zone (across ALL tickers — surface broadly).
+      // Cockpit uses regimeEligible + state to gate; we surface IN_ZONE/LIVE/ARMED
+      // plus any with triggerFired=true.
+      const setupRows = await storage.listSetupCandidates();
+      const activeSetups = (setupRows || [])
+        .filter((r: any) => {
+          const s = String(r.state || "").toLowerCase();
+          const triggered = r.triggerFired === true;
+          const eligible = r.regimeEligible !== false;
+          return eligible && (triggered || s === "in_zone" || s === "live" || s === "armed");
+        })
+        .slice(0, 10)
+        .map((r: any) => ({
+          ticker: r.ticker,
+          state: r.state,
+          quality: r.quality || null,
+          entryZoneLow: r.entryZoneLow ?? null,
+          entryZoneHigh: r.entryZoneHigh ?? null,
+          triggerFired: !!r.triggerFired,
+        }));
+
+      res.json({
+        scannedAt: new Date().toISOString(),
+        regime: {
+          code: effective.code,
+          source: effective.source,
+          currentRegime: regimeState?.currentRegime,
+          manualOverride: !!regimeState?.manualOverride,
+        },
+        movers,
+        activeSetups,
+        dashboardUrl: "https://chizzle-cockpit-duyn.onrender.com",
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── live prices (Finnhub) ──────────────────────────────────────
   app.get("/api/prices", (_req, res) => {
     // Only expose the public watchlist symbols; VIXY is an internal regime input.

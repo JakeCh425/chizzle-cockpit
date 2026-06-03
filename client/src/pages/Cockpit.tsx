@@ -27,6 +27,7 @@ import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import AScoreLegend from "@/components/AScoreLegend";
+import PreMarketScan from "@/components/PreMarketScan";
 import { Zap } from "lucide-react";
 
 interface RegimePayload {
@@ -229,6 +230,9 @@ export default function Cockpit() {
           <span className="text-[12px] text-soft-white">7-day Chizzle Score &lt; 60 — no new entries until score recovers.</span>
         </div>
       )}
+
+      {/* Row 0: Pre-Market Scan one-tap briefing */}
+      <PreMarketScan />
 
       {/* Row 1: regime / risk / chizzle */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
