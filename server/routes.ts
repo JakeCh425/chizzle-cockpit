@@ -110,6 +110,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/watchlist/:id", async (req, res) => {
     try { res.json(await storage.updateWatchlistItem(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  app.post("/api/watchlist", async (req, res) => {
+    try {
+      const sym = String(req.body?.symbol || "").toUpperCase().trim();
+      if (!/^[A-Z0-9.\-]{1,12}$/.test(sym)) return res.status(400).json({ error: "invalid symbol" });
+      const seedPrice = Number(req.body?.price) || 0;
+      const result = await storage.addWatchlistBySymbol(sym, seedPrice);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.delete("/api/watchlist/:id", async (req, res) => {
+    try { await storage.removeWatchlistItem(Number(req.params.id)); res.json({ ok: true }); }
+    catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+  app.post("/api/watchlist/reorder", async (req, res) => {
+    try {
+      const ids = Array.isArray(req.body?.ids) ? req.body.ids.map(Number).filter(Number.isFinite) : null;
+      if (!ids) return res.status(400).json({ error: "ids[] required" });
+      await storage.reorderWatchlist(ids);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
 
   // ── trades ──────────────────────────────────────────────────────
   // Regime gate helper. Server is the source of truth for trade entry gating.
@@ -594,6 +619,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
+  // Manual SMA20 alert scan — useful for testing or on-demand sweeps.
+  // Fires alerts honoring the same cooldown windows as the scheduled engine.
+  app.post("/api/alerts/scan-sma20", async (_req, res) => {
+    try {
+      const { triggerScan } = await import("./sma20Alerts");
+      // Don't block the response on the scan — it can take many seconds.
+      triggerScan().catch(e => console.warn("[scan-sma20] failed:", e?.message || e));
+      res.json({ ok: true, started: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -771,28 +809,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   //
   // In-memory cache keyed by `symbol:interval`; TTL scales with resolution so
   // we never refresh more aggressively than the data can change.
-  const candleCache = new Map<string, { t: number; data: { time: number; close: number }[] }>();
+  const candleCache = new Map<string, { t: number; data: { time: number; close: number; volume?: number }[] }>();
   const CANDLE_TTL = { "1D": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000 } as const;
   type Interval = keyof typeof CANDLE_TTL;
 
   const bucketTicks = (ticks: Array<{ at: string | Date; price: number }>, secondsPerBucket: number) => {
-    if (!ticks.length) return [] as { time: number; close: number }[];
+    if (!ticks.length) return [] as { time: number; close: number; volume?: number }[];
     const sorted = [...ticks].sort((a, b) =>
       new Date(a.at as any).getTime() - new Date(b.at as any).getTime()
     );
-    const out: { time: number; close: number }[] = [];
+    const out: { time: number; close: number; volume?: number }[] = [];
     let bucketStart = -1;
     let lastClose = NaN;
+    let tickCount = 0; // proxy volume — intraday tick counts per bucket
     for (const tk of sorted) {
       const ts = Math.floor(new Date(tk.at as any).getTime() / 1000);
       const b = Math.floor(ts / secondsPerBucket) * secondsPerBucket;
       if (b !== bucketStart) {
-        if (bucketStart !== -1) out.push({ time: bucketStart, close: lastClose });
+        if (bucketStart !== -1) out.push({ time: bucketStart, close: lastClose, volume: tickCount });
         bucketStart = b;
+        tickCount = 0;
       }
       lastClose = tk.price;
+      tickCount += 1;
     }
-    if (bucketStart !== -1 && Number.isFinite(lastClose)) out.push({ time: bucketStart, close: lastClose });
+    if (bucketStart !== -1 && Number.isFinite(lastClose)) out.push({ time: bucketStart, close: lastClose, volume: tickCount });
     return out;
   };
 
@@ -807,7 +848,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const hit = candleCache.get(key);
       if (hit && (now - hit.t) < CANDLE_TTL[interval]) return res.json(hit.data);
 
-      let data: { time: number; close: number }[] = [];
+      let data: { time: number; close: number; volume?: number }[] = [];
       if (interval === "1D" || interval === "1H") {
         const stooqI = interval === "1H" ? "h" : "d";
         const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}`;
@@ -816,10 +857,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         const csv = await r.text();
         const lines = csv.trim().split("\n").slice(1);
         for (const line of lines) {
-          const [date, , , , close] = line.split(",");
+          // Stooq daily/hourly CSV: Date,Open,High,Low,Close,Volume
+          const parts = line.split(",");
+          const date = parts[0];
+          const close = parts[4];
+          const volume = parts[5];
           const ts = Math.floor(new Date(date).getTime() / 1000);
           const c = parseFloat(close);
-          if (Number.isFinite(c) && Number.isFinite(ts)) data.push({ time: ts, close: c });
+          const v = parseFloat(volume);
+          if (Number.isFinite(c) && Number.isFinite(ts)) {
+            data.push({
+              time: ts,
+              close: c,
+              volume: Number.isFinite(v) ? v : undefined,
+            });
+          }
         }
         // Keep last ~400 bars — plenty for SMA200, small payload.
         data = data.slice(-400);

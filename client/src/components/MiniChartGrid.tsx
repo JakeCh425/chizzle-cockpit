@@ -2,12 +2,16 @@
 // MiniChartGrid.tsx
 // Watchlist-driven grid of MiniChartWidget. Joins /api/watchlist to /api/tickers
 // to resolve symbols, falls back to a static list if watchlist is empty.
+//
+// Hosts shared FullChartModal state — clicking any mini chart's badge, expand
+// button, or chart area opens the modal for that symbol/interval.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Ticker, WatchlistItem } from "@shared/schema";
 import MiniChartWidget, { type Interval } from "@/components/MiniChartWidget";
+import FullChartModal from "@/components/FullChartModal";
 
 interface Props {
   /** Fallback symbols when /api/watchlist is empty. */
@@ -39,6 +43,11 @@ export default function MiniChartGrid({
     return out.length > 0 ? out.slice(0, max) : fallback.slice(0, max);
   }, [tickers, watchlist, fallback, max]);
 
+  // Full-chart modal state — symbol + interval are remembered while the
+  // modal is open so the user can step through intervals without closing.
+  const [modal, setModal] = useState<{ symbol: string; interval: Interval } | null>(null);
+  const openFullChart = (symbol: string, interval: Interval) => setModal({ symbol, interval });
+
   if (symbols.length === 0) {
     return (
       <div className="text-[11px] uppercase tracking-wider text-slate-gray py-4 text-center">
@@ -48,10 +57,24 @@ export default function MiniChartGrid({
   }
 
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {symbols.map(sym => (
-        <MiniChartWidget key={sym} ticker={sym} defaultInterval={defaultInterval} editableTicker={false} />
-      ))}
-    </div>
+    <>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {symbols.map(sym => (
+          <MiniChartWidget
+            key={sym}
+            ticker={sym}
+            defaultInterval={defaultInterval}
+            editableTicker={false}
+            onExpand={openFullChart}
+          />
+        ))}
+      </div>
+      <FullChartModal
+        open={!!modal}
+        symbol={modal?.symbol || ""}
+        defaultInterval={modal?.interval || defaultInterval}
+        onClose={() => setModal(null)}
+      />
+    </>
   );
 }

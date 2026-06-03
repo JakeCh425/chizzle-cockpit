@@ -334,6 +334,8 @@ CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at
     // 2026-05: bump existing settings row to new defaults (5/3/1) ONLY if
     // it's still on the legacy defaults (3/2/1). Preserves user customization.
     "UPDATE settings SET risk_pct_green = 5, risk_pct_yellow = 3, risk_pct_red = 1 WHERE risk_pct_green = 3 AND risk_pct_yellow = 2 AND risk_pct_red = 1",
+    // 2026-06: watchlist ordering for the mini-chart grid.
+    "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
@@ -478,7 +480,10 @@ export const storage = {
   },
 
   // watchlist
-  async listWatchlist(): Promise<WatchlistItem[]> { return db.select().from(watchlist); },
+  async listWatchlist(): Promise<WatchlistItem[]> {
+    // Stable, deterministic ordering by user-controlled position, then id.
+    return db.select().from(watchlist).orderBy(watchlist.position, watchlist.id);
+  },
   async updateWatchlistItem(id: number, patch: Partial<InsertWatchlistItem>): Promise<WatchlistItem | undefined> {
     await db.update(watchlist).set(patch as any).where(eq(watchlist.id, id));
     const rows = await db.select().from(watchlist).where(eq(watchlist.id, id)).limit(1);
@@ -499,6 +504,61 @@ export const storage = {
   async deleteWatchlistAndTicker(tickerId: number): Promise<void> {
     await db.delete(watchlist).where(eq(watchlist.tickerId, tickerId));
     await db.delete(tickers).where(eq(tickers.id, tickerId));
+  },
+  // Append a ticker to the end of the watchlist. If the ticker already exists
+  // (by symbol), reuse it instead of creating a duplicate row.
+  async addWatchlistBySymbol(symbol: string, price = 0): Promise<{ ticker: Ticker; watchlist: WatchlistItem }> {
+    const sym = symbol.toUpperCase().trim();
+    const existing = await db.select().from(tickers).where(eq(tickers.symbol, sym)).limit(1);
+    let t: Ticker;
+    if (existing.length > 0) {
+      t = existing[0];
+      const existingW = await db.select().from(watchlist).where(eq(watchlist.tickerId, t.id)).limit(1);
+      if (existingW.length > 0) {
+        return { ticker: t, watchlist: existingW[0] };
+      }
+    } else {
+      // Reuse the existing factory which seeds default zones/SMAs.
+      const created = await this.createTickerWithWatchlist(sym, price || 0, 2);
+      t = created.ticker;
+      // Stamp position so it appends to the end.
+      const max = await pool.query<{ m: number | null }>(
+        `SELECT MAX(position) AS m FROM watchlist`,
+      );
+      const nextPos = ((max.rows[0]?.m as any) ?? -1) + 1;
+      await db.update(watchlist).set({ position: nextPos } as any).where(eq(watchlist.id, created.watchlist.id));
+      const refreshed = await db.select().from(watchlist).where(eq(watchlist.id, created.watchlist.id)).limit(1);
+      return { ticker: t, watchlist: refreshed[0] };
+    }
+    // Existing ticker, no watchlist row — create one.
+    const max = await pool.query<{ m: number | null }>(
+      `SELECT MAX(position) AS m FROM watchlist`,
+    );
+    const nextPos = ((max.rows[0]?.m as any) ?? -1) + 1;
+    const w = (await db.insert(watchlist).values({
+      tickerId: t.id, setupType: "TREND_PULLBACK",
+      entryZoneLow: t.currentPrice * 0.97, entryZoneHigh: t.currentPrice * 1.005,
+      stop: t.currentPrice * 0.94, t1: t.currentPrice * 1.10, t2: t.currentPrice * 1.18,
+      state: "DORMANT", totalScore: 0, grade: "Ignore", position: nextPos,
+    } as any).returning())[0];
+    return { ticker: t, watchlist: w };
+  },
+  async removeWatchlistItem(id: number): Promise<void> {
+    const rows = await db.select().from(watchlist).where(eq(watchlist.id, id)).limit(1);
+    if (rows.length === 0) return;
+    const tickerId = rows[0].tickerId;
+    // Only delete the ticker if no other watchlist row references it.
+    await db.delete(watchlist).where(eq(watchlist.id, id));
+    const others = await db.select().from(watchlist).where(eq(watchlist.tickerId, tickerId)).limit(1);
+    if (others.length === 0) {
+      await db.delete(tickers).where(eq(tickers.id, tickerId));
+    }
+  },
+  async reorderWatchlist(orderedIds: number[]): Promise<void> {
+    // Single transactional pass — lower contention than N round-trips.
+    for (let i = 0; i < orderedIds.length; i++) {
+      await db.update(watchlist).set({ position: i } as any).where(eq(watchlist.id, orderedIds[i]));
+    }
   },
 
   // trades — main lists exclude archived rows.

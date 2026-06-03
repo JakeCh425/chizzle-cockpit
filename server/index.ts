@@ -4,6 +4,7 @@ import type { Request } from 'express';
 import { registerRoutes } from "./routes";
 import { initStorage, storage } from "./storage";
 import { _updateRegimeCache } from "./regimeService";
+import { startSMA20AlertEngine } from "./sma20Alerts";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -89,6 +90,12 @@ app.use((req, res, next) => {
   }
 
   await registerRoutes(httpServer, app);
+
+  // Kick off the SMA20 alert engine (no-op if watchlist is empty).
+  // Honors LOW_CREDIT_MODE — pauses background scans there.
+  if (process.env.LOW_CREDIT_MODE !== "true") {
+    try { startSMA20AlertEngine(); } catch (e) { console.warn("[boot] sma20 engine failed:", e); }
+  }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

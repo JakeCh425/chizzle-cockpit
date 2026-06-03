@@ -22,6 +22,7 @@ import { LineChart, Line, AreaChart, Area, ComposedChart, ResponsiveContainer, X
 import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
+import WatchlistEditor from "@/components/WatchlistEditor";
 
 interface RegimePayload {
   state: RegimeState;
@@ -223,10 +224,15 @@ export default function Cockpit() {
         </Panel>
       )}
 
-      {/* Row 1.75: Mini-chart watchlist (SMA20/50/200 + proximity signals) */}
-      <Panel title="Mini Charts" hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200`}>
-        <MiniChartGrid />
-      </Panel>
+      {/* Row 1.75: Mini-chart watchlist (SMA20/50/200 + A2/A3/A4 signals) */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <Panel title="Mini Charts" hint={`${(watchlist || []).length || 3} symbols · SMA 20/50/200 · click to expand`} className="lg:col-span-9">
+          <MiniChartGrid />
+        </Panel>
+        <Panel title="Watchlist Editor" hint={`${(watchlist || []).length} symbols · CRUD + reorder`} className="lg:col-span-3">
+          <WatchlistEditor />
+        </Panel>
+      </div>
 
       {/* Row 2: watchlist + alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">

@@ -51,6 +51,8 @@ export const watchlist = pgTable("watchlist", {
   scoreComponents: text("score_components").notNull().default("{}"), // json
   totalScore: doublePrecision("total_score").notNull().default(0),
   grade: text("grade").notNull().default("Ignore"), // A | B | Ignore
+  // 2026-06: explicit user-controlled ordering for the mini-chart grid.
+  position: integer("position").notNull().default(0),
 });
 
 // ─── trades ───────────────────────────────────────────────────────────────────

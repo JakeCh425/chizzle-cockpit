@@ -7,8 +7,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip } from "recharts";
+import { Maximize2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import { computeSMAs, computeSignal, type SignalColor } from "@/lib/sma";
+import { computeSMAs, computeSignal, getAScore, type SignalColor } from "@/lib/sma";
 
 type Candle = { time: number; close: number };
 export type Interval = "1D" | "1H" | "30M" | "5M";
@@ -22,6 +23,9 @@ interface Props {
   height?: number;
   /** Allow user to retype the ticker. Defaults to true. */
   editableTicker?: boolean;
+  /** Click handler — fired when the user clicks the expand affordance, the
+   *  A-score badge, or the chart area. Use this to open the full-chart modal. */
+  onExpand?: (symbol: string, interval: Interval) => void;
 }
 
 // Sensible foreground refresh per interval (matches the server-side cache TTL).
@@ -115,6 +119,7 @@ export default function MiniChartWidget({
   refreshMs,
   height = 120,
   editableTicker = true,
+  onExpand,
 }: Props) {
   const [symbol, setSymbol] = useState(ticker.toUpperCase());
   const [input, setInput] = useState(symbol);
@@ -131,18 +136,19 @@ export default function MiniChartWidget({
   const effectiveRefresh = refreshMs ?? DEFAULT_REFRESH[interval];
   const { data: candles = [], isLoading, error } = useCandles(symbol, interval, effectiveRefresh);
 
-  // Derived: SMAs + signal + chart rows. Memoized — recomputes only when candles change.
-  const { rows, signal, lastPrice, lastChange } = useMemo(() => {
+  // Derived: SMAs + signal + A-score + chart rows. Memoized — recomputes only when candles change.
+  const { rows, signal, aScore, lastPrice, lastChange } = useMemo(() => {
     const closes = candles.map(c => c.close);
     const { sma20, sma50, sma200 } = computeSMAs(closes);
     const rows: ChartRow[] = closes.map((p, i) => ({
       i, price: p, sma20: sma20[i], sma50: sma50[i], sma200: sma200[i],
     }));
     const signal = computeSignal(closes, sma20, sma50, sma200);
+    const aScore = getAScore(closes, sma20);
     const lastPrice = closes[closes.length - 1];
     const prev = closes[closes.length - 2];
     const lastChange = lastPrice != null && prev != null ? ((lastPrice - prev) / prev) * 100 : null;
-    return { rows, signal, lastPrice, lastChange };
+    return { rows, signal, aScore, lastPrice, lastChange };
   }, [candles]);
 
   // Ticker input commit
@@ -158,15 +164,31 @@ export default function MiniChartWidget({
     red: "bg-signal-red shadow-[0_0_6px_hsl(var(--signal-red)/0.7)]",
     slate: "bg-slate-gray",
   };
+  // A-score badge color tokens (border + bg + text per color family).
+  const badgeClass: Record<SignalColor, string> = {
+    green: "bg-signal-green/15 text-signal-green border-signal-green/40",
+    amber: "bg-signal-amber/15 text-signal-amber border-signal-amber/40",
+    red: "bg-signal-red/15 text-signal-red border-signal-red/40",
+    slate: "bg-slate-gray/15 text-slate-gray border-slate-gray/40",
+  };
   const changeColor =
     lastChange == null ? "text-slate-gray" :
     lastChange >= 0 ? "text-signal-green" : "text-signal-red";
+  const expand = () => onExpand?.(symbol, interval);
 
   return (
     <div className="border border-ink-line/80 bg-ink-deep/40 rounded-sm p-3 flex flex-col gap-2">
       {/* Header */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          <button
+            type="button"
+            onClick={expand}
+            className={`px-1.5 py-0.5 text-[9px] font-mono-num uppercase tracking-wider border rounded-sm transition-colors hover:brightness-125 ${badgeClass[aScore.color]}`}
+            title={aScore.tooltip}
+            aria-label={`A-score ${aScore.label}`}
+            data-testid={`badge-ascore-${symbol}`}
+          >{aScore.label}</button>
           <span className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass[signal.color]}`} title={signal.note} aria-label={signal.note} />
           {editableTicker ? (
             <input
@@ -184,7 +206,19 @@ export default function MiniChartWidget({
             <span className="text-[14px] font-mono-num font-semibold uppercase tracking-wider text-soft-white">{symbol}</span>
           )}
         </div>
-        <IntervalSwitcher value={interval} onChange={setInterval} />
+        <div className="flex items-center gap-1">
+          <IntervalSwitcher value={interval} onChange={setInterval} />
+          {onExpand && (
+            <button
+              type="button"
+              onClick={expand}
+              className="p-1 text-slate-gray hover:text-neon-blue transition-colors"
+              title="Open full chart"
+              aria-label="Open full chart"
+              data-testid={`button-expand-${symbol}`}
+            ><Maximize2 className="w-3 h-3" /></button>
+          )}
+        </div>
       </div>
 
       {/* Price strip */}
@@ -216,7 +250,13 @@ export default function MiniChartWidget({
       </div>
 
       {/* Chart */}
-      <div style={{ height }} className="relative">
+      <div
+        style={{ height }}
+        className={`relative ${onExpand ? "cursor-zoom-in" : ""}`}
+        onClick={onExpand ? expand : undefined}
+        role={onExpand ? "button" : undefined}
+        aria-label={onExpand ? "Open full chart" : undefined}
+      >
         {isLoading && rows.length === 0 && (
           <div className="absolute inset-0 flex items-center justify-center text-[10px] uppercase tracking-wider text-slate-gray">Loading…</div>
         )}
