@@ -347,3 +347,59 @@ export async function fetchFinnhubBars(
 export async function fetchFinnhubHourlyBars(symbol: string) {
   return fetchFinnhubBars(symbol, "60");
 }
+
+/**
+ * Yahoo Finance v8 chart endpoint — no key required, works from datacenter IPs,
+ * supports daily and hourly resolution. Returns null on failure so caller can
+ * fall back to the next provider.
+ *
+ *   interval: "1d" (daily, ~400 trading days)  | "1h" (hourly, ~30 days)
+ */
+export async function fetchYahooBars(
+  symbol: string,
+  interval: "1d" | "1h"
+): Promise<{ time: number; close: number; volume?: number }[] | null> {
+  const to = Math.floor(Date.now() / 1000);
+  // Yahoo allows wide ranges; cap at ~560d for daily, ~30d for hourly (Yahoo
+  // intraday history limit on the free chart endpoint).
+  const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
+  const from = to - lookbackSec;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
+  try {
+    // Plain fetch — Yahoo is a public endpoint that doesn't need the Finnhub
+    // credential proxy. Browser UA avoids Yahoo's basic bot filter.
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "application/json,text/plain,*/*",
+      },
+    });
+    if (!r.ok) return null;
+    const j = (await r.json()) as {
+      chart?: {
+        result?: Array<{
+          timestamp?: number[];
+          indicators?: { quote?: Array<{ close?: (number | null)[]; volume?: (number | null)[] }> };
+        }>;
+        error?: unknown;
+      };
+    };
+    const res = j?.chart?.result?.[0];
+    const ts = res?.timestamp;
+    const closes = res?.indicators?.quote?.[0]?.close;
+    const vols = res?.indicators?.quote?.[0]?.volume;
+    if (!Array.isArray(ts) || !Array.isArray(closes) || ts.length === 0) return null;
+    const out: { time: number; close: number; volume?: number }[] = [];
+    for (let i = 0; i < ts.length; i++) {
+      const t = ts[i];
+      const c = closes[i];
+      const v = Array.isArray(vols) ? vols[i] : undefined;
+      if (Number.isFinite(t) && c !== null && c !== undefined && Number.isFinite(c)) {
+        out.push({ time: t, close: c as number, volume: Number.isFinite(v as number) ? (v as number) : undefined });
+      }
+    }
+    return out.length > 0 ? out.slice(-400) : null;
+  } catch {
+    return null;
+  }
+}

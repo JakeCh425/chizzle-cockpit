@@ -13,6 +13,7 @@ import {
   removeSseClient,
   PUBLIC_SYMBOLS,
   fetchFinnhubBars,
+  fetchYahooBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -1015,7 +1016,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: { time: number; close: number; volume?: number }[] = [];
-      let dataSource: "stooq" | "ticks" | "finnhub" | "none" = "none";
+      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "none" = "none";
       let warning: string | undefined;
 
       if (interval === "1D" || interval === "1H") {
@@ -1065,8 +1066,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           console.warn(`[candles] Stooq fetch error for ${symbol} ${interval}:`, e);
         }
 
-        // 2. Stooq failed or returned nothing — try Finnhub (works for 1D and 1H).
+        // 2. Stooq failed or returned nothing — try Yahoo Finance (free, no key,
+        //    works from datacenter IPs, supports both daily and hourly).
+        let yahooTried = false;
         if (!stooqOk) {
+          yahooTried = true;
+          const yhi = interval === "1H" ? "1h" : "1d";
+          const yh = await fetchYahooBars(symbol, yhi);
+          if (aborted) return;
+          if (yh && yh.length > 0) {
+            data = yh;
+            dataSource = "yahoo";
+          }
+        }
+
+        // 3. Yahoo also empty — last resort Finnhub (free tier: daily only).
+        if (!stooqOk && data.length === 0) {
           const fnbRes = interval === "1H" ? "60" : "D";
           const fnb = await fetchFinnhubBars(symbol, fnbRes);
           if (aborted) return;
@@ -1075,15 +1090,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             dataSource = "finnhub";
           } else if (interval === "1H") {
             warning = stooqBlocked
-              ? "Stooq blocked our IP; Finnhub free tier doesn't include hourly bars."
-              : "Hourly bars unavailable on free data tier.";
+              ? "Stooq blocked our IP and Yahoo/Finnhub returned no hourly data."
+              : (yahooTried ? "Hourly bars unavailable from all free providers right now." : "Hourly bars unavailable.");
           } else {
             warning = stooqBlocked
-              ? "Stooq blocked our IP; Finnhub returned no daily data."
-              : "No daily data returned.";
+              ? "Stooq blocked our IP and Yahoo/Finnhub returned no daily data."
+              : (yahooTried ? "No daily data returned by any free provider." : "No daily data returned.");
           }
         }
-      } else {
+      }
+      if (interval === "30M" || interval === "5M") {
         // Intraday: bucket recorded ticks. 1000 ticks is enough for SMA200 on
         // 5m (≈ several sessions) and well over for 30m.
         const ticks = await storage.listPriceTicks(symbol, 1000);
@@ -1102,7 +1118,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (aborted) return;
       // Backwards compat: existing clients expect a bare array. New clients
       // can opt-in to the rich envelope via ?meta=1.
-      candleCache.set(key, { t: now, data });
+      // Don't cache empty results — lets the next request try the fallback
+      // chain again instead of being stuck on an upstream blip for 60s.
+      if (data.length > 0) candleCache.set(key, { t: now, data });
       if (String(req.query.meta || "") === "1") {
         res.json({ bars: data, source: dataSource, warning, interval, symbol });
       } else {
