@@ -969,8 +969,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   //
   // In-memory cache keyed by `symbol:interval`; TTL scales with resolution so
   // we never refresh more aggressively than the data can change.
-  const candleCache = new Map<string, { t: number; data: { time: number; close: number; volume?: number }[] }>();
-  const CANDLE_TTL = { "1D": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000 } as const;
+  // Per-key cache: latest fresh fetch (`data`/`t`) + last known good (`stale`/`staleT`).
+  // If all upstream providers fail, we serve the stale snapshot (SWR — stale-while-revalidate).
+  type CandleEntry = {
+    t: number;
+    data: { time: number; close: number; volume?: number }[];
+    stale?: { time: number; close: number; volume?: number }[];
+    staleT?: number;
+    staleSrc?: string;
+  };
+  const candleCache = new Map<string, CandleEntry>();
+  // TTL = how long a fresh response is reused before we refetch. Bumped to 1h
+  // for 1D (daily bars only change at the close) and 5m for 1H to reduce
+  // pressure on rate-limited free providers (Stooq/Yahoo) on Render's IP.
+  const CANDLE_TTL = { "1D": 60 * 60_000, "1H": 5 * 60_000, "30M": 20_000, "5M": 10_000 } as const;
   type Interval = keyof typeof CANDLE_TTL;
 
   // Bucket recorded ticks into fixed time windows. `ts` is unix seconds (the
@@ -1010,8 +1022,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const key = `${symbol}:${interval}`;
       const now = Date.now();
       const hit = candleCache.get(key);
-      if (hit && (now - hit.t) < CANDLE_TTL[interval]) {
-        // Intraday data has its own 60s cap (see CANDLE_TTL definition).
+      if (hit && hit.data.length > 0 && (now - hit.t) < CANDLE_TTL[interval]) {
         return res.json(hit.data);
       }
 
@@ -1116,11 +1127,27 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       if (aborted) return;
-      // Backwards compat: existing clients expect a bare array. New clients
-      // can opt-in to the rich envelope via ?meta=1.
-      // Don't cache empty results — lets the next request try the fallback
-      // chain again instead of being stuck on an upstream blip for 60s.
-      if (data.length > 0) candleCache.set(key, { t: now, data });
+      // Stale-while-revalidate: if all live providers failed, fall back to
+      // the last known good snapshot we ever fetched (any age). Daily/hourly
+      // bars from yesterday are still vastly more useful than an empty chart.
+      let usedStale = false;
+      if (data.length === 0 && hit && hit.stale && hit.stale.length > 0) {
+        data = hit.stale;
+        dataSource = (hit.staleSrc as typeof dataSource) || "stooq";
+        usedStale = true;
+        const ageMin = hit.staleT ? Math.round((now - hit.staleT) / 60_000) : 0;
+        warning = (warning ? warning + " " : "") + `(showing cached bars from ${ageMin}m ago)`;
+      }
+      if (data.length > 0) {
+        // Update fresh cache; also persist as the new "last known good" for SWR.
+        candleCache.set(key, {
+          t: usedStale ? (hit?.t ?? 0) : now,
+          data,
+          stale: usedStale ? hit?.stale : data,
+          staleT: usedStale ? hit?.staleT : now,
+          staleSrc: usedStale ? hit?.staleSrc : dataSource,
+        });
+      }
       if (String(req.query.meta || "") === "1") {
         res.json({ bars: data, source: dataSource, warning, interval, symbol });
       } else {
@@ -1216,6 +1243,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   runArchivePrune();
   setInterval(runArchivePrune, 24 * 60 * 60 * 1000);
+
+  // Candle pre-warmer: on cold start, the very first burst of client requests
+  // hits rate-limited free providers (Stooq's bot-challenge, Yahoo 429) and
+  // returns empty. Warm the cache sequentially with long gaps so each symbol
+  // has at least one stale-while-revalidate snapshot before the UI asks.
+  const warmupSymbols = ["SMH", "QQQ", "SPY", "IWM", "AAPL", "META"];
+  const warmupIntervals: Interval[] = ["1D", "1H"];
+  const warmCandle = async (symbol: string, interval: Interval) => {
+    try {
+      // Hit our own endpoint so we exercise the full fallback chain and
+      // populate `candleCache` exactly the way client requests do.
+      const port = process.env.PORT || "5000";
+      const r = await fetch(`http://127.0.0.1:${port}/api/candles/${symbol}?interval=${interval}&meta=1`);
+      if (!r.ok) return;
+      const j = (await r.json()) as { bars?: unknown[]; source?: string };
+      const n = Array.isArray(j.bars) ? j.bars.length : 0;
+      if (n > 0) console.log(`[candle-warm] ${symbol} ${interval}: ${n} bars (src=${j.source})`);
+    } catch (e) {
+      console.warn(`[candle-warm] ${symbol} ${interval} failed:`, (e as Error)?.message || e);
+    }
+  };
+  // Stagger: 6 symbols × 2 intervals = 12 fetches × 3s = 36s total warm-up.
+  // Starts 5s after boot so the HTTP server is fully ready.
+  setTimeout(() => {
+    let i = 0;
+    const pairs: Array<[string, Interval]> = [];
+    for (const s of warmupSymbols) for (const iv of warmupIntervals) pairs.push([s, iv]);
+    const tick = () => {
+      if (i >= pairs.length) return;
+      const [s, iv] = pairs[i++];
+      warmCandle(s, iv).finally(() => setTimeout(tick, 3000));
+    };
+    tick();
+  }, 5000);
 
   return httpServer;
 }
