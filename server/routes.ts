@@ -12,6 +12,7 @@ import {
   addSseClient,
   removeSseClient,
   PUBLIC_SYMBOLS,
+  fetchFinnhubHourlyBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -28,13 +29,41 @@ import {
   insertAlertSchema,
   insertJournalEntrySchema,
   insertLeapPositionSchema,
+  insertSettingsSchema,
+  insertTickerSchema,
+  insertWatchlistSchema,
+  insertEquityHistorySchema,
+  insertChizzleScoreSchema,
+  insertLeapReserveSchema,
 } from "@shared/schema";
+import { z, type ZodTypeAny } from "zod";
+import { fromZodError } from "zod-validation-error";
 import {
   evaluateLifecycle,
   earningsBlocksEntry,
   computeFinalRMultiple,
 } from "./tradeLifecycle";
 import { decideDiscipline } from "../shared/discipline";
+
+/**
+ * Validate `req.body` against a zod schema. On failure, send 400 + a readable
+ * error and return null. On success, return the parsed (typed) value.
+ *
+ * Callers should bail early on null:
+ *   const data = validateBody(req, res, mySchema); if (!data) return;
+ */
+function validateBody<S extends ZodTypeAny>(
+  req: { body: unknown },
+  res: { status: (n: number) => { json: (b: unknown) => void } },
+  schema: S
+): z.infer<S> | null {
+  const parsed = schema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: fromZodError(parsed.error).message, code: "VALIDATION_FAILED" });
+    return null;
+  }
+  return parsed.data;
+}
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
   // ── health check (for rebuild.sh + uptime monitoring) ───────────
@@ -70,7 +99,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.getSettings()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.patch("/api/settings", async (req, res) => {
-    try { res.json(await storage.updateSettings(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    const data = validateBody(req, res, insertSettingsSchema.partial());
+    if (!data) return;
+    try { res.json(await storage.updateSettings(data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── tickers ─────────────────────────────────────────────────────
@@ -78,9 +109,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.listTickers()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.patch("/api/tickers/:id", async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "invalid id" });
+    const data = validateBody(req, res, insertTickerSchema.partial());
+    if (!data) return;
     try {
-      const id = Number(req.params.id);
-      res.json(await storage.updateTicker(id, req.body));
+      res.json(await storage.updateTicker(id, data));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/tickers/prices", async (req, res) => {
@@ -108,7 +142,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.listWatchlist()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.patch("/api/watchlist/:id", async (req, res) => {
-    try { res.json(await storage.updateWatchlistItem(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "invalid id" });
+    const data = validateBody(req, res, insertWatchlistSchema.partial());
+    if (!data) return;
+    try { res.json(await storage.updateWatchlistItem(id, data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/watchlist", async (req, res) => {
     try {
@@ -653,10 +691,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/journal", async (req, res) => {
+    const data = validateBody(req, res, insertJournalEntrySchema);
+    if (!data) return;
     try {
-      const data = insertJournalEntrySchema.parse(req.body);
       res.json(await storage.upsertJournal(data));
-    } catch (e: any) { res.status(400).json({ error: e.message }); }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── LEAP positions ─────────────────────────────────────────────
@@ -664,13 +703,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.listLeapPositions()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/leap", async (req, res) => {
+    const data = validateBody(req, res, insertLeapPositionSchema);
+    if (!data) return;
     try {
-      const data = insertLeapPositionSchema.parse(req.body);
       res.json(await storage.createLeapPosition(data));
-    } catch (e: any) { res.status(400).json({ error: e.message }); }
+    } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.patch("/api/leap/:id", async (req, res) => {
-    try { res.json(await storage.updateLeapPosition(Number(req.params.id), req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) return res.status(400).json({ error: "invalid id" });
+    const data = validateBody(req, res, insertLeapPositionSchema.partial());
+    if (!data) return;
+    try { res.json(await storage.updateLeapPosition(id, data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.delete("/api/leap/:id", async (req, res) => {
     try {
@@ -684,19 +728,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.getLeapReserve()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.patch("/api/leap-reserve", async (req, res) => {
-    try { res.json(await storage.updateLeapReserve(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    const data = validateBody(req, res, insertLeapReserveSchema.partial());
+    if (!data) return;
+    try { res.json(await storage.updateLeapReserve(data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── equity history ─────────────────────────────────────────────
   app.get("/api/equity-history", async (_req, res) => {
     try { res.json(await storage.listEquityHistory()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
+  // Equity history accepts a richer body with optional date/drawdownPct, so we
+  // validate a lighter schema instead of the full insert (date is auto-filled).
+  const equityPostSchema = z.object({
+    date: z.string().optional(),
+    equity: z.number().finite(),
+    drawdownPct: z.number().finite().optional(),
+  });
   app.post("/api/equity-history", async (req, res) => {
+    const data = validateBody(req, res, equityPostSchema);
+    if (!data) return;
     try {
       res.json(await storage.appendEquity({
-        date: req.body.date || new Date().toISOString().slice(0, 10),
-        equity: req.body.equity,
-        drawdownPct: req.body.drawdownPct || 0,
+        date: data.date || new Date().toISOString().slice(0, 10),
+        equity: data.equity,
+        drawdownPct: data.drawdownPct || 0,
       }));
     } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
@@ -706,7 +761,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try { res.json(await storage.listChizzleScores()); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
   app.post("/api/chizzle-scores", async (req, res) => {
-    try { res.json(await storage.upsertChizzleScore(req.body)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    const data = validateBody(req, res, insertChizzleScoreSchema);
+    if (!data) return;
+    try { res.json(await storage.upsertChizzleScore(data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── regime engine ──────────────────────────────────────────────
@@ -958,7 +1015,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: { time: number; close: number; volume?: number }[] = [];
-      let dataSource: "stooq" | "ticks" | "none" = "none";
+      let dataSource: "stooq" | "ticks" | "finnhub" | "none" = "none";
       let warning: string | undefined;
 
       if (interval === "1D" || interval === "1H") {
@@ -998,8 +1055,16 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         data = data.slice(-400);
         dataSource = data.length > 0 ? "stooq" : "none";
         if (interval === "1H" && data.length === 0) {
-          // Stooq free tier returns "No data" for US hourly. Be explicit.
-          warning = "Hourly bars unavailable on free data tier.";
+          // Stooq free tier returns "No data" for US hourly. Try Finnhub as a
+          // fallback (resolution=60) before giving up.
+          const fnb = await fetchFinnhubHourlyBars(symbol);
+          if (aborted) return;
+          if (fnb && fnb.length > 0) {
+            data = fnb;
+            dataSource = "finnhub";
+          } else {
+            warning = "Hourly bars unavailable on free data tier.";
+          }
         }
       } else {
         // Intraday: bucket recorded ticks. 1000 ticks is enough for SMA200 on

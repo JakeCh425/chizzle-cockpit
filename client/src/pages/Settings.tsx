@@ -74,7 +74,7 @@ export default function SettingsPage() {
   const { data: regimePayload } = useQuery<RegimePayload>({ queryKey: ["/api/regime"] });
 
   const activeRegime: "GREEN" | "YELLOW" | "RED" =
-    (regimePayload?.effective?.code?.toUpperCase() as any) || "YELLOW";
+    (regimePayload?.effective?.code?.toUpperCase() as "GREEN" | "YELLOW" | "RED" | undefined) || "YELLOW";
 
   const [equity, setEquity] = useState("");
   const [riskG, setRiskG] = useState("5");

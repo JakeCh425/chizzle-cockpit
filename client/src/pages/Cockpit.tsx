@@ -67,9 +67,9 @@ export default function Cockpit() {
       toast({ title: "Scan started", description: "SMA20 alert sweep running in background" });
       setTimeout(() => queryClient.invalidateQueries({ queryKey: ["/api/alerts"] }), 5000);
     },
-    onError: (err: any) => toast({
+    onError: (err: unknown) => toast({
       title: "Scan failed",
-      description: err?.message || "Could not start scan",
+      description: errMsg(err, "Could not start scan"),
       variant: "destructive",
     }),
   });
@@ -103,7 +103,7 @@ export default function Cockpit() {
     const lp = livePrices[t.symbol] ?? t.currentPrice;
     const cands = setupsByTicker?.[t.symbol] || [];
     for (const c of cands) {
-      const quality = ((c as any).quality as Quality | null) || defaultQualityFallback();
+      const quality = (c.quality as Quality | null) || defaultQualityFallback();
       const d = decideDiscipline(regimeCodeLower, quality);
       if (d.visibility === "hidden") {
         wlHiddenCount++;
@@ -116,7 +116,7 @@ export default function Cockpit() {
   // Sort: regime-eligible setups first (ARMED > IN_ZONE > APPROACHING > BUILDING),
   // then regime-blocked setups (any state), then DORMANT/INVALIDATED.
   function eligibilityRank(c: SetupCandidateRow): number {
-    const elig = (c as any).regimeEligible !== false;
+    const elig = c.regimeEligible !== false;
     if (elig) return 2;
     return 1; // blocked but otherwise tracked
   }
@@ -147,17 +147,17 @@ export default function Cockpit() {
   const todaysOpportunities = useMemo(() => {
     const out: typeof wlRows = [];
     for (const r of wlRows) {
-      const q = ((r.candidate as any).quality as Quality | null) || defaultQualityFallback();
+      const q = (r.candidate.quality as Quality | null) || defaultQualityFallback();
       const s = (r.candidate.state || "").toLowerCase();
-      const triggered = (r.candidate as any).triggerFired === true;
+      const triggered = r.candidate.triggerFired === true;
       const isLive = s === "in_zone" || s === "live" || s === "armed" || triggered;
       if (isLive && (q === "A" || q === "B")) {
         out.push(r);
       }
     }
     out.sort((a, b) => {
-      const qa = ((a.candidate as any).quality === "A" ? 0 : 1);
-      const qb = ((b.candidate as any).quality === "A" ? 0 : 1);
+      const qa = (a.candidate.quality === "A" ? 0 : 1);
+      const qb = (b.candidate.quality === "A" ? 0 : 1);
       if (qa !== qb) return qa - qb;
       return Math.abs(a.pctToZone) - Math.abs(b.pctToZone);
     });
@@ -243,9 +243,9 @@ export default function Cockpit() {
 
       {/* Row 1: regime / risk / chizzle */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <RegimePanel regime={regime} payload={regimePayload} history={regimeHistory || []} />
-        <RiskPanel openRisk={openRisk} todayRiskAtRisk={todayRiskAtRisk} allowed$={allowed$} positions={openTrades.length} maxPositions={MAX_POSITIONS[regime]} regime={regime} allowedSetupsLabel={regimeAllowedSetupsLabel(regime)} riskMap={riskMap} />
-        <ChizzleScorePanel today={todayScore} rolling={rolling} istate={istate} scores={scores || []} />
+        <ErrorBoundary label="Regime"><RegimePanel regime={regime} payload={regimePayload} history={regimeHistory || []} /></ErrorBoundary>
+        <ErrorBoundary label="Risk"><RiskPanel openRisk={openRisk} todayRiskAtRisk={todayRiskAtRisk} allowed$={allowed$} positions={openTrades.length} maxPositions={MAX_POSITIONS[regime]} regime={regime} allowedSetupsLabel={regimeAllowedSetupsLabel(regime)} riskMap={riskMap} /></ErrorBoundary>
+        <ErrorBoundary label="Chizzle Score"><ChizzleScorePanel today={todayScore} rolling={rolling} istate={istate} scores={scores || []} /></ErrorBoundary>
       </div>
 
       {/* Row 1.5: Today's Opportunities (A/B-grade setups currently live/in-zone) */}
@@ -256,11 +256,11 @@ export default function Cockpit() {
       )}
 
       {/* Row 1.6: Regime read-out (trend · volatility · breadth · distribution) */}
-      <RegimeAxisPanel />
+      <ErrorBoundary label="Regime Axis"><RegimeAxisPanel /></ErrorBoundary>
 
       {/* Row 1.7: Portfolio heatmap (A-score at a glance) */}
       <Panel title="Watchlist Heatmap" hint={`${(watchlist || []).length} symbols · A-score tone · click to expand`}>
-        <PortfolioHeatmap />
+        <ErrorBoundary label="Heatmap"><PortfolioHeatmap /></ErrorBoundary>
       </Panel>
 
       {/* Row 1.75: Mini-chart watchlist (SMA20/50/200 + A2/A3/A4 signals) */}
@@ -294,13 +294,13 @@ export default function Cockpit() {
 
       {/* Row 1.8: Sortable scoring dashboard (scanner) */}
       <Panel title="Scanner" hint={`${(watchlist || []).length} symbols · sort by A-score / Δ SMA20 / trend`}>
-        <ScoringDashboard />
+        <ErrorBoundary label="Scanner"><ScoringDashboard /></ErrorBoundary>
       </Panel>
 
       {/* Row 2: watchlist + alerts */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
         <Panel title="Watchlist · Auto Setups" hint={`${wlRows.length} setups · Tier ${settings?.watchlistTier ?? 1}`} className="lg:col-span-8">
-          <WatchlistTable rows={wlRows} hiddenCount={wlHiddenCount} />
+          <ErrorBoundary label="Watchlist Table"><WatchlistTable rows={wlRows} hiddenCount={wlHiddenCount} /></ErrorBoundary>
         </Panel>
         <Panel
           title="Alerts Feed"
@@ -347,14 +347,14 @@ export default function Cockpit() {
           <OpenPositionsTable trades={openTrades} livePrices={livePrices} />
         </Panel>
         <Panel title="Equity Curve · Drawdown" hint={`MaxDD ${dd.max.toFixed(2)}%`} className="lg:col-span-6">
-          <EquityChart data={eqData} />
+          <ErrorBoundary label="Equity Chart"><EquityChart data={eqData} /></ErrorBoundary>
         </Panel>
       </div>
 
       {/* Row 4: leap / expectancy / journal queue */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Panel title="LEAP Ladder" hint={`Reserve $${(leapReserve?.balance ?? 0).toFixed(2)}`}>
-          <LeapSummary positions={leap || []} reserve={leapReserve?.balance ?? 0} equity={equity} leapPct={leapPct} leapValue={leapValue} />
+          <ErrorBoundary label="LEAP"><LeapSummary positions={leap || []} reserve={leapReserve?.balance ?? 0} equity={equity} leapPct={leapPct} leapValue={leapValue} /></ErrorBoundary>
         </Panel>
         <Panel title="Expectancy" hint={`${exp.n} closed`}>
           <ExpectancyPanel expectancyValue={exp.value} closed={closedTrades} />
@@ -402,7 +402,7 @@ function RegimePanel({ regime, payload, history }: { regime: "GREEN" | "YELLOW" 
     <Panel title="Regime" hint={regime === "GREEN" ? "Risk-On" : regime === "YELLOW" ? "Mixed/Chop" : "Risk-Off"}>
       <div className="space-y-3">
         <div className="flex items-center gap-2 flex-wrap">
-          <Chip tone={tone as any} className="text-[11px] px-2 py-1" data-testid="text-regime-effective">
+          <Chip tone={tone} className="text-[11px] px-2 py-1" data-testid="text-regime-effective">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-current heartbeat mr-1.5" />
             {regimeLabel(regime)}
           </Chip>
@@ -522,7 +522,17 @@ function DualSpark({ label, tone, primary, secondary }: { label: string; tone: S
 }
 
 // ─── Risk Panel ─────────────────────────────────────────────────────────────
-function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPositions, regime, allowedSetupsLabel, riskMap }: any) {
+interface RiskPanelProps {
+  openRisk: number;
+  todayRiskAtRisk: number;
+  allowed$: number;
+  positions: number;
+  maxPositions: number;
+  regime: "GREEN" | "YELLOW" | "RED";
+  allowedSetupsLabel: string;
+  riskMap: Record<string, number>;
+}
+function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPositions, regime, allowedSetupsLabel, riskMap }: RiskPanelProps) {
   const pct = Math.min(100, (openRisk / MAX_OPEN_RISK_PCT) * 100);
   const gaugeTone = openRisk >= 6 ? "signal-red" : openRisk >= 5 ? "signal-amber" : "neon-blue";
   const map = (riskMap || { GREEN: 0.05, YELLOW: 0.03, RED: 0.01 }) as Record<string, number>;
@@ -580,7 +590,13 @@ function RiskPanel({ openRisk, todayRiskAtRisk, allowed$, positions, maxPosition
 }
 
 // ─── Chizzle Score Panel ───────────────────────────────────────────────────
-function ChizzleScorePanel({ today, rolling, istate, scores }: any) {
+interface ChizzleScorePanelProps {
+  today: number;
+  rolling: number;
+  istate: string;
+  scores: ChizzleScore[];
+}
+function ChizzleScorePanel({ today, rolling, istate, scores }: ChizzleScorePanelProps) {
   const isOperator = rolling >= 90;
   const istateLabel = istate.replace("_", "-");
   // lowest component bar — synthesize from latest
@@ -669,8 +685,8 @@ function WatchlistTable({ rows, hiddenCount }: {
             const zoneText = candidate.entryZoneLow != null && candidate.entryZoneHigh != null
               ? `${candidate.entryZoneLow.toFixed(2)}–${candidate.entryZoneHigh.toFixed(2)}`
               : "—";
-            const regimeEligible = (candidate as any).regimeEligible !== false;
-            const regimeBlockedReason = (candidate as any).regimeBlockedReason as string | null | undefined;
+            const regimeEligible = candidate.regimeEligible !== false;
+            const regimeBlockedReason = candidate.regimeBlockedReason;
             const isDimmed = discipline?.visibility === "dimmed";
             const dimStyle = isDimmed ? { opacity: 0.55 } : undefined;
             return (
@@ -770,7 +786,7 @@ function TodaysOpportunities({
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-2">
       {rows.map(({ ticker, candidate, lp, pctToZone }) => {
-        const q = ((candidate as any).quality as string) || "B";
+        const q = candidate.quality || "B";
         const qTone = q === "A" ? "green" : q === "B" ? "amber" : "red";
         const stateRaw = (candidate.state || "").toLowerCase();
         const stateLabel = formatSetupState(stateRaw);
@@ -783,7 +799,7 @@ function TodaysOpportunities({
           >
             <div className="flex items-baseline justify-between gap-2">
               <span className="font-mono-num text-[13px] text-soft-white">{ticker.symbol}</span>
-              <Chip tone={qTone as any} className="text-[10px] px-1.5 py-0">{q}</Chip>
+              <Chip tone={qTone} className="text-[10px] px-1.5 py-0">{q}</Chip>
             </div>
             <div className="flex items-baseline justify-between text-[10px] uppercase tracking-wider">
               <span className="text-slate-gray">{formatSetupKind(candidate.setup)}</span>
@@ -804,8 +820,8 @@ function TodaysOpportunities({
                     low={candidate.entryZoneLow}
                     high={candidate.entryZoneHigh}
                     current={lp}
-                    stopLevel={(candidate as any).stopLevel ?? null}
-                    t1={(candidate as any).t1 ?? null}
+                    stopLevel={candidate.stop ?? null}
+                    t1={candidate.t1 ?? null}
                     width={210}
                     height={22}
                   />
@@ -930,7 +946,8 @@ function OpenPositionsTable({ trades, livePrices }: { trades: Trade[]; livePrice
 }
 
 // ─── Equity Chart ───────────────────────────────────────────────────────────
-function EquityChart({ data }: { data: any[] }) {
+interface EquityChartPoint { date: string; equity: number; dd: number }
+function EquityChart({ data }: { data: EquityChartPoint[] }) {
   if (!data.length) return <div className="text-[12px] text-slate-gray">No equity data yet.</div>;
   return (
     <div className="h-48">
@@ -950,7 +967,14 @@ function EquityChart({ data }: { data: any[] }) {
 }
 
 // ─── LEAP Summary ───────────────────────────────────────────────────────────
-function LeapSummary({ positions, reserve, equity, leapPct, leapValue }: any) {
+interface LeapSummaryProps {
+  positions: LeapPosition[];
+  reserve: number;
+  equity: number;
+  leapPct: number;
+  leapValue: number;
+}
+function LeapSummary({ positions, reserve, leapPct, leapValue }: LeapSummaryProps) {
   const nextTrigger = 500;
   const pctToTrigger = Math.min(100, (reserve / nextTrigger) * 100);
   return (

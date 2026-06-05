@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { errMsg } from "@/lib/errors";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import { Panel } from "@/components/Panel";
@@ -94,16 +94,16 @@ export default function SpecReview() {
               remarkPlugins={[remarkGfm]}
               rehypePlugins={[rehypeHighlight]}
               components={{
-                h1: ({ node, ...props }) => (
+                h1: ({ node: _n, ...props }) => (
                   <h1 style={{ color: "#3DA9FC", fontFamily: "Space Grotesk, sans-serif", borderBottom: "1px solid #1a2030", paddingBottom: "8px", marginTop: "32px" }} {...props} />
                 ),
-                h2: ({ node, ...props }) => (
+                h2: ({ node: _n, ...props }) => (
                   <h2 style={{ color: "#C8A24B", fontFamily: "Space Grotesk, sans-serif", marginTop: "28px" }} {...props} />
                 ),
-                h3: ({ node, ...props }) => (
+                h3: ({ node: _n, ...props }) => (
                   <h3 style={{ color: "#d8dde6", fontFamily: "Space Grotesk, sans-serif", marginTop: "20px" }} {...props} />
                 ),
-                code: ({ node, className, children, ...props }: any) => {
+                code: ({ node: _n, className, children, ...props }) => {
                   const isInline = !className;
                   if (isInline) {
                     return (
@@ -114,25 +114,25 @@ export default function SpecReview() {
                   }
                   return <code className={className} {...props}>{children}</code>;
                 },
-                pre: ({ node, ...props }) => (
+                pre: ({ node: _n, ...props }) => (
                   <pre style={{ background: "#0d1320", border: "1px solid #1a2030", borderRadius: "6px", padding: "12px", overflow: "auto", fontSize: "12px" }} {...props} />
                 ),
-                table: ({ node, ...props }) => (
+                table: ({ node: _n, ...props }) => (
                   <table style={{ borderCollapse: "collapse", margin: "12px 0", width: "100%" }} {...props} />
                 ),
-                th: ({ node, ...props }) => (
+                th: ({ node: _n, ...props }) => (
                   <th style={{ border: "1px solid #1a2030", padding: "6px 10px", background: "#0d1320", textAlign: "left", color: "#C8A24B" }} {...props} />
                 ),
-                td: ({ node, ...props }) => (
+                td: ({ node: _n, ...props }) => (
                   <td style={{ border: "1px solid #1a2030", padding: "6px 10px" }} {...props} />
                 ),
-                hr: ({ node, ...props }) => (
+                hr: ({ node: _n, ...props }) => (
                   <hr style={{ border: "none", borderTop: "1px solid #1a2030", margin: "24px 0" }} {...props} />
                 ),
-                a: ({ node, ...props }) => (
+                a: ({ node: _n, ...props }) => (
                   <a style={{ color: "#3DA9FC" }} {...props} />
                 ),
-              }}
+              } satisfies Components}
             >
               {content}
             </ReactMarkdown>

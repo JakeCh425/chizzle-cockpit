@@ -74,9 +74,9 @@ function PerTradeReflection() {
 
 const EMOTIONS = ["calm", "excited", "anxious", "fomo", "doubt"] as const;
 function ReflectionCard({ trade, onSaved }: { trade: Trade; onSaved: () => void }) {
-  const [emotion, setEmotion] = useState<string>((trade as any).emotionTag || "");
-  const [confidence, setConfidence] = useState<number>((trade as any).confidenceRating ?? 5);
-  const [reflection, setReflection] = useState<string>((trade as any).reflection || "");
+  const [emotion, setEmotion] = useState<string>(trade.emotionTag || "");
+  const [confidence, setConfidence] = useState<number>(trade.confidenceRating ?? 5);
+  const [reflection, setReflection] = useState<string>(trade.reflection || "");
   const [saving, setSaving] = useState(false);
 
   const save = async () => {

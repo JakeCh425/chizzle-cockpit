@@ -55,7 +55,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const equity = settings?.equity ?? 1000;
   const ytdPct = ((equity - 1000) / 1000) * 100;
-  const effectiveCode = regimePayload?.effective?.code ?? (settings?.regime?.toLowerCase() as any) ?? "yellow";
+  const effectiveCode = regimePayload?.effective?.code ?? (settings?.regime?.toLowerCase() as "green" | "yellow" | "red" | undefined) ?? "yellow";
   const regime = (effectiveCode.toUpperCase() as "GREEN" | "YELLOW" | "RED");
   const regimeSource = regimePayload?.effective?.source ?? "AUTO";
   const regimeStale = regimePayload?.state?.stale ?? false;

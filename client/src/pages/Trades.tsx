@@ -94,7 +94,7 @@ export default function Trades() {
 
   // Discipline preview — regime × quality decides visibility + risk multiplier.
   // Quality is read from the auto-filled candidate if present, otherwise B fallback.
-  const candidateQuality = ((actionableCandidate as any)?.quality as Quality | null) || defaultQualityFallback();
+  const candidateQuality = (actionableCandidate?.quality as Quality | null) || defaultQualityFallback();
   const regimeLower = (regime as string).toLowerCase() as RegimeCode;
   const discipline = decideDiscipline(regimeLower, candidateQuality);
 

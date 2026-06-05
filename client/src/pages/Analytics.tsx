@@ -50,7 +50,7 @@ export default function Analytics() {
   // Per quality grade (A / B / C / unknown)
   const qualities = ["A", "B", "C"] as const;
   const qualityData = qualities.map(q => {
-    const arr = closed.filter(t => ((t as any).qualityAtEntry || "") === q);
+    const arr = closed.filter(t => (t.qualityAtEntry || "") === q);
     const expe = expectancy(arr);
     const totalR = arr.reduce((acc, t) => acc + (t.rMultiple ?? 0), 0);
     const avgR = arr.length ? totalR / arr.length : 0;

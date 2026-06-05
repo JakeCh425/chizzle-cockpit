@@ -301,3 +301,40 @@ export function feedStatus(): FeedStatus {
 
 export const WATCHED_SYMBOLS = SYMBOLS;
 export const PUBLIC_SYMBOLS = WATCHLIST_SYMS;
+
+/**
+ * Fetch hourly OHLC bars from Finnhub as a fallback when Stooq's free tier
+ * returns no data (it gates US hourly behind a paid plan).
+ *
+ * Returns `null` when Finnhub is unconfigured or returns no data, so callers
+ * can surface a meaningful warning instead of an empty array.
+ *
+ * Window: last ~30 calendar days (≈ 150 trading hours), trimmed to 400 bars
+ * to match the existing daily/hourly payload contract.
+ */
+export async function fetchFinnhubHourlyBars(
+  symbol: string
+): Promise<{ time: number; close: number; volume?: number }[] | null> {
+  if (!FINNHUB_TOKEN && !proxyDispatcher) return null;
+  const to = Math.floor(Date.now() / 1000);
+  const from = to - 30 * 24 * 60 * 60;
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=60&from=${from}&to=${to}`;
+  try {
+    const r = await proxiedFetch(url);
+    if (!r.ok) return null;
+    const j = (await r.json()) as { s?: string; t?: number[]; c?: number[]; v?: number[] };
+    if (j.s !== "ok" || !Array.isArray(j.t) || !Array.isArray(j.c) || j.t.length === 0) return null;
+    const out: { time: number; close: number; volume?: number }[] = [];
+    for (let i = 0; i < j.t.length; i++) {
+      const ts = j.t[i];
+      const c = j.c[i];
+      const v = Array.isArray(j.v) ? j.v[i] : undefined;
+      if (Number.isFinite(ts) && Number.isFinite(c)) {
+        out.push({ time: ts, close: c, volume: Number.isFinite(v as number) ? (v as number) : undefined });
+      }
+    }
+    return out.slice(-400);
+  } catch {
+    return null;
+  }
+}

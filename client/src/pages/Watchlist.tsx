@@ -109,7 +109,7 @@ export default function Watchlist() {
       });
     } else {
       for (const c of cands) {
-        const quality = ((c as any).quality as Quality | null) || defaultQualityFallback();
+        const quality = (c.quality as Quality | null) || defaultQualityFallback();
         const d = decideDiscipline(regimeCode, quality);
         if (d.visibility === "hidden" && !showHidden) {
           hiddenCount++;
@@ -284,7 +284,7 @@ function SetupRow({
   const stateClass = setupStateColor(state);
   // Regime gate: prefer server-persisted flag, fall back to derivation if absent.
   const regimeEligible = candidate?.regimeEligible !== false; // defaults true if undefined
-  const regimeBlockedReason = (candidate as any)?.regimeBlockedReason as string | null | undefined;
+  const regimeBlockedReason = candidate?.regimeBlockedReason;
   // Discipline pill: hidden/dimmed reason from regime_gate_spec.md
   const isDimmed = discipline?.visibility === "dimmed";
   const isHiddenButShown = discipline?.visibility === "hidden";
