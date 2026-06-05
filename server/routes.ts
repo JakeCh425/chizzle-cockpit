@@ -14,6 +14,7 @@ import {
   PUBLIC_SYMBOLS,
   fetchFinnhubBars,
   fetchYahooBars,
+  fetchTiingoDailyBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -1090,20 +1091,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: { time: number; close: number; volume?: number }[] = [];
-      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "none" = "none";
+      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "tiingo" | "none" = "none";
       let warning: string | undefined;
 
       if (interval === "1D" || interval === "1H") {
-        // 1. Try Stooq first (free, full history). Note: Stooq actively
+        // 0. Try Tiingo first for 1D (free tier: 1000 req/hr, very reliable from
+        //    datacenter IPs). Tiingo free does NOT support intraday, so 1H still
+        //    falls through to Stooq/Yahoo/Finnhub.
+        if (interval === "1D") {
+          const tg = await fetchTiingoDailyBars(symbol);
+          if (aborted) return;
+          if (tg && tg.length > 0) {
+            data = tg;
+            dataSource = "tiingo";
+          }
+        }
+
+        // 1. Try Stooq next (free, full history). Note: Stooq actively
         //    bot-challenges datacenter IPs (Render/AWS/GCP/etc), returning a
         //    200 OK with HTML containing a JS proof-of-work. Detect and skip.
         const stooqI = interval === "1H" ? "h" : "d";
         const apikey = process.env.STOOQ_APIKEY || "";
         const qs = apikey ? `&apikey=${apikey}` : "";
         const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}${qs}`;
-        let stooqOk = false;
+        let stooqOk = data.length > 0; // skip Stooq if Tiingo already filled
         let stooqBlocked = false;
-        try {
+        if (!stooqOk) try {
           // Browser UA + Accept headers — Stooq's bot filter blocks empty/curl
           // UAs from datacenter IPs, returning a JS proof-of-work HTML page.
           // A real browser UA passes the filter for the CSV endpoint.

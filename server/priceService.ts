@@ -20,6 +20,7 @@ const proxyDispatcher = PROXY_URL ? new ProxyAgent({ uri: PROXY_URL }) : null;
 // Direct Finnhub token (used in production on Render where no credential proxy exists).
 // Set FINNHUB_API_KEY (or FINNHUB_TOKEN) in the deploy environment.
 const FINNHUB_TOKEN = process.env.FINNHUB_API_KEY || process.env.FINNHUB_TOKEN || "";
+const TIINGO_TOKEN = process.env.TIINGO_API_KEY || process.env.TIINGO_TOKEN || "";
 
 async function proxiedFetch(url: string, init: any = {}) {
   // Prefer the credential proxy (sandbox dev). On Render the proxy is absent
@@ -352,6 +353,63 @@ export async function fetchFinnhubBars(
 /** Backwards-compatible thin wrapper. */
 export async function fetchFinnhubHourlyBars(symbol: string) {
   return fetchFinnhubBars(symbol, "60");
+}
+
+/**
+ * Tiingo daily prices — free tier gives 1000 req/hr and works reliably from
+ * datacenter IPs (Render). Requires TIINGO_API_KEY env var. Daily-only on
+ * the free plan; IEX intraday is separate and not used here.
+ *
+ * Returns null when token missing or upstream returns empty/error so the
+ * caller can fall back to Stooq / Yahoo / Finnhub.
+ */
+export async function fetchTiingoDailyBars(
+  symbol: string
+): Promise<{ time: number; close: number; volume?: number }[] | null> {
+  if (!TIINGO_TOKEN) return null;
+  // ~560 calendar days back == ~400 trading bars
+  const endMs = Date.now();
+  const startMs = endMs - 560 * 24 * 60 * 60 * 1000;
+  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const url = `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(symbol)}/prices?startDate=${fmt(startMs)}&endDate=${fmt(endMs)}&format=json&token=${TIINGO_TOKEN}`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "chizzle-cockpit/1.0",
+      },
+    });
+    if (!r.ok) {
+      console.warn(`[tiingo] ${symbol} daily HTTP ${r.status} ${r.statusText}`);
+      return null;
+    }
+    const j = (await r.json()) as Array<{
+      date?: string;
+      close?: number;
+      adjClose?: number;
+      volume?: number;
+    }>;
+    if (!Array.isArray(j) || j.length === 0) {
+      console.warn(`[tiingo] ${symbol} daily returned empty`);
+      return null;
+    }
+    const out: { time: number; close: number; volume?: number }[] = [];
+    for (const row of j) {
+      const ts = row.date ? Math.floor(new Date(row.date).getTime() / 1000) : NaN;
+      const c = Number.isFinite(row.adjClose as number) ? (row.adjClose as number) : (row.close as number);
+      if (Number.isFinite(ts) && Number.isFinite(c)) {
+        out.push({
+          time: ts,
+          close: c,
+          volume: Number.isFinite(row.volume as number) ? (row.volume as number) : undefined,
+        });
+      }
+    }
+    return out.length > 0 ? out.slice(-400) : null;
+  } catch (e) {
+    console.warn(`[tiingo] ${symbol} daily error:`, (e as Error)?.message || e);
+    return null;
+  }
 }
 
 // Yahoo Finance simple throttling. Yahoo rate-limits aggressively on
