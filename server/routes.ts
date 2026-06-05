@@ -865,7 +865,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const movers = await Promise.all(SCAN_TICKERS.map(async (sym) => {
         try {
           const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d${qs}`;
-          const r = await fetch(url);
+          const r = await fetch(url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+              "Accept": "text/csv,text/plain,*/*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://stooq.com/",
+            },
+          });
           if (!r.ok) return { ticker: sym, error: `stooq ${r.status}` };
           const csv = await r.text();
           if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
@@ -1041,7 +1048,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         let stooqOk = false;
         let stooqBlocked = false;
         try {
-          const r = await fetch(url);
+          // Browser UA + Accept headers — Stooq's bot filter blocks empty/curl
+          // UAs from datacenter IPs, returning a JS proof-of-work HTML page.
+          // A real browser UA passes the filter for the CSV endpoint.
+          const r = await fetch(url, {
+            headers: {
+              "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+              "Accept": "text/csv,text/plain,*/*",
+              "Accept-Language": "en-US,en;q=0.9",
+              "Referer": "https://stooq.com/",
+            },
+          });
           if (aborted) return;
           if (r.ok) {
             const csv = await r.text();
@@ -1291,6 +1308,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     tick();
   }, 5000);
+
+  // Heartbeat re-warm every 15 minutes. Without this the SWR cache (1h TTL
+  // for 1D, 5min for 1H) eventually expires and a quiet site falls back to
+  // an empty response when providers throttle. A staggered re-warm keeps the
+  // cache populated continuously, even when nobody is loading the page.
+  setInterval(() => {
+    const pairs: Array<[string, Interval]> = [];
+    for (const s of warmupSymbols) for (const iv of warmupIntervals) pairs.push([s, iv]);
+    let i = 0;
+    const tick = () => {
+      if (i >= pairs.length) return;
+      const [s, iv] = pairs[i++];
+      warmCandle(s, iv).finally(() => setTimeout(tick, 5000));
+    };
+    tick();
+  }, 15 * 60 * 1000);
 
   return httpServer;
 }

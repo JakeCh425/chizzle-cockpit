@@ -285,6 +285,17 @@ export default function MiniChartWidget({
     red: "bg-signal-red shadow-[0_0_6px_hsl(var(--signal-red)/0.7)]",
     slate: "bg-slate-gray",
   };
+  // Verbose A-score "phase" label — shown next to the A1/A2/A3/A4/REJ badge
+  // so the meaning is readable at a glance without needing to recall the code.
+  const phaseLabel: Record<string, string> = {
+    A0: "CLEAR",
+    A1: "LOADING",
+    A2: "APPROACHING",
+    A3: "TOUCHING",
+    A4: "BOUNCE",
+    REJECTION: "REJECTION",
+  };
+
   const badgeClass: Record<SignalColor, string> = {
     green: "bg-signal-green/15 text-signal-green border-signal-green/40",
     amber: "bg-signal-amber/15 text-signal-amber border-signal-amber/40",
@@ -323,6 +334,17 @@ export default function MiniChartWidget({
             aria-label={`A-score ${aScore.label}. ${aScore.tooltip}`}
             data-testid={`badge-ascore-${symbol}`}
           >{aScore.label}</button>
+          {/* Verbose phase label — same tone as the badge so they read as one unit. */}
+          <span
+            className={`hidden sm:inline px-1 py-0.5 text-[9px] font-mono-num uppercase tracking-wider ${
+              aScore.color === "green" ? "text-signal-green" :
+              aScore.color === "amber" ? "text-signal-amber" :
+              aScore.color === "red" ? "text-signal-red" :
+              "text-slate-gray"
+            }`}
+            title={aScore.tooltip}
+            data-testid={`text-phase-${symbol}`}
+          >{phaseLabel[aScore.score] ?? ""}</span>
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClass[signal.color]}`}
             title={signal.note}

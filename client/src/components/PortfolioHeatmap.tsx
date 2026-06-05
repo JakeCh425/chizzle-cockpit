@@ -22,35 +22,63 @@ function cellTone(score: AScore | undefined): string {
   }
 }
 
-// ─── Memoized cell ───────────────────────────────────────────────────────────
-// Only re-renders when one of the four props it cares about changes. Identity
-// of the click handler is also stable thanks to useCallback in the parent.
+// Verbose phase label — mirrors MiniChartWidget so the heatmap reads at a glance.
+const PHASE_LABEL: Record<string, string> = {
+  A0: "CLEAR",
+  A1: "—",
+  A2: "APPROACHING",
+  A3: "TOUCHING",
+  A4: "BOUNCE",
+  REJECTION: "REJECTION",
+};
+
+// ─── Memoized cell ──────────────────────────────────────────────────
+// Only re-renders when one of the props it cares about changes. Identity of
+// the click handler is also stable thanks to useCallback in the parent.
 interface CellProps {
   symbol: string;
   scoreLabel: string;
   score: AScore | undefined;
+  lastPrice: number | undefined;
+  sma20: number | undefined;
   distPct: number | undefined;
   tooltip: string;
   onClick: (symbol: string) => void;
 }
 
 const HeatmapCell = memo(function HeatmapCell({
-  symbol, score, scoreLabel, distPct, tooltip, onClick,
+  symbol, score, scoreLabel, lastPrice, sma20, distPct, tooltip, onClick,
 }: CellProps) {
   const tone = cellTone(score);
   const distStr = distPct != null ? `${distPct >= 0 ? "+" : ""}${distPct.toFixed(1)}%` : null;
+  const phase = score ? PHASE_LABEL[score] ?? "" : "";
   return (
     <button
       type="button"
       onClick={() => onClick(symbol)}
       title={tooltip}
       data-testid={`heatmap-cell-${symbol}`}
-      className={`flex flex-col items-center justify-center gap-0.5 p-2 border rounded-sm transition-colors cursor-pointer ${tone}`}
+      className={`flex flex-col items-stretch justify-center gap-0.5 p-2 border rounded-sm transition-colors cursor-pointer text-left ${tone}`}
     >
-      <span className="text-[12px] font-mono-num font-semibold uppercase tracking-wider">{symbol}</span>
-      <span className="text-[9px] font-mono-num tabular-nums opacity-80">
-        {scoreLabel}{distStr && ` · ${distStr}`}
-      </span>
+      {/* Top row: symbol + A-score code */}
+      <div className="flex items-center justify-between gap-1">
+        <span className="text-[12px] font-mono-num font-semibold uppercase tracking-wider">{symbol}</span>
+        <span className="text-[9px] font-mono-num uppercase tracking-wider opacity-90">{scoreLabel}</span>
+      </div>
+      {/* Phase — the verbose meaning of the A-score */}
+      {phase && (
+        <div className="text-[8.5px] font-mono-num uppercase tracking-wider opacity-90">{phase}</div>
+      )}
+      {/* Prices: current price · SMA20 · distance % */}
+      <div className="flex items-baseline justify-between gap-1 text-[10px] font-mono-num tabular-nums">
+        <span className="opacity-95">{lastPrice != null ? `$${lastPrice.toFixed(2)}` : "—"}</span>
+        <span className="opacity-70">SMA20 {sma20 != null ? sma20.toFixed(2) : "—"}</span>
+      </div>
+      {distStr && (
+        <div className="text-[9px] font-mono-num tabular-nums opacity-85">
+          {distStr} from SMA20
+        </div>
+      )}
     </button>
   );
 });
@@ -83,13 +111,15 @@ export default function PortfolioHeatmap({ className = "" }: { className?: strin
 
   return (
     <>
-      <div className={`grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-1.5 ${className}`}>
+      <div className={`grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-1.5 ${className}`}>
         {rows.map(r => (
           <HeatmapCell
             key={r.symbol}
             symbol={r.symbol}
             score={r.aScore?.score}
             scoreLabel={r.aScore?.label ?? "—"}
+            lastPrice={r.lastPrice}
+            sma20={r.sma20}
             distPct={r.distToSma20Pct}
             tooltip={buildTooltip(r)}
             onClick={openModal}

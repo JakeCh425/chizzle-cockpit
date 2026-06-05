@@ -38,8 +38,17 @@ function sma20Prev(closes: number[]): number | null {
 }
 
 async function fetchDailyCloses(symbol: string): Promise<Candle[]> {
-  const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=d`;
-  const r = await fetch(url);
+  const apikey = process.env.STOOQ_APIKEY || "";
+  const qs = apikey ? `&apikey=${apikey}` : "";
+  const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=d${qs}`;
+  const r = await fetch(url, {
+    headers: {
+      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+      "Accept": "text/csv,text/plain,*/*",
+      "Accept-Language": "en-US,en;q=0.9",
+      "Referer": "https://stooq.com/",
+    },
+  });
   if (!r.ok) return [];
   const csv = await r.text();
   const lines = csv.trim().split("\n").slice(1);
