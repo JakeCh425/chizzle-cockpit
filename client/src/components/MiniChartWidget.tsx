@@ -43,11 +43,15 @@ const DEFAULT_REFRESH: Record<Interval, number> = {
   "5M": 10_000,
 };
 
-// SMA hex tokens used in the right-edge value labels (text color matches line).
+// SMA chip text colors. Use the SAME CSS tokens as the line strokes so the
+// chip color always matches its corresponding line (across light/dark themes):
+//   sma20  -> --neon-blue
+//   sma50  -> --signal-amber
+//   sma200 -> --signal-red
 const SMA_LABEL_COLOR = {
-  sma20: "#22C55E", // green
-  sma50: "#F59E0B", // amber
-  sma200: "#EF4444", // red
+  sma20: "hsl(var(--neon-blue))",
+  sma50: "hsl(var(--signal-amber))",
+  sma200: "hsl(var(--signal-red))",
 } as const;
 
 // ─── Data fetcher ────────────────────────────────────────────────────────────
