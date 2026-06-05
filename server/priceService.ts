@@ -374,7 +374,10 @@ export async function fetchYahooBars(
         "Accept": "application/json,text/plain,*/*",
       },
     });
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.warn(`[yahoo] ${symbol} ${interval} HTTP ${r.status} ${r.statusText}`);
+      return null;
+    }
     const j = (await r.json()) as {
       chart?: {
         result?: Array<{
@@ -398,8 +401,12 @@ export async function fetchYahooBars(
         out.push({ time: t, close: c as number, volume: Number.isFinite(v as number) ? (v as number) : undefined });
       }
     }
+    if (out.length === 0) {
+      console.warn(`[yahoo] ${symbol} ${interval} parsed 0 bars from response`);
+    }
     return out.length > 0 ? out.slice(-400) : null;
-  } catch {
+  } catch (e) {
+    console.warn(`[yahoo] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
     return null;
   }
 }
