@@ -992,6 +992,62 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const CANDLE_TTL = { "1D": 60 * 60_000, "1H": 5 * 60_000, "30M": 20_000, "5M": 10_000 } as const;
   type Interval = keyof typeof CANDLE_TTL;
 
+  // Disk-backed SWR persistence — critical for daily bars on a single-node free
+  // tier. Render restarts the container periodically; without persistence, the
+  // SWR stale snapshot is lost and an empty-provider window leaves the UI blank.
+  // We persist successful 1D/1H fetches and reload on boot so the UI ALWAYS
+  // has something to show.
+  const CACHE_DIR = process.env.CANDLE_CACHE_DIR || "/tmp/chizzle-candles";
+  const ensureCacheDir = () => {
+    try { fs.mkdirSync(CACHE_DIR, { recursive: true }); } catch {}
+  };
+  const cachePath = (key: string) => path.join(CACHE_DIR, key.replace(/[:/]/g, "_") + ".json");
+
+  const saveCacheToDisk = (key: string, entry: CandleEntry) => {
+    // Only persist 1D/1H (intraday tick buckets are regenerated from live ticks).
+    if (!key.endsWith(":1D") && !key.endsWith(":1H")) return;
+    // Only persist when we have real data — never overwrite a good snapshot with empty.
+    if (!entry.data || entry.data.length === 0) return;
+    try {
+      ensureCacheDir();
+      fs.writeFileSync(cachePath(key), JSON.stringify(entry), "utf8");
+    } catch (e) {
+      console.warn(`[candle-cache] failed to persist ${key}:`, (e as Error)?.message || e);
+    }
+  };
+
+  const loadCacheFromDisk = () => {
+    try {
+      ensureCacheDir();
+      const files = fs.readdirSync(CACHE_DIR);
+      let loaded = 0;
+      for (const f of files) {
+        if (!f.endsWith(".json")) continue;
+        try {
+          const raw = fs.readFileSync(path.join(CACHE_DIR, f), "utf8");
+          const entry = JSON.parse(raw) as CandleEntry;
+          if (!entry?.data || !Array.isArray(entry.data) || entry.data.length === 0) continue;
+          // Key from filename (sym_interval.json -> sym:interval)
+          const key = f.replace(/\.json$/, "").replace(/_(1D|1H|30M|5M)$/, ":$1");
+          // Mark as stale so the next request triggers a revalidation, but the
+          // bars are available immediately.
+          candleCache.set(key, {
+            t: 0, // forces refresh on next request
+            data: entry.data,
+            stale: entry.data,
+            staleT: entry.t || Date.now(),
+            staleSrc: entry.staleSrc || "disk",
+          });
+          loaded++;
+        } catch {}
+      }
+      if (loaded > 0) console.log(`[candle-cache] restored ${loaded} cached series from disk`);
+    } catch (e) {
+      console.warn(`[candle-cache] load failed:`, (e as Error)?.message || e);
+    }
+  };
+  loadCacheFromDisk();
+
   // Bucket recorded ticks into fixed time windows. `ts` is unix seconds (the
   // schema column is `price_ticks.ts: integer`, which holds seconds, not ms).
   const bucketTicks = (ticks: Array<{ ts: number; price: number }>, secondsPerBucket: number) => {
@@ -1060,7 +1116,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             },
           });
           if (aborted) return;
-          if (r.ok) {
+          if (!r.ok) {
+            stooqBlocked = true;
+            console.warn(`[candles] Stooq HTTP ${r.status} ${r.statusText} for ${symbol} ${interval}`);
+          } else if (r.ok) {
             const csv = await r.text();
             if (aborted) return;
             // Bot-challenge HTML page — Stooq has blocked this IP.
@@ -1068,7 +1127,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               stooqBlocked = true;
               console.warn(`[candles] Stooq bot-challenged for ${symbol} ${interval}, falling back to Finnhub`);
             } else if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
-              console.warn(`[candles] Stooq apikey rejected for ${symbol} ${interval}`);
+              stooqBlocked = true;
+              console.warn(`[candles] Stooq apikey rejected for ${symbol} ${interval}: ${csv.slice(0,150).replace(/\n/g, ' | ')}`);
+            } else if (!csv.trim() || csv.trim().split("\n").length < 2) {
+              stooqBlocked = true;
+              console.warn(`[candles] Stooq returned empty/short body for ${symbol} ${interval}: ${csv.slice(0,150).replace(/\n/g, ' | ')}`);
             } else {
               const lines = csv.trim().split("\n").slice(1);
               for (const line of lines) {
@@ -1171,13 +1234,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
       if (data.length > 0) {
         // Update fresh cache; also persist as the new "last known good" for SWR.
-        candleCache.set(key, {
+        const newEntry: CandleEntry = {
           t: usedStale ? (hit?.t ?? 0) : now,
           data,
           stale: usedStale ? hit?.stale : data,
           staleT: usedStale ? hit?.staleT : now,
           staleSrc: usedStale ? hit?.staleSrc : dataSource,
-        });
+        };
+        candleCache.set(key, newEntry);
+        // Persist 1D/1H to disk so a restart never produces a blank chart.
+        // saveCacheToDisk is a no-op for intervals other than 1D/1H or empty data.
+        if (!usedStale) saveCacheToDisk(key, newEntry);
       }
       if (String(req.query.meta || "") === "1") {
         res.json({ bars: data, source: dataSource, warning, interval, symbol });
