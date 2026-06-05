@@ -4,7 +4,7 @@
 // Uses Recharts + backend /api/candles?interval=1D|1H|30M|5M (60s server cache).
 //
 // Refinements:
-//  • Right-edge floating SMA value labels (auto stack to avoid overlap)
+//  • Right-edge floating SMA value labels — appear on hover only (so the lines stay clean)
 //  • Legend dots toggle SMA visibility (state per SMA)
 //  • In-flight requests abort on unmount via AbortSignal
 //  • Strict types (no `any`)
@@ -144,11 +144,14 @@ function SmaFloatingLabels({
   rows,
   height,
   visible,
+  show,
 }: {
   data: SmaLabelDatum[];
   rows: ChartRow[];
   height: number;
   visible: SmaVisibility;
+  /** When false, labels are hidden (used to gate visibility to hover only). */
+  show: boolean;
 }) {
   // Compute min/max across price + visible SMAs to mirror Recharts' YAxis "auto" domain.
   const { min, max } = useMemo(() => {
@@ -192,7 +195,11 @@ function SmaFloatingLabels({
 
   if (items.length === 0) return null;
   return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+    <div
+      className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+      style={{ opacity: show ? 1 : 0 }}
+      aria-hidden="true"
+    >
       {items.map(({ datum, y }) => (
         <div
           key={datum.key}
@@ -255,6 +262,7 @@ export default function MiniChartWidget({
   const [input, setInput] = useState(symbol);
   const [interval, setInterval] = useState<Interval>(defaultInterval);
   const [visible, setVisible] = useState<SmaVisibility>({ sma20: true, sma50: true, sma200: true });
+  const [hovering, setHovering] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   // External ticker prop change → sync internal state
@@ -425,6 +433,10 @@ export default function MiniChartWidget({
         style={{ height }}
         className={`relative ${onExpand ? "cursor-zoom-in" : ""}`}
         onClick={onExpand ? expand : undefined}
+        onMouseEnter={() => setHovering(true)}
+        onMouseLeave={() => setHovering(false)}
+        onFocus={() => setHovering(true)}
+        onBlur={() => setHovering(false)}
         role="img"
         aria-label={chartAriaLabel}
         data-testid={`chart-mini-${symbol}`}
@@ -461,7 +473,7 @@ export default function MiniChartWidget({
         {rows.length > 0 && (
           <>
             <ChartView rows={rows} height={height} visible={visible} />
-            <SmaFloatingLabels data={labelData} rows={rows} height={height} visible={visible} />
+            <SmaFloatingLabels data={labelData} rows={rows} height={height} visible={visible} show={hovering} />
           </>
         )}
       </div>
