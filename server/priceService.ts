@@ -348,6 +348,25 @@ export async function fetchFinnhubHourlyBars(symbol: string) {
   return fetchFinnhubBars(symbol, "60");
 }
 
+// Yahoo Finance simple throttling. Yahoo rate-limits aggressively on
+// concurrent identical requests from a datacenter IP. Keep a tiny per-host
+// queue with a ~250 ms min spacing, plus a short-lived 429 cooldown so we
+// stop hammering when Yahoo asks us to back off.
+let yahooQueue: Promise<unknown> = Promise.resolve();
+let yahoo429Until = 0;
+function yahooScheduled<T>(fn: () => Promise<T>): Promise<T> {
+  const run = async () => {
+    if (Date.now() < yahoo429Until) return null as unknown as T;
+    const out = await fn();
+    // 250ms gap between Yahoo calls.
+    await new Promise(r => setTimeout(r, 250));
+    return out;
+  };
+  const next = yahooQueue.then(run, run);
+  yahooQueue = next.catch(() => undefined);
+  return next;
+}
+
 /**
  * Yahoo Finance v8 chart endpoint — no key required, works from datacenter IPs,
  * supports daily and hourly resolution. Returns null on failure so caller can
@@ -365,6 +384,7 @@ export async function fetchYahooBars(
   const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
   const from = to - lookbackSec;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
+  return yahooScheduled(async () => {
   try {
     // Plain fetch — Yahoo is a public endpoint that doesn't need the Finnhub
     // credential proxy. Browser UA avoids Yahoo's basic bot filter.
@@ -375,6 +395,10 @@ export async function fetchYahooBars(
       },
     });
     if (!r.ok) {
+      if (r.status === 429) {
+        // Back off Yahoo for 60s on rate limit. Caller will fall through to Finnhub.
+        yahoo429Until = Date.now() + 60_000;
+      }
       console.warn(`[yahoo] ${symbol} ${interval} HTTP ${r.status} ${r.statusText}`);
       return null;
     }
@@ -409,4 +433,5 @@ export async function fetchYahooBars(
     console.warn(`[yahoo] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
     return null;
   }
+  });
 }
