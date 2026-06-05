@@ -7,11 +7,14 @@
 // button, or chart area opens the modal for that symbol/interval.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { Ticker, WatchlistItem } from "@shared/schema";
 import MiniChartWidget, { type Interval } from "@/components/MiniChartWidget";
-import FullChartModal from "@/components/FullChartModal";
+
+// Lazy: the modal pulls Recharts ComposedChart + ReferenceDot, only needed
+// after the user clicks expand. Saves ~weight on the initial cockpit paint.
+const FullChartModal = lazy(() => import("@/components/FullChartModal"));
 
 interface Props {
   /** Fallback symbols when /api/watchlist is empty. */
@@ -105,12 +108,16 @@ export default function MiniChartGrid({
         ))}
       </div>
       <LiveStamp />
-      <FullChartModal
-        open={!!modal}
-        symbol={modal?.symbol || ""}
-        defaultInterval={modal?.interval || defaultInterval}
-        onClose={closeModal}
-      />
+      {modal && (
+        <Suspense fallback={null}>
+          <FullChartModal
+            open
+            symbol={modal.symbol}
+            defaultInterval={modal.interval}
+            onClose={closeModal}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

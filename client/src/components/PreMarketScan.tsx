@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errMsg } from "@/lib/errors";
 import { Panel, Chip } from "@/components/Panel";
 import { Sunrise, RefreshCw, ExternalLink } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -78,8 +79,8 @@ export default function PreMarketScan() {
       ];
       for (const k of keys) queryClient.invalidateQueries({ queryKey: [k] });
       toast({ title: "Pre-market scan complete", description: `${data.movers.filter(m => !m.error).length}/6 tickers · regime ${String(data.regime.code).toUpperCase()}` });
-    } catch (e: any) {
-      toast({ title: "Pre-market scan failed", description: e?.message || String(e), variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Pre-market scan failed", description: errMsg(e), variant: "destructive" });
     } finally {
       setLoading(false);
     }

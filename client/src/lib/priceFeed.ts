@@ -66,8 +66,8 @@ let snapshotState: Record<string, LiveQuote> = {};
 let connState: ConnState = "CONNECTING";
 let lastEventAt = 0;
 let es: EventSource | null = null;
-let pollTimer: any = null;
-let reconnectTimer: any = null;
+let pollTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
 
 function setSnapshot(next: Record<string, LiveQuote>) {

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -59,8 +60,8 @@ export default function Watchlist() {
       queryClient.invalidateQueries({ queryKey: ["/api/setups"] });
       queryClient.invalidateQueries({ queryKey: ["/api/setups/transitions"] });
       toast({ title: "Setup scan complete", description: "All watchlist tickers rescanned." });
-    } catch (e: any) {
-      toast({ title: "Scan failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Scan failed", description: errMsg(e) });
     } finally {
       setRecomputing(false);
     }

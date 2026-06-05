@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { errMsg } from "@/lib/errors";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
@@ -29,8 +30,8 @@ export default function SpecReview() {
       const text = await res.text();
       setContent(text);
       setLastUpdated(new Date());
-    } catch (e: any) {
-      setError(e?.message || "Failed to load spec");
+    } catch (e: unknown) {
+      setError(errMsg(e, "Failed to load spec"));
     } finally {
       setLoading(false);
     }

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import ReactMarkdown from "react-markdown";
+import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { HelpCircle, BookOpen, LineChart } from "lucide-react";
 import {
@@ -16,51 +16,53 @@ import { MINI_CHARTS_CHEAT_SHEET } from "@/help/miniCharts";
 // Cockpit-styled markdown renderer — reuses the design tokens
 // (neon-blue, signal-amber, soft-white, ink-line, ink-panel) so the
 // drawer matches the rest of the UI without any new CSS.
-const mdComponents = {
-  h1: ({ node, ...props }: any) => (
+// react-markdown's Components type strips `node` and types the rest as the
+// matching intrinsic element props — no more `any`.
+const mdComponents: Components = {
+  h1: ({ node: _n, ...props }) => (
     <h1
       className="font-display text-[14px] tracking-[0.2em] uppercase text-neon-blue border-b border-ink-line/60 pb-2 mt-2 mb-3"
       {...props}
     />
   ),
-  h2: ({ node, ...props }: any) => (
+  h2: ({ node: _n, ...props }) => (
     <h2
       className="font-display text-[12px] tracking-widest uppercase text-signal-amber mt-6 mb-2"
       {...props}
     />
   ),
-  h3: ({ node, ...props }: any) => (
+  h3: ({ node: _n, ...props }) => (
     <h3
       className="font-display text-[11px] tracking-wider uppercase text-soft-white mt-4 mb-1.5"
       {...props}
     />
   ),
-  p: ({ node, ...props }: any) => (
+  p: ({ node: _n, ...props }) => (
     <p className="text-[12px] leading-relaxed text-soft-white/90 my-2" {...props} />
   ),
-  ul: ({ node, ...props }: any) => (
+  ul: ({ node: _n, ...props }) => (
     <ul className="text-[12px] leading-relaxed text-soft-white/90 list-disc pl-5 space-y-1 my-2" {...props} />
   ),
-  ol: ({ node, ...props }: any) => (
+  ol: ({ node: _n, ...props }) => (
     <ol className="text-[12px] leading-relaxed text-soft-white/90 list-decimal pl-5 space-y-1 my-2" {...props} />
   ),
-  li: ({ node, ...props }: any) => <li className="text-[12px]" {...props} />,
-  strong: ({ node, ...props }: any) => (
+  li: ({ node: _n, ...props }) => <li className="text-[12px]" {...props} />,
+  strong: ({ node: _n, ...props }) => (
     <strong className="text-soft-white font-semibold" {...props} />
   ),
-  em: ({ node, ...props }: any) => (
+  em: ({ node: _n, ...props }) => (
     <em className="text-slate-gray italic" {...props} />
   ),
-  hr: ({ node, ...props }: any) => (
+  hr: ({ node: _n, ...props }) => (
     <hr className="border-0 border-t border-ink-line/60 my-5" {...props} />
   ),
-  blockquote: ({ node, ...props }: any) => (
+  blockquote: ({ node: _n, ...props }) => (
     <blockquote
       className="border-l-2 border-neon-blue/60 bg-neon-blue/5 pl-3 pr-2 py-2 my-3 text-[12px] text-soft-white"
       {...props}
     />
   ),
-  code: ({ node, className, children, ...props }: any) => {
+  code: ({ node: _n, className, children, ...props }) => {
     const isInline = !className;
     if (isInline) {
       return (
@@ -78,30 +80,30 @@ const mdComponents = {
       </code>
     );
   },
-  pre: ({ node, ...props }: any) => (
+  pre: ({ node: _n, ...props }) => (
     <pre
       className="bg-ink-deep/80 border border-ink-line/60 rounded-sm p-3 overflow-auto my-3 font-mono text-[11px] text-soft-white"
       {...props}
     />
   ),
-  table: ({ node, ...props }: any) => (
+  table: ({ node: _n, ...props }) => (
     <div className="overflow-x-auto my-3">
       <table className="w-full border-collapse text-[11.5px]" {...props} />
     </div>
   ),
-  thead: ({ node, ...props }: any) => (
+  thead: ({ node: _n, ...props }) => (
     <thead className="bg-ink-panel/60" {...props} />
   ),
-  th: ({ node, ...props }: any) => (
+  th: ({ node: _n, ...props }) => (
     <th
       className="border border-ink-line/60 px-2.5 py-1.5 text-left text-signal-amber font-display uppercase tracking-wider text-[10px]"
       {...props}
     />
   ),
-  td: ({ node, ...props }: any) => (
+  td: ({ node: _n, ...props }) => (
     <td className="border border-ink-line/60 px-2.5 py-1.5 text-soft-white/90 align-top" {...props} />
   ),
-  a: ({ node, ...props }: any) => (
+  a: ({ node: _n, ...props }) => (
     <a className="text-neon-blue hover:underline" target="_blank" rel="noreferrer" {...props} />
   ),
 };

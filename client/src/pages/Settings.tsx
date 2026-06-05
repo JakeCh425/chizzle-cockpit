@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -230,8 +231,8 @@ function ArchivedTradesPanel() {
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
       toast({ title: "Restored", description: `${t.ticker} returned to main view.` });
-    } catch (e: any) {
-      toast({ title: "Restore failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Restore failed", description: errMsg(e) });
     }
   };
   const deleteForever = async (t: Trade) => {
@@ -242,8 +243,8 @@ function ArchivedTradesPanel() {
       await apiRequest("DELETE", `/api/trades/${t.id}/forever`, undefined);
       queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
       toast({ title: "Deleted", description: `${t.ticker} permanently removed.` });
-    } catch (e: any) {
-      toast({ title: "Delete failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Delete failed", description: errMsg(e) });
     }
   };
   const deleteAll = async () => {
@@ -257,11 +258,12 @@ function ArchivedTradesPanel() {
       return;
     }
     try {
-      const res: any = await apiRequest("DELETE", "/api/trades/archived", undefined);
+      const raw = await apiRequest("DELETE", "/api/trades/archived", undefined);
+      const res = (await raw.json().catch(() => ({}))) as { deleted?: number };
       queryClient.invalidateQueries({ queryKey: ["/api/trades/archived"] });
-      toast({ title: "All cleared", description: `${res?.deleted ?? n} archived trade${(res?.deleted ?? n) === 1 ? "" : "s"} permanently removed.` });
-    } catch (e: any) {
-      toast({ title: "Delete failed", description: e?.message || String(e) });
+      toast({ title: "All cleared", description: `${res.deleted ?? n} archived trade${(res.deleted ?? n) === 1 ? "" : "s"} permanently removed.` });
+    } catch (e: unknown) {
+      toast({ title: "Delete failed", description: errMsg(e) });
     }
   };
   const list = archived || [];
@@ -433,8 +435,8 @@ function RegimeEnginePanel() {
       queryClient.invalidateQueries({ queryKey: ["/api/regime/history"] });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       toast({ title: "Regime recomputed", description: "Pulled fresh Yahoo data and reclassified." });
-    } catch (e: any) {
-      toast({ title: "Recompute failed", description: e?.message || String(e), variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Recompute failed", description: errMsg(e), variant: "destructive" });
     } finally {
       setBusy(false);
     }
@@ -449,8 +451,8 @@ function RegimeEnginePanel() {
       queryClient.invalidateQueries({ queryKey: ["/api/regime"] });
       queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
       toast({ title: enabled ? `Manual override → ${label}` : "Override disabled", description: enabled ? "Auto-engine continues classifying in the background." : "Effective regime now follows the auto-engine." });
-    } catch (e: any) {
-      toast({ title: "Override failed", description: e?.message || String(e), variant: "destructive" });
+    } catch (e: unknown) {
+      toast({ title: "Override failed", description: errMsg(e), variant: "destructive" });
     }
   };
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, type ReactNode } from "react";
+import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -486,8 +487,8 @@ function PendingTradesList({ trades }: { trades: Trade[] }) {
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       queryClient.invalidateQueries({ queryKey: ["/api/alerts"] });
       toast({ title: "Confirmed", description: `${t.ticker} is now OPEN.` });
-    } catch (e: any) {
-      toast({ title: "Confirm failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Confirm failed", description: errMsg(e) });
     }
   };
   const discardTrade = async (t: Trade) => {
@@ -496,8 +497,8 @@ function PendingTradesList({ trades }: { trades: Trade[] }) {
       await apiRequest("POST", `/api/trades/${t.id}/discard`, {});
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       toast({ title: "Discarded", description: `${t.ticker} removed from pending.` });
-    } catch (e: any) {
-      toast({ title: "Discard failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Discard failed", description: errMsg(e) });
     }
   };
   return (
@@ -565,8 +566,8 @@ function TradesTable({ trades }: { trades: Trade[] }) {
       await apiRequest("POST", `/api/trades/${t.id}/archive`, {});
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       toast({ title: "Archived", description: `${t.ticker} hidden from main view.` });
-    } catch (e: any) {
-      toast({ title: "Archive failed", description: e?.message || String(e) });
+    } catch (e: unknown) {
+      toast({ title: "Archive failed", description: errMsg(e) });
     }
   };
   if (!trades.length) {
@@ -705,9 +706,9 @@ function CloseModal({ id, trade, onClose }: { id: number; trade: Trade; onClose:
       queryClient.invalidateQueries({ queryKey: ["/api/leap-reserve"] });
       toast({ title: "Trade closed", description: `${trade.ticker} R ${r.toFixed(2)}` });
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("close trade failed:", err);
-      toast({ title: "Close failed", description: err?.message || String(err) });
+      toast({ title: "Close failed", description: errMsg(err) });
       setSubmitting(false);
     }
   };
@@ -826,9 +827,9 @@ function EditTradeDialog({ trade, onClose }: { trade: Trade; onClose: () => void
       queryClient.invalidateQueries({ queryKey: ["/api/trades"] });
       toast({ title: "Trade updated", description: `${trade.ticker} saved.` });
       onClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error("edit trade failed:", err);
-      toast({ title: "Edit failed", description: err?.message || String(err) });
+      toast({ title: "Edit failed", description: errMsg(err) });
       setSubmitting(false);
     }
   };

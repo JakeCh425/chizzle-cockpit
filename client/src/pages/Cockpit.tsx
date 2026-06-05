@@ -1,4 +1,5 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { errMsg } from "@/lib/errors";
 import { useState, useMemo } from "react";
 import { Panel, StatRow, Chip } from "@/components/Panel";
 import { queryClient } from "@/lib/queryClient";
@@ -191,8 +192,8 @@ export default function Cockpit() {
       ];
       for (const k of keys) queryClient.invalidateQueries({ queryKey: [k] });
       toast({ title: "Recomputed", description: "Engine re-evaluated regime + setups." });
-    } catch (e: any) {
-      toast({ title: "Recompute failed", description: String(e?.message || e) });
+    } catch (e: unknown) {
+      toast({ title: "Recompute failed", description: errMsg(e) });
     } finally {
       setRecomputing(false);
     }

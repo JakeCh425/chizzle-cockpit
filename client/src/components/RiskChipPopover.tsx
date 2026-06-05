@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { errMsg } from "@/lib/errors";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Regime } from "@/lib/engine";
@@ -50,8 +51,8 @@ export function RiskChipPopover({
         description: `${regime} regime → ${local.toFixed(1)}% per trade.`,
       });
       setOpen(false);
-    } catch (e: any) {
-      toast({ title: "Failed to save", description: e?.message || "Try again." });
+    } catch (e: unknown) {
+      toast({ title: "Failed to save", description: errMsg(e, "Try again.") });
     } finally {
       setSaving(false);
     }
