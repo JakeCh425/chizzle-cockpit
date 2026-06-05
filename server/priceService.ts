@@ -167,7 +167,7 @@ function commitQuote(q: Quote) {
   lastPollOk.set(q.symbol, q.receivedAt);
   lastFetchAt = q.receivedAt;
   // Persist tick history (best-effort, fire-and-forget async)
-  storage.appendPriceTick({ symbol: q.symbol, price: q.price, ts: q.receivedAt }).catch(() => {});
+  storage.appendPriceTick({ symbol: q.symbol, price: q.price, ts: Math.floor(q.receivedAt / 1000) }).catch(() => {});
   // Update tickers table currentPrice so other pages without SSE still see fresh values.
   // VIXY is an internal regime input and is NOT in the tickers table.
   if (WATCHLIST_SYMS.includes(q.symbol)) {
@@ -303,22 +303,26 @@ export const WATCHED_SYMBOLS = SYMBOLS;
 export const PUBLIC_SYMBOLS = WATCHLIST_SYMS;
 
 /**
- * Fetch hourly OHLC bars from Finnhub as a fallback when Stooq's free tier
- * returns no data (it gates US hourly behind a paid plan).
+ * Generic Finnhub candle fetch. Used as a fallback when Stooq is blocked
+ * by its bot-challenge or returns no data on its free tier.
  *
- * Returns `null` when Finnhub is unconfigured or returns no data, so callers
- * can surface a meaningful warning instead of an empty array.
+ * Resolution mapping:
+ *   "D"  -> daily   (~400 days)
+ *   "60" -> hourly  (~30 days)
  *
- * Window: last ~30 calendar days (≈ 150 trading hours), trimmed to 400 bars
- * to match the existing daily/hourly payload contract.
+ * Returns `null` when Finnhub is unconfigured or returns no data, so the
+ * caller can pick the next fallback or surface a warning.
  */
-export async function fetchFinnhubHourlyBars(
-  symbol: string
+export async function fetchFinnhubBars(
+  symbol: string,
+  resolution: "D" | "60"
 ): Promise<{ time: number; close: number; volume?: number }[] | null> {
   if (!FINNHUB_TOKEN && !proxyDispatcher) return null;
   const to = Math.floor(Date.now() / 1000);
-  const from = to - 30 * 24 * 60 * 60;
-  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=60&from=${from}&to=${to}`;
+  // Daily: ~400 trading days = ~560 calendar days. Hourly: 30 days.
+  const lookbackSec = resolution === "D" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
+  const from = to - lookbackSec;
+  const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}`;
   try {
     const r = await proxiedFetch(url);
     if (!r.ok) return null;
@@ -337,4 +341,9 @@ export async function fetchFinnhubHourlyBars(
   } catch {
     return null;
   }
+}
+
+/** Backwards-compatible thin wrapper. */
+export async function fetchFinnhubHourlyBars(symbol: string) {
+  return fetchFinnhubBars(symbol, "60");
 }

@@ -12,7 +12,7 @@ import {
   addSseClient,
   removeSseClient,
   PUBLIC_SYMBOLS,
-  fetchFinnhubHourlyBars,
+  fetchFinnhubBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -972,17 +972,17 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const CANDLE_TTL = { "1D": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000 } as const;
   type Interval = keyof typeof CANDLE_TTL;
 
-  const bucketTicks = (ticks: Array<{ at: string | Date; price: number }>, secondsPerBucket: number) => {
+  // Bucket recorded ticks into fixed time windows. `ts` is unix seconds (the
+  // schema column is `price_ticks.ts: integer`, which holds seconds, not ms).
+  const bucketTicks = (ticks: Array<{ ts: number; price: number }>, secondsPerBucket: number) => {
     if (!ticks.length) return [] as { time: number; close: number; volume?: number }[];
-    const sorted = [...ticks].sort((a, b) =>
-      new Date(a.at as any).getTime() - new Date(b.at as any).getTime()
-    );
+    const sorted = [...ticks].sort((a, b) => a.ts - b.ts);
     const out: { time: number; close: number; volume?: number }[] = [];
     let bucketStart = -1;
     let lastClose = NaN;
     let tickCount = 0; // proxy volume — intraday tick counts per bucket
     for (const tk of sorted) {
-      const ts = Math.floor(new Date(tk.at as any).getTime() / 1000);
+      const ts = tk.ts;
       const b = Math.floor(ts / secondsPerBucket) * secondsPerBucket;
       if (b !== bucketStart) {
         if (bucketStart !== -1) out.push({ time: bucketStart, close: lastClose, volume: tickCount });
@@ -1019,51 +1019,68 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let warning: string | undefined;
 
       if (interval === "1D" || interval === "1H") {
+        // 1. Try Stooq first (free, full history). Note: Stooq actively
+        //    bot-challenges datacenter IPs (Render/AWS/GCP/etc), returning a
+        //    200 OK with HTML containing a JS proof-of-work. Detect and skip.
         const stooqI = interval === "1H" ? "h" : "d";
         const apikey = process.env.STOOQ_APIKEY || "";
         const qs = apikey ? `&apikey=${apikey}` : "";
         const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}${qs}`;
-        const r = await fetch(url);
-        if (aborted) return;
-        if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
-        const csv = await r.text();
-        if (aborted) return;
-        // Stooq returns 200 OK with an error-text body when the apikey is
-        // missing or the symbol is unknown. Detect and surface clearly.
-        if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
-          return res.status(502).json({ error: "stooq apikey missing or invalid" });
-        }
-        const lines = csv.trim().split("\n").slice(1);
-        for (const line of lines) {
-          // Stooq daily/hourly CSV: Date,Open,High,Low,Close,Volume
-          const parts = line.split(",");
-          const date = parts[0];
-          const close = parts[4];
-          const volume = parts[5];
-          const ts = Math.floor(new Date(date).getTime() / 1000);
-          const c = parseFloat(close);
-          const v = parseFloat(volume);
-          if (Number.isFinite(c) && Number.isFinite(ts)) {
-            data.push({
-              time: ts,
-              close: c,
-              volume: Number.isFinite(v) ? v : undefined,
-            });
+        let stooqOk = false;
+        let stooqBlocked = false;
+        try {
+          const r = await fetch(url);
+          if (aborted) return;
+          if (r.ok) {
+            const csv = await r.text();
+            if (aborted) return;
+            // Bot-challenge HTML page — Stooq has blocked this IP.
+            if (csv.trimStart().startsWith("<")) {
+              stooqBlocked = true;
+              console.warn(`[candles] Stooq bot-challenged for ${symbol} ${interval}, falling back to Finnhub`);
+            } else if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
+              console.warn(`[candles] Stooq apikey rejected for ${symbol} ${interval}`);
+            } else {
+              const lines = csv.trim().split("\n").slice(1);
+              for (const line of lines) {
+                const parts = line.split(",");
+                const date = parts[0];
+                const close = parts[4];
+                const volume = parts[5];
+                const ts = Math.floor(new Date(date).getTime() / 1000);
+                const c = parseFloat(close);
+                const v = parseFloat(volume);
+                if (Number.isFinite(c) && Number.isFinite(ts)) {
+                  data.push({ time: ts, close: c, volume: Number.isFinite(v) ? v : undefined });
+                }
+              }
+              data = data.slice(-400);
+              if (data.length > 0) {
+                stooqOk = true;
+                dataSource = "stooq";
+              }
+            }
           }
+        } catch (e) {
+          console.warn(`[candles] Stooq fetch error for ${symbol} ${interval}:`, e);
         }
-        // Keep last ~400 bars — plenty for SMA200, small payload.
-        data = data.slice(-400);
-        dataSource = data.length > 0 ? "stooq" : "none";
-        if (interval === "1H" && data.length === 0) {
-          // Stooq free tier returns "No data" for US hourly. Try Finnhub as a
-          // fallback (resolution=60) before giving up.
-          const fnb = await fetchFinnhubHourlyBars(symbol);
+
+        // 2. Stooq failed or returned nothing — try Finnhub (works for 1D and 1H).
+        if (!stooqOk) {
+          const fnbRes = interval === "1H" ? "60" : "D";
+          const fnb = await fetchFinnhubBars(symbol, fnbRes);
           if (aborted) return;
           if (fnb && fnb.length > 0) {
             data = fnb;
             dataSource = "finnhub";
+          } else if (interval === "1H") {
+            warning = stooqBlocked
+              ? "Stooq blocked our IP; Finnhub free tier doesn't include hourly bars."
+              : "Hourly bars unavailable on free data tier.";
           } else {
-            warning = "Hourly bars unavailable on free data tier.";
+            warning = stooqBlocked
+              ? "Stooq blocked our IP; Finnhub returned no daily data."
+              : "No daily data returned.";
           }
         }
       } else {
