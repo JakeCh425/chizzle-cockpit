@@ -336,6 +336,16 @@ CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at
     "UPDATE settings SET risk_pct_green = 5, risk_pct_yellow = 3, risk_pct_red = 1 WHERE risk_pct_green = 3 AND risk_pct_yellow = 2 AND risk_pct_red = 1",
     // 2026-06: watchlist ordering for the mini-chart grid.
     "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 0",
+    // 2026-06: archive flag so deleted watchlist rows can be restored
+    // instead of being purged. Defaults to false; existing rows are active.
+    "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
+    "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived_at TEXT",
+    // 2026-06: kv_meta table for server-side singletons (seed markers, etc.)
+    `CREATE TABLE IF NOT EXISTS kv_meta (
+      k TEXT PRIMARY KEY,
+      v TEXT NOT NULL,
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`,
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
@@ -343,6 +353,19 @@ CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at
 }
 
 export const db = drizzle(pool);
+
+// ─── kv_meta singleton helpers ────────────────────────────────────────────────
+async function getMeta(k: string): Promise<string | null> {
+  const rows = await pool.query<{ v: string }>("SELECT v FROM kv_meta WHERE k = $1 LIMIT 1", [k]);
+  return rows.rows[0]?.v ?? null;
+}
+async function setMeta(k: string, v: string): Promise<void> {
+  await pool.query(
+    "INSERT INTO kv_meta (k, v, updated_at) VALUES ($1, $2, $3) " +
+    "ON CONFLICT (k) DO UPDATE SET v = EXCLUDED.v, updated_at = EXCLUDED.updated_at",
+    [k, v, new Date().toISOString()],
+  );
+}
 
 // ─── seed ─────────────────────────────────────────────────────────────────────
 async function seedIfEmpty() {
@@ -370,7 +393,13 @@ async function seedIfEmpty() {
     });
   }
 
-  // Tier 1 tickers with realistic May 2026 anchor prices
+  // Tier 1 tickers with realistic May 2026 anchor prices.
+  //
+  // PERSISTENCE FIX (2026-06): we used to re-seed any missing default symbol on
+  // every server restart. Render auto-deploys on every push, so deletions in the
+  // watchlist editor would silently come back. Now we stamp a one-time marker
+  // in kv_meta after the first ticker seed completes — subsequent boots NEVER
+  // re-insert default tickers, so user deletions persist forever.
   const seedTickers: Array<{ symbol: string; price: number; sma20: number; sma50: number; sma200: number; atr: number }> = [
     { symbol: "SMH", price: 285.40, sma20: 278.20, sma50: 270.10, sma200: 245.30, atr: 6.80 },
     { symbol: "QQQ", price: 485.20, sma20: 478.50, sma50: 468.20, sma200: 440.10, atr: 5.40 },
@@ -380,7 +409,21 @@ async function seedIfEmpty() {
     { symbol: "META", price: 640.50, sma20: 628.20, sma50: 612.30, sma200: 568.90, atr: 9.40 },
   ];
 
+  const seedMarker = await getMeta("seed:tickers_done");
+  // Back-fill marker for pre-fix deployments: if ANY of the default tickers is
+  // present AND a watchlist row exists for it, treat seed as already complete.
+  // Stamps the marker so the next branch can short-circuit cleanly.
+  if (!seedMarker) {
+    const anyExisting = await db.select().from(tickers).limit(1);
+    const anyWatchlist = await db.select().from(watchlist).limit(1);
+    if (anyExisting.length > 0 && anyWatchlist.length > 0) {
+      await setMeta("seed:tickers_done", new Date().toISOString());
+    }
+  }
+  const skipTickerSeed = (await getMeta("seed:tickers_done")) !== null;
+
   for (const t of seedTickers) {
+    if (skipTickerSeed) break; // user already touched the watchlist — hands off.
     const existing = await db.select().from(tickers).where(eq(tickers.symbol, t.symbol)).limit(1);
     if (existing.length === 0) {
       const inserted = (await db.insert(tickers).values({
@@ -417,6 +460,10 @@ async function seedIfEmpty() {
         grade: "Ignore",
       });
     }
+  }
+  // Stamp the marker once — future boots skip ticker seeding entirely.
+  if (!skipTickerSeed) {
+    await setMeta("seed:tickers_done", new Date().toISOString());
   }
 
   // LEAP reserve
@@ -482,7 +529,11 @@ export const storage = {
   // watchlist
   async listWatchlist(): Promise<WatchlistItem[]> {
     // Stable, deterministic ordering by user-controlled position, then id.
-    return db.select().from(watchlist).orderBy(watchlist.position, watchlist.id);
+    // Excludes archived rows by default.
+    return db.select().from(watchlist).where(eq(watchlist.archived, false)).orderBy(watchlist.position, watchlist.id);
+  },
+  async listArchivedWatchlist(): Promise<WatchlistItem[]> {
+    return db.select().from(watchlist).where(eq(watchlist.archived, true)).orderBy(desc(watchlist.id));
   },
   async updateWatchlistItem(id: number, patch: Partial<InsertWatchlistItem>): Promise<WatchlistItem | undefined> {
     await db.update(watchlist).set(patch as any).where(eq(watchlist.id, id));
@@ -515,6 +566,12 @@ export const storage = {
       t = existing[0];
       const existingW = await db.select().from(watchlist).where(eq(watchlist.tickerId, t.id)).limit(1);
       if (existingW.length > 0) {
+        // If it was archived, restore it instead of duplicating.
+        if (existingW[0].archived) {
+          await this.restoreWatchlistItem(existingW[0].id);
+          const refreshed = await db.select().from(watchlist).where(eq(watchlist.id, existingW[0].id)).limit(1);
+          return { ticker: t, watchlist: refreshed[0] };
+        }
         return { ticker: t, watchlist: existingW[0] };
       }
     } else {
@@ -544,10 +601,30 @@ export const storage = {
     return { ticker: t, watchlist: w };
   },
   async removeWatchlistItem(id: number): Promise<void> {
+    // Soft-archive instead of hard-delete. Keeps the row + ticker so:
+    //  1. Per-deploy seed cannot resurrect it (the row already exists).
+    //  2. User can restore it from the Archived section.
+    //  3. Historical trades referencing the ticker stay valid.
+    await db.update(watchlist)
+      .set({ archived: true, archivedAt: new Date().toISOString() } as any)
+      .where(eq(watchlist.id, id));
+  },
+  async restoreWatchlistItem(id: number): Promise<void> {
+    // Restore to the end of the active list.
+    const max = await pool.query<{ m: number | null }>(
+      `SELECT MAX(position) AS m FROM watchlist WHERE archived = false`,
+    );
+    const nextPos = ((max.rows[0]?.m as any) ?? -1) + 1;
+    await db.update(watchlist)
+      .set({ archived: false, archivedAt: null, position: nextPos } as any)
+      .where(eq(watchlist.id, id));
+  },
+  async purgeWatchlistItem(id: number): Promise<void> {
+    // Hard-delete from the archived section. Cleans up the ticker row too
+    // when no other watchlist row (active or archived) references it.
     const rows = await db.select().from(watchlist).where(eq(watchlist.id, id)).limit(1);
     if (rows.length === 0) return;
     const tickerId = rows[0].tickerId;
-    // Only delete the ticker if no other watchlist row references it.
     await db.delete(watchlist).where(eq(watchlist.id, id));
     const others = await db.select().from(watchlist).where(eq(watchlist.tickerId, tickerId)).limit(1);
     if (others.length === 0) {

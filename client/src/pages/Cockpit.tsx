@@ -22,6 +22,7 @@ import { LineChart, Line, AreaChart, Area, ComposedChart, ResponsiveContainer, X
 import Sparkline from "@/components/charts/Sparkline";
 import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import WatchlistEditor from "@/components/WatchlistEditor";
 import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
@@ -281,7 +282,9 @@ export default function Cockpit() {
             </div>
           }
         >
-          <MiniChartGrid />
+          <ErrorBoundary label="Mini Charts">
+            <MiniChartGrid />
+          </ErrorBoundary>
         </Panel>
         <Panel title="Watchlist Editor" hint={`${(watchlist || []).length} symbols · CRUD + reorder`} className="lg:col-span-3">
           <WatchlistEditor />

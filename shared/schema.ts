@@ -53,6 +53,9 @@ export const watchlist = pgTable("watchlist", {
   grade: text("grade").notNull().default("Ignore"), // A | B | Ignore
   // 2026-06: explicit user-controlled ordering for the mini-chart grid.
   position: integer("position").notNull().default(0),
+  // 2026-06: soft-archive (deletions go here, can be restored from the Archived section).
+  archived: boolean("archived").notNull().default(false),
+  archivedAt: text("archived_at"),
 });
 
 // ─── trades ───────────────────────────────────────────────────────────────────

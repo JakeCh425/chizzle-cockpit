@@ -122,7 +122,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
   app.delete("/api/watchlist/:id", async (req, res) => {
-    try { await storage.removeWatchlistItem(Number(req.params.id)); res.json({ ok: true }); }
+    // Soft-archive by default. Pass ?purge=1 to hard-delete from archive.
+    try {
+      const id = Number(req.params.id);
+      if (String(req.query.purge || "") === "1") {
+        await storage.purgeWatchlistItem(id);
+      } else {
+        await storage.removeWatchlistItem(id);
+      }
+      res.json({ ok: true });
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+  app.get("/api/watchlist/archived", async (_req, res) => {
+    try { res.json(await storage.listArchivedWatchlist()); }
+    catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+  app.post("/api/watchlist/:id/restore", async (req, res) => {
+    try { await storage.restoreWatchlistItem(Number(req.params.id)); res.json({ ok: true }); }
     catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
   });
   app.post("/api/watchlist/reorder", async (req, res) => {
@@ -924,6 +940,10 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
 
   app.get("/api/candles/:symbol", async (req, res) => {
+    // Honor client aborts — saves work on rapid interval/symbol switching.
+    let aborted = false;
+    req.on("close", () => { if (!res.writableEnded) aborted = true; });
+
     try {
       const symbol = String(req.params.symbol || "").toUpperCase().trim();
       if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: "invalid symbol" });
@@ -932,17 +952,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const key = `${symbol}:${interval}`;
       const now = Date.now();
       const hit = candleCache.get(key);
-      if (hit && (now - hit.t) < CANDLE_TTL[interval]) return res.json(hit.data);
+      if (hit && (now - hit.t) < CANDLE_TTL[interval]) {
+        // Intraday data has its own 60s cap (see CANDLE_TTL definition).
+        return res.json(hit.data);
+      }
 
       let data: { time: number; close: number; volume?: number }[] = [];
+      let dataSource: "stooq" | "ticks" | "none" = "none";
+      let warning: string | undefined;
+
       if (interval === "1D" || interval === "1H") {
         const stooqI = interval === "1H" ? "h" : "d";
         const apikey = process.env.STOOQ_APIKEY || "";
         const qs = apikey ? `&apikey=${apikey}` : "";
         const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=${stooqI}${qs}`;
         const r = await fetch(url);
+        if (aborted) return;
         if (!r.ok) return res.status(502).json({ error: `stooq ${r.status}` });
         const csv = await r.text();
+        if (aborted) return;
         // Stooq returns 200 OK with an error-text body when the apikey is
         // missing or the symbol is unknown. Detect and surface clearly.
         if (/get_apikey|apikey/i.test(csv) && !/^Date,/m.test(csv)) {
@@ -968,17 +996,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         }
         // Keep last ~400 bars — plenty for SMA200, small payload.
         data = data.slice(-400);
+        dataSource = data.length > 0 ? "stooq" : "none";
+        if (interval === "1H" && data.length === 0) {
+          // Stooq free tier returns "No data" for US hourly. Be explicit.
+          warning = "Hourly bars unavailable on free data tier.";
+        }
       } else {
         // Intraday: bucket recorded ticks. 1000 ticks is enough for SMA200 on
         // 5m (≈ several sessions) and well over for 30m.
         const ticks = await storage.listPriceTicks(symbol, 1000);
+        if (aborted) return;
         const secs = interval === "30M" ? 1800 : 300;
         data = bucketTicks(ticks as any, secs).slice(-400);
+        dataSource = data.length > 0 ? "ticks" : "none";
+        if (data.length === 0) {
+          const lowCredit = process.env.LOW_CREDIT_MODE === "true";
+          warning = lowCredit
+            ? "Intraday tick stream paused (LOW_CREDIT_MODE)."
+            : "Intraday ticks warming up — populates as the market trades.";
+        }
       }
 
+      if (aborted) return;
+      // Backwards compat: existing clients expect a bare array. New clients
+      // can opt-in to the rich envelope via ?meta=1.
       candleCache.set(key, { t: now, data });
-      res.json(data);
+      if (String(req.query.meta || "") === "1") {
+        res.json({ bars: data, source: dataSource, warning, interval, symbol });
+      } else {
+        res.json(data);
+      }
     } catch (e: any) {
+      if (aborted) return;
       res.status(500).json({ error: e?.message || String(e) });
     }
   });

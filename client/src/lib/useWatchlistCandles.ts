@@ -88,8 +88,8 @@ export function useWatchlistCandles(symbols: string[], interval: Interval = "1D"
   const results = useQueries({
     queries: symbols.map(sym => ({
       queryKey: ["/api/candles", sym, interval],
-      queryFn: async (): Promise<Candle[]> => {
-        const r = await apiRequest("GET", `/api/candles/${sym}?interval=${interval}`);
+      queryFn: async ({ signal }: { signal?: AbortSignal }): Promise<Candle[]> => {
+        const r = await apiRequest("GET", `/api/candles/${sym}?interval=${interval}`, undefined, signal);
         return r.json();
       },
       staleTime: Math.max(5_000, refresh / 2),

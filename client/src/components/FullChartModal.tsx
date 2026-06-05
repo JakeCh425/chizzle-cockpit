@@ -7,7 +7,7 @@
 // Mirrors CloseModal's container pattern (fixed inset, backdrop, click-outside).
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Line, Bar, ResponsiveContainer, YAxis, XAxis, Tooltip,
@@ -16,6 +16,24 @@ import {
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type SignalColor } from "@/lib/sma";
+
+// SMA hex tokens (mirrors MiniChartWidget).
+const SMA_LABEL_COLOR = {
+  sma20: "#22C55E",
+  sma50: "#F59E0B",
+  sma200: "#EF4444",
+} as const;
+
+interface SmaVisibility { sma20: boolean; sma50: boolean; sma200: boolean }
+// Recharts' Formatter accepts ValueType = string | number | (string|number)[].
+function fmtTooltip(v: number | string | Array<number | string>, name: unknown): [string, string] {
+  const n = Array.isArray(v) ? Number(v[0]) : Number(v);
+  return [Number.isFinite(n) ? n.toFixed(2) : String(v), String(name ?? "")];
+}
+function fmtVolume(v: number | string | Array<number | string>): [string, string] {
+  const n = Array.isArray(v) ? Number(v[0]) : Number(v);
+  return [Number.isFinite(n) ? n.toLocaleString() : String(v), "Vol"];
+}
 
 type Candle = { time: number; close: number; volume?: number };
 export type Interval = "1D" | "1H" | "30M" | "5M";
@@ -49,6 +67,8 @@ function badgeBg(color: SignalColor): string {
 export default function FullChartModal({ open, symbol, defaultInterval = "1D", onClose }: Props) {
   const [interval, setInterval] = useState<Interval>(defaultInterval);
   const [windowBars, setWindowBars] = useState<number>(60);
+  const [visible, setVisible] = useState<SmaVisibility>({ sma20: true, sma50: true, sma200: true });
+  const chartHostRef = useRef<HTMLDivElement>(null);
 
   // Refresh interval when reopening with a different default.
   useEffect(() => { if (open) setInterval(defaultInterval); }, [open, defaultInterval]);
@@ -63,8 +83,8 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
 
   const { data: candles = [], isLoading, error } = useQuery<Candle[]>({
     queryKey: ["/api/candles", symbol, interval, "full"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/candles/${symbol}?interval=${interval}`);
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/candles/${symbol}?interval=${interval}`, undefined, signal);
       return res.json();
     },
     enabled: open && !!symbol,
@@ -72,7 +92,7 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     refetchInterval: open ? 60_000 : false,
   });
 
-  const { rows, aScore, lastPrice, lastChange, signalMarkers } = useMemo(() => {
+  const { rows, aScore, lastPrice, lastChange, signalMarkers, sma20Last, sma50Last, sma200Last } = useMemo(() => {
     const closes = candles.map(c => c.close);
     const { sma20, sma50, sma200 } = computeSMAs(closes);
     const fullRows = candles.map((c, i) => ({
@@ -112,8 +132,28 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     const lastPrice = closes[closes.length - 1];
     const prev = closes[closes.length - 2];
     const lastChange = lastPrice != null && prev != null ? ((lastPrice - prev) / prev) * 100 : null;
-    return { rows, aScore, lastPrice, lastChange, signalMarkers: markers };
+    const last = (arr: (number | null)[]) => {
+      for (let k = arr.length - 1; k >= 0; k--) if (arr[k] != null) return arr[k] as number;
+      return null;
+    };
+    return {
+      rows, aScore, lastPrice, lastChange, signalMarkers: markers,
+      sma20Last: last(sma20), sma50Last: last(sma50), sma200Last: last(sma200),
+    };
   }, [candles, windowBars, interval]);
+
+  const labelItems = useMemo(() => {
+    const out: { key: keyof SmaVisibility; label: string; value: number; color: string }[] = [];
+    if (sma20Last != null) out.push({ key: "sma20", label: "SMA20", value: sma20Last, color: SMA_LABEL_COLOR.sma20 });
+    if (sma50Last != null) out.push({ key: "sma50", label: "SMA50", value: sma50Last, color: SMA_LABEL_COLOR.sma50 });
+    if (sma200Last != null) out.push({ key: "sma200", label: "SMA200", value: sma200Last, color: SMA_LABEL_COLOR.sma200 });
+    return out.filter(d => visible[d.key]);
+  }, [sma20Last, sma50Last, sma200Last, visible]);
+
+  const toggleSma = (key: keyof SmaVisibility) =>
+    setVisible(v => ({ ...v, [key]: !v[key] }));
+
+  const errMsg = error instanceof Error ? error.message : "";
 
   if (!open) return null;
 
@@ -152,10 +192,10 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
           <button
             onClick={onClose}
             className="text-slate-gray hover:text-soft-white transition-colors p-1"
-            aria-label="Close"
+            aria-label="Close full chart"
             data-testid="button-close-fullchart"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
 
@@ -198,9 +238,30 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
             </div>
           </div>
           <div className="ml-auto flex gap-4 text-slate-gray">
-            <span className="flex items-center gap-1"><i className="w-2 h-px bg-neon-blue inline-block" />20</span>
-            <span className="flex items-center gap-1"><i className="w-2 h-px bg-signal-amber inline-block" />50</span>
-            <span className="flex items-center gap-1"><i className="w-2 h-px bg-signal-red inline-block" />200</span>
+            <button
+              type="button"
+              onClick={() => toggleSma("sma20")}
+              aria-pressed={visible.sma20}
+              aria-label={`Toggle SMA20 line ${visible.sma20 ? "off" : "on"}`}
+              className={`flex items-center gap-1 transition-opacity ${visible.sma20 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              data-testid={`button-modal-legend-sma20`}
+            ><i className="w-2 h-px bg-neon-blue inline-block" aria-hidden="true" />20</button>
+            <button
+              type="button"
+              onClick={() => toggleSma("sma50")}
+              aria-pressed={visible.sma50}
+              aria-label={`Toggle SMA50 line ${visible.sma50 ? "off" : "on"}`}
+              className={`flex items-center gap-1 transition-opacity ${visible.sma50 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              data-testid={`button-modal-legend-sma50`}
+            ><i className="w-2 h-px bg-signal-amber inline-block" aria-hidden="true" />50</button>
+            <button
+              type="button"
+              onClick={() => toggleSma("sma200")}
+              aria-pressed={visible.sma200}
+              aria-label={`Toggle SMA200 line ${visible.sma200 ? "off" : "on"}`}
+              className={`flex items-center gap-1 transition-opacity ${visible.sma200 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              data-testid={`button-modal-legend-sma200`}
+            ><i className="w-2 h-px bg-signal-red inline-block" aria-hidden="true" />200</button>
           </div>
         </div>
 
@@ -213,13 +274,19 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
           )}
           {error && (
             <div className="flex-1 flex items-center justify-center text-[11px] uppercase tracking-wider text-signal-red">
-              {(error as any)?.message?.slice(0, 120) || "Fetch error"}
+              {errMsg.slice(0, 120) || "Fetch error"}
             </div>
           )}
           {rows.length > 0 && (
             <>
               {/* Price + SMAs (main pane) */}
-              <div className="flex-1 min-h-[260px]">
+              <div
+                ref={chartHostRef}
+                className="flex-1 min-h-[260px] relative"
+                role="img"
+                aria-label={`${symbol} price chart, ${interval} timeframe, ${rows.length} bars` + (lastPrice != null ? `, last ${lastPrice.toFixed(2)}` : "")}
+                data-testid={`chart-fullchart-${symbol}`}
+              >
                 <ResponsiveContainer width="100%" height="100%">
                   <ComposedChart data={rows} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
                     <CartesianGrid stroke="hsl(var(--ink-line))" strokeOpacity={0.4} vertical={false} />
@@ -246,11 +313,17 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                         fontSize: 11,
                         fontFamily: "var(--font-mono)",
                       }}
-                      formatter={(v: any, name: string) => [Number(v).toFixed(2), name]}
+                      formatter={fmtTooltip}
                     />
-                    <Line yAxisId="price" type="monotone" dataKey="sma200" name="SMA200" stroke="hsl(var(--signal-red))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
-                    <Line yAxisId="price" type="monotone" dataKey="sma50"  name="SMA50"  stroke="hsl(var(--signal-amber))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
-                    <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
+                    {visible.sma200 && (
+                      <Line yAxisId="price" type="monotone" dataKey="sma200" name="SMA200" stroke="hsl(var(--signal-red))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+                    )}
+                    {visible.sma50 && (
+                      <Line yAxisId="price" type="monotone" dataKey="sma50"  name="SMA50"  stroke="hsl(var(--signal-amber))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+                    )}
+                    {visible.sma20 && (
+                      <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
+                    )}
                     <Line yAxisId="price" type="monotone" dataKey="price"  name="Price"  stroke="hsl(var(--soft-white))"  strokeWidth={1.75} dot={false} isAnimationActive={false} />
                     {signalMarkers.map((m, idx) => (
                       <ReferenceDot
@@ -271,6 +344,8 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     ))}
                   </ComposedChart>
                 </ResponsiveContainer>
+                {/* Floating right-edge SMA value pills */}
+                <FullChartSmaLabels items={labelItems} />
               </div>
 
               {/* Volume bars pane */}
@@ -306,7 +381,7 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                         fontSize: 11,
                         fontFamily: "var(--font-mono)",
                       }}
-                      formatter={(v: any) => [Number(v).toLocaleString(), "Vol"]}
+                      formatter={fmtVolume}
                     />
                     <Bar yAxisId="vol" dataKey="volume" name="Volume" fill="hsl(var(--slate-gray))" fillOpacity={0.5} isAnimationActive={false} />
                   </ComposedChart>
@@ -335,6 +410,42 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Floating right-edge SMA labels (modal version) ─────────────────────────
+// Uses absolute top:N% based on price ranking. Since the modal chart has a
+// YAxis on the right at width=48, we offset right by ~52px so labels clear it.
+function FullChartSmaLabels({
+  items,
+}: {
+  items: { key: string; label: string; value: number; color: string }[];
+}) {
+  if (items.length === 0) return null;
+  // Sort by value desc so the largest sits at the top of the stack.
+  const sorted = [...items].sort((a, b) => b.value - a.value);
+  return (
+    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
+      {sorted.map((d, idx) => (
+        <div
+          key={d.key}
+          className="absolute font-mono-num tabular-nums"
+          style={{
+            top: `${10 + idx * 18}px`,
+            right: "56px",
+            fontSize: "11px",
+            color: d.color,
+            background: "rgba(0,0,0,0.65)",
+            borderRadius: "4px",
+            padding: "1px 6px",
+            lineHeight: "14px",
+            whiteSpace: "nowrap",
+          }}
+        >
+          {d.label} · {d.value.toFixed(2)}
+        </div>
+      ))}
     </div>
   );
 }
