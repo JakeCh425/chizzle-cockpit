@@ -1110,6 +1110,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         }
       }
+      // 1H fallback to tick-bucketing when no upstream provider returned data.
+      // Free hourly bars are paywalled across Stooq/Finnhub and Yahoo rate-limits
+      // datacenter IPs. Synthesizing from live ticks gives at least intraday
+      // coverage instead of an empty chart.
+      if (interval === "1H" && data.length === 0) {
+        const ticks = await storage.listPriceTicks(symbol, 1000);
+        if (aborted) return;
+        const synth = bucketTicks(ticks as any, 3600).slice(-400);
+        if (synth.length > 0) {
+          data = synth;
+          dataSource = "ticks";
+          warning = "Hourly synthesized from live ticks (free hourly bars are paywalled).";
+        }
+      }
       if (interval === "30M" || interval === "5M") {
         // Intraday: bucket recorded ticks. 1000 ticks is enough for SMA200 on
         // 5m (≈ several sessions) and well over for 30m.
