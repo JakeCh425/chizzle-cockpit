@@ -1273,7 +1273,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const tick = () => {
       if (i >= pairs.length) return;
       const [s, iv] = pairs[i++];
-      warmCandle(s, iv).finally(() => setTimeout(tick, 3000));
+      warmCandle(s, iv).finally(() => setTimeout(tick, 5000));
     };
     tick();
   }, 5000);

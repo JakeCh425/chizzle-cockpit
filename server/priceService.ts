@@ -325,9 +325,15 @@ export async function fetchFinnhubBars(
   const url = `https://finnhub.io/api/v1/stock/candle?symbol=${encodeURIComponent(symbol)}&resolution=${resolution}&from=${from}&to=${to}`;
   try {
     const r = await proxiedFetch(url);
-    if (!r.ok) return null;
+    if (!r.ok) {
+      console.warn(`[finnhub-candle] ${symbol} ${resolution} HTTP ${r.status} ${r.statusText}`);
+      return null;
+    }
     const j = (await r.json()) as { s?: string; t?: number[]; c?: number[]; v?: number[] };
-    if (j.s !== "ok" || !Array.isArray(j.t) || !Array.isArray(j.c) || j.t.length === 0) return null;
+    if (j.s !== "ok" || !Array.isArray(j.t) || !Array.isArray(j.c) || j.t.length === 0) {
+      console.warn(`[finnhub-candle] ${symbol} ${resolution} returned s=${j.s} tlen=${j.t?.length ?? 0}`);
+      return null;
+    }
     const out: { time: number; close: number; volume?: number }[] = [];
     for (let i = 0; i < j.t.length; i++) {
       const ts = j.t[i];
@@ -350,16 +356,19 @@ export async function fetchFinnhubHourlyBars(symbol: string) {
 
 // Yahoo Finance simple throttling. Yahoo rate-limits aggressively on
 // concurrent identical requests from a datacenter IP. Keep a tiny per-host
-// queue with a ~250 ms min spacing, plus a short-lived 429 cooldown so we
-// stop hammering when Yahoo asks us to back off.
+// queue with a ~1s min spacing. On 429 we extend the spacing temporarily
+// rather than cooling down globally — that way we keep trying (slowly)
+// instead of black-holing every request.
 let yahooQueue: Promise<unknown> = Promise.resolve();
 let yahoo429Until = 0;
 function yahooScheduled<T>(fn: () => Promise<T>): Promise<T> {
   const run = async () => {
-    if (Date.now() < yahoo429Until) return null as unknown as T;
+    // If we recently saw a 429, wait the remainder before the next call.
+    const remaining = yahoo429Until - Date.now();
+    if (remaining > 0) await new Promise(r => setTimeout(r, Math.min(remaining, 5000)));
     const out = await fn();
-    // 250ms gap between Yahoo calls.
-    await new Promise(r => setTimeout(r, 250));
+    // 1s gap between Yahoo calls in the normal case.
+    await new Promise(r => setTimeout(r, 1000));
     return out;
   };
   const next = yahooQueue.then(run, run);
@@ -383,7 +392,9 @@ export async function fetchYahooBars(
   // intraday history limit on the free chart endpoint).
   const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
   const from = to - lookbackSec;
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
+  // Rotate Yahoo subdomains — query1/query2 have independent rate-limit pools.
+  const host = (symbol.charCodeAt(0) % 2 === 0) ? "query1" : "query2";
+  const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
   return yahooScheduled(async () => {
   try {
     // Plain fetch — Yahoo is a public endpoint that doesn't need the Finnhub
@@ -392,14 +403,17 @@ export async function fetchYahooBars(
       headers: {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
         "Accept": "application/json,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
       },
     });
     if (!r.ok) {
       if (r.status === 429) {
-        // Back off Yahoo for 60s on rate limit. Caller will fall through to Finnhub.
-        yahoo429Until = Date.now() + 60_000;
+        // Add 5s of pacing on top of the 1s default. Future calls in the
+        // queue will wait ~5s before firing. Keeps trying instead of
+        // black-holing all Yahoo traffic.
+        yahoo429Until = Date.now() + 5000;
       }
-      console.warn(`[yahoo] ${symbol} ${interval} HTTP ${r.status} ${r.statusText}`);
+      console.warn(`[yahoo] ${symbol} ${interval} (${host}) HTTP ${r.status} ${r.statusText}`);
       return null;
     }
     const j = (await r.json()) as {
