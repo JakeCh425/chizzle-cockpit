@@ -4,7 +4,7 @@
 // Uses Recharts + backend /api/candles?interval=1D|1H|30M|5M (60s server cache).
 //
 // Refinements:
-//  • Right-edge floating SMA value labels — appear on hover only (so the lines stay clean)
+//  • Top-left SMA value chip stack — appears on hover only (lines stay clean)
 //  • Legend dots toggle SMA visibility (state per SMA)
 //  • In-flight requests abort on unmount via AbortSignal
 //  • Strict types (no `any`)
@@ -129,9 +129,9 @@ const ChartView = memo(function ChartView({
   );
 });
 
-// ─── Floating right-edge SMA labels ─────────────────────────────────────────
-// Computes vertical y% positions from the price range and the current SMA
-// values, then stacks any pair within 14px by offsetting 18px apart.
+// ─── Top-left SMA value chip stack ──────────────────────────────────────────
+// Stays out of the price line's way (price trends to the right; SMA200 hugs
+// the bottom). Single tidy stack in the top-left, hover-only.
 interface SmaLabelDatum {
   key: "sma20" | "sma50" | "sma200";
   label: string;
@@ -141,75 +141,35 @@ interface SmaLabelDatum {
 
 function SmaFloatingLabels({
   data,
-  rows,
-  height,
   visible,
   show,
 }: {
   data: SmaLabelDatum[];
-  rows: ChartRow[];
-  height: number;
   visible: SmaVisibility;
   /** When false, labels are hidden (used to gate visibility to hover only). */
   show: boolean;
 }) {
-  // Compute min/max across price + visible SMAs to mirror Recharts' YAxis "auto" domain.
-  const { min, max } = useMemo(() => {
-    let lo = Infinity;
-    let hi = -Infinity;
-    for (const r of rows) {
-      if (Number.isFinite(r.price)) { lo = Math.min(lo, r.price); hi = Math.max(hi, r.price); }
-      if (visible.sma20 && r.sma20 != null) { lo = Math.min(lo, r.sma20); hi = Math.max(hi, r.sma20); }
-      if (visible.sma50 && r.sma50 != null) { lo = Math.min(lo, r.sma50); hi = Math.max(hi, r.sma50); }
-      if (visible.sma200 && r.sma200 != null) { lo = Math.min(lo, r.sma200); hi = Math.max(hi, r.sma200); }
-    }
-    if (!Number.isFinite(lo) || !Number.isFinite(hi) || hi === lo) return { min: 0, max: 1 };
-    return { min: lo, max: hi };
-  }, [rows, visible]);
-
-  // Recharts margin in our LineChart: top=4, bottom=4. Usable height shrinks by 8px.
-  const PAD_TOP = 4;
-  const PAD_BOTTOM = 4;
-  const usable = Math.max(1, height - PAD_TOP - PAD_BOTTOM);
-
-  // Map each visible SMA to a pixel y from the top.
-  const items = useMemo(() => {
-    const visibleData = data.filter(d => visible[d.key]);
-    // Sort by value descending so the highest sits at the top.
-    visibleData.sort((a, b) => b.value - a.value);
-    const placed: { datum: SmaLabelDatum; y: number }[] = [];
-    for (const d of visibleData) {
-      const norm = (d.value - min) / (max - min); // 0..1, where 1 is top of price range
-      let y = PAD_TOP + (1 - norm) * usable;
-      // Clamp inside chart bounds.
-      y = Math.max(PAD_TOP + 1, Math.min(PAD_TOP + usable - 12, y));
-      // Stack: if previous label is within 14px, push this one 18px lower.
-      const prev = placed[placed.length - 1];
-      if (prev && Math.abs(y - prev.y) < 14) {
-        y = prev.y + 18;
-      }
-      placed.push({ datum: d, y });
-    }
-    return placed;
-  }, [data, visible, min, max, usable]);
+  const items = useMemo(
+    () => data.filter(d => visible[d.key]),
+    [data, visible],
+  );
 
   if (items.length === 0) return null;
   return (
     <div
-      className="pointer-events-none absolute inset-0 transition-opacity duration-150"
+      className="pointer-events-none absolute top-1 left-1 flex flex-col gap-0.5 transition-opacity duration-150"
       style={{ opacity: show ? 1 : 0 }}
       aria-hidden="true"
     >
-      {items.map(({ datum, y }) => (
+      {items.map(datum => (
         <div
           key={datum.key}
-          className="absolute right-1 font-mono-num tabular-nums"
+          className="font-mono-num tabular-nums"
           style={{
-            top: `${y}px`,
-            fontSize: "11px",
+            fontSize: "10px",
             color: datum.color,
-            background: "rgba(0,0,0,0.65)",
-            borderRadius: "4px",
+            background: "rgba(0,0,0,0.7)",
+            borderRadius: "3px",
             padding: "1px 5px",
             lineHeight: "12px",
             whiteSpace: "nowrap",
@@ -473,7 +433,7 @@ export default function MiniChartWidget({
         {rows.length > 0 && (
           <>
             <ChartView rows={rows} height={height} visible={visible} />
-            <SmaFloatingLabels data={labelData} rows={rows} height={height} visible={visible} show={hovering} />
+            <SmaFloatingLabels data={labelData} visible={visible} show={hovering} />
           </>
         )}
       </div>
