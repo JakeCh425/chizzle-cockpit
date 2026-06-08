@@ -17,6 +17,7 @@ import {
   fetchTiingoDailyBars,
   fetchYahooQuote,
   fetchNasdaqQuote,
+  fetchNasdaqDailyBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -1157,19 +1158,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: { time: number; close: number; volume?: number }[] = [];
-      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "tiingo" | "none" = "none";
+      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "tiingo" | "nasdaq" | "none" = "none";
       let warning: string | undefined;
 
       if (interval === "1D" || interval === "1H") {
-        // 0. Try Tiingo first for 1D (free tier: 1000 req/hr, very reliable from
-        //    datacenter IPs). Tiingo free does NOT support intraday, so 1H still
-        //    falls through to Stooq/Yahoo/Finnhub.
+        // 0a. Try Tiingo first for 1D (preferred when quota is available).
+        //     Tiingo free is 500/day on EOD endpoint — shared with IEX poller,
+        //     so it's often 429'd. Tiingo free does NOT support intraday, so
+        //     1H still falls through to Nasdaq/Stooq/Yahoo/Finnhub.
         if (interval === "1D") {
           const tg = await fetchTiingoDailyBars(symbol);
           if (aborted) return;
           if (tg && tg.length > 0) {
             data = tg;
             dataSource = "tiingo";
+          }
+        }
+
+        // 0b. Nasdaq.com historical — free, no auth, works from Render IPs.
+        //     Critical fallback since Tiingo free quota is tight, Stooq is
+        //     bot-challenged, and Yahoo is rate-limited from datacenter IPs.
+        if (interval === "1D" && data.length === 0) {
+          const nd = await fetchNasdaqDailyBars(symbol);
+          if (aborted) return;
+          if (nd && nd.length > 0) {
+            data = nd;
+            dataSource = "nasdaq";
           }
         }
 

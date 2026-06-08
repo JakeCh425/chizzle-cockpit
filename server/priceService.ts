@@ -382,6 +382,70 @@ async function fetchNasdaqQuotesBatch(symbols: string[]): Promise<Quote[]> {
   return results.filter((q): q is Quote => q != null);
 }
 
+// Nasdaq.com historical bars — free, no auth, works from Render IPs.
+// Returns up to ~250 daily bars in one call. Used as primary candle source
+// when Tiingo daily quota is exhausted (which is most of the time on free tier).
+export async function fetchNasdaqDailyBars(
+  symbol: string
+): Promise<{ time: number; close: number; volume?: number }[] | null> {
+  if (isCooling("nasdaq-hist")) return null;
+  const assetClass = nasdaqAssetClass(symbol);
+  // ~560 calendar days back == ~400 trading bars (matches Tiingo coverage).
+  const today = new Date();
+  const start = new Date(today.getTime() - 560 * 24 * 60 * 60 * 1000);
+  const fmt = (d: Date) => `${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}/${d.getFullYear()}`;
+  // Nasdaq accepts both MM/DD/YYYY and YYYY-MM-DD; ISO is safer.
+  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/historical?assetclass=${assetClass}&fromdate=${iso(start)}&todate=${iso(today)}&limit=500&timeframe=d1`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) {
+        const cur = providerFailures.get("nasdaq-hist") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 5 * 60_000;
+        providerFailures.set("nasdaq-hist", cur);
+        console.warn(`[nasdaq-hist] ${symbol} 429 — cooling 5min`);
+      } else {
+        console.warn(`[nasdaq-hist] ${symbol} HTTP ${r.status}`);
+      }
+      return null;
+    }
+    const j: any = await r.json();
+    const rows: any[] = j?.data?.tradesTable?.rows || [];
+    if (rows.length === 0) {
+      console.warn(`[nasdaq-hist] ${symbol} returned 0 rows`);
+      return null;
+    }
+    const bars: { time: number; close: number; volume?: number }[] = [];
+    for (const row of rows) {
+      // date is MM/DD/YYYY, close is "$575.34" (string with $ and possibly commas)
+      const dateStr = String(row?.date || "");
+      const m = dateStr.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+      if (!m) continue;
+      const [, mm, dd, yyyy] = m;
+      const ts = Math.floor(Date.UTC(Number(yyyy), Number(mm) - 1, Number(dd)) / 1000);
+      const close = parseFloat(String(row?.close ?? "").replace(/[$,]/g, ""));
+      const volume = parseFloat(String(row?.volume ?? "").replace(/[,]/g, ""));
+      if (!Number.isFinite(close) || close <= 0 || !Number.isFinite(ts)) continue;
+      bars.push({ time: ts, close, volume: Number.isFinite(volume) ? volume : undefined });
+    }
+    if (bars.length === 0) return null;
+    // Nasdaq returns newest-first; we want oldest-first to match the rest of the chain.
+    bars.sort((a, b) => a.time - b.time);
+    return bars;
+  } catch (e: any) {
+    console.warn(`[nasdaq-hist] ${symbol} fetch error: ${e?.message || e}`);
+    return null;
+  }
+}
+
 async function fetchQuote(symbol: string): Promise<Quote | null> {
   if (USE_SIMULATOR) return simulatorQuote(symbol);
   // 1. Tiingo IEX (preferred — single batch call covers many symbols,
