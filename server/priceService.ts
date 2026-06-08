@@ -233,7 +233,7 @@ async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
 // The v7 /finance/quote endpoint requires a session cookie/crumb and 429s
 // without it; v8 chart works from datacenter IPs as long as we send a
 // browser-like User-Agent.
-async function fetchYahooQuote(symbol: string): Promise<Quote | null> {
+export async function fetchYahooQuote(symbol: string): Promise<Quote | null> {
   if (isCooling("yahoo")) return null;
   const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
   try {

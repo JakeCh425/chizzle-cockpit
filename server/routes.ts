@@ -15,6 +15,7 @@ import {
   fetchFinnhubBars,
   fetchYahooBars,
   fetchTiingoDailyBars,
+  fetchYahooQuote,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -860,10 +861,60 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const regimeState = await storage.getRegimeState();
       const effective = getEffectiveRegime();
 
-      // Overnight moves: latest daily close vs prior daily close, from Stooq.
+      // Moves snapshot per ticker. Provider chain:
+      //   1. Live in-memory quote (most current intraday price + prevClose)
+      //   2. Tiingo daily bars (last 2 EOD closes)
+      //   3. Yahoo v8 chart (regularMarketPrice + chartPreviousClose)
+      //   4. Stooq CSV (datacenter-blocked but try anyway)
+      // The previous build only used Stooq, which 429s/bot-challenges from
+      // Render's IP — hence the scanner showing stale data on every Scan Now.
       const apikey = process.env.STOOQ_APIKEY || "";
       const qs = apikey ? `&apikey=${apikey}` : "";
       const movers = await Promise.all(SCAN_TICKERS.map(async (sym) => {
+        // 1. Live quote already in memory — fastest, no extra HTTP.
+        const live = getQuote(sym);
+        if (live && live.price > 0 && live.prevClose > 0) {
+          return {
+            ticker: sym,
+            latestDate: new Date(live.ts * 1000).toISOString().slice(0, 10),
+            latestClose: live.price,
+            priorClose: live.prevClose,
+            pct: ((live.price - live.prevClose) / live.prevClose) * 100,
+          };
+        }
+
+        // 2. Tiingo daily bars.
+        try {
+          const bars = await fetchTiingoDailyBars(sym);
+          if (bars && bars.length >= 2) {
+            const latest = bars[bars.length - 1];
+            const prior = bars[bars.length - 2];
+            const pct = ((latest.close - prior.close) / prior.close) * 100;
+            return {
+              ticker: sym,
+              latestDate: new Date(latest.time * 1000).toISOString().slice(0, 10),
+              latestClose: latest.close,
+              priorClose: prior.close,
+              pct,
+            };
+          }
+        } catch { /* fall through */ }
+
+        // 3. Yahoo v8 chart fallback.
+        try {
+          const yh = await fetchYahooQuote(sym);
+          if (yh && yh.price > 0 && yh.prevClose > 0) {
+            return {
+              ticker: sym,
+              latestDate: new Date(yh.ts * 1000).toISOString().slice(0, 10),
+              latestClose: yh.price,
+              priorClose: yh.prevClose,
+              pct: ((yh.price - yh.prevClose) / yh.prevClose) * 100,
+            };
+          }
+        } catch { /* fall through */ }
+
+        // 4. Stooq CSV (last resort — frequently 403/timeout on Render).
         try {
           const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d${qs}`;
           const r = await fetch(url, {
@@ -881,7 +932,6 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             return { ticker: sym, error: "stooq apikey missing" };
           }
           const lines = csv.trim().split("\n").slice(1);
-          // last two valid Close values
           const closes: { date: string; close: number }[] = [];
           for (let i = lines.length - 1; i >= 0 && closes.length < 2; i--) {
             const parts = lines[i].split(",");

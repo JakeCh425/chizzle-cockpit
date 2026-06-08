@@ -13,6 +13,7 @@ import { useQueries, useQuery } from "@tanstack/react-query";
 import type { Ticker, WatchlistItem } from "@shared/schema";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type AScoreResult } from "@/lib/sma";
+import { useLiveQuotes } from "@/lib/useLivePrices";
 
 export type Interval = "1D" | "1H" | "30M" | "5M";
 
@@ -99,26 +100,56 @@ export function useWatchlistCandles(symbols: string[], interval: Interval = "1D"
     })),
   });
 
+  // Live tick stream — SSE-backed. Used to overlay the current intraday price
+  // on top of the last-candle close so heatmap + scanner update in real time
+  // instead of showing yesterday's close all session.
+  const liveQuotes = useLiveQuotes();
+
   // Pull only the primitives we need for memo deps — keeps reference identity
   // stable even when TanStack re-creates the wrapping result objects.
   const fingerprints = results.map(q => `${q.status}:${q.dataUpdatedAt ?? 0}`).join("|");
+  // Live-quote fingerprint — changes whenever any watched symbol gets a fresh tick.
+  const liveFingerprint = symbols
+    .map(s => `${s}:${liveQuotes[s]?.price ?? ""}:${liveQuotes[s]?.ts ?? ""}`)
+    .join("|");
 
   return useMemo<WatchlistRow[]>(() => {
     return symbols.map((symbol, i) => {
       const q = results[i];
       const candles = (q?.data ?? []) as Candle[];
       const loading = q?.isLoading ?? true;
+      const live = liveQuotes[symbol];
 
       if (candles.length < 2) {
+        // Even without candles we can still surface the live price so the
+        // heatmap cell shows a number instead of a dash.
+        if (live?.price != null) {
+          return {
+            symbol, candles, loading, empty: !loading,
+            lastPrice: live.price,
+            changePct: live.changePct ?? undefined,
+            lastUpdated: live.ts ? live.ts * 1000 : Date.now(),
+          };
+        }
         return { symbol, candles, loading, empty: !loading };
       }
 
       const closes = candles.map(c => c.close);
       const { sma20: s20Arr, sma50: s50Arr, sma200: s200Arr } = computeSMAs(closes);
 
-      const lastPrice = closes[closes.length - 1];
-      const prevPrice = closes[closes.length - 2];
-      const changePct = prevPrice ? ((lastPrice - prevPrice) / prevPrice) * 100 : undefined;
+      // Prefer the live intraday tick over the last candle close. The last 1D
+      // candle close = yesterday's session close; using it during RTH freezes
+      // the price all day until the next daily snapshot.
+      const candleLastPrice = closes[closes.length - 1];
+      const candlePrevClose = closes[closes.length - 2];
+      const lastPrice = live?.price ?? candleLastPrice;
+      const prevPrice = candleLastPrice; // yesterday's close for change-vs-prior
+      const changePct =
+        live?.changePct != null
+          ? live.changePct
+          : prevPrice
+          ? ((lastPrice - prevPrice) / prevPrice) * 100
+          : undefined;
 
       const s20 = s20Arr[s20Arr.length - 1] ?? undefined;
       const s50 = s50Arr[s50Arr.length - 1] ?? undefined;
@@ -126,18 +157,23 @@ export function useWatchlistCandles(symbols: string[], interval: Interval = "1D"
 
       const distToSma20Pct = s20 != null ? ((lastPrice - s20) / s20) * 100 : undefined;
 
+      // A-score needs the live tick too — splice it onto the close series so
+      // phase detection (APPROACHING / TOUCHING / BOUNCE / REJECTION) reflects
+      // the actual current price rather than yesterday's close.
+      const closesForScore =
+        live?.price != null ? [...closes.slice(0, -1), live.price] : closes;
+
       return {
         symbol, candles, loading: false, empty: false,
         lastPrice, prevPrice, changePct,
         sma20: s20, sma50: s50, sma200: s200,
         distToSma20Pct,
         atr14: atr14FromCloses(closes),
-        aScore: getAScore(closes, s20Arr),
-        lastUpdated: q?.dataUpdatedAt || undefined,
+        aScore: getAScore(closesForScore, s20Arr),
+        lastUpdated: live?.ts ? live.ts * 1000 : (q?.dataUpdatedAt || undefined),
       };
     });
-    // `fingerprints` is the stable change signal; symbols change array identity
-    // when the watchlist changes.
+    // `fingerprints` covers candle refreshes; `liveFingerprint` covers SSE ticks.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [symbols, fingerprints]);
+  }, [symbols, fingerprints, liveFingerprint]);
 }
