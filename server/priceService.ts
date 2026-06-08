@@ -35,7 +35,7 @@ async function proxiedFetch(url: string, init: any = {}) {
   return fetch(url, init);
 }
 
-export type FeedSource = "FINNHUB" | "SIMULATOR" | "OVERRIDE";
+export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "SIMULATOR" | "OVERRIDE";
 
 export interface Quote {
   symbol: string;
@@ -97,30 +97,102 @@ function pushError() {
 // ─────────────────────────────────────────────────────────────────────────────
 // Fetch a single Finnhub quote. The credential proxy injects X-Finnhub-Token
 // automatically when the process was launched with the right api_credentials.
-async function fetchQuote(symbol: string): Promise<Quote | null> {
-  if (USE_SIMULATOR) return simulatorQuote(symbol);
-  // Auto-fallback: if no proxy and no direct token are configured, run the
-  // simulator so the UI still shows live-feeling prices instead of dead silence.
-  if (!proxyDispatcher && !FINNHUB_TOKEN) {
-    console.warn(`[priceService] No FINNHUB_API_KEY configured — using simulator for ${symbol}`);
-    return simulatorQuote(symbol);
+// Per-host failure cache so we don't pound a known-dead provider every cycle.
+// When a provider has failed N times in a row, skip it for the next cooldown
+// window and let the fallback do the work.
+const providerFailures = new Map<string, { count: number; until: number }>();
+function markFail(provider: string) {
+  const cur = providerFailures.get(provider) || { count: 0, until: 0 };
+  cur.count++;
+  // After 5 consecutive failures, cool down for 60s.
+  if (cur.count >= 5) cur.until = Date.now() + 60_000;
+  providerFailures.set(provider, cur);
+}
+function markOk(provider: string) {
+  providerFailures.delete(provider);
+}
+function isCooling(provider: string): boolean {
+  const cur = providerFailures.get(provider);
+  return !!cur && cur.until > Date.now();
+}
+
+// Tiingo IEX live quote — free tier, real-time-ish (~delayed by exchange).
+// Batch-capable: one call returns N symbols. Used as primary live source
+// when configured, with Finnhub as fallback. Falls back to simulator if both fail.
+async function fetchTiingoQuotesBatch(symbols: string[]): Promise<Quote[]> {
+  if (!TIINGO_TOKEN || symbols.length === 0) return [];
+  const url = `https://api.tiingo.com/iex/?tickers=${symbols.map(encodeURIComponent).join(",")}&token=${TIINGO_TOKEN}`;
+  try {
+    const r = await fetch(url, {
+      headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
+    });
+    if (!r.ok) {
+      markFail("tiingo-iex");
+      console.warn(`[priceService:tiingo] batch HTTP ${r.status}`);
+      return [];
+    }
+    const arr = (await r.json()) as Array<any>;
+    if (!Array.isArray(arr) || arr.length === 0) {
+      markFail("tiingo-iex");
+      return [];
+    }
+    markOk("tiingo-iex");
+    const out: Quote[] = [];
+    for (const row of arr) {
+      const sym = String(row?.ticker || "").toUpperCase();
+      const last = Number(row?.tngoLast ?? row?.last ?? row?.mid ?? 0);
+      const prev = Number(row?.prevClose ?? 0);
+      if (!sym || !Number.isFinite(last) || last <= 0) continue;
+      const change = prev > 0 ? last - prev : 0;
+      const changePct = prev > 0 ? (change / prev) * 100 : 0;
+      out.push({
+        symbol: sym,
+        price: last,
+        prevClose: prev,
+        change,
+        changePct,
+        high: Number(row?.high ?? last),
+        low: Number(row?.low ?? last),
+        open: Number(row?.open ?? last),
+        ts: row?.timestamp ? Math.floor(new Date(row.timestamp).getTime() / 1000) : Math.floor(Date.now() / 1000),
+        receivedAt: Date.now(),
+        source: "TIINGO_IEX",
+      });
+    }
+    return out;
+  } catch (e: any) {
+    markFail("tiingo-iex");
+    console.warn(`[priceService:tiingo] batch error: ${e?.message || e}`);
+    return [];
   }
+}
+
+async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
+  if (isCooling("finnhub")) return null;
+  if (!proxyDispatcher && !FINNHUB_TOKEN) return null;
   const url = `https://finnhub.io/api/v1/quote?symbol=${encodeURIComponent(symbol)}`;
   try {
     const res = await proxiedFetch(url, { headers: { "Accept": "application/json" } });
     if (!res.ok) {
       pushError();
-      console.warn(`[priceService] ${symbol} HTTP ${res.status}`);
+      markFail("finnhub");
+      console.warn(`[priceService:finnhub] ${symbol} HTTP ${res.status}`);
       return null;
     }
     const j: any = await res.json();
-    if (j?.c == null || j.c === 0) {
-      // Finnhub returns c:0 for unknown / no-data symbols
+    if (j?.error) {
       pushError();
-      console.warn(`[priceService] ${symbol} empty quote`, j);
+      markFail("finnhub");
+      console.warn(`[priceService:finnhub] ${symbol} error: ${j.error}`);
       return null;
     }
-    const q: Quote = {
+    if (j?.c == null || j.c === 0) {
+      pushError();
+      markFail("finnhub");
+      return null;
+    }
+    markOk("finnhub");
+    return {
       symbol,
       price: Number(j.c),
       prevClose: Number(j.pc ?? 0),
@@ -133,12 +205,32 @@ async function fetchQuote(symbol: string): Promise<Quote | null> {
       receivedAt: Date.now(),
       source: "FINNHUB",
     };
-    return q;
   } catch (e: any) {
     pushError();
-    console.warn(`[priceService] ${symbol} fetch error: ${e?.message || e}`);
+    markFail("finnhub");
+    console.warn(`[priceService:finnhub] ${symbol} fetch error: ${e?.message || e}`);
     return null;
   }
+}
+
+async function fetchQuote(symbol: string): Promise<Quote | null> {
+  if (USE_SIMULATOR) return simulatorQuote(symbol);
+  // 1. Tiingo IEX (preferred — single batch call covers many symbols,
+  //    works reliably from datacenter IPs). For single-symbol calls we still hit it.
+  if (TIINGO_TOKEN && !isCooling("tiingo-iex")) {
+    const arr = await fetchTiingoQuotesBatch([symbol]);
+    if (arr.length > 0) return arr[0];
+  }
+  // 2. Finnhub fallback
+  const fh = await fetchFinnhubQuote(symbol);
+  if (fh) return fh;
+  // 3. Auto-fallback: if no quote provider is healthy and no token configured,
+  //    fall back to simulator so the UI still shows motion.
+  if (!proxyDispatcher && !FINNHUB_TOKEN && !TIINGO_TOKEN) {
+    console.warn(`[priceService] No quote provider configured — using simulator for ${symbol}`);
+    return simulatorQuote(symbol);
+  }
+  return null;
 }
 
 function simulatorQuote(symbol: string): Quote {
@@ -203,17 +295,27 @@ export function removeSseClient(res: Response) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Polling loop with staggered single-symbol fetches.
-// In active mode (5s cycle, 6 symbols) → 1 request every 833ms → 60/min total.
+// Polling loop. When Tiingo IEX is configured, do ONE batch call per cycle
+// for all symbols (highly efficient). Otherwise fall back to staggered
+// per-symbol Finnhub calls.
 let symbolIdx = 0;
 async function pollOnce() {
   if (pollerStoppedFlag) return;
   const cadenceSec = activeCadenceSec();
+
+  if (TIINGO_TOKEN && !isCooling("tiingo-iex")) {
+    // Batch: one HTTP request for all SYMBOLS.
+    const arr = await fetchTiingoQuotesBatch(SYMBOLS);
+    for (const q of arr) commitQuote(q);
+    setTimeout(pollOnce, Math.max(1000, cadenceSec * 1000));
+    return;
+  }
+
+  // Staggered single-symbol fallback (Finnhub).
   const symbol = SYMBOLS[symbolIdx % SYMBOLS.length];
   symbolIdx++;
   const q = await fetchQuote(symbol);
   if (q) commitQuote(q);
-  // Schedule next: stagger requests evenly across the cycle window.
   const intervalMs = Math.floor((cadenceSec * 1000) / SYMBOLS.length);
   setTimeout(pollOnce, Math.max(250, intervalMs));
 }
@@ -228,13 +330,41 @@ export async function refreshAllSymbolsOnce(): Promise<number> {
   return ok;
 }
 
+// Immediate batch warmup — fills the quotes map in ONE Tiingo IEX call before
+// the staggered loop starts, so the first SSE client receives a populated
+// `hello` event and the cockpit goes LIVE within ~500ms of boot.
+async function warmupAllQuotes() {
+  if (USE_SIMULATOR) {
+    for (const s of SYMBOLS) commitQuote(simulatorQuote(s));
+    return;
+  }
+  if (TIINGO_TOKEN) {
+    const arr = await fetchTiingoQuotesBatch(SYMBOLS);
+    let n = 0;
+    for (const q of arr) { commitQuote(q); n++; }
+    if (n > 0) {
+      console.log(`[priceService] warmup: Tiingo IEX populated ${n}/${SYMBOLS.length} symbols`);
+      return;
+    }
+  }
+  // Fall back to per-symbol Finnhub if Tiingo unavailable.
+  for (const s of SYMBOLS) {
+    const q = await fetchFinnhubQuote(s);
+    if (q) commitQuote(q);
+  }
+}
+
 export function startPricePoller() {
   if (pollerStarted) return;
   pollerStarted = true;
   pollerStoppedFlag = false;
   console.log(`[priceService] poller starting; simulator=${USE_SIMULATOR}`);
-  // Kick off immediately
-  pollOnce().catch(e => console.warn("[priceService] poll error", e));
+  // Immediate batch warmup, then start staggered loop.
+  warmupAllQuotes()
+    .catch(e => console.warn("[priceService] warmup error", e))
+    .finally(() => {
+      pollOnce().catch(e => console.warn("[priceService] poll error", e));
+    });
 }
 
 export function stopPricePoller() {
@@ -255,7 +385,7 @@ export function getQuote(symbol: string): Quote | undefined {
 }
 
 export interface FeedStatus {
-  provider: "Finnhub";
+  provider: "Finnhub" | "Tiingo IEX" | "Simulator";
   tier: "Free";
   cadenceSec: number;
   session: string;
@@ -279,7 +409,7 @@ export function feedStatus(): FeedStatus {
     else if (m >= 16 * 60 && m < 20 * 60) session = "POST";
   }
   return {
-    provider: "Finnhub",
+    provider: USE_SIMULATOR ? "Simulator" : (TIINGO_TOKEN ? "Tiingo IEX" : "Finnhub"),
     tier: "Free",
     cadenceSec: cadence,
     session,

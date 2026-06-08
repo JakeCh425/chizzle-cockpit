@@ -38,28 +38,61 @@ function sma20Prev(closes: number[]): number | null {
 }
 
 async function fetchDailyCloses(symbol: string): Promise<Candle[]> {
+  // 1. Tiingo (reliable from Render datacenter IPs)
+  const tiingoTok = process.env.TIINGO_API_KEY || process.env.TIINGO_TOKEN || "";
+  if (tiingoTok) {
+    const end = new Date().toISOString().slice(0, 10);
+    const start = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const url = `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(symbol)}/prices?startDate=${start}&endDate=${end}&format=json&token=${tiingoTok}`;
+    try {
+      const r = await fetch(url, {
+        headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (r.ok) {
+        const j = (await r.json()) as Array<{ date?: string; close?: number; adjClose?: number }>;
+        if (Array.isArray(j) && j.length > 0) {
+          const out: Candle[] = [];
+          for (const row of j) {
+            const ts = row.date ? Math.floor(new Date(row.date).getTime() / 1000) : NaN;
+            const c = Number.isFinite(row.adjClose as number) ? (row.adjClose as number) : (row.close as number);
+            if (Number.isFinite(ts) && Number.isFinite(c)) out.push({ time: ts, close: c });
+          }
+          if (out.length > 0) return out.slice(-250);
+        }
+      }
+    } catch (e) {
+      // ignore and try Stooq
+    }
+  }
+  // 2. Stooq fallback (often blocked on datacenter IPs — keep timeout short)
   const apikey = process.env.STOOQ_APIKEY || "";
   const qs = apikey ? `&apikey=${apikey}` : "";
   const url = `https://stooq.com/q/d/l/?s=${symbol.toLowerCase()}.us&i=d${qs}`;
-  const r = await fetch(url, {
-    headers: {
-      "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-      "Accept": "text/csv,text/plain,*/*",
-      "Accept-Language": "en-US,en;q=0.9",
-      "Referer": "https://stooq.com/",
-    },
-  });
-  if (!r.ok) return [];
-  const csv = await r.text();
-  const lines = csv.trim().split("\n").slice(1);
-  const out: Candle[] = [];
-  for (const line of lines) {
-    const [date, , , , close] = line.split(",");
-    const ts = Math.floor(new Date(date).getTime() / 1000);
-    const c = parseFloat(close);
-    if (Number.isFinite(c) && Number.isFinite(ts)) out.push({ time: ts, close: c });
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "Accept": "text/csv,text/plain,*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Referer": "https://stooq.com/",
+      },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!r.ok) return [];
+    const csv = await r.text();
+    const lines = csv.trim().split("\n").slice(1);
+    const out: Candle[] = [];
+    for (const line of lines) {
+      const [date, , , , close] = line.split(",");
+      const ts = Math.floor(new Date(date).getTime() / 1000);
+      const c = parseFloat(close);
+      if (Number.isFinite(c) && Number.isFinite(ts)) out.push({ time: ts, close: c });
+    }
+    return out.slice(-250);
+  } catch (e) {
+    return [];
   }
-  return out.slice(-250);
 }
 
 function classify(closes: number[]): SignalKind | null {

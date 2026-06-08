@@ -873,6 +873,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               "Accept-Language": "en-US,en;q=0.9",
               "Referer": "https://stooq.com/",
             },
+            signal: AbortSignal.timeout(5000),
           });
           if (!r.ok) return { ticker: sym, error: `stooq ${r.status}` };
           const csv = await r.text();
@@ -1120,6 +1121,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           // Browser UA + Accept headers — Stooq's bot filter blocks empty/curl
           // UAs from datacenter IPs, returning a JS proof-of-work HTML page.
           // A real browser UA passes the filter for the CSV endpoint.
+          // 5s timeout — Stooq's TCP connect occasionally hangs ~22s from
+          // datacenter IPs, stalling the candle warmer for minutes. Bail fast.
           const r = await fetch(url, {
             headers: {
               "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
@@ -1127,6 +1130,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
               "Accept-Language": "en-US,en;q=0.9",
               "Referer": "https://stooq.com/",
             },
+            signal: AbortSignal.timeout(5000),
           });
           if (aborted) return;
           if (!r.ok) {
