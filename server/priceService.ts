@@ -227,71 +227,78 @@ async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
   }
 }
 
-// Yahoo Finance v7 quote API — no auth required, supports comma-separated symbols.
-// Used as zero-quota fallback when Tiingo IEX is rate-limited.
-async function fetchYahooQuotesBatch(symbols: string[]): Promise<Quote[]> {
-  if (symbols.length === 0) return [];
-  if (isCooling("yahoo")) return [];
-  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.map(encodeURIComponent).join(",")}`;
+// Yahoo Finance v8 chart endpoint — no auth, no quota meaningfully enforced
+// on this path. We hit it once per symbol in parallel (cheap) and pull
+// `meta.regularMarketPrice` + `meta.chartPreviousClose` to construct a Quote.
+// The v7 /finance/quote endpoint requires a session cookie/crumb and 429s
+// without it; v8 chart works from datacenter IPs as long as we send a
+// browser-like User-Agent.
+async function fetchYahooQuote(symbol: string): Promise<Quote | null> {
+  if (isCooling("yahoo")) return null;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?range=1d&interval=1m`;
   try {
     const r = await fetch(url, {
       headers: {
         "Accept": "application/json",
-        // Yahoo blocks default fetch UA; mimic a browser.
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
       },
       signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) {
       if (r.status === 429) {
-        // Long cooldown when rate-limited.
         const cur = providerFailures.get("yahoo") || { count: 0, until: 0 };
         cur.count = 999;
         cur.until = Date.now() + 5 * 60_000;
         providerFailures.set("yahoo", cur);
-        console.warn(`[priceService:yahoo] batch 429 — cooling 5min`);
+        console.warn(`[priceService:yahoo] ${symbol} 429 — cooling 5min`);
       } else {
         markFail("yahoo");
-        console.warn(`[priceService:yahoo] batch HTTP ${r.status}`);
       }
-      return [];
+      return null;
     }
     const j: any = await r.json();
-    const rows: any[] = j?.quoteResponse?.result || [];
-    if (rows.length === 0) {
+    const result = j?.chart?.result?.[0];
+    const meta = result?.meta;
+    if (!meta) {
       markFail("yahoo");
-      return [];
+      return null;
+    }
+    const last = Number(meta.regularMarketPrice ?? 0);
+    const prev = Number(meta.chartPreviousClose ?? meta.previousClose ?? 0);
+    if (!Number.isFinite(last) || last <= 0) {
+      markFail("yahoo");
+      return null;
     }
     markOk("yahoo");
-    const out: Quote[] = [];
-    for (const row of rows) {
-      const sym = String(row?.symbol || "").toUpperCase();
-      const last = Number(row?.regularMarketPrice ?? 0);
-      const prev = Number(row?.regularMarketPreviousClose ?? 0);
-      if (!sym || !Number.isFinite(last) || last <= 0) continue;
-      const change = Number(row?.regularMarketChange ?? (prev ? last - prev : 0));
-      const changePct = Number(row?.regularMarketChangePercent ?? (prev ? ((last - prev) / prev) * 100 : 0));
-      out.push({
-        symbol: sym,
-        price: last,
-        prevClose: prev,
-        change,
-        changePct,
-        high: Number(row?.regularMarketDayHigh ?? 0),
-        low: Number(row?.regularMarketDayLow ?? 0),
-        open: Number(row?.regularMarketOpen ?? 0),
-        ts: Number(row?.regularMarketTime ?? Math.floor(Date.now() / 1000)),
-        receivedAt: Date.now(),
-        source: "YAHOO",
-      });
-    }
-    return out;
+    const change = prev ? last - prev : 0;
+    const changePct = prev ? ((last - prev) / prev) * 100 : 0;
+    return {
+      symbol,
+      price: last,
+      prevClose: prev,
+      change,
+      changePct,
+      high: Number(meta.regularMarketDayHigh ?? 0),
+      low: Number(meta.regularMarketDayLow ?? 0),
+      open: Number(meta.regularMarketOpen ?? 0),
+      ts: Number(meta.regularMarketTime ?? Math.floor(Date.now() / 1000)),
+      receivedAt: Date.now(),
+      source: "YAHOO",
+    };
   } catch (e: any) {
     pushError();
     markFail("yahoo");
-    console.warn(`[priceService:yahoo] batch fetch error: ${e?.message || e}`);
-    return [];
+    console.warn(`[priceService:yahoo] ${symbol} fetch error: ${e?.message || e}`);
+    return null;
   }
+}
+
+// Parallel batch wrapper — fan out v8 chart calls and gather results.
+async function fetchYahooQuotesBatch(symbols: string[]): Promise<Quote[]> {
+  if (symbols.length === 0) return [];
+  if (isCooling("yahoo")) return [];
+  const results = await Promise.all(symbols.map(s => fetchYahooQuote(s)));
+  return results.filter((q): q is Quote => q != null);
 }
 
 async function fetchQuote(symbol: string): Promise<Quote | null> {
