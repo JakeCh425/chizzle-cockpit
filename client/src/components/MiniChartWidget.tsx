@@ -17,6 +17,7 @@ import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, CartesianGrid } f
 import { Maximize2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, computeSignal, getAScore, type SignalColor } from "@/lib/sma";
+import { useLiveQuotes } from "@/lib/useLivePrices";
 
 type Candle = { time: number; close: number };
 export type Interval = "1D" | "1H" | "30M" | "5M";
@@ -239,8 +240,13 @@ export default function MiniChartWidget({
   const effectiveRefresh = refreshMs ?? DEFAULT_REFRESH[interval];
   const { data: candles = [], isLoading, error } = useCandles(symbol, interval, effectiveRefresh);
 
+  // Live tick stream — used to override the headline price with the most recent
+  // intraday tick instead of yesterday's close from the historical candle array.
+  const liveQuotes = useLiveQuotes();
+  const liveQuote = liveQuotes[symbol];
+
   // Derived: SMAs + signal + A-score + chart rows. Memoized — recomputes only when candles change.
-  const { rows, signal, aScore, lastPrice, lastChange, sma20Last, sma50Last, sma200Last } = useMemo(() => {
+  const { rows, signal, aScore, candleLastPrice, candlePrevClose, sma20Last, sma50Last, sma200Last } = useMemo(() => {
     const closes = candles.map(c => c.close);
     const { sma20, sma50, sma200 } = computeSMAs(closes);
     const rows: ChartRow[] = closes.map((p, i) => ({
@@ -248,20 +254,31 @@ export default function MiniChartWidget({
     }));
     const signal = computeSignal(closes, sma20, sma50, sma200);
     const aScore = getAScore(closes, sma20);
-    const lastPrice = closes[closes.length - 1];
-    const prev = closes[closes.length - 2];
-    const lastChange = lastPrice != null && prev != null ? ((lastPrice - prev) / prev) * 100 : null;
+    const candleLastPrice = closes[closes.length - 1];
+    const candlePrevClose = closes[closes.length - 2];
     const last = (arr: (number | null)[]) => {
       for (let i = arr.length - 1; i >= 0; i--) if (arr[i] != null) return arr[i] as number;
       return null;
     };
     return {
-      rows, signal, aScore, lastPrice, lastChange,
+      rows, signal, aScore, candleLastPrice, candlePrevClose,
       sma20Last: last(sma20),
       sma50Last: last(sma50),
       sma200Last: last(sma200),
     };
   }, [candles]);
+
+  // Prefer the live tick price (intraday, current second) over the historical
+  // candle's last close. The candle last close is yesterday's bar on a 1D chart
+  // until the market closes; the live feed is what's happening right now.
+  const lastPrice = liveQuote?.price ?? candleLastPrice;
+  // Change % — from live tick when available (vs prev close), else day-over-day
+  // candle close-to-close. Live quote.changePct already includes proper prev close.
+  const lastChange = liveQuote?.changePct != null
+    ? liveQuote.changePct
+    : (candleLastPrice != null && candlePrevClose != null
+        ? ((candleLastPrice - candlePrevClose) / candlePrevClose) * 100
+        : null);
 
   // Floating-label data set — only includes SMAs with a current numeric value.
   const labelData = useMemo<SmaLabelDatum[]>(() => {

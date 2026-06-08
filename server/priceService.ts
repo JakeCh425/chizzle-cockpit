@@ -57,15 +57,20 @@ const WATCHLIST_SYMS = ["SMH", "QQQ", "SPY", "IWM", "AAPL", "META"];
 const INTERNAL_SYMS = ["VIXY"];
 const SYMBOLS = [...WATCHLIST_SYMS, ...INTERNAL_SYMS];
 
-// Cadence (seconds) — staggered across the cycle to stay under 60 req/min.
+// Cadence (seconds) — staggered across the cycle to stay under provider quotas.
+// Finnhub free is 60 req/min so 5s with 7 staggered symbols = ~84 req/min (over).
+// Tiingo IEX free is ~50 req/hour total which translates to ~72s between batch
+// calls. We use 30s as a balance: 120 req/hour for IEX, comfortably under any
+// reasonable free-tier ceiling, and updates feel real-time on a swing-trading
+// scale (1H/1D charts).
 function activeCadenceSec(now = new Date()): number {
   // Translate to America/New_York to classify the session.
   const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
   const day = et.getDay();
   if (day === 0 || day === 6) return 300; // weekend
   const minutes = et.getHours() * 60 + et.getMinutes();
-  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 5;   // regular session
-  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 60; // pre/post
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 30;  // regular session (was 5)
+  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 90; // pre/post
   return 300; // overnight
 }
 
@@ -127,8 +132,17 @@ async function fetchTiingoQuotesBatch(symbols: string[]): Promise<Quote[]> {
       headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
     });
     if (!r.ok) {
-      markFail("tiingo-iex");
-      console.warn(`[priceService:tiingo] batch HTTP ${r.status}`);
+      if (r.status === 429) {
+        // Rate-limited — force a long cooldown so we stop pounding the endpoint.
+        const cur = providerFailures.get("tiingo-iex") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 10 * 60_000;
+        providerFailures.set("tiingo-iex", cur);
+        console.warn(`[priceService:tiingo] batch 429 — cooling down 10min`);
+      } else {
+        markFail("tiingo-iex");
+        console.warn(`[priceService:tiingo] batch HTTP ${r.status}`);
+      }
       return [];
     }
     const arr = (await r.json()) as Array<any>;
@@ -493,10 +507,15 @@ export async function fetchFinnhubHourlyBars(symbol: string) {
  * Returns null when token missing or upstream returns empty/error so the
  * caller can fall back to Stooq / Yahoo / Finnhub.
  */
+// Shared cooldown for the Tiingo daily endpoint — hit by both the candles
+// route and sma20Alerts. When we get a 429, back off for 10 minutes (Tiingo
+// rate-limit window) instead of pounding every cache-miss request.
+let tiingoDailyCooldownUntil = 0;
 export async function fetchTiingoDailyBars(
   symbol: string
 ): Promise<{ time: number; close: number; volume?: number }[] | null> {
   if (!TIINGO_TOKEN) return null;
+  if (Date.now() < tiingoDailyCooldownUntil) return null; // skip while rate-limited
   // ~560 calendar days back == ~400 trading bars
   const endMs = Date.now();
   const startMs = endMs - 560 * 24 * 60 * 60 * 1000;
@@ -508,9 +527,16 @@ export async function fetchTiingoDailyBars(
         "Accept": "application/json",
         "User-Agent": "chizzle-cockpit/1.0",
       },
+      signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) {
-      console.warn(`[tiingo] ${symbol} daily HTTP ${r.status} ${r.statusText}`);
+      if (r.status === 429) {
+        // Cool down for 10min on rate-limit. Tiingo's window resets hourly.
+        tiingoDailyCooldownUntil = Date.now() + 10 * 60_000;
+        console.warn(`[tiingo] ${symbol} daily 429 — cooling down 10min`);
+      } else {
+        console.warn(`[tiingo] ${symbol} daily HTTP ${r.status} ${r.statusText}`);
+      }
       return null;
     }
     const j = (await r.json()) as Array<{
