@@ -35,7 +35,7 @@ async function proxiedFetch(url: string, init: any = {}) {
   return fetch(url, init);
 }
 
-export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "YAHOO" | "SIMULATOR" | "OVERRIDE";
+export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE";
 
 export interface Quote {
   symbol: string;
@@ -301,6 +301,87 @@ async function fetchYahooQuotesBatch(symbols: string[]): Promise<Quote[]> {
   return results.filter((q): q is Quote => q != null);
 }
 
+// ETF vs stock classification — used by the Nasdaq API which requires the
+// asset class as a query parameter. Anything not in the ETF set is treated
+// as `stocks`. Update this when adding new watchlist symbols.
+const ETF_SYMBOLS = new Set(["SPY", "QQQ", "IWM", "SMH", "VIXY", "DIA", "XLF", "XLK", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLRE", "GLD", "SLV", "TLT", "HYG", "LQD", "USO", "UNG"]);
+function nasdaqAssetClass(symbol: string): "etf" | "stocks" | "index" {
+  if (ETF_SYMBOLS.has(symbol)) return "etf";
+  if (symbol.startsWith("^") || symbol === "NDX" || symbol === "SPX" || symbol === "DJI" || symbol === "VIX") return "index";
+  return "stocks";
+}
+
+// Nasdaq.com /api/quote — free, no auth, real-time intraday prices, and
+// crucially: not rate-limited from datacenter IPs the way Yahoo and Tiingo's
+// free tier are. Used as the primary live source when both Tiingo IEX and
+// Yahoo are unavailable, which is the steady state during long sessions.
+export async function fetchNasdaqQuote(symbol: string): Promise<Quote | null> {
+  if (isCooling("nasdaq")) return null;
+  const assetClass = nasdaqAssetClass(symbol);
+  const url = `https://api.nasdaq.com/api/quote/${encodeURIComponent(symbol)}/info?assetclass=${assetClass}`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) {
+        const cur = providerFailures.get("nasdaq") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 5 * 60_000;
+        providerFailures.set("nasdaq", cur);
+        console.warn(`[priceService:nasdaq] ${symbol} 429 — cooling 5min`);
+      } else {
+        markFail("nasdaq");
+        console.warn(`[priceService:nasdaq] ${symbol} HTTP ${r.status}`);
+      }
+      return null;
+    }
+    const j: any = await r.json();
+    const pd = j?.data?.primaryData;
+    if (!pd?.lastSalePrice) {
+      markFail("nasdaq");
+      return null;
+    }
+    // Nasdaq returns values like "$744.95" and "+7.40" / "+1.00%".
+    const last = parseFloat(String(pd.lastSalePrice).replace(/[$,]/g, ""));
+    const change = parseFloat(String(pd.netChange ?? "0").replace(/[+,]/g, ""));
+    const changePct = parseFloat(String(pd.percentageChange ?? "0").replace(/[+%,]/g, ""));
+    if (!Number.isFinite(last) || last <= 0) {
+      markFail("nasdaq");
+      return null;
+    }
+    const prev = Number.isFinite(change) ? last - change : 0;
+    markOk("nasdaq");
+    return {
+      symbol,
+      price: last,
+      prevClose: prev,
+      change: Number.isFinite(change) ? change : 0,
+      changePct: Number.isFinite(changePct) ? changePct : 0,
+      high: 0, low: 0, open: 0,
+      ts: Math.floor(Date.now() / 1000),
+      receivedAt: Date.now(),
+      source: "NASDAQ",
+    };
+  } catch (e: any) {
+    pushError();
+    markFail("nasdaq");
+    console.warn(`[priceService:nasdaq] ${symbol} fetch error: ${e?.message || e}`);
+    return null;
+  }
+}
+
+async function fetchNasdaqQuotesBatch(symbols: string[]): Promise<Quote[]> {
+  if (symbols.length === 0) return [];
+  if (isCooling("nasdaq")) return [];
+  const results = await Promise.all(symbols.map(s => fetchNasdaqQuote(s)));
+  return results.filter((q): q is Quote => q != null);
+}
+
 async function fetchQuote(symbol: string): Promise<Quote | null> {
   if (USE_SIMULATOR) return simulatorQuote(symbol);
   // 1. Tiingo IEX (preferred — single batch call covers many symbols,
@@ -309,12 +390,17 @@ async function fetchQuote(symbol: string): Promise<Quote | null> {
     const arr = await fetchTiingoQuotesBatch([symbol]);
     if (arr.length > 0) return arr[0];
   }
-  // 2. Yahoo fallback (zero-quota, no auth)
+  // 2. Nasdaq fallback (zero-quota, no auth, works from Render IPs)
+  if (!isCooling("nasdaq")) {
+    const nq = await fetchNasdaqQuote(symbol);
+    if (nq) return nq;
+  }
+  // 3. Yahoo fallback (zero-quota but heavily rate-limited from datacenter IPs)
   if (!isCooling("yahoo")) {
     const yhArr = await fetchYahooQuotesBatch([symbol]);
     if (yhArr.length > 0) return yhArr[0];
   }
-  // 3. Finnhub fallback
+  // 4. Finnhub fallback
   const fh = await fetchFinnhubQuote(symbol);
   if (fh) return fh;
   // 4. Auto-fallback: if no quote provider is healthy and no token configured,
@@ -407,7 +493,18 @@ async function pollOnce() {
     // Tiingo returned nothing — fall through to Yahoo this cycle.
   }
 
-  // Yahoo batch (zero-quota, no auth) — used when Tiingo is cooling/exhausted.
+  // Nasdaq batch (primary fallback when Tiingo cooling — zero quota, works
+  // reliably from datacenter IPs unlike Yahoo).
+  if (!isCooling("nasdaq")) {
+    const ndArr = await fetchNasdaqQuotesBatch(SYMBOLS);
+    if (ndArr.length > 0) {
+      for (const q of ndArr) commitQuote(q);
+      setTimeout(pollOnce, Math.max(1000, cadenceSec * 1000));
+      return;
+    }
+  }
+
+  // Yahoo batch (zero-quota, no auth) — last fallback, often rate-limited.
   if (!isCooling("yahoo")) {
     const yhArr = await fetchYahooQuotesBatch(SYMBOLS);
     if (yhArr.length > 0) {
@@ -453,15 +550,21 @@ async function warmupAllQuotes() {
       return;
     }
   }
-  // Yahoo batch fallback (zero-quota, no auth) — the most likely path when
-  // Tiingo hourly quota is burned.
+  // Nasdaq batch fallback — zero-quota, no auth, works from Render IPs.
+  const nd = await fetchNasdaqQuotesBatch(SYMBOLS);
+  if (nd.length > 0) {
+    for (const q of nd) commitQuote(q);
+    console.log(`[priceService] warmup: Nasdaq populated ${nd.length}/${SYMBOLS.length} symbols`);
+    return;
+  }
+  // Yahoo batch fallback (zero-quota but heavily rate-limited from datacenter IPs).
   const yh = await fetchYahooQuotesBatch(SYMBOLS);
   if (yh.length > 0) {
     for (const q of yh) commitQuote(q);
     console.log(`[priceService] warmup: Yahoo populated ${yh.length}/${SYMBOLS.length} symbols`);
     return;
   }
-  // Fall back to per-symbol Finnhub if Tiingo + Yahoo unavailable.
+  // Fall back to per-symbol Finnhub if everything else unavailable.
   for (const s of SYMBOLS) {
     const q = await fetchFinnhubQuote(s);
     if (q) commitQuote(q);
@@ -499,7 +602,7 @@ export function getQuote(symbol: string): Quote | undefined {
 }
 
 export interface FeedStatus {
-  provider: "Finnhub" | "Tiingo IEX" | "Yahoo" | "Simulator";
+  provider: "Finnhub" | "Tiingo IEX" | "Yahoo" | "Nasdaq" | "Simulator";
   tier: "Free";
   cadenceSec: number;
   session: string;
@@ -531,6 +634,7 @@ export function feedStatus(): FeedStatus {
       for (const q of quotes.values()) {
         if (!newest || q.receivedAt > newest.receivedAt) newest = q;
       }
+      if (newest?.source === "NASDAQ") return "Nasdaq" as const;
       if (newest?.source === "YAHOO") return "Yahoo" as const;
       if (newest?.source === "FINNHUB") return "Finnhub" as const;
       if (newest?.source === "TIINGO_IEX") return "Tiingo IEX" as const;

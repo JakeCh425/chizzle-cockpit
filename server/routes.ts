@@ -16,6 +16,7 @@ import {
   fetchYahooBars,
   fetchTiingoDailyBars,
   fetchYahooQuote,
+  fetchNasdaqQuote,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -900,7 +901,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch { /* fall through */ }
 
-        // 3. Yahoo v8 chart fallback.
+        // 3. Nasdaq.com /api/quote (zero-quota, works from Render IPs).
+        try {
+          const nq = await fetchNasdaqQuote(sym);
+          if (nq && nq.price > 0 && nq.prevClose > 0) {
+            return {
+              ticker: sym,
+              latestDate: new Date(nq.ts * 1000).toISOString().slice(0, 10),
+              latestClose: nq.price,
+              priorClose: nq.prevClose,
+              pct: ((nq.price - nq.prevClose) / nq.prevClose) * 100,
+            };
+          }
+        } catch { /* fall through */ }
+
+        // 4. Yahoo v8 chart fallback.
         try {
           const yh = await fetchYahooQuote(sym);
           if (yh && yh.price > 0 && yh.prevClose > 0) {
@@ -914,7 +929,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           }
         } catch { /* fall through */ }
 
-        // 4. Stooq CSV (last resort — frequently 403/timeout on Render).
+        // 5. Stooq CSV (last resort — frequently 403/timeout on Render).
         try {
           const url = `https://stooq.com/q/d/l/?s=${sym.toLowerCase()}.us&i=d${qs}`;
           const r = await fetch(url, {
