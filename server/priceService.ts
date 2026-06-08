@@ -35,7 +35,7 @@ async function proxiedFetch(url: string, init: any = {}) {
   return fetch(url, init);
 }
 
-export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "SIMULATOR" | "OVERRIDE";
+export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "YAHOO" | "SIMULATOR" | "OVERRIDE";
 
 export interface Quote {
   symbol: string;
@@ -69,8 +69,8 @@ function activeCadenceSec(now = new Date()): number {
   const day = et.getDay();
   if (day === 0 || day === 6) return 300; // weekend
   const minutes = et.getHours() * 60 + et.getMinutes();
-  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 30;  // regular session (was 5)
-  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 90; // pre/post
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 90;  // regular session — 40 req/hr, under Tiingo 50/hr free cap
+  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 180; // pre/post
   return 300; // overnight
 }
 
@@ -227,6 +227,73 @@ async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
   }
 }
 
+// Yahoo Finance v7 quote API — no auth required, supports comma-separated symbols.
+// Used as zero-quota fallback when Tiingo IEX is rate-limited.
+async function fetchYahooQuotesBatch(symbols: string[]): Promise<Quote[]> {
+  if (symbols.length === 0) return [];
+  if (isCooling("yahoo")) return [];
+  const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols.map(encodeURIComponent).join(",")}`;
+  try {
+    const r = await fetch(url, {
+      headers: {
+        "Accept": "application/json",
+        // Yahoo blocks default fetch UA; mimic a browser.
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+      },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) {
+        // Long cooldown when rate-limited.
+        const cur = providerFailures.get("yahoo") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 5 * 60_000;
+        providerFailures.set("yahoo", cur);
+        console.warn(`[priceService:yahoo] batch 429 — cooling 5min`);
+      } else {
+        markFail("yahoo");
+        console.warn(`[priceService:yahoo] batch HTTP ${r.status}`);
+      }
+      return [];
+    }
+    const j: any = await r.json();
+    const rows: any[] = j?.quoteResponse?.result || [];
+    if (rows.length === 0) {
+      markFail("yahoo");
+      return [];
+    }
+    markOk("yahoo");
+    const out: Quote[] = [];
+    for (const row of rows) {
+      const sym = String(row?.symbol || "").toUpperCase();
+      const last = Number(row?.regularMarketPrice ?? 0);
+      const prev = Number(row?.regularMarketPreviousClose ?? 0);
+      if (!sym || !Number.isFinite(last) || last <= 0) continue;
+      const change = Number(row?.regularMarketChange ?? (prev ? last - prev : 0));
+      const changePct = Number(row?.regularMarketChangePercent ?? (prev ? ((last - prev) / prev) * 100 : 0));
+      out.push({
+        symbol: sym,
+        price: last,
+        prevClose: prev,
+        change,
+        changePct,
+        high: Number(row?.regularMarketDayHigh ?? 0),
+        low: Number(row?.regularMarketDayLow ?? 0),
+        open: Number(row?.regularMarketOpen ?? 0),
+        ts: Number(row?.regularMarketTime ?? Math.floor(Date.now() / 1000)),
+        receivedAt: Date.now(),
+        source: "YAHOO",
+      });
+    }
+    return out;
+  } catch (e: any) {
+    pushError();
+    markFail("yahoo");
+    console.warn(`[priceService:yahoo] batch fetch error: ${e?.message || e}`);
+    return [];
+  }
+}
+
 async function fetchQuote(symbol: string): Promise<Quote | null> {
   if (USE_SIMULATOR) return simulatorQuote(symbol);
   // 1. Tiingo IEX (preferred — single batch call covers many symbols,
@@ -235,10 +302,15 @@ async function fetchQuote(symbol: string): Promise<Quote | null> {
     const arr = await fetchTiingoQuotesBatch([symbol]);
     if (arr.length > 0) return arr[0];
   }
-  // 2. Finnhub fallback
+  // 2. Yahoo fallback (zero-quota, no auth)
+  if (!isCooling("yahoo")) {
+    const yhArr = await fetchYahooQuotesBatch([symbol]);
+    if (yhArr.length > 0) return yhArr[0];
+  }
+  // 3. Finnhub fallback
   const fh = await fetchFinnhubQuote(symbol);
   if (fh) return fh;
-  // 3. Auto-fallback: if no quote provider is healthy and no token configured,
+  // 4. Auto-fallback: if no quote provider is healthy and no token configured,
   //    fall back to simulator so the UI still shows motion.
   if (!proxyDispatcher && !FINNHUB_TOKEN && !TIINGO_TOKEN) {
     console.warn(`[priceService] No quote provider configured — using simulator for ${symbol}`);
@@ -320,9 +392,22 @@ async function pollOnce() {
   if (TIINGO_TOKEN && !isCooling("tiingo-iex")) {
     // Batch: one HTTP request for all SYMBOLS.
     const arr = await fetchTiingoQuotesBatch(SYMBOLS);
-    for (const q of arr) commitQuote(q);
-    setTimeout(pollOnce, Math.max(1000, cadenceSec * 1000));
-    return;
+    if (arr.length > 0) {
+      for (const q of arr) commitQuote(q);
+      setTimeout(pollOnce, Math.max(1000, cadenceSec * 1000));
+      return;
+    }
+    // Tiingo returned nothing — fall through to Yahoo this cycle.
+  }
+
+  // Yahoo batch (zero-quota, no auth) — used when Tiingo is cooling/exhausted.
+  if (!isCooling("yahoo")) {
+    const yhArr = await fetchYahooQuotesBatch(SYMBOLS);
+    if (yhArr.length > 0) {
+      for (const q of yhArr) commitQuote(q);
+      setTimeout(pollOnce, Math.max(1000, cadenceSec * 1000));
+      return;
+    }
   }
 
   // Staggered single-symbol fallback (Finnhub).
@@ -361,7 +446,15 @@ async function warmupAllQuotes() {
       return;
     }
   }
-  // Fall back to per-symbol Finnhub if Tiingo unavailable.
+  // Yahoo batch fallback (zero-quota, no auth) — the most likely path when
+  // Tiingo hourly quota is burned.
+  const yh = await fetchYahooQuotesBatch(SYMBOLS);
+  if (yh.length > 0) {
+    for (const q of yh) commitQuote(q);
+    console.log(`[priceService] warmup: Yahoo populated ${yh.length}/${SYMBOLS.length} symbols`);
+    return;
+  }
+  // Fall back to per-symbol Finnhub if Tiingo + Yahoo unavailable.
   for (const s of SYMBOLS) {
     const q = await fetchFinnhubQuote(s);
     if (q) commitQuote(q);
@@ -399,7 +492,7 @@ export function getQuote(symbol: string): Quote | undefined {
 }
 
 export interface FeedStatus {
-  provider: "Finnhub" | "Tiingo IEX" | "Simulator";
+  provider: "Finnhub" | "Tiingo IEX" | "Yahoo" | "Simulator";
   tier: "Free";
   cadenceSec: number;
   session: string;
@@ -423,7 +516,20 @@ export function feedStatus(): FeedStatus {
     else if (m >= 16 * 60 && m < 20 * 60) session = "POST";
   }
   return {
-    provider: USE_SIMULATOR ? "Simulator" : (TIINGO_TOKEN ? "Tiingo IEX" : "Finnhub"),
+    provider: (() => {
+      if (USE_SIMULATOR) return "Simulator" as const;
+      // Reflect the source of the most recent successful tick so the UI shows
+      // the actual active provider (e.g. Yahoo when Tiingo is quota-exhausted).
+      let newest: Quote | undefined;
+      for (const q of quotes.values()) {
+        if (!newest || q.receivedAt > newest.receivedAt) newest = q;
+      }
+      if (newest?.source === "YAHOO") return "Yahoo" as const;
+      if (newest?.source === "FINNHUB") return "Finnhub" as const;
+      if (newest?.source === "TIINGO_IEX") return "Tiingo IEX" as const;
+      // No ticks yet — fall back to configured preference.
+      return TIINGO_TOKEN ? ("Tiingo IEX" as const) : ("Finnhub" as const);
+    })(),
     tier: "Free",
     cadenceSec: cadence,
     session,
