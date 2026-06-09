@@ -36,7 +36,7 @@ function fmtVolume(v: number | string | Array<number | string>): [string, string
 }
 
 type Candle = { time: number; close: number; volume?: number };
-export type Interval = "1D" | "1H" | "30M" | "5M";
+export type Interval = "1D" | "4H" | "1H" | "30M" | "5M";
 
 interface Props {
   open: boolean;
@@ -45,7 +45,7 @@ interface Props {
   onClose: () => void;
 }
 
-const INTERVALS: Interval[] = ["5M", "30M", "1H", "1D"];
+const INTERVALS: Interval[] = ["5M", "30M", "1H", "4H", "1D"];
 
 // Window of bars rendered. The user can pinch to fewer via the buttons.
 const WINDOW_PRESETS: { key: string; label: string; bars: number }[] = [

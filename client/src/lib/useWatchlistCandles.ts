@@ -15,7 +15,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type AScoreResult } from "@/lib/sma";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 
-export type Interval = "1D" | "1H" | "30M" | "5M";
+export type Interval = "1D" | "4H" | "1H" | "30M" | "5M";
 
 export interface Candle { time: number; close: number; volume?: number }
 
@@ -40,7 +40,7 @@ export interface WatchlistRow {
 }
 
 const REFRESH_BY_INTERVAL: Record<Interval, number> = {
-  "1D": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000,
+  "1D": 60_000, "4H": 60_000, "1H": 60_000, "30M": 20_000, "5M": 10_000,
 };
 
 // Wilder ATR-14 approximation from close-only data.

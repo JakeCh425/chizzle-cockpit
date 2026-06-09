@@ -1076,25 +1076,48 @@ function JournalQueue({ openTrades, closedTrades }: { openTrades: Trade[]; close
 // Polls /api/pattern-forming for all watchlist symbols and renders one row per
 // symbol with an active or recently-invalidated setup.
 function LivePatternWatch() {
+  const [timeframe, setTimeframe] = useState<"daily" | "4h">("daily");
   const { data, isLoading } = useQuery<PatternFormingStatus[]>({
-    queryKey: ["/api/pattern-forming"],
+    queryKey: ["/api/pattern-forming", timeframe],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/pattern-forming?timeframe=${timeframe}`);
+      return res.json();
+    },
     refetchInterval: 45_000,
     staleTime: 30_000,
   });
 
-  if (isLoading) {
-    return <div className="text-[12px] text-slate-gray">Scanning watchlist for in-progress setups…</div>;
-  }
+  const tfToggle = (
+    <div className="flex items-center gap-px border border-ink-line/80 rounded-sm overflow-hidden" role="tablist" aria-label="Pattern timeframe">
+      {(["daily", "4h"] as const).map(tf => {
+        const active = tf === timeframe;
+        return (
+          <button
+            key={tf}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => setTimeframe(tf)}
+            data-testid={`button-pattern-tf-${tf}`}
+            className={`px-2 py-0.5 text-[9px] font-mono-num uppercase tracking-wider transition-colors ${
+              active ? "bg-neon-blue/15 text-neon-blue" : "text-slate-gray hover:bg-ink-line/40 hover:text-soft-white"
+            }`}
+          >{tf === "daily" ? "Daily" : "4H"}</button>
+        );
+      })}
+    </div>
+  );
 
-  const active = (data ?? []).filter(d => d.status !== "none");
-  if (active.length === 0) {
+  if (isLoading) {
     return (
-      <div className="text-[12px] text-slate-gray text-center py-4">
-        No in-progress setups detected. Will refresh every 45s during market hours.
+      <div className="flex flex-col gap-2">
+        <div className="flex justify-end">{tfToggle}</div>
+        <div className="text-[12px] text-slate-gray">Scanning watchlist for in-progress setups…</div>
       </div>
     );
   }
 
+  const active = (data ?? []).filter(d => d.status !== "none");
   // Sort: confirmed first, then hot, warm, watch, invalid
   const order: Record<string, number> = { hot: 0, warm: 1, watch: 2, invalid: 3, none: 4 };
   const sorted = [...active].sort((a, b) => {
@@ -1103,16 +1126,37 @@ function LivePatternWatch() {
     return (order[a.severity] ?? 9) - (order[b.severity] ?? 9);
   });
 
+  const sevClass: Record<string, string> = {
+    hot: "border-signal-green/60 bg-signal-green/10 text-signal-green",
+    warm: "border-signal-amber/60 bg-signal-amber/10 text-signal-amber",
+    watch: "border-neon-blue/60 bg-neon-blue/10 text-neon-blue",
+    invalid: "border-signal-red/60 bg-signal-red/10 text-signal-red",
+    none: "border-ink-line/40 bg-ink-deep/20 text-slate-gray",
+  };
+
   return (
-    <div className="flex flex-col gap-1.5">
-      {sorted.map(row => (
-        <div key={row.symbol} className="flex items-center gap-2">
-          <span className="w-12 text-[11px] font-mono-num font-semibold uppercase tracking-wider text-soft-white">{row.symbol}</span>
-          <span className="flex-1 min-w-0">
-            <PatternFormingBadge symbol={row.symbol} variant="row" hideWhenNone={false} />
-          </span>
+    <div className="flex flex-col gap-2">
+      <div className="flex justify-end">{tfToggle}</div>
+      {sorted.length === 0 ? (
+        <div className="text-[12px] text-slate-gray text-center py-4">
+          No in-progress {timeframe === "4h" ? "4H" : "daily"} setups detected. Refreshes every 45s during market hours.
         </div>
-      ))}
+      ) : (
+        <div className="flex flex-col gap-1.5">
+          {sorted.map(row => (
+            <div key={row.symbol} className="flex items-center gap-2">
+              <span className="w-12 text-[11px] font-mono-num font-semibold uppercase tracking-wider text-soft-white">{row.symbol}</span>
+              <span
+                className={`flex-1 min-w-0 px-2 py-1 border rounded-sm text-[11px] font-mono-num ${sevClass[row.severity] ?? sevClass.none}`}
+                title={row.label}
+              >
+                <span className="uppercase tracking-wider text-[10px] opacity-70 mr-2">{row.pattern ?? "Setup"}</span>
+                <span>{row.label}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

@@ -21,7 +21,7 @@ import { useLiveQuotes } from "@/lib/useLivePrices";
 import { PatternFormingBadge } from "@/components/PatternFormingBadge";
 
 type Candle = { time: number; close: number };
-export type Interval = "1D" | "1H" | "30M" | "5M";
+export type Interval = "1D" | "4H" | "1H" | "30M" | "5M";
 
 interface Props {
   ticker?: string;
@@ -40,6 +40,7 @@ interface Props {
 // Sensible foreground refresh per interval (matches the server-side cache TTL).
 const DEFAULT_REFRESH: Record<Interval, number> = {
   "1D": 60_000,
+  "4H": 60_000,
   "1H": 60_000,
   "30M": 20_000,
   "5M": 10_000,
@@ -189,7 +190,7 @@ function SmaFloatingLabels({
 }
 
 // ─── Interval pill switcher ──────────────────────────────────────────────────
-const INTERVALS: Interval[] = ["5M", "30M", "1H", "1D"];
+const INTERVALS: Interval[] = ["5M", "30M", "1H", "4H", "1D"];
 
 function IntervalSwitcher({ value, onChange }: { value: Interval; onChange: (i: Interval) => void }) {
   return (

@@ -18,6 +18,7 @@ import {
   fetchYahooQuote,
   fetchNasdaqQuote,
   fetchNasdaqDailyBars,
+  fetchTwelveDataBars,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -740,18 +741,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.get("/api/pattern-forming/:symbol", async (req, res) => {
     try {
       const { detectPatternForming } = await import("./patternForming");
-      const status = await detectPatternForming(req.params.symbol);
+      const tf = String(req.query.timeframe || "daily").toLowerCase();
+      const timeframe: "daily" | "4h" = tf === "4h" ? "4h" : "daily";
+      const status = await detectPatternForming(req.params.symbol, { timeframe });
       res.json(status);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }
   });
 
-  app.get("/api/pattern-forming", async (_req, res) => {
+  app.get("/api/pattern-forming", async (req, res) => {
     try {
       const { detectPatternForming } = await import("./patternForming");
+      const tf = String(req.query.timeframe || "daily").toLowerCase();
+      const timeframe: "daily" | "4h" = tf === "4h" ? "4h" : "daily";
       const results = await Promise.all(
-        PUBLIC_SYMBOLS.map((s) => detectPatternForming(s).catch(() => null))
+        PUBLIC_SYMBOLS.map((s) => detectPatternForming(s, { timeframe }).catch(() => null))
       );
       res.json(results.filter((r) => r !== null));
     } catch (e: any) {
@@ -1125,7 +1130,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // TTL = how long a fresh response is reused before we refetch. Bumped to 1h
   // for 1D (daily bars only change at the close) and 5m for 1H to reduce
   // pressure on rate-limited free providers (Stooq/Yahoo) on Render's IP.
-  const CANDLE_TTL = { "1D": 60 * 60_000, "1H": 5 * 60_000, "30M": 20_000, "5M": 10_000 } as const;
+  const CANDLE_TTL = { "1D": 60 * 60_000, "4H": 10 * 60_000, "1H": 5 * 60_000, "30M": 20_000, "5M": 10_000 } as const;
   type Interval = keyof typeof CANDLE_TTL;
 
   // Disk-backed SWR persistence — critical for daily bars on a single-node free
@@ -1140,8 +1145,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const cachePath = (key: string) => path.join(CACHE_DIR, key.replace(/[:/]/g, "_") + ".json");
 
   const saveCacheToDisk = (key: string, entry: CandleEntry) => {
-    // Only persist 1D/1H (intraday tick buckets are regenerated from live ticks).
-    if (!key.endsWith(":1D") && !key.endsWith(":1H")) return;
+    // Only persist 1D/4H/1H (intraday tick buckets are regenerated from live ticks).
+    if (!key.endsWith(":1D") && !key.endsWith(":4H") && !key.endsWith(":1H")) return;
     // Only persist when we have real data — never overwrite a good snapshot with empty.
     if (!entry.data || entry.data.length === 0) return;
     try {
@@ -1164,7 +1169,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           const entry = JSON.parse(raw) as CandleEntry;
           if (!entry?.data || !Array.isArray(entry.data) || entry.data.length === 0) continue;
           // Key from filename (sym_interval.json -> sym:interval)
-          const key = f.replace(/\.json$/, "").replace(/_(1D|1H|30M|5M)$/, ":$1");
+          const key = f.replace(/\.json$/, "").replace(/_(1D|4H|1H|30M|5M)$/, ":$1");
           // Mark as stale so the next request triggers a revalidation, but the
           // bars are available immediately.
           candleCache.set(key, {
@@ -1217,7 +1222,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const symbol = String(req.params.symbol || "").toUpperCase().trim();
       if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: "invalid symbol" });
       const raw = String(req.query.interval || "1D").toUpperCase();
-      const interval: Interval = (raw === "1H" || raw === "30M" || raw === "5M") ? raw : "1D";
+      const interval: Interval = (raw === "4H" || raw === "1H" || raw === "30M" || raw === "5M") ? raw : "1D";
       const key = `${symbol}:${interval}`;
       const now = Date.now();
       const hit = candleCache.get(key);
@@ -1226,10 +1231,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: { time: number; close: number; volume?: number }[] = [];
-      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "tiingo" | "nasdaq" | "none" = "none";
+      let dataSource: "stooq" | "ticks" | "finnhub" | "yahoo" | "tiingo" | "nasdaq" | "twelvedata" | "none" = "none";
       let warning: string | undefined;
 
-      if (interval === "1D" || interval === "1H") {
+      // ── 4H ───────────────────────────────────────────────────────────────────
+      // True 4H bars are only available from Twelve Data on the free tier.
+      // Skip the entire 1D/1H provider chain for this interval.
+      if (interval === "4H") {
+        const td = await fetchTwelveDataBars(symbol, "4h");
+        if (aborted) return;
+        if (td && td.length > 0) {
+          data = td;
+          dataSource = "twelvedata";
+        } else {
+          warning = "Twelve Data 4H unavailable (missing API key or rate limit)";
+        }
+      } else if (interval === "1D" || interval === "1H") {
         // 0a. Try Tiingo first for 1D (preferred when quota is available).
         //     Tiingo free is 500/day on EOD endpoint — shared with IEX poller,
         //     so it's often 429'd. Tiingo free does NOT support intraday, so

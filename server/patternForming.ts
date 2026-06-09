@@ -12,7 +12,7 @@
 // This one is a *live status* meant to refresh every 30-60s in the UI.
 
 import { safeHistory, type DailyBar } from "./marketData";
-import { getQuote } from "./priceService";
+import { getQuote, fetchTwelveDataOHLCBars } from "./priceService";
 import { _internal as detectorInternals } from "./confirmationDetector";
 
 const { isHammer, isBullishEngulfing, SMA_ABOVE_PCT } = detectorInternals;
@@ -92,10 +92,29 @@ function buildLiveBar(q: { open: number; high: number; low: number; price: numbe
   };
 }
 
+// ─── 4H bar fetch ───────────────────────────────────────────────────────────
+async function fetch4HHistory(symbol: string): Promise<DailyBar[] | null> {
+  const bars = await fetchTwelveDataOHLCBars(symbol, "4h");
+  if (!bars || bars.length === 0) return null;
+  return bars.map(b => ({
+    date: new Date(b.time * 1000).toISOString().slice(0, 10),
+    ts: b.time,
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+    volume: b.volume,
+  }));
+}
+
 // ─── Main entry ─────────────────────────────────────────────────────────────
-export async function detectPatternForming(symbol: string): Promise<PatternFormingStatus> {
+export async function detectPatternForming(
+  symbol: string,
+  opts: { timeframe?: "daily" | "4h" } = {}
+): Promise<PatternFormingStatus> {
   const sym = symbol.toUpperCase();
-  const progress = tradingDayProgress();
+  const timeframe = opts.timeframe ?? "daily";
+  const progress = timeframe === "daily" ? tradingDayProgress() : 1; // 4h closes are discrete
   const asOf = Date.now();
 
   const empty = (label = "No active setup", severity: FormingSeverity = "none"): PatternFormingStatus => ({
@@ -109,6 +128,76 @@ export async function detectPatternForming(symbol: string): Promise<PatternFormi
     context: { lowerLow: false, aboveSMA20: null, distPctFromSMA20: null, setupHigh: null, targetClose: null },
     asOf,
   });
+
+  // 4H mode: use Twelve Data bars directly. The last bar may be the still-
+  // forming 4H candle; we evaluate it the same way we evaluate the live daily
+  // bar — checking hammer shape, engulfing vs. prior, and lower-low context.
+  if (timeframe === "4h") {
+    const bars4h = await fetch4HHistory(sym);
+    if (!bars4h || bars4h.length < 25) {
+      return empty("4H data unavailable");
+    }
+    const liveBar = bars4h[bars4h.length - 1];
+    const priors = bars4h.slice(0, -1);
+    const lastClosed = priors[priors.length - 1];
+    const priorToSetup = priors[priors.length - 2];
+    const closesAll = bars4h.map(b => b.close);
+    const sma20 = sma(closesAll, 20);
+    const distPct = sma20 ? (liveBar.close - sma20) / sma20 : null;
+    const aboveSMA20 = sma20 != null ? liveBar.close > sma20 : null;
+    const lowerLow = isLowerLow(liveBar.low, priors);
+
+    if (isHammer(liveBar)) {
+      return {
+        symbol: sym, status: "forming", pattern: "Hammer",
+        label: lowerLow ? "4H hammer forming after lower low — strong reversal signal" : "4H hammer forming — watch the close",
+        severity: lowerLow ? "hot" : "warm",
+        candleProgress: progress,
+        currentBar: { open: liveBar.open, high: liveBar.high, low: liveBar.low, close: liveBar.close },
+        context: { lowerLow, aboveSMA20, distPctFromSMA20: distPct, setupHigh: Math.max(liveBar.open, liveBar.close, liveBar.high), targetClose: null },
+        asOf,
+      };
+    }
+    if (isBullishEngulfing(lastClosed, liveBar)) {
+      return {
+        symbol: sym, status: "forming", pattern: "Engulfing",
+        label: "4H bullish engulfing in progress",
+        severity: "hot",
+        candleProgress: progress,
+        currentBar: { open: liveBar.open, high: liveBar.high, low: liveBar.low, close: liveBar.close },
+        context: { lowerLow, aboveSMA20, distPctFromSMA20: distPct, setupHigh: Math.max(lastClosed.open, lastClosed.close, lastClosed.high), targetClose: lastClosed.open },
+        asOf,
+      };
+    }
+    // Confirmation candle on a prior 4H setup
+    const setupIsHammer = isHammer(lastClosed);
+    const setupIsEngulfing = priorToSetup ? isBullishEngulfing(priorToSetup, lastClosed) : false;
+    if (setupIsHammer || setupIsEngulfing) {
+      const setupHigh = Math.max(lastClosed.open, lastClosed.close, lastClosed.high);
+      if (liveBar.close > setupHigh) {
+        return {
+          symbol: sym, status: "confirmed", pattern: setupIsEngulfing ? "Engulfing" : "Hammer",
+          label: `4H ${setupIsEngulfing ? "engulfing" : "hammer"} confirmed — cleared $${setupHigh.toFixed(2)}`,
+          severity: "hot",
+          candleProgress: progress,
+          currentBar: { open: liveBar.open, high: liveBar.high, low: liveBar.low, close: liveBar.close },
+          context: { lowerLow, aboveSMA20, distPctFromSMA20: distPct, setupHigh, targetClose: setupHigh },
+          asOf,
+        };
+      }
+      const gap = setupHigh - liveBar.close;
+      return {
+        symbol: sym, status: "forming", pattern: setupIsEngulfing ? "Engulfing" : "Hammer",
+        label: `4H ${setupIsEngulfing ? "engulfing" : "hammer"} setup — needs close > $${setupHigh.toFixed(2)} (gap $${gap.toFixed(2)})`,
+        severity: "warm",
+        candleProgress: progress,
+        currentBar: { open: liveBar.open, high: liveBar.high, low: liveBar.low, close: liveBar.close },
+        context: { lowerLow, aboveSMA20, distPctFromSMA20: distPct, setupHigh, targetClose: setupHigh },
+        asOf,
+      };
+    }
+    return empty("No active 4H setup");
+  }
 
   const quote = getQuote(sym);
   if (!quote || !quote.price) {

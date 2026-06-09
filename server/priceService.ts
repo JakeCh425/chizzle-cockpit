@@ -944,3 +944,87 @@ export async function fetchYahooBars(
   }
   });
 }
+
+// ─── Twelve Data 4H bars ────────────────────────────────────────────────────
+// Twelve Data is the only free provider that emits true 4H bars (vs. synthesizing
+// from 1H aggregates). Free tier: 8 credits/min, 800/day — well within budget
+// for 7 watchlist symbols on a 30-min cadence.
+//
+// Endpoint: https://api.twelvedata.com/time_series?symbol=X&interval=4h&apikey=...
+// Returns up to 5000 records per request (we cap at 400 to match other fetchers).
+
+const TWELVE_DATA_CACHE = new Map<string, { data: { time: number; close: number; volume?: number }[]; t: number }>();
+const TWELVE_DATA_TTL_MS = 10 * 60_000; // 10 min — 4H bars only update every 4h
+
+export async function fetchTwelveDataBars(
+  symbol: string,
+  interval: "4h" | "1h" | "2h" | "1day" = "4h"
+): Promise<{ time: number; close: number; volume?: number }[] | null> {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) return null;
+
+  const cacheKey = `${symbol}:${interval}`;
+  const hit = TWELVE_DATA_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.t < TWELVE_DATA_TTL_MS) return hit.data;
+
+  try {
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) {
+      console.warn(`[twelvedata] HTTP ${r.status} ${r.statusText} for ${symbol} ${interval}`);
+      return null;
+    }
+    const j: any = await r.json();
+    // Error envelope: { code, message, status: "error" }
+    if (j?.status === "error" || !Array.isArray(j?.values)) {
+      console.warn(`[twelvedata] error for ${symbol} ${interval}: ${j?.message || JSON.stringify(j).slice(0, 200)}`);
+      return null;
+    }
+    // values come newest-first; reverse to oldest-first to match other fetchers.
+    const out: { time: number; close: number; volume?: number }[] = [];
+    for (const v of [...j.values].reverse()) {
+      const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
+      const c = Number(v.close);
+      const vol = Number(v.volume);
+      if (Number.isFinite(t) && Number.isFinite(c)) {
+        out.push({ time: t, close: c, volume: Number.isFinite(vol) ? vol : undefined });
+      }
+    }
+    if (out.length === 0) {
+      console.warn(`[twelvedata] ${symbol} ${interval} parsed 0 bars`);
+      return null;
+    }
+    TWELVE_DATA_CACHE.set(cacheKey, { data: out, t: Date.now() });
+    return out;
+  } catch (e) {
+    console.warn(`[twelvedata] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
+    return null;
+  }
+}
+
+// Fetcher returning full OHLC bars (not just close) — used by the 4H pattern detector.
+export async function fetchTwelveDataOHLCBars(
+  symbol: string,
+  interval: "4h" | "1h" | "2h" = "4h"
+): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const j: any = await r.json();
+    if (j?.status === "error" || !Array.isArray(j?.values)) return null;
+    const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+    for (const v of [...j.values].reverse()) {
+      const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
+      const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
+      if ([t, o, h, l, c].every(Number.isFinite)) {
+        out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+      }
+    }
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
