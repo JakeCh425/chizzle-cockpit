@@ -15,6 +15,7 @@ import {
   setupCandidates,
   setupHistory,
   tradeEvents,
+  signalHistory,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -33,6 +34,7 @@ import type {
   SetupCandidateRow, InsertSetupCandidate,
   SetupHistoryRow, InsertSetupHistory,
   TradeEvent, InsertTradeEvent,
+  SignalHistory, InsertSignalHistory,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -299,6 +301,35 @@ CREATE TABLE IF NOT EXISTS setup_history (
   details TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_setup_history_at ON setup_history(transitioned_at DESC);
+
+CREATE TABLE IF NOT EXISTS signal_history (
+  id SERIAL PRIMARY KEY,
+  ticker TEXT NOT NULL,
+  pattern_type TEXT NOT NULL,
+  timestamp DOUBLE PRECISION NOT NULL,
+  setup_candle_index INTEGER NOT NULL,
+  confirmation_candle_index INTEGER NOT NULL,
+  setup_candle_low DOUBLE PRECISION NOT NULL,
+  confirmation_candle_low DOUBLE PRECISION NOT NULL,
+  confirmation_close DOUBLE PRECISION NOT NULL,
+  retest_zone_upper DOUBLE PRECISION NOT NULL,
+  retest_zone_lower DOUBLE PRECISION NOT NULL,
+  score DOUBLE PRECISION NOT NULL,
+  score_breakdown TEXT NOT NULL DEFAULT '[]',
+  volume DOUBLE PRECISION NOT NULL DEFAULT 0,
+  volume_vs_average_20 DOUBLE PRECISION NOT NULL DEFAULT 0,
+  marker_type TEXT NOT NULL DEFAULT 'confirmation',
+  marker_position DOUBLE PRECISION NOT NULL DEFAULT 0,
+  color TEXT NOT NULL DEFAULT '#00E5A8',
+  sound_played BOOLEAN NOT NULL DEFAULT false,
+  notification_sent BOOLEAN NOT NULL DEFAULT false,
+  sma_proximity TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_signal_history_ts ON signal_history(timestamp DESC);
+CREATE INDEX IF NOT EXISTS idx_signal_history_ticker ON signal_history(ticker);
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_signal_history_dedup
+  ON signal_history(ticker, pattern_type, timestamp);
 `);
 
   // Idempotent column additions (Postgres supports ADD COLUMN IF NOT EXISTS natively)
@@ -941,6 +972,66 @@ export const storage = {
       await db.update(trades).set(clean).where(eq(trades.id, tradeId));
     }
     return this.getTrade(tradeId);
+  },
+
+  // signal history (Hammer / Engulfing confirmation log)
+  async listSignalHistory(opts: { limit?: number; ticker?: string } = {}): Promise<SignalHistory[]> {
+    const limit = Math.min(Math.max(opts.limit ?? 500, 1), 2000);
+    let q = db.select().from(signalHistory).orderBy(desc(signalHistory.timestamp));
+    if (opts.ticker) {
+      q = db.select().from(signalHistory).where(eq(signalHistory.ticker, opts.ticker)).orderBy(desc(signalHistory.timestamp)) as any;
+    }
+    const rows = await (q as any).limit(limit);
+    return rows as SignalHistory[];
+  },
+  async createSignalHistory(entry: InsertSignalHistory): Promise<SignalHistory | null> {
+    // Dedup via the (ticker, pattern_type, timestamp) unique index.
+    // ON CONFLICT DO NOTHING means the detector can re-emit without growing the table.
+    const result = await pool.query(
+      `INSERT INTO signal_history (
+        ticker, pattern_type, timestamp,
+        setup_candle_index, confirmation_candle_index,
+        setup_candle_low, confirmation_candle_low, confirmation_close,
+        retest_zone_upper, retest_zone_lower,
+        score, score_breakdown,
+        volume, volume_vs_average_20,
+        marker_type, marker_position, color,
+        sound_played, notification_sent, sma_proximity, created_at
+      ) VALUES (
+        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21
+      )
+      ON CONFLICT (ticker, pattern_type, timestamp) DO NOTHING
+      RETURNING *`,
+      [
+        entry.ticker, entry.patternType, entry.timestamp,
+        entry.setupCandleIndex, entry.confirmationCandleIndex,
+        entry.setupCandleLow, entry.confirmationCandleLow, entry.confirmationClose,
+        entry.retestZoneUpper, entry.retestZoneLower,
+        entry.score, entry.scoreBreakdown ?? "[]",
+        entry.volume ?? 0, entry.volumeVsAverage20 ?? 0,
+        entry.markerType ?? "confirmation", entry.markerPosition ?? 0, entry.color ?? "#00E5A8",
+        entry.soundPlayed ?? false, entry.notificationSent ?? false,
+        entry.smaProximity ?? "", entry.createdAt,
+      ]
+    );
+    if (result.rowCount === 0) return null;
+    const r = result.rows[0];
+    return {
+      id: r.id, ticker: r.ticker, patternType: r.pattern_type, timestamp: r.timestamp,
+      setupCandleIndex: r.setup_candle_index, confirmationCandleIndex: r.confirmation_candle_index,
+      setupCandleLow: r.setup_candle_low, confirmationCandleLow: r.confirmation_candle_low,
+      confirmationClose: r.confirmation_close,
+      retestZoneUpper: r.retest_zone_upper, retestZoneLower: r.retest_zone_lower,
+      score: r.score, scoreBreakdown: r.score_breakdown,
+      volume: r.volume, volumeVsAverage20: r.volume_vs_average_20,
+      markerType: r.marker_type, markerPosition: r.marker_position, color: r.color,
+      soundPlayed: r.sound_played, notificationSent: r.notification_sent,
+      smaProximity: r.sma_proximity, createdAt: r.created_at,
+    } as SignalHistory;
+  },
+  async clearSignalHistory(): Promise<number> {
+    const result = await pool.query("DELETE FROM signal_history");
+    return result.rowCount ?? 0;
   },
 
   // wipe (reset)

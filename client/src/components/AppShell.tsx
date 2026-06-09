@@ -9,7 +9,7 @@ import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
-  FileText,
+  FileText, Activity,
 } from "lucide-react";
 
 interface RegimePayload {
@@ -25,6 +25,7 @@ const NAV = [
   { href: "/journal", label: "Journal", icon: BookText },
   { href: "/leap", label: "LEAP Ladder", icon: Layers },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/signals", label: "Signal History", icon: Activity },
   { href: "/spec", label: "Spec Review", icon: FileText },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];

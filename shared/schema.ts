@@ -263,6 +263,35 @@ export const setupHistory = pgTable("setup_history", {
   details: text("details").notNull().default("{}"),
 });
 
+// ─── signal history ──────────────────────────────────────────────────────────
+// Every confirmation candle event (Hammer / Engulfing) detected by the system
+// is logged here for review, filtering, and replay. This is a logging table —
+// NOT a buy/sell signal store. The detector writes; the UI reads.
+export const signalHistory = pgTable("signal_history", {
+  id: serial("id").primaryKey(),
+  ticker: text("ticker").notNull(),
+  patternType: text("pattern_type").notNull(), // "Hammer" | "Engulfing"
+  timestamp: doublePrecision("timestamp").notNull(), // unix seconds (4H close time)
+  setupCandleIndex: integer("setup_candle_index").notNull(),
+  confirmationCandleIndex: integer("confirmation_candle_index").notNull(),
+  setupCandleLow: doublePrecision("setup_candle_low").notNull(),
+  confirmationCandleLow: doublePrecision("confirmation_candle_low").notNull(),
+  confirmationClose: doublePrecision("confirmation_close").notNull(),
+  retestZoneUpper: doublePrecision("retest_zone_upper").notNull(),
+  retestZoneLower: doublePrecision("retest_zone_lower").notNull(),
+  score: doublePrecision("score").notNull(),
+  scoreBreakdown: text("score_breakdown").notNull().default("[]"), // json string[]
+  volume: doublePrecision("volume").notNull().default(0),
+  volumeVsAverage20: doublePrecision("volume_vs_average_20").notNull().default(0),
+  markerType: text("marker_type").notNull().default("confirmation"),
+  markerPosition: doublePrecision("marker_position").notNull().default(0),
+  color: text("color").notNull().default("#00E5A8"),
+  soundPlayed: boolean("sound_played").notNull().default(false),
+  notificationSent: boolean("notification_sent").notNull().default(false),
+  smaProximity: text("sma_proximity").notNull().default(""), // e.g. "+1.8% above SMA20"
+  createdAt: text("created_at").notNull(),
+});
+
 // ─── Chizzle scores ──────────────────────────────────────────────────────────
 export const chizzleScores = pgTable("chizzle_scores", {
   id: serial("id").primaryKey(),
@@ -289,6 +318,7 @@ export const insertRegimeInputsSchema = createInsertSchema(regimeInputs).omit({ 
 export const insertSetupCandidateSchema = createInsertSchema(setupCandidates).omit({ id: true });
 export const insertSetupHistorySchema = createInsertSchema(setupHistory).omit({ id: true });
 export const insertTradeEventSchema = createInsertSchema(tradeEvents).omit({ id: true });
+export const insertSignalHistorySchema = createInsertSchema(signalHistory).omit({ id: true });
 
 export type Settings = typeof settings.$inferSelect;
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
@@ -322,3 +352,5 @@ export type SetupHistoryRow = typeof setupHistory.$inferSelect;
 export type InsertSetupHistory = z.infer<typeof insertSetupHistorySchema>;
 export type TradeEvent = typeof tradeEvents.$inferSelect;
 export type InsertTradeEvent = z.infer<typeof insertTradeEventSchema>;
+export type SignalHistory = typeof signalHistory.$inferSelect;
+export type InsertSignalHistory = z.infer<typeof insertSignalHistorySchema>;

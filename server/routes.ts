@@ -691,6 +691,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Signal history (Hammer / Engulfing confirmation log) ──────────────
+  // Logging endpoints — the UI reads from /api/signal-history. The detector
+  // engine writes via storage.createSignalHistory directly.
+  app.get("/api/signal-history", async (req, res) => {
+    try {
+      const limit = req.query.limit ? Math.min(Number(req.query.limit) || 500, 2000) : 500;
+      const ticker = typeof req.query.ticker === "string" ? req.query.ticker.toUpperCase() : undefined;
+      const rows = await storage.listSignalHistory({ limit, ticker });
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
+  // Manual scan trigger (useful for testing). Fires confirmation detector
+  // across the entire watchlist with the same cooldowns as the scheduled run.
+  app.post("/api/signal-history/scan", async (_req, res) => {
+    try {
+      const { triggerConfirmationScan } = await import("./confirmationDetector");
+      triggerConfirmationScan().catch(e => console.warn("[scan-confirm] failed:", e?.message || e));
+      res.json({ ok: true, started: true });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // Scan one symbol on demand — used by the UI's "Scan now" button per ticker.
+  app.post("/api/signal-history/scan/:symbol", async (req, res) => {
+    try {
+      const sym = String(req.params.symbol || "").toUpperCase();
+      if (!sym) return res.status(400).json({ error: "symbol required" });
+      const { scanSymbol } = await import("./confirmationDetector");
+      const saved = await scanSymbol(sym);
+      res.json({ ok: true, entry: saved });
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
+  // Optional admin: clear the history. POST guards against accidental GETs.
+  app.delete("/api/signal-history", async (_req, res) => {
+    try {
+      const n = await storage.clearSignalHistory();
+      res.json({ ok: true, deleted: n });
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }

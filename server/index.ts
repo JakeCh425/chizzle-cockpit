@@ -5,6 +5,7 @@ import { registerRoutes } from "./routes";
 import { initStorage, storage } from "./storage";
 import { _updateRegimeCache } from "./regimeService";
 import { startSMA20AlertEngine } from "./sma20Alerts";
+import { startConfirmationDetector } from "./confirmationDetector";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -95,6 +96,7 @@ app.use((req, res, next) => {
   // Honors LOW_CREDIT_MODE — pauses background scans there.
   if (process.env.LOW_CREDIT_MODE !== "true") {
     try { startSMA20AlertEngine(); } catch (e) { console.warn("[boot] sma20 engine failed:", e); }
+    try { startConfirmationDetector(); } catch (e) { console.warn("[boot] confirmation detector failed:", e); }
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

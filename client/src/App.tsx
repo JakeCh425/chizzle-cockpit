@@ -14,6 +14,7 @@ import LeapLadder from "@/pages/LeapLadder";
 import Analytics from "@/pages/Analytics";
 import SettingsPage from "@/pages/Settings";
 import SpecReview from "@/pages/SpecReview";
+import SignalHistoryPage from "@/pages/SignalHistory";
 
 function AppRouter() {
   return (
@@ -25,6 +26,7 @@ function AppRouter() {
         <Route path="/journal" component={Journal} />
         <Route path="/leap" component={LeapLadder} />
         <Route path="/analytics" component={Analytics} />
+        <Route path="/signals" component={SignalHistoryPage} />
         <Route path="/settings" component={SettingsPage} />
         <Route path="/spec" component={SpecReview} />
         <Route component={NotFound} />
