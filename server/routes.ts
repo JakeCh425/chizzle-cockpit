@@ -807,10 +807,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── SMH Hammer Monitor ─────────────────────────────────────────
-  app.get("/api/smh-hammer-monitor", async (_req, res) => {
+  app.get("/api/smh-hammer-monitor", async (req, res) => {
     try {
       const { evaluateSmhHammerMonitor, maybeEmitHammerAlert } = await import("./smhHammerMonitor");
-      const state = await evaluateSmhHammerMonitor();
+      const modeRaw = String(req.query.mode || "").toLowerCase();
+      const rrRaw = Number(req.query.rr);
+      const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
+      const rr = [2, 3, 4].includes(rrRaw) ? rrRaw : 2;
+      const state = await evaluateSmhHammerMonitor({ mode, rr });
       const emitted = await maybeEmitHammerAlert(state);
       res.json({ ...state, alert_emitted: emitted });
     } catch (e: any) {
@@ -1632,8 +1636,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   const smhScan = async () => {
     try {
       const { evaluateSmhHammerMonitor, maybeEmitHammerAlert } = await import("./smhHammerMonitor");
-      const state = await evaluateSmhHammerMonitor();
-      await maybeEmitHammerAlert(state);
+      // Run both modes back-to-back so alerts fire for either strategy.
+      for (const mode of ["conservative", "aggressive"] as const) {
+        const state = await evaluateSmhHammerMonitor({ mode, rr: 2 });
+        await maybeEmitHammerAlert(state);
+      }
     } catch (e: any) {
       console.warn("[smh-hammer-monitor] scan failed:", e?.message || e);
     }

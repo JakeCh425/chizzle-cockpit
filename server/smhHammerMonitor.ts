@@ -1,13 +1,17 @@
 // ─────────────────────────────────────────────────────────────────────────────
 // SMH Hammer Monitor
-// Dedicated monitor for SMH that:
-//   1. Identifies support levels (recent swing lows + SMA20/SMA50)
-//   2. Scans for hammer candle FORMING at/near support → emits alert
-//   3. Tracks NEXT candle for confirmed breakout above hammer high
-//   4. Applies a high-volume filter (>= 1.2x 20-day avg volume) on the
-//      confirmation candle
-//   5. Calculates stop-loss = hammer.low and 1:2 R:R target from
-//      confirmation close
+//
+// Two trade modes:
+//   - conservative: hammer must form within 1.5% of SMA20/SMA50/swing-low support
+//   - aggressive: hammer just needs to print AFTER ≥ 1 red candle
+//     (bullish hammer following down momentum) — the user's original strategy
+//
+// Both modes:
+//   - scan live + on close for hammer formation
+//   - track the NEXT candle for confirmed breakout above hammer high
+//   - apply a high-volume filter (≥ 1.2x 20-day avg) on confirmation
+//   - compute stop-loss = hammer.low, target = entry + rr * risk
+//     (rr is selectable 2 / 3 / 4 via API + UI)
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { safeHistory, sma, type DailyBar } from "./marketData";
@@ -15,10 +19,18 @@ import { storage } from "./storage";
 
 const SYMBOL = "SMH";
 const VOLUME_MULTIPLIER = 1.2;        // high-volume filter
-const SUPPORT_PROXIMITY_PCT = 1.5;    // hammer must be within 1.5% of support
+const SUPPORT_PROXIMITY_PCT = 1.5;    // hammer must be within 1.5% of support (conservative)
 const SWING_LOOKBACK = 30;            // bars to scan for swing-low supports
 const SWING_PIVOT_HALF_WIDTH = 3;     // bars left/right that define a swing low
-const RR_RATIO = 2;                   // 1:2 risk:reward
+const AGGRESSIVE_MIN_RED_CANDLES = 1; // aggressive: need ≥ N red candles before the hammer
+const DEFAULT_RR_RATIO = 2;           // default 1:2 risk:reward
+
+export type TradeMode = "conservative" | "aggressive";
+
+export interface EvalOpts {
+  mode?: TradeMode;
+  rr?: number;   // 2, 3, or 4
+}
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 
@@ -35,12 +47,23 @@ export interface SupportLevel {
   distance_pct: number;       // % distance from current price (positive = above support)
 }
 
+export type SetupType =
+  | "none"
+  | "support_hammer"           // conservative: hammer at SMA20/swing low
+  | "post_decline_hammer";     // aggressive: hammer after red candles
+
 export interface HammerMonitorState {
   symbol: string;
   phase: HammerMonitorPhase;
+  mode: TradeMode;
+  rr: number;
+  setup_type: SetupType;
   price: number;
   asof: string;               // ISO timestamp
   market_open: boolean;
+
+  // Aggressive-mode context
+  preceding_red_count: number; // how many red candles directly precede the hammer
 
   // Support context
   nearest_support: SupportLevel | null;
@@ -206,11 +229,11 @@ function averageVolume(bars: DailyBar[], n: number, atIndex: number): number {
   return sum / n;
 }
 
-function buildTradePlan(confirmationClose: number, hammerLow: number) {
+function buildTradePlan(confirmationClose: number, hammerLow: number, rr: number) {
   const entry = confirmationClose;
   const stop_loss = hammerLow;
   const risk_per_share = Math.max(entry - stop_loss, 0);
-  const reward_per_share = risk_per_share * RR_RATIO;
+  const reward_per_share = risk_per_share * rr;
   const target = entry + reward_per_share;
   return {
     entry: Number(entry.toFixed(2)),
@@ -218,13 +241,26 @@ function buildTradePlan(confirmationClose: number, hammerLow: number) {
     risk_per_share: Number(risk_per_share.toFixed(2)),
     target: Number(target.toFixed(2)),
     reward_per_share: Number(reward_per_share.toFixed(2)),
-    risk_reward: RR_RATIO,
+    risk_reward: rr,
   };
+}
+
+// Count consecutive red candles ending at index `endIdx` (inclusive).
+function countPrecedingRedCandles(bars: DailyBar[], endIdx: number, maxLookback = 5): number {
+  let count = 0;
+  for (let i = endIdx; i >= Math.max(0, endIdx - maxLookback + 1); i--) {
+    if (bars[i].close < bars[i].open) count++;
+    else break;
+  }
+  return count;
 }
 
 // ─── Core evaluator ─────────────────────────────────────────────────────────
 
-export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
+export async function evaluateSmhHammerMonitor(opts: EvalOpts = {}): Promise<HammerMonitorState> {
+  const mode: TradeMode = opts.mode === "aggressive" ? "aggressive" : "conservative";
+  const rr = [2, 3, 4].includes(Number(opts.rr)) ? Number(opts.rr) : DEFAULT_RR_RATIO;
+
   const bars = await safeHistory(SYMBOL);
   const market_open = isMarketOpenET();
   const nowIso = new Date().toISOString();
@@ -233,9 +269,13 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
     return {
       symbol: SYMBOL,
       phase: "Scanning",
+      mode,
+      rr,
+      setup_type: "none",
       price: 0,
       asof: nowIso,
       market_open,
+      preceding_red_count: 0,
       nearest_support: null,
       support_levels: [],
       hammer: null,
@@ -253,23 +293,50 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
   const supports = computeSupports(bars, currentPrice);
   const nearest = supports[0] ?? null;
 
-  // ── Phase 1: check the CURRENT bar for a hammer (forming or confirmed) ──
-  // The current bar in safeHistory is the most recent daily print. If market
-  // is open it can still update intrabar. If market closed it's a finalized
-  // session.
   const currentHammer = isHammer(current);
   const currentForming = isFormingHammer(current);
   const hammerSupport = supportNearLow(supports, current.low);
 
-  // If the most recent bar IS a hammer at support and there's a NEXT bar,
-  // we may already be in confirmation territory — but since safeHistory only
-  // gives daily bars, the "next" candle = today's bar when yesterday was the
-  // hammer. So check the PRIOR bar as the hammer and current bar as confirmation.
   const priorHammer = isHammer(prior);
   const priorSupport = supportNearLow(supports, prior.low);
 
-  // ── Case A: prior bar was a hammer at support → today is confirmation ──
-  if (priorHammer.is_hammer && priorSupport) {
+  // Preceding red-candle count (count candles BEFORE the hammer in question)
+  const redBeforeCurrent = countPrecedingRedCandles(bars, lastIdx - 1, 5);
+  const redBeforePrior = countPrecedingRedCandles(bars, lastIdx - 2, 5);
+
+  // Setup gates per mode:
+  //   conservative: hammer.low must be within 1.5% of an identified support
+  //   aggressive:   hammer must follow >= AGGRESSIVE_MIN_RED_CANDLES red candles
+  const priorIsConservativeSetup = priorHammer.is_hammer && !!priorSupport;
+  const priorIsAggressiveSetup =
+    priorHammer.is_hammer && redBeforePrior >= AGGRESSIVE_MIN_RED_CANDLES;
+  const currentIsConservativeSetup =
+    (currentHammer.is_hammer || currentForming) && !!hammerSupport;
+  const currentIsAggressiveSetup =
+    (currentHammer.is_hammer || currentForming) &&
+    redBeforeCurrent >= AGGRESSIVE_MIN_RED_CANDLES;
+
+  // Helper to label the setup_type based on mode + which gate matched
+  function classifySetup(passedSupport: boolean, passedRed: boolean): SetupType {
+    if (mode === "conservative") return passedSupport ? "support_hammer" : "none";
+    // aggressive: prefer support label if it ALSO happens to be at support
+    if (passedSupport) return "support_hammer";
+    if (passedRed) return "post_decline_hammer";
+    return "none";
+  }
+
+  // Decide which setup (if any) is active. In aggressive mode, either gate can
+  // trigger. In conservative mode, only the support gate triggers.
+  const priorActive =
+    (mode === "conservative" && priorIsConservativeSetup) ||
+    (mode === "aggressive" && (priorIsConservativeSetup || priorIsAggressiveSetup));
+  const currentActive =
+    (mode === "conservative" && currentIsConservativeSetup) ||
+    (mode === "aggressive" && (currentIsConservativeSetup || currentIsAggressiveSetup));
+
+  // ── Case A: prior bar was a qualifying hammer → today is confirmation ──
+  if (priorActive) {
+    const setupType = classifySetup(priorIsConservativeSetup, priorIsAggressiveSetup);
     const avgVol20 = averageVolume(bars, 20, lastIdx);
     const volRatio = avgVol20 > 0 ? current.volume / avgVol20 : 0;
     const highVolume = volRatio >= VOLUME_MULTIPLIER;
@@ -279,15 +346,20 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
 
     let phase: HammerMonitorPhase;
     let notes: string;
-    let trade_plan = null;
+    let trade_plan: ReturnType<typeof buildTradePlan> | null = null;
+
+    const contextLabel =
+      setupType === "support_hammer" && priorSupport
+        ? `${priorSupport.type} support ${priorSupport.price}`
+        : `${redBeforePrior} red candle${redBeforePrior === 1 ? "" : "s"} prior`;
 
     if (brokeLow) {
       phase = "Invalidated";
       notes = `Confirmation candle broke below hammer low ${prior.low.toFixed(2)}. Setup voided.`;
     } else if (brokeHigh && highVolume && isClosed) {
       phase = "Breakout Confirmed";
-      trade_plan = buildTradePlan(current.close, prior.low);
-      notes = `Breakout above hammer high ${prior.high.toFixed(2)} on ${volRatio.toFixed(2)}x avg volume. Entry ${trade_plan.entry}, stop ${trade_plan.stop_loss}, target ${trade_plan.target} (1:${RR_RATIO} R:R).`;
+      trade_plan = buildTradePlan(current.close, prior.low, rr);
+      notes = `Breakout above hammer high ${prior.high.toFixed(2)} on ${volRatio.toFixed(2)}x avg volume. Entry ${trade_plan.entry}, stop ${trade_plan.stop_loss}, target ${trade_plan.target} (1:${rr} R:R).`;
     } else if (brokeHigh && !highVolume && isClosed) {
       phase = "Invalidated";
       notes = `Price broke hammer high but volume ${volRatio.toFixed(2)}x < ${VOLUME_MULTIPLIER}x filter. Skip — no high-volume confirmation.`;
@@ -296,15 +368,19 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
       notes = `Confirmation in progress: price above hammer high ${prior.high.toFixed(2)}, volume ${volRatio.toFixed(2)}x avg. Wait for close + volume confirmation.`;
     } else {
       phase = "Hammer Confirmed";
-      notes = `Hammer confirmed at ${priorSupport.type} support ${priorSupport.price}. Awaiting breakout > ${prior.high.toFixed(2)} on ${VOLUME_MULTIPLIER}x volume.`;
+      notes = `Hammer confirmed (${contextLabel}). Awaiting breakout > ${prior.high.toFixed(2)} on ${VOLUME_MULTIPLIER}x volume.`;
     }
 
     return {
       symbol: SYMBOL,
       phase,
+      mode,
+      rr,
+      setup_type: setupType,
       price: Number(currentPrice.toFixed(2)),
       asof: nowIso,
       market_open,
+      preceding_red_count: redBeforePrior,
       nearest_support: nearest,
       support_levels: supports,
       hammer: {
@@ -318,9 +394,9 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
         lower_wick: Number((Math.min(prior.open, prior.close) - prior.low).toFixed(2)),
         upper_wick: Number((prior.high - Math.max(prior.open, prior.close)).toFixed(2)),
         is_closed: true,
-        support_distance_pct: Number(
-          (Math.abs((prior.low - priorSupport.price) / priorSupport.price) * 100).toFixed(2)
-        ),
+        support_distance_pct: priorSupport
+          ? Number((Math.abs((prior.low - priorSupport.price) / priorSupport.price) * 100).toFixed(2))
+          : 0,
       },
       confirmation: {
         timestamp: current.date,
@@ -341,22 +417,32 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
     };
   }
 
-  // ── Case B: current bar IS a hammer (or forming) at support ──
-  if ((currentHammer.is_hammer || currentForming) && hammerSupport) {
+  // ── Case B: current bar IS a qualifying hammer (or forming) ──
+  if (currentActive) {
+    const setupType = classifySetup(currentIsConservativeSetup, currentIsAggressiveSetup);
     const isClosed = !market_open;
-    const phase: HammerMonitorPhase = isClosed && currentHammer.is_hammer
-      ? "Hammer Confirmed"
-      : "Hammer Forming";
+    const phase: HammerMonitorPhase =
+      isClosed && currentHammer.is_hammer ? "Hammer Confirmed" : "Hammer Forming";
+
+    const contextLabel =
+      setupType === "support_hammer" && hammerSupport
+        ? `${hammerSupport.type} support ${hammerSupport.price}`
+        : `${redBeforeCurrent} red candle${redBeforeCurrent === 1 ? "" : "s"} prior`;
+
     const notes = isClosed
-      ? `Hammer closed at ${hammerSupport.type} support ${hammerSupport.price}. Watch next session for breakout > ${current.high.toFixed(2)} on ${VOLUME_MULTIPLIER}x volume.`
-      : `Hammer forming live at ${hammerSupport.type} support ${hammerSupport.price}. Wait for daily close to confirm pattern.`;
+      ? `Hammer closed (${contextLabel}). Watch next session for breakout > ${current.high.toFixed(2)} on ${VOLUME_MULTIPLIER}x volume.`
+      : `Hammer forming live (${contextLabel}). Wait for daily close to confirm pattern.`;
 
     return {
       symbol: SYMBOL,
       phase,
+      mode,
+      rr,
+      setup_type: setupType,
       price: Number(currentPrice.toFixed(2)),
       asof: nowIso,
       market_open,
+      preceding_red_count: redBeforeCurrent,
       nearest_support: nearest,
       support_levels: supports,
       hammer: {
@@ -370,9 +456,9 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
         lower_wick: Number(currentHammer.lower_wick.toFixed(2)),
         upper_wick: Number(currentHammer.upper_wick.toFixed(2)),
         is_closed: isClosed,
-        support_distance_pct: Number(
-          (Math.abs((current.low - hammerSupport.price) / hammerSupport.price) * 100).toFixed(2)
-        ),
+        support_distance_pct: hammerSupport
+          ? Number((Math.abs((current.low - hammerSupport.price) / hammerSupport.price) * 100).toFixed(2))
+          : 0,
       },
       confirmation: null,
       trade_plan: null,
@@ -381,19 +467,36 @@ export async function evaluateSmhHammerMonitor(): Promise<HammerMonitorState> {
   }
 
   // ── Case C: no qualifying setup ──
-  let notes = "No hammer at support detected.";
-  if (currentHammer.is_hammer || currentForming) {
-    notes = "Hammer pattern detected but not near a support level (>1.5% away).";
-  } else if (nearest && Math.abs(nearest.distance_pct) <= SUPPORT_PROXIMITY_PCT) {
-    notes = `Price near ${nearest.type} support ${nearest.price} but no hammer formation yet.`;
+  let notes: string;
+  const hammerNow = currentHammer.is_hammer || currentForming;
+  if (mode === "conservative") {
+    if (hammerNow) {
+      notes = "Hammer detected but not near a support level (>1.5% away). Switch to Aggressive to take this trade.";
+    } else if (nearest && Math.abs(nearest.distance_pct) <= SUPPORT_PROXIMITY_PCT) {
+      notes = `Price near ${nearest.type} support ${nearest.price} but no hammer formation yet.`;
+    } else {
+      notes = "No hammer at support detected.";
+    }
+  } else {
+    if (hammerNow) {
+      notes = `Hammer detected but only ${redBeforeCurrent} red candle(s) prior. Need ≥ ${AGGRESSIVE_MIN_RED_CANDLES}.`;
+    } else {
+      notes = redBeforeCurrent > 0
+        ? `${redBeforeCurrent} red candle(s) printing. Watching for bullish hammer reversal.`
+        : "No hammer reversal pattern detected.";
+    }
   }
 
   return {
     symbol: SYMBOL,
     phase: "Scanning",
+    mode,
+    rr,
+    setup_type: "none",
     price: Number(currentPrice.toFixed(2)),
     asof: nowIso,
     market_open,
+    preceding_red_count: redBeforeCurrent,
     nearest_support: nearest,
     support_levels: supports,
     hammer: null,
@@ -418,7 +521,7 @@ export async function maybeEmitHammerAlert(state: HammerMonitorState): Promise<b
   ];
   if (!emittablePhases.includes(state.phase)) return false;
 
-  const key = `${state.hammer.timestamp}::${state.phase}`;
+  const key = `${state.hammer.timestamp}::${state.mode}::${state.phase}`;
   if (key === lastEmittedKey) return false;
 
   try {

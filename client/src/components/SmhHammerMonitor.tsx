@@ -3,6 +3,7 @@
 // with high-volume breakout. Displays state, hammer details, confirmation
 // progress, and the 1:2 R:R trade plan.
 
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 
@@ -12,6 +13,9 @@ type Phase =
   | "Hammer Confirmed"
   | "Breakout Confirmed"
   | "Invalidated";
+
+type TradeMode = "conservative" | "aggressive";
+type SetupType = "none" | "support_hammer" | "post_decline_hammer";
 
 interface SupportLevel {
   type: "swing_low" | "sma20" | "sma50";
@@ -60,9 +64,13 @@ interface TradePlan {
 interface MonitorState {
   symbol: string;
   phase: Phase;
+  mode: TradeMode;
+  rr: number;
+  setup_type: SetupType;
   price: number;
   asof: string;
   market_open: boolean;
+  preceding_red_count: number;
   nearest_support: SupportLevel | null;
   support_levels: SupportLevel[];
   hammer: HammerBar | null;
@@ -93,9 +101,13 @@ function fmtVol(n: number | null | undefined): string {
 }
 
 export default function SmhHammerMonitor() {
+  const [mode, setMode] = useState<TradeMode>("conservative");
+  const [rr, setRr] = useState<number>(2);
+
   const { data, isLoading, error, refetch, isFetching } = useQuery<MonitorState>({
-    queryKey: ["/api/smh-hammer-monitor"],
-    queryFn: () => apiRequest("GET", "/api/smh-hammer-monitor").then((r) => r.json()),
+    queryKey: ["/api/smh-hammer-monitor", mode, rr],
+    queryFn: () =>
+      apiRequest("GET", `/api/smh-hammer-monitor?mode=${mode}&rr=${rr}`).then((r) => r.json()),
     refetchInterval: 60_000, // poll every 60s
   });
 
@@ -127,6 +139,15 @@ export default function SmhHammerMonitor() {
           >
             {phase}
           </span>
+          {s.setup_type === "post_decline_hammer" && (
+            <span
+              className="inline-flex items-center rounded border px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium border-signal-amber/70 bg-signal-amber/10 text-signal-amber"
+              data-testid="badge-setup-type"
+              title="Hammer after red candles — not at SMA20"
+            >
+              post-decline
+            </span>
+          )}
           <span className="text-[10px] text-slate-gray">
             {s.market_open ? "● market open" : "○ market closed"}
           </span>
@@ -139,6 +160,49 @@ export default function SmhHammerMonitor() {
         >
           {isFetching ? "Refreshing…" : "Refresh"}
         </button>
+      </div>
+
+      {/* Controls row: mode toggle + R:R selector */}
+      <div className="flex items-center gap-4 flex-wrap text-[11px]">
+        <div className="flex items-center gap-2">
+          <span className="text-slate-gray uppercase tracking-wide text-[10px]">Mode</span>
+          <label className="inline-flex items-center gap-1 cursor-pointer" data-testid="toggle-mode">
+            <input
+              type="checkbox"
+              className="accent-signal-amber"
+              checked={mode === "aggressive"}
+              onChange={(e) => setMode(e.target.checked ? "aggressive" : "conservative")}
+            />
+            <span className={mode === "aggressive" ? "text-signal-amber" : "text-slate-gray"}>
+              Aggressive (hammer after red candles, no SMA20 gate)
+            </span>
+          </label>
+        </div>
+
+        <div className="flex items-center gap-2" data-testid="selector-rr">
+          <span className="text-slate-gray uppercase tracking-wide text-[10px]">Target R:R</span>
+          {[2, 3, 4].map((v) => (
+            <button
+              key={v}
+              onClick={() => setRr(v)}
+              className={`px-2 py-0.5 rounded border text-[11px] font-mono transition-colors ${
+                rr === v
+                  ? "border-signal-blue/70 bg-signal-blue/15 text-signal-blue"
+                  : "border-ink-line/50 text-slate-gray hover:border-signal-blue/40"
+              }`}
+              data-testid={`button-rr-${v}`}
+            >
+              1:{v}
+            </button>
+          ))}
+        </div>
+
+        {mode === "aggressive" && (
+          <span className="text-[10px] text-slate-gray">
+            Red candles before hammer:{" "}
+            <span className="text-signal-amber font-mono">{s.preceding_red_count}</span>
+          </span>
+        )}
       </div>
 
       {/* Notes */}
@@ -231,7 +295,7 @@ export default function SmhHammerMonitor() {
         {/* Trade plan */}
         <div className="rounded border border-ink-line/40 bg-ink-deep/30 p-3">
           <div className="text-[10px] uppercase tracking-wide text-slate-gray mb-2">
-            Trade Plan (1:2 R:R)
+            Trade Plan (1:{rr} R:R)
           </div>
           {!s.trade_plan ? (
             <div className="text-xs text-slate-gray">
