@@ -111,7 +111,7 @@ export async function detectPatternForming(symbol: string): Promise<PatternFormi
   });
 
   const quote = getQuote(sym);
-  if (!quote || !quote.price || !quote.open) {
+  if (!quote || !quote.price) {
     return empty("Live quote unavailable");
   }
 
@@ -120,7 +120,19 @@ export async function detectPatternForming(symbol: string): Promise<PatternFormi
     return empty("Not enough history yet");
   }
 
-  const liveBar = buildLiveBar(quote);
+  // Some live providers (e.g. Nasdaq snapshot) don't populate open/high/low.
+  // When that happens, derive a synthetic OHLC for today using prevClose as the
+  // open anchor and the live price + prevClose envelope for high/low so the
+  // pattern primitives still have meaningful bar shape to evaluate.
+  const synthOpen = quote.open && quote.open > 0 ? quote.open : quote.prevClose;
+  const synthHigh = quote.high && quote.high > 0 ? quote.high : Math.max(synthOpen, quote.price);
+  const synthLow = quote.low && quote.low > 0 ? quote.low : Math.min(synthOpen, quote.price);
+  const liveBar = buildLiveBar({
+    open: synthOpen,
+    high: synthHigh,
+    low: synthLow,
+    price: quote.price,
+  });
   const priors = history; // last bar of `history` may be yesterday's close
   const lastClosed = priors[priors.length - 1];
 
