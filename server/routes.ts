@@ -764,6 +764,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Candlestick Confirmation Module ──────────────────────────────
+  // Implements the verbatim status state machine: No Valid Trigger Yet /
+  // Hammer Forming / Engulfing Forming / Confirmed Hammer / Confirmed Bullish
+  // Engulfing / Ready to Trade. Gated by SMA20 pullback band.
+  //
+  // Query params:
+  //   ?timeframe=daily|4h         (default daily)
+  //   ?mode=conservative|aggressive (default conservative)
+  //   ?band=2.0                   (SMA20 band percent, default 2.0)
+  const parseConfirmOpts = (req: any) => {
+    const tf = String(req.query.timeframe || "daily").toLowerCase();
+    const timeframe: "daily" | "4h" = tf === "4h" ? "4h" : "daily";
+    const mode = String(req.query.mode || "conservative").toLowerCase();
+    const conservative_mode = mode !== "aggressive";
+    const bandRaw = Number(req.query.band);
+    const sma_band_percent = Number.isFinite(bandRaw) && bandRaw > 0 && bandRaw <= 10 ? bandRaw : 2.0;
+    return { timeframe, conservative_mode, sma_band_percent };
+  };
+
+  app.get("/api/candle-confirmation/:symbol", async (req, res) => {
+    try {
+      const { evaluateCandleConfirmation } = await import("./candlestickConfirmation");
+      const out = await evaluateCandleConfirmation(req.params.symbol, parseConfirmOpts(req));
+      res.json(out);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  app.get("/api/candle-confirmation", async (req, res) => {
+    try {
+      const { evaluateCandleConfirmation } = await import("./candlestickConfirmation");
+      const opts = parseConfirmOpts(req);
+      const results = await Promise.all(
+        PUBLIC_SYMBOLS.map((s) => evaluateCandleConfirmation(s, opts).catch(() => null))
+      );
+      res.json(results.filter(r => r !== null));
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }

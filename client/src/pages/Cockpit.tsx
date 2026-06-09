@@ -29,6 +29,7 @@ import { PatternFormingBadge, type PatternFormingStatus } from "@/components/Pat
 import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
+import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
@@ -301,6 +302,11 @@ export default function Cockpit() {
       {/* Row 1.9: Live pattern-forming watch (in-progress candle detector) */}
       <Panel title="Live Pattern Watch" hint="In-progress hammer/engulfing detection · polls every 45s">
         <ErrorBoundary label="Pattern Watch"><LivePatternWatch /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.95: Candlestick Confirmation (pullback entries near daily SMA20) */}
+      <Panel title="Candlestick Confirmation" hint="Pullback entries near daily SMA20 · status state machine">
+        <ErrorBoundary label="Candle Confirmation"><CandleConfirmationPanel /></ErrorBoundary>
       </Panel>
 
       {/* Row 2: watchlist + alerts */}
