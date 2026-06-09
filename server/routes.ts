@@ -806,6 +806,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── SMH Hammer Monitor ─────────────────────────────────────────
+  app.get("/api/smh-hammer-monitor", async (_req, res) => {
+    try {
+      const { evaluateSmhHammerMonitor, maybeEmitHammerAlert } = await import("./smhHammerMonitor");
+      const state = await evaluateSmhHammerMonitor();
+      const emitted = await maybeEmitHammerAlert(state);
+      res.json({ ...state, alert_emitted: emitted });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }
@@ -1614,6 +1626,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     };
     tick();
   }, 15 * 60 * 1000);
+
+  // SMH Hammer Monitor background scan every 90s: evaluates state and emits
+  // alerts to signal_history on phase transitions (forming → confirmed → breakout).
+  const smhScan = async () => {
+    try {
+      const { evaluateSmhHammerMonitor, maybeEmitHammerAlert } = await import("./smhHammerMonitor");
+      const state = await evaluateSmhHammerMonitor();
+      await maybeEmitHammerAlert(state);
+    } catch (e: any) {
+      console.warn("[smh-hammer-monitor] scan failed:", e?.message || e);
+    }
+  };
+  setTimeout(smhScan, 20000);
+  setInterval(smhScan, 90 * 1000);
 
   return httpServer;
 }

@@ -30,6 +30,7 @@ import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
+import SmhHammerMonitor from "@/components/SmhHammerMonitor";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
@@ -307,6 +308,11 @@ export default function Cockpit() {
       {/* Row 1.95: Candlestick Confirmation (pullback entries near daily SMA20) */}
       <Panel title="Candlestick Confirmation" hint="Pullback entries near daily SMA20 · status state machine">
         <ErrorBoundary label="Candle Confirmation"><CandleConfirmationPanel /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.96: SMH Hammer Monitor (single-symbol focus with R:R levels) */}
+      <Panel title="SMH Hammer Monitor" hint="Hammer at support → high-volume breakout → 1:2 R:R plan">
+        <ErrorBoundary label="SMH Hammer Monitor"><SmhHammerMonitor /></ErrorBoundary>
       </Panel>
 
       {/* Row 2: watchlist + alerts */}
