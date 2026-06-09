@@ -25,6 +25,7 @@ import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WatchlistEditor from "@/components/WatchlistEditor";
+import { PatternFormingBadge, type PatternFormingStatus } from "@/components/PatternFormingBadge";
 import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
@@ -295,6 +296,11 @@ export default function Cockpit() {
       {/* Row 1.8: Sortable scoring dashboard (scanner) */}
       <Panel title="Scanner" hint={`${(watchlist || []).length} symbols · sort by A-score / Δ SMA20 / trend`}>
         <ErrorBoundary label="Scanner"><ScoringDashboard /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.9: Live pattern-forming watch (in-progress candle detector) */}
+      <Panel title="Live Pattern Watch" hint="In-progress hammer/engulfing detection · polls every 45s">
+        <ErrorBoundary label="Pattern Watch"><LivePatternWatch /></ErrorBoundary>
       </Panel>
 
       {/* Row 2: watchlist + alerts */}
@@ -1062,6 +1068,51 @@ function JournalQueue({ openTrades, closedTrades }: { openTrades: Trade[]; close
       <div className="pt-2 border-t border-ink-line text-[10px] text-slate-gray">
         {preTradePending.length + postTradePending.length === 0 ? "Journal queue clear." : "Complete pending entries before next session."}
       </div>
+    </div>
+  );
+}
+
+// ─── Live Pattern Watch ──────────────────────────────────────────────
+// Polls /api/pattern-forming for all watchlist symbols and renders one row per
+// symbol with an active or recently-invalidated setup.
+function LivePatternWatch() {
+  const { data, isLoading } = useQuery<PatternFormingStatus[]>({
+    queryKey: ["/api/pattern-forming"],
+    refetchInterval: 45_000,
+    staleTime: 30_000,
+  });
+
+  if (isLoading) {
+    return <div className="text-[12px] text-slate-gray">Scanning watchlist for in-progress setups…</div>;
+  }
+
+  const active = (data ?? []).filter(d => d.status !== "none");
+  if (active.length === 0) {
+    return (
+      <div className="text-[12px] text-slate-gray text-center py-4">
+        No in-progress setups detected. Will refresh every 45s during market hours.
+      </div>
+    );
+  }
+
+  // Sort: confirmed first, then hot, warm, watch, invalid
+  const order: Record<string, number> = { hot: 0, warm: 1, watch: 2, invalid: 3, none: 4 };
+  const sorted = [...active].sort((a, b) => {
+    if (a.status === "confirmed" && b.status !== "confirmed") return -1;
+    if (b.status === "confirmed" && a.status !== "confirmed") return 1;
+    return (order[a.severity] ?? 9) - (order[b.severity] ?? 9);
+  });
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      {sorted.map(row => (
+        <div key={row.symbol} className="flex items-center gap-2">
+          <span className="w-12 text-[11px] font-mono-num font-semibold uppercase tracking-wider text-soft-white">{row.symbol}</span>
+          <span className="flex-1 min-w-0">
+            <PatternFormingBadge symbol={row.symbol} variant="row" hideWhenNone={false} />
+          </span>
+        </div>
+      ))}
     </div>
   );
 }

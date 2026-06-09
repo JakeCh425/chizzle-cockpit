@@ -734,6 +734,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
   });
 
+  // ── Live pattern-forming indicator ────────────────────────────
+  // Returns the live status of an in-progress candle for one or all symbols.
+  // Designed to be polled every 30-60s by the UI badge.
+  app.get("/api/pattern-forming/:symbol", async (req, res) => {
+    try {
+      const { detectPatternForming } = await import("./patternForming");
+      const status = await detectPatternForming(req.params.symbol);
+      res.json(status);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  app.get("/api/pattern-forming", async (_req, res) => {
+    try {
+      const { detectPatternForming } = await import("./patternForming");
+      const results = await Promise.all(
+        PUBLIC_SYMBOLS.map((s) => detectPatternForming(s).catch(() => null))
+      );
+      res.json(results.filter((r) => r !== null));
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── journal ─────────────────────────────────────────────────────
   app.get("/api/journal", async (_req, res) => {
     try { res.json(await storage.listJournal()); } catch (e: any) { res.status(500).json({ error: e.message }); }

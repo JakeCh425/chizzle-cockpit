@@ -18,6 +18,7 @@ import { Maximize2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, computeSignal, getAScore, type SignalColor } from "@/lib/sma";
 import { useLiveQuotes } from "@/lib/useLivePrices";
+import { PatternFormingBadge } from "@/components/PatternFormingBadge";
 
 type Candle = { time: number; close: number };
 export type Interval = "1D" | "1H" | "30M" | "5M";
@@ -368,6 +369,7 @@ export default function MiniChartWidget({
             aria-label={signal.note}
             role="img"
           />
+          <PatternFormingBadge symbol={symbol} variant="chip" />
           {editableTicker ? (
             <input
               ref={inputRef}
