@@ -29,7 +29,7 @@ export type TradeMode = "conservative" | "aggressive";
 
 export interface EvalOpts {
   mode?: TradeMode;
-  rr?: number;   // 2, 3, or 4
+  rr?: number;   // 2, 3, 4, or 5
 }
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ function countPrecedingRedCandles(bars: DailyBar[], endIdx: number, maxLookback 
 
 export async function evaluateSmhHammerMonitor(opts: EvalOpts = {}): Promise<HammerMonitorState> {
   const mode: TradeMode = opts.mode === "aggressive" ? "aggressive" : "conservative";
-  const rr = [2, 3, 4].includes(Number(opts.rr)) ? Number(opts.rr) : DEFAULT_RR_RATIO;
+  const rr = [2, 3, 4, 5].includes(Number(opts.rr)) ? Number(opts.rr) : DEFAULT_RR_RATIO;
 
   const bars = await safeHistory(SYMBOL);
   const market_open = isMarketOpenET();

@@ -17,6 +17,18 @@ type Phase =
 type TradeMode = "conservative" | "aggressive";
 type SetupType = "none" | "support_hammer" | "post_decline_hammer";
 
+// R:R presets aligned to the user's target map:
+//   2R = Standard Trend-Pullback (default, highest win rate)
+//   3R = Strong Trend (higher-timeframe alignment)
+//   4R = Momentum Breakout (A+ setups only)
+//   5R = Trend-to-Momentum (rare; use with partials locked)
+const RR_OPTIONS: Array<{ v: number; label: string; tip: string }> = [
+  { v: 2, label: "1:2", tip: "Standard Trend-Pullback — default, highest win rate" },
+  { v: 3, label: "1:3", tip: "Strong Trend — use when higher timeframes align" },
+  { v: 4, label: "1:4", tip: "Momentum Breakout — only on A+ setups" },
+  { v: 5, label: "1:5", tip: "Trend-to-Momentum — rare; only with partials locked" },
+];
+
 interface SupportLevel {
   type: "swing_low" | "sma20" | "sma50";
   price: number;
@@ -181,10 +193,11 @@ export default function SmhHammerMonitor() {
 
         <div className="flex items-center gap-2" data-testid="selector-rr">
           <span className="text-slate-gray uppercase tracking-wide text-[10px]">Target R:R</span>
-          {[2, 3, 4].map((v) => (
+          {RR_OPTIONS.map(({ v, label, tip }) => (
             <button
               key={v}
               onClick={() => setRr(v)}
+              title={tip}
               className={`px-2 py-0.5 rounded border text-[11px] font-mono transition-colors ${
                 rr === v
                   ? "border-signal-blue/70 bg-signal-blue/15 text-signal-blue"
@@ -192,7 +205,7 @@ export default function SmhHammerMonitor() {
               }`}
               data-testid={`button-rr-${v}`}
             >
-              1:{v}
+              {label}
             </button>
           ))}
         </div>

@@ -797,8 +797,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     try {
       const { evaluateCandleConfirmation } = await import("./candlestickConfirmation");
       const opts = parseConfirmOpts(req);
+      // Use the user's ACTIVE watchlist (archived rows excluded) so this panel
+      // stays in sync with watchlist edits.
+      let symbols: string[];
+      try {
+        const wl = await storage.listWatchlist();
+        symbols = wl.map((w: any) => String(w.symbol).toUpperCase());
+      } catch {
+        symbols = [...PUBLIC_SYMBOLS];
+      }
+      if (symbols.length === 0) symbols = [...PUBLIC_SYMBOLS];
       const results = await Promise.all(
-        PUBLIC_SYMBOLS.map((s) => evaluateCandleConfirmation(s, opts).catch(() => null))
+        symbols.map((s) => evaluateCandleConfirmation(s, opts).catch(() => null))
       );
       res.json(results.filter(r => r !== null));
     } catch (e: any) {
@@ -813,7 +823,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const modeRaw = String(req.query.mode || "").toLowerCase();
       const rrRaw = Number(req.query.rr);
       const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
-      const rr = [2, 3, 4].includes(rrRaw) ? rrRaw : 2;
+      const rr = [2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2;
       const state = await evaluateSmhHammerMonitor({ mode, rr });
       const emitted = await maybeEmitHammerAlert(state);
       res.json({ ...state, alert_emitted: emitted });

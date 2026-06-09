@@ -8,8 +8,9 @@
 // timeframe toggle (Daily / 4H).
 
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { X } from "lucide-react";
 
 export type PatternStatus =
   | "No Valid Trigger Yet"
@@ -173,6 +174,7 @@ export default function CandleConfirmationPanel() {
                 <th className="text-right py-1 pr-2">Trigger</th>
                 <th className="text-right py-1 pr-2">Stop</th>
                 <th className="text-left  py-1 pr-2">Notes</th>
+                <th className="text-center py-1 pr-2 w-8"></th>
               </tr>
             </thead>
             <tbody>
@@ -201,6 +203,9 @@ export default function CandleConfirmationPanel() {
                     <td className="text-right py-1 pr-2 text-soft-white">{r.trigger_price != null ? `$${fmt(r.trigger_price)}` : "—"}</td>
                     <td className="text-right py-1 pr-2 text-soft-white">{r.invalidation_price != null ? `$${fmt(r.invalidation_price)}` : "—"}</td>
                     <td className="text-left py-1 pr-2 text-slate-gray max-w-[420px] truncate" title={r.notes}>{r.notes}</td>
+                    <td className="text-center py-1 pr-2">
+                      <ArchiveButton ticker={r.ticker} />
+                    </td>
                   </tr>
                 );
               })}
@@ -217,5 +222,43 @@ export default function CandleConfirmationPanel() {
         <span>{mode === "conservative" ? "Conservative: requires next-candle break above trigger" : "Aggressive: ready on confirmed close near SMA20"}</span>
       </div>
     </div>
+  );
+}
+
+// ─── Archive button ────────────────────────────────────────────────────────────────
+// Resolves the symbol → watchlist id, then PATCHes archived=true. After success,
+// invalidates the candle-confirmation and watchlist caches so the row disappears
+// from this panel and the watchlist editor immediately.
+function ArchiveButton({ ticker }: { ticker: string }) {
+  const { data: watchlist } = useQuery<Array<{ id: number; symbol: string }>>({
+    queryKey: ["/api/watchlist"],
+    queryFn: () => apiRequest("GET", "/api/watchlist").then((r) => r.json()),
+  });
+
+  const archive = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/watchlist/${id}`, { archived: true });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/candle-confirmation"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist/archived"] });
+    },
+  });
+
+  const row = watchlist?.find((w) => w.symbol.toUpperCase() === ticker.toUpperCase());
+  const disabled = !row || archive.isPending;
+
+  return (
+    <button
+      onClick={() => row && archive.mutate(row.id)}
+      disabled={disabled}
+      title={row ? `Archive ${ticker} from watchlist (use Watchlist Editor to restore)` : "Not in watchlist"}
+      className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-gray hover:text-signal-red hover:bg-signal-red/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+      data-testid={`button-archive-cc-${ticker}`}
+    >
+      <X className="w-3.5 h-3.5" />
+    </button>
   );
 }
