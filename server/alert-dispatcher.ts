@@ -1,5 +1,6 @@
 /**
- * Alert dispatcher — sends hammer/confirmation alerts via Resend (email) and Twilio (SMS).
+ * Alert dispatcher — sends hammer/confirmation alerts via Resend (email),
+ * Twilio (SMS), and Telegram (push to phone, free, no carrier registration).
  *
  * Required env vars (all optional — missing keys = stubbed delivery, logged to alert_log
  * with status="stubbed" so the user still sees what *would* have been sent):
@@ -8,10 +9,12 @@
  *   - TWILIO_ACCOUNT_SID
  *   - TWILIO_AUTH_TOKEN
  *   - TWILIO_FROM_NUMBER  (E.164, e.g. "+18165551234")
+ *   - TELEGRAM_BOT_TOKEN  (e.g. "7234567890:AAH-abc123...")
  *
  * Public API:
  *   - dispatchHammerAlert(payload)   // call from any scan loop
  *   - sendTestAlert(channel, dest)   // manual test endpoint
+ *   - resolveTelegramChatIds()       // helper to look up chat IDs via getUpdates
  */
 import { storage } from "./storage";
 
@@ -115,6 +118,84 @@ async function sendEmailResend(to: string, subject: string, html: string): Promi
   }
 }
 
+// ─── Telegram (free push to phone via Telegram app) ─────────────────────
+function buildTelegramText(p: HammerAlertPayload): string {
+  const phaseLabel = p.phase === "confirmed" ? "✅ CONFIRMED" : "🔶 Forming";
+  const modeLabel = p.mode === "aggressive" ? "Aggressive" : "Standard";
+  const lines = [
+    `*${p.ticker}* · ${modeLabel} Hammer`,
+    `${phaseLabel} on ${p.timeframe.toUpperCase()}`,
+    "",
+    `Px ${fmtPrice(p.price)}`,
+  ];
+  if (p.entry !== undefined) lines.push(`Entry ${fmtPrice(p.entry)}`);
+  if (p.stop !== undefined) lines.push(`Stop ${fmtPrice(p.stop)}`);
+  if (p.rr2 !== undefined) lines.push(`1:2R ${fmtPrice(p.rr2)}`);
+  if (p.rr3 !== undefined) lines.push(`1:3R ${fmtPrice(p.rr3)}`);
+  if (p.rr4 !== undefined) lines.push(`1:4R ${fmtPrice(p.rr4)}`);
+  if (p.rr5 !== undefined) lines.push(`1:5R ${fmtPrice(p.rr5)}`);
+  if (p.setupNote) lines.push("", `_${p.setupNote.slice(0, 200)}_`);
+  lines.push("", `[Open Cockpit](${LIVE_URL})`);
+  return lines.join("\n");
+}
+
+async function sendTelegram(chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text,
+        parse_mode: "Markdown",
+        disable_web_page_preview: false,
+      }),
+    });
+    if (!res.ok) {
+      const txt = await res.text().catch(() => "");
+      return { ok: false, error: `Telegram ${res.status}: ${txt.slice(0, 200)}` };
+    }
+    const data: any = await res.json().catch(() => ({}));
+    if (!data.ok) return { ok: false, error: `Telegram API: ${data.description || "unknown"}` };
+    return { ok: true };
+  } catch (e: any) {
+    return { ok: false, error: `Telegram fetch error: ${e?.message || String(e)}` };
+  }
+}
+
+/**
+ * Resolve recent chat IDs from /getUpdates. Used by the API to auto-add
+ * Telegram contacts — the user starts a chat with the bot, then we read
+ * the bot's update feed and present available chat IDs to pick from.
+ */
+export async function resolveTelegramChatIds(): Promise<Array<{ chatId: string; username: string | null; firstName: string | null; lastMessage: string | null }>> {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) return [];
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/getUpdates`);
+    if (!res.ok) return [];
+    const data: any = await res.json();
+    if (!data.ok || !Array.isArray(data.result)) return [];
+    const seen = new Map<string, { chatId: string; username: string | null; firstName: string | null; lastMessage: string | null }>();
+    for (const u of data.result) {
+      const msg = u.message || u.edited_message || u.channel_post;
+      if (!msg?.chat?.id) continue;
+      const chatId = String(msg.chat.id);
+      seen.set(chatId, {
+        chatId,
+        username: msg.chat.username || null,
+        firstName: msg.chat.first_name || null,
+        lastMessage: typeof msg.text === "string" ? msg.text.slice(0, 80) : null,
+      });
+    }
+    return Array.from(seen.values());
+  } catch {
+    return [];
+  }
+}
+
 // ─── Twilio (SMS) ──────────────────────────────────────────────────────────────
 async function sendSmsTwilio(to: string, body: string): Promise<{ ok: boolean; error?: string }> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
@@ -205,6 +286,15 @@ export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<
           const r = await sendSmsTwilio(c.destination, sms);
           if (!r.ok) { status = "failed"; errorMessage = r.error || "unknown"; }
         }
+      } else if (c.channel === "telegram") {
+        const hasKey = !!process.env.TELEGRAM_BOT_TOKEN;
+        if (!hasKey) {
+          status = "stubbed";
+          errorMessage = "TELEGRAM_BOT_TOKEN not configured";
+        } else {
+          const r = await sendTelegram(c.destination, buildTelegramText(payload));
+          if (!r.ok) { status = "failed"; errorMessage = r.error || "unknown"; }
+        }
       } else {
         status = "failed";
         errorMessage = `unknown channel: ${c.channel}`;
@@ -230,7 +320,7 @@ export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<
 }
 
 /** Manual test — fires a sample alert to a single destination. */
-export async function sendTestAlert(channel: "email" | "sms", destination: string): Promise<{ ok: boolean; error?: string; status: string }> {
+export async function sendTestAlert(channel: "email" | "sms" | "telegram", destination: string): Promise<{ ok: boolean; error?: string; status: string }> {
   const sample: HammerAlertPayload = {
     ticker: "SMH",
     phase: "confirmed",
@@ -250,12 +340,16 @@ export async function sendTestAlert(channel: "email" | "sms", destination: strin
       if (!process.env.RESEND_API_KEY) return { ok: false, error: "RESEND_API_KEY not set", status: "stubbed" };
       const r = await sendEmailResend(destination, buildSubject(sample) + " (TEST)", buildEmailHtml(sample));
       return { ok: r.ok, error: r.error, status: r.ok ? "sent" : "failed" };
-    } else {
+    } else if (channel === "sms") {
       const sid = process.env.TWILIO_ACCOUNT_SID;
       const token = process.env.TWILIO_AUTH_TOKEN;
       const from = process.env.TWILIO_FROM_NUMBER;
       if (!sid || !token || !from) return { ok: false, error: "Twilio env vars not fully set", status: "stubbed" };
       const r = await sendSmsTwilio(destination, "[TEST] " + buildSmsText(sample));
+      return { ok: r.ok, error: r.error, status: r.ok ? "sent" : "failed" };
+    } else {
+      if (!process.env.TELEGRAM_BOT_TOKEN) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set", status: "stubbed" };
+      const r = await sendTelegram(destination, "🧪 *TEST*\n\n" + buildTelegramText(sample));
       return { ok: r.ok, error: r.error, status: r.ok ? "sent" : "failed" };
     }
   } catch (e: any) {

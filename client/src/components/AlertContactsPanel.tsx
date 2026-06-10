@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Phone, Trash2, Plus, Send, CheckCircle2, XCircle, Clock } from "lucide-react";
+import { Mail, Phone, Trash2, Plus, Send, CheckCircle2, XCircle, Clock, MessageCircle, RefreshCw } from "lucide-react";
+
+type Channel = "email" | "sms" | "telegram";
 
 interface AlertContact {
   id: number;
-  channel: "email" | "sms";
+  channel: Channel;
   destination: string;
   label: string;
   enabled: boolean;
@@ -21,7 +23,7 @@ interface AlertLogRow {
   ticker: string;
   phase: "forming" | "confirmed";
   mode: "conservative" | "aggressive";
-  channel: "email" | "sms";
+  channel: Channel;
   destination: string;
   status: "sent" | "failed" | "skipped_dedupe" | "stubbed";
   errorMessage: string;
@@ -32,8 +34,16 @@ interface AlertLogRow {
 interface AlertConfig {
   resendConfigured: boolean;
   twilioConfigured: boolean;
+  telegramConfigured: boolean;
   resendFromEmail: string;
   twilioFromNumber: string | null;
+}
+
+interface TelegramChat {
+  chatId: string;
+  username: string | null;
+  firstName: string | null;
+  lastMessage: string | null;
 }
 
 const STATUS_COLOR: Record<string, string> = {
@@ -50,11 +60,19 @@ function StatusIcon({ status }: { status: string }) {
   return <Clock className="w-3.5 h-3.5 text-zinc-500" />;
 }
 
+function channelIcon(ch: Channel) {
+  if (ch === "email") return <Mail className="w-3.5 h-3.5 text-emerald-400" />;
+  if (ch === "sms") return <Phone className="w-3.5 h-3.5 text-cyan-400" />;
+  return <MessageCircle className="w-3.5 h-3.5 text-sky-400" />;
+}
+
 export default function AlertContactsPanel() {
   const { toast } = useToast();
-  const [channel, setChannel] = useState<"email" | "sms">("email");
+  const [channel, setChannel] = useState<Channel>("email");
   const [destination, setDestination] = useState("");
   const [label, setLabel] = useState("");
+  const [telegramChats, setTelegramChats] = useState<TelegramChat[] | null>(null);
+  const [telegramLoading, setTelegramLoading] = useState(false);
 
   const { data: config } = useQuery<AlertConfig>({
     queryKey: ["/api/alert-config"],
@@ -120,11 +138,30 @@ export default function AlertContactsPanel() {
     },
   });
 
+  async function resolveTelegramChats() {
+    setTelegramLoading(true);
+    try {
+      const res = await apiRequest("GET", "/api/telegram/chats");
+      const chats = (await res.json()) as TelegramChat[];
+      setTelegramChats(chats);
+      if (!chats || chats.length === 0) {
+        toast({
+          title: "No chats found",
+          description: "Open Telegram, search your bot, and send /start. Then click Refresh.",
+          variant: "destructive",
+        });
+      }
+    } catch (e: any) {
+      toast({ title: "Lookup failed", description: e?.message || "Unknown error", variant: "destructive" });
+    } finally {
+      setTelegramLoading(false);
+    }
+  }
+
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
     let dest = destination.trim();
     if (channel === "sms") {
-      // auto-normalize: strip non-digits, prepend + if missing
       const digits = dest.replace(/\D/g, "");
       if (digits.length === 10) dest = `+1${digits}`;
       else if (!dest.startsWith("+")) dest = `+${digits}`;
@@ -134,16 +171,18 @@ export default function AlertContactsPanel() {
 
   const showResendBanner = config && !config.resendConfigured;
   const showTwilioBanner = config && !config.twilioConfigured;
+  const showTelegramBanner = config && !config.telegramConfigured;
 
   return (
     <div className="space-y-4">
       {/* config status banners */}
-      {(showResendBanner || showTwilioBanner) && (
+      {(showResendBanner || showTwilioBanner || showTelegramBanner) && (
         <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs text-amber-300">
-          <div className="font-medium mb-1">Provider keys not configured — alerts will be logged but not sent.</div>
+          <div className="font-medium mb-1">Provider keys not configured — those channels will be logged but not sent.</div>
           <ul className="space-y-0.5 text-amber-300/80">
-            {showResendBanner && <li>• Set <code className="text-amber-200">RESEND_API_KEY</code> in Render env to enable email.</li>}
-            {showTwilioBanner && <li>• Set <code className="text-amber-200">TWILIO_ACCOUNT_SID</code>, <code className="text-amber-200">TWILIO_AUTH_TOKEN</code>, <code className="text-amber-200">TWILIO_FROM_NUMBER</code> in Render env to enable SMS.</li>}
+            {showResendBanner && <li>• Set <code className="text-amber-200">RESEND_API_KEY</code> to enable email.</li>}
+            {showTwilioBanner && <li>• Set <code className="text-amber-200">TWILIO_ACCOUNT_SID</code>, <code className="text-amber-200">TWILIO_AUTH_TOKEN</code>, <code className="text-amber-200">TWILIO_FROM_NUMBER</code> to enable SMS.</li>}
+            {showTelegramBanner && <li>• Set <code className="text-amber-200">TELEGRAM_BOT_TOKEN</code> to enable Telegram push.</li>}
           </ul>
         </div>
       )}
@@ -162,17 +201,31 @@ export default function AlertContactsPanel() {
           <button
             type="button"
             onClick={() => setChannel("sms")}
-            className={`px-3 py-1.5 border-l border-zinc-700 ${channel === "sms" ? "bg-emerald-500/20 text-emerald-300" : "text-zinc-400 hover:bg-zinc-800"}`}
+            className={`px-3 py-1.5 border-l border-zinc-700 ${channel === "sms" ? "bg-cyan-500/20 text-cyan-300" : "text-zinc-400 hover:bg-zinc-800"}`}
             data-testid="button-channel-sms"
           >
             <Phone className="w-3.5 h-3.5 inline-block mr-1" /> SMS
+          </button>
+          <button
+            type="button"
+            onClick={() => setChannel("telegram")}
+            className={`px-3 py-1.5 border-l border-zinc-700 ${channel === "telegram" ? "bg-sky-500/20 text-sky-300" : "text-zinc-400 hover:bg-zinc-800"}`}
+            data-testid="button-channel-telegram"
+          >
+            <MessageCircle className="w-3.5 h-3.5 inline-block mr-1" /> Telegram
           </button>
         </div>
         <input
           type="text"
           value={destination}
           onChange={(e) => setDestination(e.target.value)}
-          placeholder={channel === "email" ? "you@example.com" : "+1 417 555 1234"}
+          placeholder={
+            channel === "email"
+              ? "you@example.com"
+              : channel === "sms"
+              ? "+1 417 555 1234"
+              : "Numeric chat_id (use Resolve →)"
+          }
           className="flex-1 min-w-[180px] rounded-md border border-zinc-700 bg-zinc-900 px-3 py-1.5 text-zinc-100 placeholder-zinc-600"
           data-testid="input-alert-destination"
           required
@@ -195,14 +248,56 @@ export default function AlertContactsPanel() {
         </button>
       </form>
 
+      {/* telegram chat resolver */}
+      {channel === "telegram" && (
+        <div className="rounded-md border border-sky-500/20 bg-sky-500/5 px-3 py-2 text-xs space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-sky-200">
+              <span className="font-medium">Telegram setup:</span> open Telegram, find your bot, send <code className="text-sky-300">/start</code>, then click Resolve to pick your chat.
+            </div>
+            <button
+              type="button"
+              onClick={resolveTelegramChats}
+              disabled={telegramLoading || !config?.telegramConfigured}
+              className="rounded border border-sky-500/40 text-sky-300 hover:bg-sky-500/10 px-2 py-1 flex items-center gap-1 disabled:opacity-50 shrink-0"
+              data-testid="button-resolve-telegram"
+            >
+              <RefreshCw className={`w-3 h-3 ${telegramLoading ? "animate-spin" : ""}`} /> Resolve chats
+            </button>
+          </div>
+          {telegramChats && telegramChats.length > 0 && (
+            <div className="space-y-1">
+              <div className="text-[10px] uppercase tracking-wider text-sky-400/80">Found {telegramChats.length} chat{telegramChats.length === 1 ? "" : "s"} — click to use:</div>
+              {telegramChats.map((c) => (
+                <button
+                  key={c.chatId}
+                  type="button"
+                  onClick={() => {
+                    setDestination(c.chatId);
+                    if (!label) setLabel(c.firstName || c.username || "Telegram");
+                  }}
+                  className="w-full text-left rounded border border-zinc-700 bg-zinc-900/60 hover:bg-zinc-800 px-2 py-1.5 flex items-center gap-2"
+                  data-testid={`button-pick-chat-${c.chatId}`}
+                >
+                  <MessageCircle className="w-3 h-3 text-sky-400 shrink-0" />
+                  <span className="text-zinc-100 font-mono text-[11px]">{c.chatId}</span>
+                  <span className="text-zinc-400">{c.firstName || c.username || "—"}</span>
+                  {c.lastMessage && <span className="text-zinc-600 italic text-[10px] truncate flex-1">"{c.lastMessage}"</span>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* contacts list */}
       {contacts.length === 0 ? (
-        <div className="text-xs text-zinc-500 italic py-2">No contacts yet. Add an email or SMS above to get alerts when a hammer fires.</div>
+        <div className="text-xs text-zinc-500 italic py-2">No contacts yet. Add an email, SMS, or Telegram chat above to get alerts when a hammer fires.</div>
       ) : (
         <div className="space-y-1.5">
           {contacts.map((c) => (
             <div key={c.id} className="flex items-center gap-3 rounded-md border border-zinc-800 bg-zinc-900/50 px-3 py-2 text-xs" data-testid={`row-contact-${c.id}`}>
-              {c.channel === "email" ? <Mail className="w-3.5 h-3.5 text-emerald-400" /> : <Phone className="w-3.5 h-3.5 text-cyan-400" />}
+              {channelIcon(c.channel)}
               <div className="flex-1 min-w-0">
                 <div className="text-zinc-100 truncate" data-testid={`text-destination-${c.id}`}>{c.destination}</div>
                 {c.label && <div className="text-zinc-500 text-[10px]">{c.label}</div>}

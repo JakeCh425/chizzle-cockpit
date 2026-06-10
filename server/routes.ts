@@ -1597,10 +1597,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const body = req.body || {};
       const channel = String(body.channel || "").toLowerCase();
       const destination = String(body.destination || "").trim();
-      if (channel !== "email" && channel !== "sms") return res.status(400).json({ error: "channel must be 'email' or 'sms'" });
+      if (channel !== "email" && channel !== "sms" && channel !== "telegram") return res.status(400).json({ error: "channel must be 'email', 'sms', or 'telegram'" });
       if (!destination) return res.status(400).json({ error: "destination is required" });
       if (channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination)) return res.status(400).json({ error: "invalid email" });
       if (channel === "sms" && !/^\+\d{10,15}$/.test(destination)) return res.status(400).json({ error: "phone must be E.164 format, e.g. +14175551234" });
+      if (channel === "telegram" && !/^-?\d+$/.test(destination)) return res.status(400).json({ error: "telegram destination must be a numeric chat_id" });
       const created = await storage.createAlertContact({
         channel,
         destination,
@@ -1676,9 +1677,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     res.json({
       resendConfigured: !!process.env.RESEND_API_KEY,
       twilioConfigured: !!process.env.TWILIO_ACCOUNT_SID && !!process.env.TWILIO_AUTH_TOKEN && !!process.env.TWILIO_FROM_NUMBER,
+      telegramConfigured: !!process.env.TELEGRAM_BOT_TOKEN,
       resendFromEmail: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
       twilioFromNumber: process.env.TWILIO_FROM_NUMBER || null,
     });
+  });
+  app.get("/api/telegram/chats", async (_req, res) => {
+    try {
+      const { resolveTelegramChatIds } = await import("./alert-dispatcher");
+      const chats = await resolveTelegramChatIds();
+      res.json(chats);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
   });
 
   // ── reset ─────────────────────────────────────────────────────
