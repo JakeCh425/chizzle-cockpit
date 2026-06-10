@@ -31,6 +31,7 @@ import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
 import SmhHammerMonitor from "@/components/SmhHammerMonitor";
+import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
@@ -313,6 +314,11 @@ export default function Cockpit() {
       {/* Row 1.96: SMH Hammer Monitor (single-symbol focus with R:R levels) */}
       <Panel title="SMH Hammer Monitor" hint="Hammer at support → high-volume breakout → 1:2 R:R plan">
         <ErrorBoundary label="SMH Hammer Monitor"><SmhHammerMonitor /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.97: Email + SMS alert contacts */}
+      <Panel title="Alert Contacts" hint="Email + SMS notifications on hammer forming / confirmed">
+        <ErrorBoundary label="Alert Contacts"><AlertContactsPanel /></ErrorBoundary>
       </Panel>
 
       {/* Row 2: watchlist + alerts */}

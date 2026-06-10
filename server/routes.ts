@@ -1583,7 +1583,105 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ── reset ──────────────────────────────────────────────────────
+  // ── alert contacts & log ──────────────────────────────────────────
+  app.get("/api/alert-contacts", async (_req, res) => {
+    try {
+      const rows = await storage.listAlertContacts();
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.post("/api/alert-contacts", async (req, res) => {
+    try {
+      const body = req.body || {};
+      const channel = String(body.channel || "").toLowerCase();
+      const destination = String(body.destination || "").trim();
+      if (channel !== "email" && channel !== "sms") return res.status(400).json({ error: "channel must be 'email' or 'sms'" });
+      if (!destination) return res.status(400).json({ error: "destination is required" });
+      if (channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination)) return res.status(400).json({ error: "invalid email" });
+      if (channel === "sms" && !/^\+\d{10,15}$/.test(destination)) return res.status(400).json({ error: "phone must be E.164 format, e.g. +14175551234" });
+      const created = await storage.createAlertContact({
+        channel,
+        destination,
+        label: String(body.label || ""),
+        enabled: body.enabled !== false,
+        triggerForming: body.triggerForming !== false,
+        triggerConfirmed: body.triggerConfirmed !== false,
+      });
+      res.json(created);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.patch("/api/alert-contacts/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      const patch: any = {};
+      const b = req.body || {};
+      if (typeof b.enabled === "boolean") patch.enabled = b.enabled;
+      if (typeof b.triggerForming === "boolean") patch.triggerForming = b.triggerForming;
+      if (typeof b.triggerConfirmed === "boolean") patch.triggerConfirmed = b.triggerConfirmed;
+      if (typeof b.label === "string") patch.label = b.label;
+      const updated = await storage.updateAlertContact(id, patch);
+      if (!updated) return res.status(404).json({ error: "not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.delete("/api/alert-contacts/:id", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      await storage.deleteAlertContact(id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.get("/api/alert-log", async (req, res) => {
+    try {
+      const limit = Math.min(500, parseInt(String(req.query.limit || "100"), 10) || 100);
+      const rows = await storage.listAlertLog(limit);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.delete("/api/alert-log", async (_req, res) => {
+    try {
+      const n = await storage.clearAlertLog();
+      res.json({ ok: true, deleted: n });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.post("/api/alert-contacts/:id/test", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id, 10);
+      if (Number.isNaN(id)) return res.status(400).json({ error: "invalid id" });
+      const all = await storage.listAlertContacts();
+      const c = all.find((x: any) => x.id === id);
+      if (!c) return res.status(404).json({ error: "not found" });
+      const { sendTestAlert } = await import("./alert-dispatcher");
+      const result = await sendTestAlert(c.channel as "email" | "sms", c.destination);
+      res.json({ ok: result.ok, status: result.status, error: result.error || null });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+  app.get("/api/alert-config", async (_req, res) => {
+    res.json({
+      resendConfigured: !!process.env.RESEND_API_KEY,
+      twilioConfigured: !!process.env.TWILIO_ACCOUNT_SID && !!process.env.TWILIO_AUTH_TOKEN && !!process.env.TWILIO_FROM_NUMBER,
+      resendFromEmail: process.env.RESEND_FROM_EMAIL || "onboarding@resend.dev",
+      twilioFromNumber: process.env.TWILIO_FROM_NUMBER || null,
+    });
+  });
+
+  // ── reset ─────────────────────────────────────────────────────
   app.post("/api/reset", async (_req, res) => {
     try { await storage.resetAll(); res.json({ ok: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });

@@ -16,6 +16,8 @@ import {
   setupHistory,
   tradeEvents,
   signalHistory,
+  alertContacts,
+  alertLog,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -35,6 +37,8 @@ import type {
   SetupHistoryRow, InsertSetupHistory,
   TradeEvent, InsertTradeEvent,
   SignalHistory, InsertSignalHistory,
+  AlertContact, InsertAlertContact,
+  AlertLogRow, InsertAlertLog,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -1047,5 +1051,54 @@ export const storage = {
     await db.delete(leapReserve);
     await db.delete(settings);
     await seedIfEmpty();
+  },
+
+  // ─── alert contacts (email/SMS destinations) ─────────────────────────────────────
+  async listAlertContacts(): Promise<AlertContact[]> {
+    return db.select().from(alertContacts).orderBy(desc(alertContacts.id));
+  },
+  async listEnabledAlertContacts(): Promise<AlertContact[]> {
+    return db.select().from(alertContacts).where(eq(alertContacts.enabled, true));
+  },
+  async createAlertContact(c: InsertAlertContact): Promise<AlertContact> {
+    const row = { ...c, createdAt: new Date().toISOString() } as any;
+    const [created] = await db.insert(alertContacts).values(row).returning();
+    return created;
+  },
+  async updateAlertContact(id: number, patch: Partial<InsertAlertContact>): Promise<AlertContact | undefined> {
+    const [updated] = await db.update(alertContacts).set(patch as any).where(eq(alertContacts.id, id)).returning();
+    return updated;
+  },
+  async deleteAlertContact(id: number): Promise<void> {
+    await db.delete(alertContacts).where(eq(alertContacts.id, id));
+  },
+
+  // ─── alert log + dedupe ─────────────────────────────────────────────────────────────
+  async listAlertLog(limit = 100): Promise<AlertLogRow[]> {
+    return db.select().from(alertLog).orderBy(desc(alertLog.sentAt)).limit(limit);
+  },
+  async hasAlertBeenSent(signalKey: string, channel: string, destination: string): Promise<boolean> {
+    const rows = await db
+      .select()
+      .from(alertLog)
+      .where(
+        and(
+          eq(alertLog.signalKey, signalKey),
+          eq(alertLog.channel, channel),
+          eq(alertLog.destination, destination),
+          eq(alertLog.status, "sent"),
+        ),
+      )
+      .limit(1);
+    return rows.length > 0;
+  },
+  async appendAlertLog(row: InsertAlertLog): Promise<AlertLogRow> {
+    const [created] = await db.insert(alertLog).values(row).returning();
+    return created;
+  },
+  async clearAlertLog(): Promise<number> {
+    const before = await db.select().from(alertLog);
+    await db.delete(alertLog);
+    return before.length;
   },
 };

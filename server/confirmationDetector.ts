@@ -24,6 +24,7 @@
 import { storage } from "./storage";
 import { safeHistory, type DailyBar } from "./marketData";
 import type { InsertSignalHistory, SignalHistory } from "@shared/schema";
+import { dispatchHammerAlert } from "./alert-dispatcher";
 
 export type PatternType = "Hammer" | "Engulfing";
 
@@ -243,6 +244,34 @@ export async function scanSymbol(symbol: string): Promise<SignalHistory | null> 
       } as any);
     } catch (err) {
       console.warn("[confirmation-detector] createAlert failed:", (err as any)?.message || err);
+    }
+
+    // Fan out to email/SMS contacts. Candle-confirmation only fires when the next
+    // bar closes above the setup high, so phase is always "confirmed".
+    try {
+      const setup = bars[bars.length - 2];
+      const confirmation = bars[bars.length - 1];
+      const entry = confirmation.close;
+      const stop = Math.min(setup.open, setup.close, setup.low);
+      const risk = Math.max(0, entry - stop);
+      const tsIso = new Date((confirmation.ts || 0) * 1000).toISOString();
+      dispatchHammerAlert({
+        ticker: symbol,
+        phase: "confirmed",
+        mode: "conservative",
+        candleTimestamp: tsIso,
+        timeframe: "daily",
+        price: confirmation.close,
+        entry,
+        stop,
+        rr2: risk > 0 ? entry + 2 * risk : undefined,
+        rr3: risk > 0 ? entry + 3 * risk : undefined,
+        rr4: risk > 0 ? entry + 4 * risk : undefined,
+        rr5: risk > 0 ? entry + 5 * risk : undefined,
+        setupNote: out.alert.message,
+      }).catch((e) => console.warn("[confirmation-detector] dispatch error:", e?.message || e));
+    } catch (err) {
+      console.warn("[confirmation-detector] dispatchHammerAlert prep failed:", (err as any)?.message || err);
     }
   }
   return saved;

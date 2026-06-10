@@ -301,6 +301,33 @@ export const chizzleScores = pgTable("chizzle_scores", {
   identityState: text("identity_state").notNull().default("WORKING"),
 });
 
+// ─── alert contacts (email + SMS destinations) ────────────────────────────────
+export const alertContacts = pgTable("alert_contacts", {
+  id: serial("id").primaryKey(),
+  channel: text("channel").notNull(), // email | sms
+  destination: text("destination").notNull(), // email addr or E.164 phone
+  label: text("label").notNull().default(""),
+  enabled: boolean("enabled").notNull().default(true),
+  triggerForming: boolean("trigger_forming").notNull().default(true),
+  triggerConfirmed: boolean("trigger_confirmed").notNull().default(true),
+  createdAt: text("created_at").notNull(),
+});
+
+// ─── alert log (dedupe + delivery audit) ──────────────────────────────────────
+export const alertLog = pgTable("alert_log", {
+  id: serial("id").primaryKey(),
+  signalKey: text("signal_key").notNull(), // ticker::mode::phase::candleTs
+  ticker: text("ticker").notNull(),
+  phase: text("phase").notNull(), // forming | confirmed
+  mode: text("mode").notNull(), // conservative | aggressive
+  channel: text("channel").notNull(), // email | sms
+  destination: text("destination").notNull(),
+  status: text("status").notNull(), // sent | failed | skipped_dedupe | stubbed
+  errorMessage: text("error_message").notNull().default(""),
+  payload: text("payload").notNull().default("{}"),
+  sentAt: text("sent_at").notNull(),
+});
+
 // ─── insert schemas + types ──────────────────────────────────────────────────
 export const insertSettingsSchema = createInsertSchema(settings).omit({ id: true });
 export const insertTickerSchema = createInsertSchema(tickers).omit({ id: true });
@@ -319,6 +346,8 @@ export const insertSetupCandidateSchema = createInsertSchema(setupCandidates).om
 export const insertSetupHistorySchema = createInsertSchema(setupHistory).omit({ id: true });
 export const insertTradeEventSchema = createInsertSchema(tradeEvents).omit({ id: true });
 export const insertSignalHistorySchema = createInsertSchema(signalHistory).omit({ id: true });
+export const insertAlertContactSchema = createInsertSchema(alertContacts).omit({ id: true, createdAt: true });
+export const insertAlertLogSchema = createInsertSchema(alertLog).omit({ id: true });
 
 export type Settings = typeof settings.$inferSelect;
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
@@ -354,3 +383,7 @@ export type TradeEvent = typeof tradeEvents.$inferSelect;
 export type InsertTradeEvent = z.infer<typeof insertTradeEventSchema>;
 export type SignalHistory = typeof signalHistory.$inferSelect;
 export type InsertSignalHistory = z.infer<typeof insertSignalHistorySchema>;
+export type AlertContact = typeof alertContacts.$inferSelect;
+export type InsertAlertContact = z.infer<typeof insertAlertContactSchema>;
+export type AlertLogRow = typeof alertLog.$inferSelect;
+export type InsertAlertLog = z.infer<typeof insertAlertLogSchema>;

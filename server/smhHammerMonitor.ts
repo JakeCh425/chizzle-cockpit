@@ -16,6 +16,7 @@
 
 import { safeHistory, sma, type DailyBar } from "./marketData";
 import { storage } from "./storage";
+import { dispatchHammerAlert } from "./alert-dispatcher";
 
 const SYMBOL = "SMH";
 const VOLUME_MULTIPLIER = 1.2;        // high-volume filter
@@ -554,6 +555,34 @@ export async function maybeEmitHammerAlert(state: HammerMonitorState): Promise<b
       createdAt: new Date().toISOString(),
     });
     lastEmittedKey = key;
+
+    // Fan out to email/SMS contacts (forming or confirmed). Fire-and-forget.
+    // Map phase → forming|confirmed; "Breakout Confirmed" is the strongest confirmed phase.
+    const dispatchPhase: "forming" | "confirmed" | null =
+      state.phase === "Hammer Forming" ? "forming"
+      : state.phase === "Hammer Confirmed" || state.phase === "Breakout Confirmed" ? "confirmed"
+      : null;
+    if (dispatchPhase) {
+      const risk = state.trade_plan ? state.trade_plan.risk_per_share : Math.max(0, (state.hammer.close - state.hammer.low));
+      const entry = state.trade_plan?.entry ?? state.hammer.high;
+      const stop = state.trade_plan?.stop_loss ?? state.hammer.low;
+      dispatchHammerAlert({
+        ticker: SYMBOL,
+        phase: dispatchPhase,
+        mode: state.mode,
+        candleTimestamp: state.hammer.timestamp,
+        timeframe: "daily",
+        price: state.price,
+        entry,
+        stop,
+        rr2: risk > 0 ? entry + 2 * risk : undefined,
+        rr3: risk > 0 ? entry + 3 * risk : undefined,
+        rr4: risk > 0 ? entry + 4 * risk : undefined,
+        rr5: risk > 0 ? entry + 5 * risk : undefined,
+        setupNote: state.notes,
+      }).catch((e) => console.warn("[smhHammerMonitor] dispatch error:", e?.message || e));
+    }
+
     return true;
   } catch (err) {
     console.warn("[smhHammerMonitor] alert emit failed:", err);
