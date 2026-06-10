@@ -230,9 +230,14 @@ export default function CandleConfirmationPanel() {
 // invalidates the candle-confirmation and watchlist caches so the row disappears
 // from this panel and the watchlist editor immediately.
 function ArchiveButton({ ticker }: { ticker: string }) {
-  const { data: watchlist } = useQuery<Array<{ id: number; symbol: string }>>({
+  // Watchlist rows reference tickers by id, so we resolve symbol via /api/tickers.
+  const { data: watchlist } = useQuery<Array<{ id: number; tickerId: number }>>({
     queryKey: ["/api/watchlist"],
     queryFn: () => apiRequest("GET", "/api/watchlist").then((r) => r.json()),
+  });
+  const { data: tickers } = useQuery<Array<{ id: number; symbol: string }>>({
+    queryKey: ["/api/tickers"],
+    queryFn: () => apiRequest("GET", "/api/tickers").then((r) => r.json()),
   });
 
   const archive = useMutation({
@@ -247,7 +252,8 @@ function ArchiveButton({ ticker }: { ticker: string }) {
     },
   });
 
-  const row = watchlist?.find((w) => w.symbol.toUpperCase() === ticker.toUpperCase());
+  const tickerRow = tickers?.find((t) => t.symbol.toUpperCase() === ticker.toUpperCase());
+  const row = tickerRow ? watchlist?.find((w) => w.tickerId === tickerRow.id) : undefined;
   const disabled = !row || archive.isPending;
 
   return (

@@ -798,11 +798,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { evaluateCandleConfirmation } = await import("./candlestickConfirmation");
       const opts = parseConfirmOpts(req);
       // Use the user's ACTIVE watchlist (archived rows excluded) so this panel
-      // stays in sync with watchlist edits.
+      // stays in sync with watchlist edits. Watchlist references tickers by id,
+      // so we resolve via the tickers table.
       let symbols: string[];
       try {
-        const wl = await storage.listWatchlist();
-        symbols = wl.map((w: any) => String(w.symbol).toUpperCase());
+        const [wl, tickerRows] = await Promise.all([
+          storage.listWatchlist(),
+          storage.listTickers(),
+        ]);
+        const tickerMap = new Map<number, string>(
+          tickerRows.map((t: any) => [t.id, String(t.symbol).toUpperCase()])
+        );
+        symbols = wl
+          .map((w: any) => tickerMap.get(w.tickerId))
+          .filter((s): s is string => !!s);
       } catch {
         symbols = [...PUBLIC_SYMBOLS];
       }
