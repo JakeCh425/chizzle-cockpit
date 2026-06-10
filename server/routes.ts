@@ -755,8 +755,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const { detectPatternForming } = await import("./patternForming");
       const tf = String(req.query.timeframe || "daily").toLowerCase();
       const timeframe: "daily" | "4h" = tf === "4h" ? "4h" : "daily";
+      // Use the user's ACTIVE watchlist (archived rows excluded) so this panel
+      // stays in sync with watchlist edits. Watchlist references tickers by id.
+      let symbols: string[];
+      try {
+        const [wl, tickerRows] = await Promise.all([
+          storage.listWatchlist(),
+          storage.listTickers(),
+        ]);
+        const tickerMap = new Map<number, string>(
+          tickerRows.map((t: any) => [t.id, String(t.symbol).toUpperCase()])
+        );
+        symbols = wl
+          .map((w: any) => tickerMap.get(w.tickerId))
+          .filter((s): s is string => !!s);
+      } catch {
+        symbols = [...PUBLIC_SYMBOLS];
+      }
+      if (symbols.length === 0) symbols = [...PUBLIC_SYMBOLS];
       const results = await Promise.all(
-        PUBLIC_SYMBOLS.map((s) => detectPatternForming(s, { timeframe }).catch(() => null))
+        symbols.map((s) => detectPatternForming(s, { timeframe }).catch(() => null))
       );
       res.json(results.filter((r) => r !== null));
     } catch (e: any) {

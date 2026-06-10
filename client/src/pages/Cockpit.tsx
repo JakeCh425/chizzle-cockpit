@@ -291,7 +291,7 @@ export default function Cockpit() {
           </ErrorBoundary>
         </Panel>
         <Panel title="Watchlist Editor" hint={`${(watchlist || []).length} symbols · CRUD + reorder`} className="lg:col-span-3">
-          <WatchlistEditor />
+          <div id="watchlist-editor-anchor"><WatchlistEditor /></div>
         </Panel>
       </div>
 
@@ -1148,7 +1148,18 @@ function LivePatternWatch() {
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex justify-end">{tfToggle}</div>
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={() => document.getElementById("watchlist-editor-anchor")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+          className="text-[10px] uppercase tracking-wider text-slate-gray hover:text-neon-blue transition-colors"
+          title="Open Watchlist Editor below to add or restore tickers"
+          data-testid="link-add-ticker-pattern-watch"
+        >
+          + Add ticker
+        </button>
+        {tfToggle}
+      </div>
       {sorted.length === 0 ? (
         <div className="text-[12px] text-slate-gray text-center py-4">
           No in-progress {timeframe === "4h" ? "4H" : "daily"} setups detected. Refreshes every 45s during market hours.
@@ -1165,10 +1176,52 @@ function LivePatternWatch() {
                 <span className="uppercase tracking-wider text-[10px] opacity-70 mr-2">{row.pattern ?? "Setup"}</span>
                 <span>{row.label}</span>
               </span>
+              <PatternWatchArchiveButton ticker={row.symbol} />
             </div>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+// ─── Pattern Watch archive button ──────────────────────────────────────────────────────────────
+function PatternWatchArchiveButton({ ticker }: { ticker: string }) {
+  const { data: watchlist } = useQuery<Array<{ id: number; tickerId: number }>>({
+    queryKey: ["/api/watchlist"],
+    queryFn: () => apiRequest("GET", "/api/watchlist").then(r => r.json()),
+  });
+  const { data: tickers } = useQuery<Array<{ id: number; symbol: string }>>({
+    queryKey: ["/api/tickers"],
+    queryFn: () => apiRequest("GET", "/api/tickers").then(r => r.json()),
+  });
+
+  const archive = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await apiRequest("PATCH", `/api/watchlist/${id}`, { archived: true });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/pattern-forming"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/candle-confirmation"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist/archived"] });
+    },
+  });
+
+  const tickerRow = tickers?.find(t => t.symbol.toUpperCase() === ticker.toUpperCase());
+  const row = tickerRow ? watchlist?.find(w => w.tickerId === tickerRow.id) : undefined;
+  const disabled = !row || archive.isPending;
+
+  return (
+    <button
+      onClick={() => row && archive.mutate(row.id)}
+      disabled={disabled}
+      title={row ? `Archive ${ticker} from watchlist (restore via Watchlist Editor)` : "Not in watchlist"}
+      className="inline-flex items-center justify-center w-5 h-5 rounded text-slate-gray hover:text-signal-red hover:bg-signal-red/10 transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
+      data-testid={`button-archive-lpw-${ticker}`}
+    >
+      <XIcon className="w-3.5 h-3.5" />
+    </button>
   );
 }
