@@ -17,13 +17,6 @@ import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type SignalColor } from "@/lib/sma";
 
-// SMA hex tokens (mirrors MiniChartWidget).
-const SMA_LABEL_COLOR = {
-  sma20: "#22C55E",
-  sma50: "#F59E0B",
-  sma200: "#EF4444",
-} as const;
-
 interface SmaVisibility { sma20: boolean; sma50: boolean; sma200: boolean }
 // Recharts' Formatter accepts ValueType = string | number | (string|number)[].
 function fmtTooltip(v: number | string | Array<number | string>, name: unknown, item?: any): [string, string] | null {
@@ -274,14 +267,6 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     return [lo - pad, hi + pad];
   }, [rows, visible, liveFresh, liveQuote]);
 
-  const labelItems = useMemo(() => {
-    const out: { key: keyof SmaVisibility; label: string; value: number; color: string }[] = [];
-    if (sma20Last != null) out.push({ key: "sma20", label: "SMA20", value: sma20Last, color: SMA_LABEL_COLOR.sma20 });
-    if (sma50Last != null) out.push({ key: "sma50", label: "SMA50", value: sma50Last, color: SMA_LABEL_COLOR.sma50 });
-    if (sma200Last != null) out.push({ key: "sma200", label: "SMA200", value: sma200Last, color: SMA_LABEL_COLOR.sma200 });
-    return out.filter(d => visible[d.key]);
-  }, [sma20Last, sma50Last, sma200Last, visible]);
-
   const toggleSma = (key: keyof SmaVisibility) =>
     setVisible(v => ({ ...v, [key]: !v[key] }));
 
@@ -401,31 +386,45 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
               })}
             </div>
           </div>
-          <div className="ml-auto flex gap-4 text-slate-gray">
+          {/* SMA legend + last values — lives in the toolbar so values never
+              overlap the candles. Click to toggle each line on/off. */}
+          <div className="ml-auto flex gap-3 text-slate-gray font-mono-num tabular-nums">
             <button
               type="button"
               onClick={() => toggleSma("sma20")}
               aria-pressed={visible.sma20}
               aria-label={`Toggle SMA20 line ${visible.sma20 ? "off" : "on"}`}
-              className={`flex items-center gap-1 transition-opacity ${visible.sma20 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              className={`flex items-center gap-1.5 transition-opacity ${visible.sma20 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma20`}
-            ><i className="w-2 h-px bg-neon-blue inline-block" aria-hidden="true" />20</button>
+            >
+              <i className="w-2 h-px bg-neon-blue inline-block" aria-hidden="true" />
+              <span>20</span>
+              <span className="text-neon-blue">{sma20Last != null ? sma20Last.toFixed(2) : "—"}</span>
+            </button>
             <button
               type="button"
               onClick={() => toggleSma("sma50")}
               aria-pressed={visible.sma50}
               aria-label={`Toggle SMA50 line ${visible.sma50 ? "off" : "on"}`}
-              className={`flex items-center gap-1 transition-opacity ${visible.sma50 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              className={`flex items-center gap-1.5 transition-opacity ${visible.sma50 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma50`}
-            ><i className="w-2 h-px bg-signal-amber inline-block" aria-hidden="true" />50</button>
+            >
+              <i className="w-2 h-px bg-signal-amber inline-block" aria-hidden="true" />
+              <span>50</span>
+              <span className="text-signal-amber">{sma50Last != null ? sma50Last.toFixed(2) : "—"}</span>
+            </button>
             <button
               type="button"
               onClick={() => toggleSma("sma200")}
               aria-pressed={visible.sma200}
               aria-label={`Toggle SMA200 line ${visible.sma200 ? "off" : "on"}`}
-              className={`flex items-center gap-1 transition-opacity ${visible.sma200 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
+              className={`flex items-center gap-1.5 transition-opacity ${visible.sma200 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma200`}
-            ><i className="w-2 h-px bg-signal-red inline-block" aria-hidden="true" />200</button>
+            >
+              <i className="w-2 h-px bg-signal-red inline-block" aria-hidden="true" />
+              <span>200</span>
+              <span className="text-signal-red">{sma200Last != null ? sma200Last.toFixed(2) : "—"}</span>
+            </button>
           </div>
         </div>
 
@@ -536,8 +535,6 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     ))}
                   </ComposedChart>
                 </ResponsiveContainer>
-                {/* Floating right-edge SMA value pills */}
-                <FullChartSmaLabels items={labelItems} />
               </div>
 
               {/* Volume bars pane */}
@@ -638,38 +635,3 @@ function CandleBodyShape(props: any) {
   return <rect x={bodyX} y={y} width={bodyW} height={h} fill={color} stroke={color} strokeWidth={1} />;
 }
 
-// ─── Floating right-edge SMA labels (modal version) ─────────────────────────
-// Uses absolute top:N% based on price ranking. Since the modal chart has a
-// YAxis on the right at width=48, we offset right by ~52px so labels clear it.
-function FullChartSmaLabels({
-  items,
-}: {
-  items: { key: string; label: string; value: number; color: string }[];
-}) {
-  if (items.length === 0) return null;
-  // Sort by value desc so the largest sits at the top of the stack.
-  const sorted = [...items].sort((a, b) => b.value - a.value);
-  return (
-    <div className="pointer-events-none absolute inset-0" aria-hidden="true">
-      {sorted.map((d, idx) => (
-        <div
-          key={d.key}
-          className="absolute font-mono-num tabular-nums"
-          style={{
-            top: `${10 + idx * 18}px`,
-            right: "56px",
-            fontSize: "11px",
-            color: d.color,
-            background: "rgba(0,0,0,0.65)",
-            borderRadius: "4px",
-            padding: "1px 6px",
-            lineHeight: "14px",
-            whiteSpace: "nowrap",
-          }}
-        >
-          {d.label} · {d.value.toFixed(2)}
-        </div>
-      ))}
-    </div>
-  );
-}
