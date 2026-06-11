@@ -945,6 +945,70 @@ export async function fetchYahooBars(
   });
 }
 
+// ─── Tiingo daily OHLC ─ same endpoint as fetchTiingoDailyBars but returns full
+// OHLC. Tiingo's daily endpoint includes open/high/low alongside close so we
+// just parse the extra fields.
+export async function fetchTiingoDailyOHLC(
+  symbol: string
+): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
+  if (!TIINGO_TOKEN) return null;
+  if (Date.now() < tiingoDailyCooldownUntil) return null;
+  const endMs = Date.now();
+  const startMs = endMs - 560 * 24 * 60 * 60 * 1000;
+  const fmt = (ms: number) => new Date(ms).toISOString().slice(0, 10);
+  const url = `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(symbol)}/prices?startDate=${fmt(startMs)}&endDate=${fmt(endMs)}&format=json&token=${TIINGO_TOKEN}`;
+  try {
+    const r = await fetch(url, {
+      headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) tiingoDailyCooldownUntil = Date.now() + 10 * 60_000;
+      return null;
+    }
+    const j = (await r.json()) as Array<{ date?: string; open?: number; high?: number; low?: number; close?: number; volume?: number }>;
+    if (!Array.isArray(j) || j.length === 0) return null;
+    const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+    for (const row of j) {
+      const ts = row.date ? Math.floor(new Date(row.date).getTime() / 1000) : NaN;
+      const o = Number(row.open), h = Number(row.high), l = Number(row.low), c = Number(row.close), v = Number(row.volume);
+      if ([ts, o, h, l, c].every(Number.isFinite)) {
+        out.push({ time: ts, open: o, high: h, low: l, close: c, volume: Number.isFinite(v) ? v : 0 });
+      }
+    }
+    return out.length > 0 ? out.slice(-400) : null;
+  } catch {
+    return null;
+  }
+}
+
+// ─── Twelve Data 1day OHLC ─ daily OHLC via Twelve Data time_series. Free tier
+// supports 1day on the same endpoint as 1h/4h.
+export async function fetchTwelveDataDailyOHLC(
+  symbol: string
+): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) return null;
+  try {
+    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=400&apikey=${apiKey}&format=JSON`;
+    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    if (!r.ok) return null;
+    const j: any = await r.json();
+    if (j?.status === "error" || !Array.isArray(j?.values)) return null;
+    const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+    for (const v of [...j.values].reverse()) {
+      const t = Math.floor(new Date(v.datetime + "T00:00:00Z").getTime() / 1000);
+      const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
+      if ([t, o, h, l, c].every(Number.isFinite)) {
+        out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+      }
+    }
+    return out.length > 0 ? out : null;
+  } catch {
+    return null;
+  }
+}
+
 // ─── Yahoo OHLC bars (1d / 1h) — same chart endpoint as fetchYahooBars,
 // but returns the full open/high/low/close/volume tuple needed by candlestick
 // renderers. Kept as a separate function so the existing close-only callers

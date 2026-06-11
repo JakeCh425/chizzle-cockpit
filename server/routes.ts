@@ -21,6 +21,8 @@ import {
   fetchTwelveDataBars,
   fetchTwelveDataOHLCBars,
   fetchYahooBarsOHLC,
+  fetchTiingoDailyOHLC,
+  fetchTwelveDataDailyOHLC,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -1598,9 +1600,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
       let data: OHLC[] = [];
       if (interval === "1D") {
-        const yh = await fetchYahooBarsOHLC(symbol, "1d");
+        // Tiingo first (cheapest, supports full OHLC on the daily endpoint).
+        const tg = await fetchTiingoDailyOHLC(symbol);
         if (aborted) return;
-        if (yh && yh.length > 0) data = yh;
+        if (tg && tg.length > 0) data = tg;
+        // Yahoo OHLC next (free, no key).
+        if (data.length === 0) {
+          const yh = await fetchYahooBarsOHLC(symbol, "1d");
+          if (aborted) return;
+          if (yh && yh.length > 0) data = yh;
+        }
+        // Twelve Data 1day as last resort (counts against TD daily quota).
+        if (data.length === 0) {
+          const td = await fetchTwelveDataDailyOHLC(symbol);
+          if (aborted) return;
+          if (td && td.length > 0) data = td;
+        }
       } else if (interval === "1H" || interval === "4H") {
         const td = await fetchTwelveDataOHLCBars(symbol, interval === "1H" ? "1h" : "4h");
         if (aborted) return;
