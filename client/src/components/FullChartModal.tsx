@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Line, Bar, ResponsiveContainer, YAxis, XAxis, Tooltip,
-  CartesianGrid, ReferenceDot, ReferenceLine,
+  CartesianGrid, ReferenceDot, ReferenceLine, Customized,
 } from "recharts";
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -110,6 +110,38 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     refetchInterval: open ? 60_000 : false,
   });
 
+  // Bull Bar Monitor poll — same source as the dashboard panel. Used to surface
+  // a top-of-modal alert banner when a Confirmed Bull Bar or Ready to Trade
+  // setup fires for this symbol on the 1H chart. Conservative mode + 1:2 R:R
+  // mirrors the panel's default — Jake can still flip modes in the panel itself.
+  const { data: bullBar } = useQuery<any>({
+    queryKey: ["/api/bull-bar-monitor", symbol, "conservative", 2],
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/bull-bar-monitor?symbol=${symbol}&mode=conservative&rr=2`, undefined, signal);
+      if (!res.ok) throw new Error(`bull-bar ${res.status}`);
+      return res.json();
+    },
+    enabled: open && !!symbol,
+    staleTime: 30_000,
+    refetchInterval: open ? 60_000 : false,
+    retry: false,
+  });
+
+  // SMH-only hammer monitor poll. Hammer route is SMH-fixed today, so only
+  // attempt the query when the modal is showing SMH.
+  const { data: hammer } = useQuery<any>({
+    queryKey: ["/api/smh-hammer-monitor", "conservative", 2],
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/smh-hammer-monitor?mode=conservative&rr=2`, undefined, signal);
+      if (!res.ok) throw new Error(`hammer ${res.status}`);
+      return res.json();
+    },
+    enabled: open && symbol === "SMH",
+    staleTime: 30_000,
+    refetchInterval: open && symbol === "SMH" ? 60_000 : false,
+    retry: false,
+  });
+
   // Live quote: separate, fast-polling query that powers the header price and
   // the dashed "live" line + dot overlay on the chart. 5s cadence is well
   // within the server's 90s upstream cadence — we'll just re-read the cached
@@ -195,6 +227,53 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     ? (Number.isFinite(liveQuote!.changePct) ? liveQuote!.changePct : null)
     : barLastChange;
 
+  // ── Pattern alert banner state ─────────────────────────────────────
+  // Highest-priority status across hammer + bull bar monitors. Ready to Trade
+  // > Confirmed > Forming. Scanning/Invalidated do not surface a banner.
+  const patternAlert = useMemo(() => {
+    type Tone = "ready" | "confirmed" | "forming";
+    const RANK: Record<string, Tone> = {
+      "Ready to Trade": "ready",
+      "Confirmed Bull Bar": "confirmed",
+      "Confirmed Hammer": "confirmed",
+      "Bull Bar Forming": "forming",
+      "Hammer Forming": "forming",
+    };
+    const RANK_ORDER: Record<Tone, number> = { ready: 3, confirmed: 2, forming: 1 };
+    type Banner = { tone: Tone; pattern: "Bull Bar" | "Hammer"; phase: string; plan?: any; mode?: string; rr?: number };
+    const candidates: Banner[] = [];
+    if (bullBar?.phase && RANK[bullBar.phase]) {
+      candidates.push({ tone: RANK[bullBar.phase], pattern: "Bull Bar", phase: bullBar.phase, plan: bullBar.trade_plan, mode: bullBar.mode, rr: bullBar.rr });
+    }
+    if (hammer?.phase && RANK[hammer.phase]) {
+      candidates.push({ tone: RANK[hammer.phase], pattern: "Hammer", phase: hammer.phase, plan: hammer.trade_plan, mode: hammer.mode, rr: hammer.rr });
+    }
+    if (candidates.length === 0) return null;
+    return candidates.sort((a, b) => RANK_ORDER[b.tone] - RANK_ORDER[a.tone])[0];
+  }, [bullBar, hammer]);
+
+  // Explicit price-axis domain so candle highs/lows + live-price overlay are
+  // always in view, with a small padding so candles don't hug the edges.
+  const priceDomain = useMemo<[number, number]>(() => {
+    if (rows.length === 0) return [0, 1];
+    let lo = Infinity, hi = -Infinity;
+    for (const r of rows) {
+      if (Number.isFinite(r.low)) lo = Math.min(lo, r.low);
+      if (Number.isFinite(r.high)) hi = Math.max(hi, r.high);
+      // SMAs visible — include them in the range.
+      if (visible.sma20 && r.sma20 != null) { lo = Math.min(lo, r.sma20); hi = Math.max(hi, r.sma20); }
+      if (visible.sma50 && r.sma50 != null) { lo = Math.min(lo, r.sma50); hi = Math.max(hi, r.sma50); }
+      if (visible.sma200 && r.sma200 != null) { lo = Math.min(lo, r.sma200); hi = Math.max(hi, r.sma200); }
+    }
+    if (liveFresh) {
+      lo = Math.min(lo, liveQuote!.price);
+      hi = Math.max(hi, liveQuote!.price);
+    }
+    if (!Number.isFinite(lo) || !Number.isFinite(hi)) return [0, 1];
+    const pad = Math.max(0.5, (hi - lo) * 0.04);
+    return [lo - pad, hi + pad];
+  }, [rows, visible, liveFresh, liveQuote]);
+
   const labelItems = useMemo(() => {
     const out: { key: keyof SmaVisibility; label: string; value: number; color: string }[] = [];
     if (sma20Last != null) out.push({ key: "sma20", label: "SMA20", value: sma20Last, color: SMA_LABEL_COLOR.sma20 });
@@ -251,6 +330,38 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
             <X className="w-4 h-4" aria-hidden="true" />
           </button>
         </div>
+
+        {/* Pattern alert banner — surfaces when bull bar / hammer confirms. */}
+        {patternAlert && (() => {
+          const tone = patternAlert.tone;
+          const toneClass =
+            tone === "ready"     ? "bg-signal-green/15 border-signal-green/50 text-signal-green" :
+            tone === "confirmed" ? "bg-signal-green/10 border-signal-green/40 text-signal-green" :
+                                   "bg-signal-amber/10 border-signal-amber/40 text-signal-amber";
+          const icon =
+            tone === "ready"     ? "▲" :
+            tone === "confirmed" ? "●" :
+                                   "·";
+          const plan = patternAlert.plan;
+          return (
+            <div
+              className={`px-4 py-2 border-b text-[11px] font-mono-num uppercase tracking-wider flex items-center gap-3 ${toneClass}`}
+              data-testid={`banner-pattern-${patternAlert.pattern.toLowerCase().replace(" ", "-")}-${tone}`}
+            >
+              <span className="text-[12px]" aria-hidden="true">{icon}</span>
+              <span className="font-semibold">{patternAlert.pattern} · {patternAlert.phase}</span>
+              {plan?.entry != null && (
+                <span className="text-soft-white/90 normal-case tracking-normal">
+                  Entry <b className="tabular-nums">{Number(plan.entry).toFixed(2)}</b>
+                  {" · "}Stop <b className="tabular-nums">{Number(plan.stop_loss).toFixed(2)}</b>
+                  {plan.target != null && <>{" · "}Target <b className="tabular-nums">{Number(plan.target).toFixed(2)}</b></>}
+                  {patternAlert.rr != null && <>{" (1:"}{patternAlert.rr}{")"}</>}
+                </span>
+              )}
+              <span className="ml-auto text-slate-gray">{patternAlert.mode || ""}{patternAlert.mode ? " · 1H" : "1H"}</span>
+            </div>
+          );
+        })()}
 
         {/* Toolbar: interval + window pickers */}
         <div className="flex flex-wrap items-center gap-3 px-4 py-2 border-b border-ink-line/60 text-[10px] uppercase tracking-wider">
@@ -352,11 +463,12 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     />
                     <YAxis
                       yAxisId="price"
-                      domain={["auto", "auto"]}
+                      domain={priceDomain}
                       tick={{ fill: "hsl(var(--slate-gray))", fontSize: 10, fontFamily: "var(--font-mono)" }}
                       stroke="hsl(var(--ink-line))"
                       width={48}
                       orientation="right"
+                      allowDataOverflow={false}
                     />
                     <Tooltip
                       contentStyle={{
@@ -377,10 +489,11 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     {visible.sma20 && (
                       <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
                     )}
-                    {/* Candle wicks (low→high) */}
-                    <Bar yAxisId="price" dataKey="wick" name="Wick" shape={<WickShape />} isAnimationActive={false} legendType="none" />
-                    {/* Candle bodies (open↔close) */}
-                    <Bar yAxisId="price" dataKey="body" name="Candle" shape={<BodyShape />} isAnimationActive={false} legendType="none" />
+                    {/* Invisible price line — forces Recharts to include the price
+                        range in the scale and gives the tooltip a hit target. */}
+                    <Line yAxisId="price" type="linear" dataKey="price" name="Price" stroke="transparent" strokeWidth={0} dot={false} isAnimationActive={false} />
+                    {/* Candlestick overlay drawn via Customized using the real chart scales. */}
+                    <Customized component={(props: any) => <Candlesticks {...props} yAxisIdRef="price" />} />
                     {/* Live price overlay — horizontal dashed line at the live tick. */}
                     {liveFresh && (
                       <ReferenceLine
@@ -489,41 +602,58 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
   );
 }
 
-// ─── Candle shapes for the Recharts <Bar> custom renderer ────────────────
-// Recharts hands the shape function a `props` object containing the scaled
-// `x`, `y`, `width`, `height`, and the original row `payload`. We use it to
-// draw classic OHLC candlestick wicks and bodies in the bar's column.
-type CandleRow = { open: number; high: number; low: number; close: number; bullish: boolean };
-function WickShape(props: any) {
-  const { x = 0, width = 0, payload, yAxis } = props || {};
-  const row: CandleRow | undefined = payload;
-  // yAxis.scale converts price → pixel. Required since Recharts hands us a
-  // y/height computed from the bar's [low, high] range — but we need precise
-  // pixel placement for both the wick midline and the body.
-  const scale = yAxis?.scale;
-  if (!row || typeof scale !== "function") return null;
-  const cx = x + width / 2;
-  const yHigh = scale(row.high);
-  const yLow = scale(row.low);
-  const stroke = row.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
-  return <line x1={cx} x2={cx} y1={yHigh} y2={yLow} stroke={stroke} strokeWidth={1} />;
-}
+// ─── Candlestick overlay rendered via <Customized> ────────────────────
+// Recharts hands Customized components the full chart layout via xAxisMap,
+// yAxisMap, formattedGraphicalItems. We use the axis scales to draw classic
+// OHLC candles (low→high wick + open↔close body) at each bar's x position.
+type CandleRow = { i: number; open: number; high: number; low: number; close: number; bullish: boolean };
+function Candlesticks(props: any) {
+  const { xAxisMap, yAxisMap, formattedGraphicalItems, yAxisIdRef = "price" } = props || {};
+  if (!xAxisMap || !yAxisMap) return null;
+  // Pull the price y-axis by id.
+  const yAxis = Object.values(yAxisMap).find((a: any) => a?.yAxisId === yAxisIdRef) as any;
+  // Single x-axis in this chart; grab the first.
+  const xAxis = Object.values(xAxisMap)[0] as any;
+  if (!yAxis?.scale || !xAxis?.scale) return null;
+  const yScale = yAxis.scale as (n: number) => number;
+  const xScale = xAxis.scale as (n: any) => number;
+  // Recover the row data from the first formatted graphical item (any series
+  // shares the same data array).
+  const item = formattedGraphicalItems?.[0];
+  const rows: CandleRow[] | undefined = item?.props?.data;
+  if (!rows || rows.length === 0) return null;
 
-function BodyShape(props: any) {
-  const { x = 0, width = 0, payload, yAxis } = props || {};
-  const row: CandleRow | undefined = payload;
-  const scale = yAxis?.scale;
-  if (!row || typeof scale !== "function") return null;
-  const yOpen = scale(row.open);
-  const yClose = scale(row.close);
-  const top = Math.min(yOpen, yClose);
-  const h = Math.max(1, Math.abs(yClose - yOpen)); // doji → 1px hairline
-  // Body width: leave ≈20% gap on each side so adjacent candles read as
-  // discrete bars instead of a solid wall.
-  const bw = Math.max(2, width * 0.6);
-  const bx = x + (width - bw) / 2;
-  const fill = row.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
-  return <rect x={bx} y={top} width={bw} height={h} fill={fill} stroke={fill} strokeWidth={1} />;
+  // Bar width = step between adjacent x positions, minus a small gap.
+  let step = 8;
+  if (rows.length >= 2) {
+    const x0 = xScale(rows[0].i ?? (rows[0] as any).dateLabel);
+    const x1 = xScale(rows[1].i ?? (rows[1] as any).dateLabel);
+    if (Number.isFinite(x0) && Number.isFinite(x1)) step = Math.abs(x1 - x0);
+  }
+  const bodyW = Math.max(2, step * 0.6);
+
+  return (
+    <g pointerEvents="none">
+      {rows.map((r, idx) => {
+        if (!Number.isFinite(r.open) || !Number.isFinite(r.high) || !Number.isFinite(r.low) || !Number.isFinite(r.close)) return null;
+        const cx = xScale(r.i ?? (r as any).dateLabel);
+        if (!Number.isFinite(cx)) return null;
+        const yHigh = yScale(r.high);
+        const yLow = yScale(r.low);
+        const yOpen = yScale(r.open);
+        const yClose = yScale(r.close);
+        const top = Math.min(yOpen, yClose);
+        const h = Math.max(1, Math.abs(yClose - yOpen));
+        const color = r.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
+        return (
+          <g key={idx}>
+            <line x1={cx} x2={cx} y1={yHigh} y2={yLow} stroke={color} strokeWidth={1} />
+            <rect x={cx - bodyW / 2} y={top} width={bodyW} height={h} fill={color} stroke={color} strokeWidth={1} />
+          </g>
+        );
+      })}
+    </g>
+  );
 }
 
 // ─── Floating right-edge SMA labels (modal version) ─────────────────────────
