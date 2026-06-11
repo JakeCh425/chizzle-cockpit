@@ -28,7 +28,7 @@ export interface HammerAlertPayload {
   phase: AlertPhase;
   mode: AlertMode;
   candleTimestamp: string; // ISO; used in signalKey for dedupe
-  timeframe: string; // "daily" | "4h" | etc
+  timeframe: string; // "daily" | "1H" | "4h" | etc
   price: number;
   entry?: number;
   stop?: number;
@@ -37,10 +37,14 @@ export interface HammerAlertPayload {
   rr4?: number;
   rr5?: number;
   setupNote?: string;
+  // Optional pattern label — defaults to "Hammer" when omitted. Use "Bull Bar"
+  // for strong-bull-bar-after-cluster-of-lows alerts.
+  patternName?: string;
 }
 
 function buildSignalKey(p: HammerAlertPayload): string {
-  return `${p.ticker.toUpperCase()}::${p.mode}::${p.phase}::${p.candleTimestamp}`;
+  const pat = (p.patternName || "Hammer").replace(/\s+/g, "_").toLowerCase();
+  return `${p.ticker.toUpperCase()}::${pat}::${p.mode}::${p.phase}::${p.candleTimestamp}`;
 }
 
 function fmtPrice(n: number | undefined): string {
@@ -51,17 +55,19 @@ function fmtPrice(n: number | undefined): string {
 function buildSubject(p: HammerAlertPayload): string {
   const modeLabel = p.mode === "aggressive" ? "Aggressive" : "Standard";
   const phaseLabel = p.phase === "confirmed" ? "Confirmed" : "Forming";
-  return `[Chizzle] ${p.ticker} ${modeLabel} Hammer ${phaseLabel} (${p.timeframe})`;
+  const pattern = p.patternName || "Hammer";
+  return `[Chizzle] ${p.ticker} ${modeLabel} ${pattern} ${phaseLabel} (${p.timeframe})`;
 }
 
 function buildEmailHtml(p: HammerAlertPayload): string {
   const phaseLabel = p.phase === "confirmed" ? "Confirmed" : "Forming";
   const modeLabel = p.mode === "aggressive" ? "Aggressive" : "Standard";
+  const pattern = p.patternName || "Hammer";
   return `<!doctype html>
 <html><body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background:#0b0d12; color:#e6e9ef; margin:0; padding:24px;">
   <div style="max-width:520px; margin:0 auto; background:#13161d; border:1px solid #1f242e; border-radius:12px; padding:24px;">
     <div style="font-size:11px; letter-spacing:0.15em; text-transform:uppercase; color:#8a93a3; margin-bottom:8px;">Chizzle Wealth Engine</div>
-    <h1 style="margin:0 0 4px; font-size:22px; color:#e6e9ef;">${p.ticker} · ${modeLabel} Hammer</h1>
+    <h1 style="margin:0 0 4px; font-size:22px; color:#e6e9ef;">${p.ticker} · ${modeLabel} ${pattern}</h1>
     <div style="font-size:14px; color:#00d9a3; margin-bottom:20px;">${phaseLabel} on ${p.timeframe.toUpperCase()}</div>
     <table style="width:100%; border-collapse:collapse; font-size:13px; color:#c9cfdb;">
       <tr><td style="padding:6px 0; color:#8a93a3;">Price</td><td style="text-align:right;">${fmtPrice(p.price)}</td></tr>
@@ -82,8 +88,9 @@ function buildEmailHtml(p: HammerAlertPayload): string {
 function buildSmsText(p: HammerAlertPayload): string {
   const phaseLabel = p.phase === "confirmed" ? "CONFIRMED" : "Forming";
   const modeLabel = p.mode === "aggressive" ? "Aggro" : "Std";
+  const pattern = p.patternName || "Hammer";
   const parts = [
-    `[Chizzle] ${p.ticker} ${modeLabel} Hammer ${phaseLabel} (${p.timeframe.toUpperCase()})`,
+    `[Chizzle] ${p.ticker} ${modeLabel} ${pattern} ${phaseLabel} (${p.timeframe.toUpperCase()})`,
     `Px ${fmtPrice(p.price)}`,
   ];
   if (p.entry !== undefined) parts.push(`E ${fmtPrice(p.entry)}`);
@@ -122,8 +129,9 @@ async function sendEmailResend(to: string, subject: string, html: string): Promi
 function buildTelegramText(p: HammerAlertPayload): string {
   const phaseLabel = p.phase === "confirmed" ? "✅ CONFIRMED" : "🔶 Forming";
   const modeLabel = p.mode === "aggressive" ? "Aggressive" : "Standard";
+  const pattern = p.patternName || "Hammer";
   const lines = [
-    `*${p.ticker}* · ${modeLabel} Hammer`,
+    `*${p.ticker}* · ${modeLabel} ${pattern}`,
     `${phaseLabel} on ${p.timeframe.toUpperCase()}`,
     "",
     `Px ${fmtPrice(p.price)}`,

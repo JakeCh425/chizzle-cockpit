@@ -843,6 +843,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Bull Bar Monitor (1H pattern) ──────────────────────────────
+  app.get("/api/bull-bar-monitor", async (req, res) => {
+    try {
+      const { evaluateBullBarMonitor, maybeEmitBullBarAlert } = await import("./bullBarMonitor");
+      const symbol = String(req.query.symbol || "SMH").toUpperCase();
+      const modeRaw = String(req.query.mode || "").toLowerCase();
+      const rrRaw = Number(req.query.rr);
+      const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
+      const rr = [2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2;
+      const state = await evaluateBullBarMonitor({ symbol, mode, rr });
+      const emitted = await maybeEmitBullBarAlert(state);
+      res.json({ ...state, alert_emitted: emitted });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── SMH Hammer Monitor ─────────────────────────────────────────
   app.get("/api/smh-hammer-monitor", async (req, res) => {
     try {
@@ -1793,6 +1810,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   setTimeout(smhScan, 20000);
   setInterval(smhScan, 90 * 1000);
+
+  // Bull Bar Monitor background scan every 5 minutes. 1H bars only update once
+  // per hour and Twelve Data free has rate limits, so 5 min keeps headroom while
+  // still catching forming bars in plenty of time.
+  const bullBarSymbols = ["SMH", "QQQ", "SPY", "AAPL"];
+  const bullBarScan = async () => {
+    try {
+      const { evaluateBullBarMonitor, maybeEmitBullBarAlert } = await import("./bullBarMonitor");
+      for (const symbol of bullBarSymbols) {
+        for (const mode of ["conservative", "aggressive"] as const) {
+          const state = await evaluateBullBarMonitor({ symbol, mode, rr: 2 });
+          await maybeEmitBullBarAlert(state);
+        }
+      }
+    } catch (e: any) {
+      console.warn("[bull-bar-monitor] scan failed:", e?.message || e);
+    }
+  };
+  setTimeout(bullBarScan, 30000);
+  setInterval(bullBarScan, 5 * 60 * 1000);
 
   return httpServer;
 }

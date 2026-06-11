@@ -31,6 +31,7 @@ import PortfolioHeatmap from "@/components/PortfolioHeatmap";
 import ScoringDashboard from "@/components/ScoringDashboard";
 import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
 import SmhHammerMonitor from "@/components/SmhHammerMonitor";
+import BullBarMonitor from "@/components/BullBarMonitor";
 import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
@@ -314,6 +315,11 @@ export default function Cockpit() {
       {/* Row 1.96: SMH Hammer Monitor (single-symbol focus with R:R levels) */}
       <Panel title="SMH Hammer Monitor" hint="Hammer at support → high-volume breakout → 1:2 R:R plan">
         <ErrorBoundary label="SMH Hammer Monitor"><SmhHammerMonitor /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.965: Bull Bar Monitor (1H pattern — strong bull bar after cluster of lows) */}
+      <Panel title="Bull Bar Monitor (1H)" hint="Strong bull bar after cluster of lows near daily SMA20 → Ready to Trade">
+        <ErrorBoundary label="Bull Bar Monitor"><BullBarMonitor /></ErrorBoundary>
       </Panel>
 
       {/* Row 1.97: Email + SMS alert contacts */}
