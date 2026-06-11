@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Line, Bar, ResponsiveContainer, YAxis, XAxis, Tooltip,
-  CartesianGrid, ReferenceDot,
+  CartesianGrid, ReferenceDot, ReferenceLine,
 } from "recharts";
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -26,9 +26,22 @@ const SMA_LABEL_COLOR = {
 
 interface SmaVisibility { sma20: boolean; sma50: boolean; sma200: boolean }
 // Recharts' Formatter accepts ValueType = string | number | (string|number)[].
-function fmtTooltip(v: number | string | Array<number | string>, name: unknown): [string, string] {
+function fmtTooltip(v: number | string | Array<number | string>, name: unknown, item?: any): [string, string] | null {
+  const label = String(name ?? "");
+  // Suppress the synthetic candle range entries — we render OHLC separately
+  // via the bar payload below so the tooltip stays compact.
+  if (label === "Wick") return null;
+  if (label === "Candle" && item?.payload) {
+    const p = item.payload as { open?: number; high?: number; low?: number; close?: number };
+    if ([p.open, p.high, p.low, p.close].every((n) => Number.isFinite(n))) {
+      return [
+        `O ${p.open!.toFixed(2)}  H ${p.high!.toFixed(2)}  L ${p.low!.toFixed(2)}  C ${p.close!.toFixed(2)}`,
+        "OHLC",
+      ];
+    }
+  }
   const n = Array.isArray(v) ? Number(v[0]) : Number(v);
-  return [Number.isFinite(n) ? n.toFixed(2) : String(v), String(name ?? "")];
+  return [Number.isFinite(n) ? n.toFixed(2) : String(v), label];
 }
 function fmtVolume(v: number | string | Array<number | string>): [string, string] {
   const n = Array.isArray(v) ? Number(v[0]) : Number(v);
@@ -36,6 +49,8 @@ function fmtVolume(v: number | string | Array<number | string>): [string, string
 }
 
 type Candle = { time: number; close: number; volume?: number };
+type OHLC = { time: number; open: number; high: number; low: number; close: number; volume: number };
+type LiveQuote = { symbol: string; price: number; prevClose: number; change: number; changePct: number; ts: number };
 export type Interval = "1D" | "4H" | "1H" | "30M" | "5M";
 
 interface Props {
@@ -81,10 +96,13 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  const { data: candles = [], isLoading, error } = useQuery<Candle[]>({
-    queryKey: ["/api/candles", symbol, interval, "full"],
+  // OHLC bars (for candle bodies + wicks). Polled every 60s like the close-only
+  // series — candle bars only repaint on close, the live overlay (below) handles
+  // intra-bar price movement.
+  const { data: candles = [], isLoading, error } = useQuery<OHLC[]>({
+    queryKey: ["/api/candles-ohlc", symbol, interval, "full"],
     queryFn: async ({ signal }) => {
-      const res = await apiRequest("GET", `/api/candles/${symbol}?interval=${interval}`, undefined, signal);
+      const res = await apiRequest("GET", `/api/candles-ohlc/${symbol}?interval=${interval}`, undefined, signal);
       return res.json();
     },
     enabled: open && !!symbol,
@@ -92,13 +110,39 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     refetchInterval: open ? 60_000 : false,
   });
 
-  const { rows, aScore, lastPrice, lastChange, signalMarkers, sma20Last, sma50Last, sma200Last } = useMemo(() => {
+  // Live quote: separate, fast-polling query that powers the header price and
+  // the dashed "live" line + dot overlay on the chart. 5s cadence is well
+  // within the server's 90s upstream cadence — we'll just re-read the cached
+  // snapshot most of the time, which is cheap.
+  const { data: liveQuote } = useQuery<LiveQuote>({
+    queryKey: ["/api/prices", symbol],
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/prices/${symbol}`, undefined, signal);
+      if (!res.ok) throw new Error(`live quote ${res.status}`);
+      return res.json();
+    },
+    enabled: open && !!symbol,
+    staleTime: 4_000,
+    refetchInterval: open ? 5_000 : false,
+    retry: false,
+  });
+
+  const { rows, aScore, barLastPrice, barLastChange, signalMarkers, sma20Last, sma50Last, sma200Last } = useMemo(() => {
     const closes = candles.map(c => c.close);
     const { sma20, sma50, sma200 } = computeSMAs(closes);
     const fullRows = candles.map((c, i) => ({
       i,
       time: c.time,
       price: c.close,
+      open: c.open,
+      high: c.high,
+      low: c.low,
+      close: c.close,
+      // Recharts custom <Bar shape> receives the row through `payload`. Encode
+      // wick + body endpoints as the bar's value so axis scaling sees them.
+      wick: [c.low, c.high] as [number, number],
+      body: [Math.min(c.open, c.close), Math.max(c.open, c.close)] as [number, number],
+      bullish: c.close >= c.open,
       sma20: sma20[i],
       sma50: sma50[i],
       sma200: sma200[i],
@@ -129,18 +173,27 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
     }
 
     const aScore = getAScore(closes, sma20);
-    const lastPrice = closes[closes.length - 1];
+    const barLastPrice = closes[closes.length - 1];
     const prev = closes[closes.length - 2];
-    const lastChange = lastPrice != null && prev != null ? ((lastPrice - prev) / prev) * 100 : null;
+    const barLastChange = barLastPrice != null && prev != null ? ((barLastPrice - prev) / prev) * 100 : null;
     const last = (arr: (number | null)[]) => {
       for (let k = arr.length - 1; k >= 0; k--) if (arr[k] != null) return arr[k] as number;
       return null;
     };
     return {
-      rows, aScore, lastPrice, lastChange, signalMarkers: markers,
+      rows, aScore, barLastPrice, barLastChange, signalMarkers: markers,
       sma20Last: last(sma20), sma50Last: last(sma50), sma200Last: last(sma200),
     };
   }, [candles, windowBars, interval]);
+
+  // Live overlay: prefer the live tick when it's reasonably fresh (≤ 5 min old).
+  // Otherwise fall back to the last bar close, preserving the previous behavior.
+  const liveFresh = liveQuote && Number.isFinite(liveQuote.price)
+    && (Date.now() / 1000 - liveQuote.ts) < 300;
+  const lastPrice = liveFresh ? liveQuote!.price : barLastPrice;
+  const lastChange = liveFresh
+    ? (Number.isFinite(liveQuote!.changePct) ? liveQuote!.changePct : null)
+    : barLastChange;
 
   const labelItems = useMemo(() => {
     const out: { key: keyof SmaVisibility; label: string; value: number; color: string }[] = [];
@@ -324,7 +377,29 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     {visible.sma20 && (
                       <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
                     )}
-                    <Line yAxisId="price" type="monotone" dataKey="price"  name="Price"  stroke="hsl(var(--soft-white))"  strokeWidth={1.75} dot={false} isAnimationActive={false} />
+                    {/* Candle wicks (low→high) */}
+                    <Bar yAxisId="price" dataKey="wick" name="Wick" shape={<WickShape />} isAnimationActive={false} legendType="none" />
+                    {/* Candle bodies (open↔close) */}
+                    <Bar yAxisId="price" dataKey="body" name="Candle" shape={<BodyShape />} isAnimationActive={false} legendType="none" />
+                    {/* Live price overlay — horizontal dashed line at the live tick. */}
+                    {liveFresh && (
+                      <ReferenceLine
+                        yAxisId="price"
+                        y={liveQuote!.price}
+                        stroke={liveQuote!.price >= barLastPrice ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))"}
+                        strokeDasharray="3 3"
+                        strokeWidth={1}
+                        label={{
+                          value: `LIVE ${liveQuote!.price.toFixed(2)}`,
+                          position: "insideTopRight",
+                          fill: liveQuote!.price >= barLastPrice ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))",
+                          fontSize: 10,
+                          fontFamily: "var(--font-mono)",
+                          offset: 6,
+                        }}
+                        ifOverflow="extendDomain"
+                      />
+                    )}
                     {signalMarkers.map((m, idx) => (
                       <ReferenceDot
                         key={idx}
@@ -412,6 +487,43 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
       </div>
     </div>
   );
+}
+
+// ─── Candle shapes for the Recharts <Bar> custom renderer ────────────────
+// Recharts hands the shape function a `props` object containing the scaled
+// `x`, `y`, `width`, `height`, and the original row `payload`. We use it to
+// draw classic OHLC candlestick wicks and bodies in the bar's column.
+type CandleRow = { open: number; high: number; low: number; close: number; bullish: boolean };
+function WickShape(props: any) {
+  const { x = 0, width = 0, payload, yAxis } = props || {};
+  const row: CandleRow | undefined = payload;
+  // yAxis.scale converts price → pixel. Required since Recharts hands us a
+  // y/height computed from the bar's [low, high] range — but we need precise
+  // pixel placement for both the wick midline and the body.
+  const scale = yAxis?.scale;
+  if (!row || typeof scale !== "function") return null;
+  const cx = x + width / 2;
+  const yHigh = scale(row.high);
+  const yLow = scale(row.low);
+  const stroke = row.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
+  return <line x1={cx} x2={cx} y1={yHigh} y2={yLow} stroke={stroke} strokeWidth={1} />;
+}
+
+function BodyShape(props: any) {
+  const { x = 0, width = 0, payload, yAxis } = props || {};
+  const row: CandleRow | undefined = payload;
+  const scale = yAxis?.scale;
+  if (!row || typeof scale !== "function") return null;
+  const yOpen = scale(row.open);
+  const yClose = scale(row.close);
+  const top = Math.min(yOpen, yClose);
+  const h = Math.max(1, Math.abs(yClose - yOpen)); // doji → 1px hairline
+  // Body width: leave ≈20% gap on each side so adjacent candles read as
+  // discrete bars instead of a solid wall.
+  const bw = Math.max(2, width * 0.6);
+  const bx = x + (width - bw) / 2;
+  const fill = row.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
+  return <rect x={bx} y={top} width={bw} height={h} fill={fill} stroke={fill} strokeWidth={1} />;
 }
 
 // ─── Floating right-edge SMA labels (modal version) ─────────────────────────

@@ -19,6 +19,8 @@ import {
   fetchNasdaqQuote,
   fetchNasdaqDailyBars,
   fetchTwelveDataBars,
+  fetchTwelveDataOHLCBars,
+  fetchYahooBarsOHLC,
 } from "./priceService";
 import {
   startRegimeScheduler,
@@ -1549,6 +1551,86 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ error: e?.message || String(e) });
     }
   });
+
+  // ── OHLC candles for candlestick chart rendering ────────────────────────
+  // Separate endpoint so the close-only /api/candles contract stays unchanged.
+  // For 1D: Yahoo OHLC (free, no key, supports OHLC) → Twelve Data OHLC fallback.
+  // For 1H/4H: Twelve Data OHLC → Yahoo OHLC fallback.
+  // For 30M/5M: synthesize from recorded ticks (1 trade = 1 OHLC point at that price).
+  type OHLC = { time: number; open: number; high: number; low: number; close: number; volume: number };
+  const ohlcCache = new Map<string, { t: number; data: OHLC[] }>();
+  const OHLC_TTL: Record<string, number> = { "1D": 5 * 60_000, "1H": 2 * 60_000, "4H": 5 * 60_000, "30M": 60_000, "5M": 30_000 };
+
+  const bucketTicksOHLC = (ticks: Array<{ ts: number; price: number }>, secondsPerBucket: number): OHLC[] => {
+    if (!ticks.length) return [];
+    const sorted = [...ticks].sort((a, b) => a.ts - b.ts);
+    const buckets = new Map<number, { o: number; h: number; l: number; c: number; v: number }>();
+    for (const tk of sorted) {
+      const b = Math.floor(tk.ts / secondsPerBucket) * secondsPerBucket;
+      const cur = buckets.get(b);
+      if (!cur) buckets.set(b, { o: tk.price, h: tk.price, l: tk.price, c: tk.price, v: 1 });
+      else {
+        if (tk.price > cur.h) cur.h = tk.price;
+        if (tk.price < cur.l) cur.l = tk.price;
+        cur.c = tk.price;
+        cur.v += 1;
+      }
+    }
+    return [...buckets.entries()].sort((a, b) => a[0] - b[0]).map(([time, v]) => ({
+      time, open: v.o, high: v.h, low: v.l, close: v.c, volume: v.v,
+    }));
+  };
+
+  app.get("/api/candles-ohlc/:symbol", async (req, res) => {
+    let aborted = false;
+    req.on("close", () => { if (!res.writableEnded) aborted = true; });
+    try {
+      const symbol = String(req.params.symbol || "").toUpperCase().trim();
+      if (!/^[A-Z0-9.\-]{1,12}$/.test(symbol)) return res.status(400).json({ error: "invalid symbol" });
+      const raw = String(req.query.interval || "1D").toUpperCase();
+      const interval = (raw === "4H" || raw === "1H" || raw === "30M" || raw === "5M") ? raw : "1D";
+      const key = `${symbol}:${interval}`;
+      const now = Date.now();
+      const hit = ohlcCache.get(key);
+      if (hit && hit.data.length > 0 && (now - hit.t) < (OHLC_TTL[interval] || 60_000)) {
+        return res.json(hit.data);
+      }
+
+      let data: OHLC[] = [];
+      if (interval === "1D") {
+        const yh = await fetchYahooBarsOHLC(symbol, "1d");
+        if (aborted) return;
+        if (yh && yh.length > 0) data = yh;
+      } else if (interval === "1H" || interval === "4H") {
+        const td = await fetchTwelveDataOHLCBars(symbol, interval === "1H" ? "1h" : "4h");
+        if (aborted) return;
+        if (td && td.length > 0) data = td;
+        if (data.length === 0 && interval === "1H") {
+          const yh = await fetchYahooBarsOHLC(symbol, "1h");
+          if (aborted) return;
+          if (yh && yh.length > 0) data = yh;
+        }
+      } else if (interval === "30M" || interval === "5M") {
+        const ticks = await storage.listPriceTicks(symbol, 1000);
+        if (aborted) return;
+        const secs = interval === "30M" ? 1800 : 300;
+        data = bucketTicksOHLC(ticks as any, secs).slice(-400);
+      }
+
+      // SWR fallback for OHLC.
+      if (data.length === 0 && hit && hit.data.length > 0) {
+        return res.json(hit.data);
+      }
+      if (data.length > 0) {
+        ohlcCache.set(key, { t: now, data });
+      }
+      res.json(data);
+    } catch (e: any) {
+      if (aborted) return;
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/price-ticks/:symbol", async (req, res) => {
     try {
       const limit = Math.min(1000, Math.max(1, Number(req.query.limit || 200)));

@@ -945,6 +945,61 @@ export async function fetchYahooBars(
   });
 }
 
+// ─── Yahoo OHLC bars (1d / 1h) — same chart endpoint as fetchYahooBars,
+// but returns the full open/high/low/close/volume tuple needed by candlestick
+// renderers. Kept as a separate function so the existing close-only callers
+// don't change shape.
+export async function fetchYahooBarsOHLC(
+  symbol: string,
+  interval: "1d" | "1h"
+): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
+  const to = Math.floor(Date.now() / 1000);
+  const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
+  const from = to - lookbackSec;
+  const host = (symbol.charCodeAt(0) % 2 === 0) ? "query1" : "query2";
+  const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
+  return yahooScheduled(async () => {
+    try {
+      const r = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          "Accept": "application/json,text/plain,*/*",
+          "Accept-Language": "en-US,en;q=0.9",
+        },
+      });
+      if (!r.ok) {
+        if (r.status === 429) yahoo429Until = Date.now() + 5000;
+        console.warn(`[yahoo-ohlc] ${symbol} ${interval} (${host}) HTTP ${r.status} ${r.statusText}`);
+        return null;
+      }
+      const j = (await r.json()) as {
+        chart?: {
+          result?: Array<{
+            timestamp?: number[];
+            indicators?: { quote?: Array<{ open?: (number | null)[]; high?: (number | null)[]; low?: (number | null)[]; close?: (number | null)[]; volume?: (number | null)[] }> };
+          }>;
+        };
+      };
+      const res = j?.chart?.result?.[0];
+      const ts = res?.timestamp;
+      const q = res?.indicators?.quote?.[0];
+      if (!Array.isArray(ts) || !q) return null;
+      const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+      for (let i = 0; i < ts.length; i++) {
+        const t = ts[i];
+        const o = q.open?.[i], h = q.high?.[i], l = q.low?.[i], c = q.close?.[i], v = q.volume?.[i];
+        if (!Number.isFinite(t) || o == null || h == null || l == null || c == null) continue;
+        if (![o, h, l, c].every((n) => Number.isFinite(n as number))) continue;
+        out.push({ time: t, open: o as number, high: h as number, low: l as number, close: c as number, volume: Number.isFinite(v as number) ? (v as number) : 0 });
+      }
+      return out.length > 0 ? out.slice(-400) : null;
+    } catch (e) {
+      console.warn(`[yahoo-ohlc] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
+      return null;
+    }
+  });
+}
+
 // ─── Twelve Data 4H bars ────────────────────────────────────────────────────
 // Twelve Data is the only free provider that emits true 4H bars (vs. synthesizing
 // from 1H aggregates). Free tier: 8 credits/min, 800/day — well within budget
