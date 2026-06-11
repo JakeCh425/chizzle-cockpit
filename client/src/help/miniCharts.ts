@@ -24,8 +24,8 @@ Mini‑charts are **signal detectors**, not full charts. Use them to:
 | Element | Meaning |
 |---------|---------|
 | **Price Line** | Short-term price structure · spot pullbacks, bounces, rejections |
-| **SMA20** (red) | **Primary signal line** · drives A2/A3/A4/REJ |
-| **SMA50 / SMA200** | Trend context · rising = supportive, falling = caution |
+| **SMA20** (blue) | **Primary signal line** · drives A2/A3/A4/REJ |
+| **SMA50** (amber) / **SMA200** (red) | Trend context · rising = supportive, falling = caution |
 | **A‑Score Badge** | A2 approach · A3 touch · A4 bounce · REJ rejection |
 | **5M / 30M / 1H / 1D toggles** | 1D context · 1H trend · 30M structure · 5M timing |
 | **TV / FV buttons** | Open TradingView / Finviz for deeper analysis |
@@ -76,6 +76,35 @@ Mini‑charts are **signal detectors**, not full charts. Use them to:
 - SMA20 **falling**
 - Composite regime = **RED**
 - Price **below SMA50 / SMA200**
+
+---
+
+## SECTION 4B — WHICH TIMEFRAME FOR WHICH SIGNAL
+
+Quick lookup. The mini‑chart toggle (5M / 30M / 1H / 4H / 1D) should match
+the job you're doing right now.
+
+| Signal | Primary TF | Confirm / Time on | Why |
+|---|---|---|---|
+| **A0 / A1** | — | — | Clear or loading. Nothing to do. |
+| **A2** (approaching) | **1D** | **1H** | Daily defines the pullback; 1H shows if it's controlled. |
+| **A3** (touching SMA20) | **1D** | **30M + 5M** | 1D is the setup; 30M = higher low; 5M = entry candle. |
+| **A4** (bounce cross) | **1D** | **5M** | Daily confirms; 5M times the actual entry. |
+| **REJ** (cross below) | **1D** | **5M to exit** | Invalidation on 1D; if long, exit on 5M. |
+| **Bull Hammer (confirmed)** | **1D** | **1H** | Daily is the swing signal; 1H confirms momentum. |
+| **Hammer Forming** | **1D + 1H** | wait for 1D close | Don't act on intra‑day hammers — wait for the close. |
+| **Strong Bull Bar** | **1D** | **1H** | Cluster‑of‑lows setup confirms on the daily bar close. |
+| **Bull Bar (1H)** | **1H** | **5M** | 1H bull bar is the trigger; 5M for fill. |
+
+### Decision flow (use top‑to‑bottom)
+
+1. **Setup exists?** Check **1D** — A3/A4 or hammer/bull bar pattern?
+2. **Trend supportive?** **1D** — above SMA50 / SMA200, SMA20 rising?
+3. **Structure intact?** **30M** or **1H** — higher low forming?
+4. **Pull the trigger?** **5M** — clean bounce candle, volume stable?
+
+> Rule of thumb: **the bigger the signal, the bigger the timeframe.** Use 5M
+> only to *time* entries, never to *find* them.
 
 ---
 
