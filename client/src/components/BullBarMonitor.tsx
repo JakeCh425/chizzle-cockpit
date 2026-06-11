@@ -5,6 +5,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { formatShares } from "@/lib/engine";
+import { sharesForPlan, useSharesContext } from "@/lib/useShares";
 
 type Phase =
   | "Scanning"
@@ -123,6 +125,9 @@ export default function BullBarMonitor() {
       apiRequest("GET", `/api/bull-bar-monitor?symbol=${symbol}&mode=${mode}&rr=${rr}`).then((r) => r.json()),
     refetchInterval: 60_000,
   });
+
+  // Shares-to-buy context: equity × day-color risk % ÷ risk_per_share.
+  const sharesCtx = useSharesContext();
 
   if (isLoading) {
     return <div className="text-xs text-slate-gray py-3">Loading bull bar monitor…</div>;
@@ -302,16 +307,28 @@ export default function BullBarMonitor() {
                 ? "Setup invalidated."
                 : "No active setup."}
             </div>
-          ) : (
-            <div className="space-y-1 text-xs font-mono" data-testid="block-bullbar-trade-plan">
-              <Row label="Entry" value={`$${fmt(s.trade_plan.entry)}`} valueCls="text-signal-green" />
-              <Row label="Stop" value={`$${fmt(s.trade_plan.stop_loss)}`} valueCls="text-signal-red" />
-              <Row label="Target" value={`$${fmt(s.trade_plan.target)}`} valueCls="text-signal-green" />
-              <Row label="Risk/share" value={`$${fmt(s.trade_plan.risk_per_share)}`} />
-              <Row label="Reward/share" value={`$${fmt(s.trade_plan.reward_per_share)}`} />
-              <Row label="R:R" value={`1:${s.trade_plan.risk_reward}`} valueCls="text-signal-blue" />
-            </div>
-          )}
+          ) : (() => {
+            const shares = sharesForPlan(sharesCtx, s.trade_plan.risk_per_share);
+            const sharesValue = sharesCtx.equity > 0 && s.trade_plan.risk_per_share > 0 ? formatShares(shares) : "—";
+            const sharesTitle = `${sharesCtx.regime} day · ${(sharesCtx.riskPct * 100).toFixed(2)}% of $${sharesCtx.equity.toFixed(2)} ÷ $${fmt(s.trade_plan!.risk_per_share)}/sh`;
+            return (
+              <div className="space-y-1 text-xs font-mono" data-testid="block-bullbar-trade-plan">
+                <Row label="Entry" value={`$${fmt(s.trade_plan!.entry)}`} valueCls="text-signal-green" />
+                <Row label="Stop" value={`$${fmt(s.trade_plan!.stop_loss)}`} valueCls="text-signal-red" />
+                <Row label="Target" value={`$${fmt(s.trade_plan!.target)}`} valueCls="text-signal-green" />
+                <Row label="Risk/share" value={`$${fmt(s.trade_plan!.risk_per_share)}`} />
+                <Row label="Reward/share" value={`$${fmt(s.trade_plan!.reward_per_share)}`} />
+                <Row label="R:R" value={`1:${s.trade_plan!.risk_reward}`} valueCls="text-signal-blue" />
+                <Row
+                  label="Shares"
+                  value={sharesValue}
+                  valueCls="text-signal-blue font-semibold"
+                  title={sharesTitle}
+                  testId="text-bullbar-shares"
+                />
+              </div>
+            );
+          })()}
         </div>
       </div>
 
@@ -352,13 +369,17 @@ function Row({
   label,
   value,
   valueCls = "",
+  title,
+  testId,
 }: {
   label: string;
   value: string;
   valueCls?: string;
+  title?: string;
+  testId?: string;
 }) {
   return (
-    <div className="flex items-center justify-between gap-2">
+    <div className="flex items-center justify-between gap-2" title={title} data-testid={testId}>
       <span className="text-slate-gray text-[10px] uppercase tracking-wide">{label}</span>
       <span className={`text-right ${valueCls}`}>{value}</span>
     </div>

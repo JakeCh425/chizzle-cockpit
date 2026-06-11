@@ -16,6 +16,8 @@ import {
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type SignalColor } from "@/lib/sma";
+import { formatShares } from "@/lib/engine";
+import { sharesForPlan, useSharesContext } from "@/lib/useShares";
 
 interface SmaVisibility { sma20: boolean; sma50: boolean; sma200: boolean }
 // Recharts' Formatter accepts ValueType = string | number | (string|number)[].
@@ -77,6 +79,9 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
   const [windowBars, setWindowBars] = useState<number>(60);
   const [visible, setVisible] = useState<SmaVisibility>({ sma20: true, sma50: true, sma200: true });
   const chartHostRef = useRef<HTMLDivElement>(null);
+
+  // Shares-to-buy context: equity × day-color risk % ÷ plan risk_per_share.
+  const sharesCtx = useSharesContext();
 
   // Refresh interval when reopening with a different default.
   useEffect(() => { if (open) setInterval(defaultInterval); }, [open, defaultInterval]);
@@ -335,14 +340,30 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
             >
               <span className="text-[12px]" aria-hidden="true">{icon}</span>
               <span className="font-semibold">{patternAlert.pattern} · {patternAlert.phase}</span>
-              {plan?.entry != null && (
-                <span className="text-soft-white/90 normal-case tracking-normal">
-                  Entry <b className="tabular-nums">{Number(plan.entry).toFixed(2)}</b>
-                  {" · "}Stop <b className="tabular-nums">{Number(plan.stop_loss).toFixed(2)}</b>
-                  {plan.target != null && <>{" · "}Target <b className="tabular-nums">{Number(plan.target).toFixed(2)}</b></>}
-                  {patternAlert.rr != null && <>{" (1:"}{patternAlert.rr}{")"}</>}
-                </span>
-              )}
+              {plan?.entry != null && (() => {
+                const rps = Number(plan.risk_per_share);
+                const shares = sharesForPlan(sharesCtx, rps);
+                const showShares = sharesCtx.equity > 0 && Number.isFinite(rps) && rps > 0;
+                const sharesTitle = showShares
+                  ? `${sharesCtx.regime} day · ${(sharesCtx.riskPct * 100).toFixed(2)}% of $${sharesCtx.equity.toFixed(2)} ÷ $${rps.toFixed(2)}/sh`
+                  : undefined;
+                return (
+                  <span className="text-soft-white/90 normal-case tracking-normal">
+                    Entry <b className="tabular-nums">{Number(plan.entry).toFixed(2)}</b>
+                    {" · "}Stop <b className="tabular-nums">{Number(plan.stop_loss).toFixed(2)}</b>
+                    {plan.target != null && <>{" · "}Target <b className="tabular-nums">{Number(plan.target).toFixed(2)}</b></>}
+                    {showShares && (
+                      <>
+                        {" · "}
+                        <span title={sharesTitle} data-testid="text-modal-shares">
+                          Shares <b className="tabular-nums">{formatShares(shares)}</b>
+                        </span>
+                      </>
+                    )}
+                    {patternAlert.rr != null && <>{" (1:"}{patternAlert.rr}{")"}</>}
+                  </span>
+                );
+              })()}
               <span className="ml-auto text-slate-gray">{patternAlert.mode || ""}{patternAlert.mode ? " · 1H" : "1H"}</span>
             </div>
           );
