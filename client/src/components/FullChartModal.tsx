@@ -11,7 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ComposedChart, Line, Bar, ResponsiveContainer, YAxis, XAxis, Tooltip,
-  CartesianGrid, ReferenceDot, ReferenceLine, Customized,
+  CartesianGrid, ReferenceDot, ReferenceLine,
 } from "recharts";
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -446,7 +446,8 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
               {/* Price + SMAs (main pane) */}
               <div
                 ref={chartHostRef}
-                className="flex-1 min-h-[260px] relative"
+                className="relative"
+                style={{ height: 360, width: "100%" }}
                 role="img"
                 aria-label={`${symbol} price chart, ${interval} timeframe, ${rows.length} bars` + (lastPrice != null ? `, last ${lastPrice.toFixed(2)}` : "")}
                 data-testid={`chart-fullchart-${symbol}`}
@@ -489,11 +490,14 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                     {visible.sma20 && (
                       <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
                     )}
-                    {/* Invisible price line — forces Recharts to include the price
-                        range in the scale and gives the tooltip a hit target. */}
-                    <Line yAxisId="price" type="linear" dataKey="price" name="Price" stroke="transparent" strokeWidth={0} dot={false} isAnimationActive={false} />
-                    {/* Candlestick overlay drawn via Customized using the real chart scales. */}
-                    <Customized component={(props: any) => <Candlesticks {...props} yAxisIdRef="price" />} />
+                    {/* Faint price line — guarantees ResponsiveContainer mounts
+                        a series, gives the tooltip a hit target, and provides a
+                        subtle reference path through the candle bodies. */}
+                    <Line yAxisId="price" type="linear" dataKey="price" name="Price" stroke="hsl(var(--soft-white))" strokeOpacity={0.08} strokeWidth={1} dot={false} isAnimationActive={false} />
+                    {/* Candle wicks (high↔low) drawn as range bars with custom shape. */}
+                    <Bar yAxisId="price" dataKey="wick" name="Wick" shape={CandleWickShape} isAnimationActive={false} legendType="none" />
+                    {/* Candle bodies (open↔close) drawn as range bars with custom shape. */}
+                    <Bar yAxisId="price" dataKey="body" name="Candle" shape={CandleBodyShape} isAnimationActive={false} legendType="none" />
                     {/* Live price overlay — horizontal dashed line at the live tick. */}
                     {liveFresh && (
                       <ReferenceLine
@@ -602,58 +606,36 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
   );
 }
 
-// ─── Candlestick overlay rendered via <Customized> ────────────────────
-// Recharts hands Customized components the full chart layout via xAxisMap,
-// yAxisMap, formattedGraphicalItems. We use the axis scales to draw classic
-// OHLC candles (low→high wick + open↔close body) at each bar's x position.
-type CandleRow = { i: number; open: number; high: number; low: number; close: number; bullish: boolean };
-function Candlesticks(props: any) {
-  const { xAxisMap, yAxisMap, formattedGraphicalItems, yAxisIdRef = "price" } = props || {};
-  if (!xAxisMap || !yAxisMap) return null;
-  // Pull the price y-axis by id.
-  const yAxis = Object.values(yAxisMap).find((a: any) => a?.yAxisId === yAxisIdRef) as any;
-  // Single x-axis in this chart; grab the first.
-  const xAxis = Object.values(xAxisMap)[0] as any;
-  if (!yAxis?.scale || !xAxis?.scale) return null;
-  const yScale = yAxis.scale as (n: number) => number;
-  const xScale = xAxis.scale as (n: any) => number;
-  // Recover the row data from the first formatted graphical item (any series
-  // shares the same data array).
-  const item = formattedGraphicalItems?.[0];
-  const rows: CandleRow[] | undefined = item?.props?.data;
-  if (!rows || rows.length === 0) return null;
+// ─── Candle shapes (custom <Bar shape>) ─────────────────────────────
+// Recharts passes each bar `x`, `y`, `width`, `height`, and the row in
+// `payload`. For range bars (dataKey returns [lo, hi]) Recharts maps the
+// range to y/height already; we still re-derive from payload so the wick
+// and body line up exactly with OHLC values and the price scale.
+//
+// `background` carries the full plot rect (y0..yEnd) — we use it to grab
+// the price-axis pixel range and compute our own y from the row OHLC.
+function CandleWickShape(props: any) {
+  const { x, y, width, height, payload } = props;
+  if (!payload) return null;
+  const { high, low, open, close } = payload;
+  if (![high, low, open, close].every((n: any) => Number.isFinite(n))) return null;
+  if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) return null;
+  const cx = x + width / 2;
+  const color = close >= open ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
+  return <line x1={cx} x2={cx} y1={y} y2={y + height} stroke={color} strokeWidth={1} />;
+}
 
-  // Bar width = step between adjacent x positions, minus a small gap.
-  let step = 8;
-  if (rows.length >= 2) {
-    const x0 = xScale(rows[0].i ?? (rows[0] as any).dateLabel);
-    const x1 = xScale(rows[1].i ?? (rows[1] as any).dateLabel);
-    if (Number.isFinite(x0) && Number.isFinite(x1)) step = Math.abs(x1 - x0);
-  }
-  const bodyW = Math.max(2, step * 0.6);
-
-  return (
-    <g pointerEvents="none">
-      {rows.map((r, idx) => {
-        if (!Number.isFinite(r.open) || !Number.isFinite(r.high) || !Number.isFinite(r.low) || !Number.isFinite(r.close)) return null;
-        const cx = xScale(r.i ?? (r as any).dateLabel);
-        if (!Number.isFinite(cx)) return null;
-        const yHigh = yScale(r.high);
-        const yLow = yScale(r.low);
-        const yOpen = yScale(r.open);
-        const yClose = yScale(r.close);
-        const top = Math.min(yOpen, yClose);
-        const h = Math.max(1, Math.abs(yClose - yOpen));
-        const color = r.bullish ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
-        return (
-          <g key={idx}>
-            <line x1={cx} x2={cx} y1={yHigh} y2={yLow} stroke={color} strokeWidth={1} />
-            <rect x={cx - bodyW / 2} y={top} width={bodyW} height={h} fill={color} stroke={color} strokeWidth={1} />
-          </g>
-        );
-      })}
-    </g>
-  );
+function CandleBodyShape(props: any) {
+  const { x, y, width, height, payload } = props;
+  if (!payload) return null;
+  const { open, close } = payload;
+  if (!Number.isFinite(open) || !Number.isFinite(close)) return null;
+  const color = close >= open ? "hsl(var(--signal-green))" : "hsl(var(--signal-red))";
+  // Body width: 60% of the slot width, min 2px.
+  const bodyW = Math.max(2, width * 0.6);
+  const bodyX = x + (width - bodyW) / 2;
+  const h = Math.max(1, height);
+  return <rect x={bodyX} y={y} width={bodyW} height={h} fill={color} stroke={color} strokeWidth={1} />;
 }
 
 // ─── Floating right-edge SMA labels (modal version) ─────────────────────────
