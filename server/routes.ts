@@ -864,6 +864,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Multi-Pattern Monitor (1H/4H, 4 patterns, watchlist-wide) ─
+  app.get("/api/multi-pattern-monitor", async (req, res) => {
+    try {
+      const { evaluateMultiPattern } = await import("./multiPatternMonitor");
+      const tfRaw = String(req.query.timeframe || "1h").toLowerCase();
+      const modeRaw = String(req.query.mode || "").toLowerCase();
+      const rrRaw = Number(req.query.rr);
+      const symbolsRaw = String(req.query.symbols || "SMH,QQQ,SPY,AAPL");
+      const timeframe: "1h" | "4h" = tfRaw === "4h" ? "4h" : "1h";
+      const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
+      const rr = ([2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2) as 2 | 3 | 4 | 5;
+      const symbols = symbolsRaw.split(",").map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 8);
+      const state = await evaluateMultiPattern({ symbols, timeframe, mode, rr });
+      res.json(state);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── SMH Hammer Monitor ─────────────────────────────────────────
   app.get("/api/smh-hammer-monitor", async (req, res) => {
     try {

@@ -32,6 +32,7 @@ import ScoringDashboard from "@/components/ScoringDashboard";
 import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
 import SmhHammerMonitor from "@/components/SmhHammerMonitor";
 import BullBarMonitor from "@/components/BullBarMonitor";
+import MultiPatternMonitor from "@/components/MultiPatternMonitor";
 import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
@@ -320,6 +321,11 @@ export default function Cockpit() {
       {/* Row 1.965: Bull Bar Monitor (1H pattern — strong bull bar after cluster of lows) */}
       <Panel title="Bull Bar Monitor (1H)" hint="Strong bull bar after cluster of lows near daily SMA20 → Ready to Trade">
         <ErrorBoundary label="Bull Bar Monitor"><BullBarMonitor /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.97: Multi-Pattern Monitor (1H/4H · Hammer / Engulfing / Bull Bar / Aggressive Bounce) */}
+      <Panel title="Multi-Pattern Monitor" hint="Hammer · Engulfing · Bull Bar · Aggressive Bounce — 1H/4H across watchlist near SMA20">
+        <ErrorBoundary label="Multi-Pattern Monitor"><MultiPatternMonitor /></ErrorBoundary>
       </Panel>
 
       {/* Row 1.97: Email + SMS alert contacts */}
