@@ -33,6 +33,7 @@ import CandleConfirmationPanel from "@/components/CandleConfirmationPanel";
 import SmhHammerMonitor from "@/components/SmhHammerMonitor";
 import BullBarMonitor from "@/components/BullBarMonitor";
 import MultiPatternMonitor from "@/components/MultiPatternMonitor";
+import ContinuationMonitor from "@/components/ContinuationMonitor";
 import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
@@ -326,6 +327,11 @@ export default function Cockpit() {
       {/* Row 1.97: Multi-Pattern Monitor (1H/4H · Hammer / Engulfing / Bull Bar / Aggressive Bounce) */}
       <Panel title="Multi-Pattern Monitor" hint="Hammer · Engulfing · Bull Bar · Aggressive Bounce — 1H/4H across watchlist near SMA20">
         <ErrorBoundary label="Multi-Pattern Monitor"><MultiPatternMonitor /></ErrorBoundary>
+      </Panel>
+
+      {/* Row 1.975: Continuation Monitor — V-runs and follow-through bars after SMA20 touch */}
+      <Panel title="Continuation Monitor" hint="V-Bottom Continuation · Green Run · SMA20 Bounce — catches multi-bar rallies after SMA20 touch">
+        <ErrorBoundary label="Continuation Monitor"><ContinuationMonitor /></ErrorBoundary>
       </Panel>
 
       {/* Row 1.97: Email + SMS alert contacts */}

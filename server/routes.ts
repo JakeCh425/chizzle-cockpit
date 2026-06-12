@@ -864,6 +864,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Continuation Monitor (V-run / follow-through / SMA20 bounce) ─
+  app.get("/api/continuation-monitor", async (req, res) => {
+    try {
+      const { evaluateContinuationMonitor } = await import("./continuationMonitor");
+      const tfRaw = String(req.query.timeframe || "4h").toLowerCase();
+      const rrRaw = Number(req.query.rr);
+      const minRiskRaw = Number(req.query.min_risk_pct);
+      const symbolsRaw = String(req.query.symbols || "SMH,QQQ,SPY,AAPL");
+      const timeframe: "1h" | "4h" = tfRaw === "1h" ? "1h" : "4h";
+      const rr = ([2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2) as 2 | 3 | 4 | 5;
+      const minRiskPercent = Number.isFinite(minRiskRaw) && minRiskRaw > 0 ? minRiskRaw : 1.5;
+      const symbols = symbolsRaw.split(",").map(s => s.trim().toUpperCase()).filter(Boolean).slice(0, 8);
+      const state = await evaluateContinuationMonitor({ symbols, timeframe, rr, minRiskPercent });
+      res.json(state);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
   // ── Multi-Pattern Monitor (1H/4H, 4 patterns, watchlist-wide) ─
   app.get("/api/multi-pattern-monitor", async (req, res) => {
     try {
