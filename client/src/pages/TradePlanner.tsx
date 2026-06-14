@@ -22,7 +22,22 @@ import { errMsg } from "@/lib/errors";
 import { riskPctFromSettings, type Regime } from "@/lib/engine";
 import { PositionSizeCalculator } from "@/components/PositionSizeCalculator";
 import { calcPositionSize, calcRR } from "@/lib/positionSize";
+import { RiskStatusBar } from "@/components/RiskStatusBar";
+import { RiskWarningBanner } from "@/components/RiskWarningBanner";
+import {
+  buildRiskStatus,
+  evaluatePlanRisk,
+  type ClosedTradeForExpectancy,
+  type ClosedTradeMin,
+} from "@/lib/risk";
+import type { OpenPositionRisk } from "@shared/risk";
 import type { Settings, TradePlan, RegimeState, RegimeInputsRow, TradePlanStatus } from "@shared/schema";
+
+interface UnifiedTradeRow {
+  closedAt: string | null;
+  netPnl: number | null;
+  rMultiple: number | null;
+}
 
 interface RegimePayload {
   state: RegimeState;
@@ -124,6 +139,57 @@ export default function TradePlanner() {
   const projectedOpenRisk = currentOpenRisk + (Number.isFinite(riskPctNum) ? riskPctNum : 0);
   const overCap = projectedOpenRisk > maxOpenRiskPct + 1e-6;
 
+  // Phase 5: risk governor evaluation for the in-flight plan.
+  const { data: closedTradesRaw } = useQuery<UnifiedTradeRow[]>({
+    queryKey: ["/api/analytics/trades", null, null],
+    queryFn: async () => {
+      const r = await fetch("/api/analytics/trades");
+      if (!r.ok) throw new Error("failed to load closed trades");
+      return r.json();
+    },
+  });
+  const { data: openPositions = [] } = useQuery<OpenPositionRisk[]>({
+    queryKey: ["/api/risk/open-positions"],
+  });
+  const planViolations = useMemo(() => {
+    if (!settings || !regimePayload) return [];
+    const closedMin: ClosedTradeMin[] = (closedTradesRaw ?? []).map((t) => ({
+      closedAt: t.closedAt,
+      netPnl: t.netPnl,
+    }));
+    const closedR: ClosedTradeForExpectancy[] = (closedTradesRaw ?? []).map((t) => ({
+      closedAt: t.closedAt,
+      rMultiple: t.rMultiple,
+    }));
+    const status = buildRiskStatus({
+      settings,
+      activeRegime,
+      closedTrades: closedMin,
+      closedTradesWithR: closedR,
+      openPositions,
+    });
+    if (!calc.ok || !Number.isFinite(entryNum) || !Number.isFinite(stopNum) || !calc.shares) {
+      return status.violations;
+    }
+    return evaluatePlanRisk({
+      plan: {
+        ticker: ticker || "?",
+        direction,
+        entryPrice: entryNum,
+        stopPrice: stopNum,
+        plannedShares: calc.shares,
+      },
+      rules: status.rules,
+      equity: status.equity,
+      openRiskDollars: status.openRiskDollars,
+      openPositionsCount: status.openPositionsCount,
+      dailyPnl: status.dailyPnl,
+      weeklyPnl: status.weeklyPnl,
+      drawdownPercent: status.drawdownPercent,
+      drawdownFallback: status.drawdownFallback,
+    });
+  }, [settings, regimePayload, closedTradesRaw, openPositions, activeRegime, calc.ok, calc.shares, entryNum, stopNum, ticker, direction]);
+
   const createMutation = useMutation({
     mutationFn: async (body: any) => {
       const res = await apiRequest("POST", "/api/trade-plans", body);
@@ -187,6 +253,8 @@ export default function TradePlanner() {
 
   return (
     <div className="p-4 space-y-4" data-testid="page-trade-planner">
+      <RiskStatusBar />
+
       {/* ── Header strip ──────────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
         <HeaderStat label="Account" value={`$${accountSize.toLocaleString(undefined, { maximumFractionDigits: 2 })}`} testid="hdr-account" />
@@ -339,6 +407,9 @@ export default function TradePlanner() {
                 Saving this plan would push planned open risk to {projectedOpenRisk.toFixed(2)}%, above your cap of {maxOpenRiskPct.toFixed(1)}%. Cancel or execute an existing plan, or raise the cap in Settings.
               </div>
             )}
+
+            {/* Phase 5: rule-based violation list (soft warnings; never blocks save). */}
+            <RiskWarningBanner violations={planViolations} context="Planner check" />
 
             <Button
               type="submit"

@@ -25,6 +25,7 @@ import ZonePositionBar from "@/components/charts/ZonePositionBar";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import WatchlistEditor from "@/components/WatchlistEditor";
+import { RiskStatusBar } from "@/components/RiskStatusBar";
 import { PatternFormingBadge, type PatternFormingStatus } from "@/components/PatternFormingBadge";
 import RegimeAxisPanel from "@/components/RegimePanel";
 import PortfolioHeatmap from "@/components/PortfolioHeatmap";
@@ -244,6 +245,9 @@ export default function Cockpit() {
           <span className="text-[12px] text-soft-white">7-day Chizzle Score &lt; 60 — no new entries until score recovers.</span>
         </div>
       )}
+
+      {/* Phase 5: Risk Governor status strip */}
+      <RiskStatusBar />
 
       {/* Row 0: Pre-Market Scan one-tap briefing */}
       <PreMarketScan />

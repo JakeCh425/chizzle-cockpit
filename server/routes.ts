@@ -2269,5 +2269,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Phase 5: risk governor ────────────────────────────────
+  // Open-position risk feed. Calc utilities on the client combine this
+  // with /api/settings, /api/analytics/trades, and /api/trade-plans to
+  // produce the live RiskStatus object. Soft-warning model — no enforcement
+  // happens server-side.
+  app.get("/api/risk/open-positions", async (_req, res) => {
+    try {
+      const rows = await storage.listOpenPositionRisks();
+      res.json(rows);
+    } catch (e: any) {
+      console.error("[risk] listOpenPositionRisks failed:", e);
+      res.status(500).json({ error: e?.message || "failed to load open positions" });
+    }
+  });
+
   return httpServer;
 }

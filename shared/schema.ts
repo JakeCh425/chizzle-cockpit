@@ -20,6 +20,13 @@ export const settings = pgTable("settings", {
   maxPositionsRed: integer("max_positions_red").notNull().default(2),
   maxOpenRiskPct: doublePrecision("max_open_risk_pct").notNull().default(6),
   minRR: doublePrecision("min_rr").notNull().default(2.0),
+  // Phase 5 — Risk Governor (extends settings; single source of truth)
+  maxDailyLossAmount: doublePrecision("max_daily_loss_amount").notNull().default(50),
+  maxWeeklyLossAmount: doublePrecision("max_weekly_loss_amount").notNull().default(150),
+  maxDrawdownPercent: doublePrecision("max_drawdown_percent").notNull().default(15),
+  scaleUpMinTrades: integer("scale_up_min_trades").notNull().default(20),
+  scaleUpMinExpectancy: doublePrecision("scale_up_min_expectancy").notNull().default(0.3),
+  scaleDownDrawdownPercent: doublePrecision("scale_down_drawdown_percent").notNull().default(8),
 });
 
 // ─── tickers ──────────────────────────────────────────────────────────────────

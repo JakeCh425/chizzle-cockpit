@@ -460,6 +460,13 @@ UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
     // instead of being purged. Defaults to false; existing rows are active.
     "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived_at TEXT",
+    // 2026-06: Phase 5 Risk Governor — extend settings with new risk fields.
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_daily_loss_amount DOUBLE PRECISION NOT NULL DEFAULT 50",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_weekly_loss_amount DOUBLE PRECISION NOT NULL DEFAULT 150",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_drawdown_percent DOUBLE PRECISION NOT NULL DEFAULT 15",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS scale_up_min_trades INTEGER NOT NULL DEFAULT 20",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS scale_up_min_expectancy DOUBLE PRECISION NOT NULL DEFAULT 0.3",
+    "ALTER TABLE settings ADD COLUMN IF NOT EXISTS scale_down_drawdown_percent DOUBLE PRECISION NOT NULL DEFAULT 8",
     // 2026-06: kv_meta table for server-side singletons (seed markers, etc.)
     `CREATE TABLE IF NOT EXISTS kv_meta (
       k TEXT PRIMARY KEY,
@@ -1319,6 +1326,82 @@ export const storage = {
       .where(and(eq(tradeReviewTags.tradeReviewId, tradeReviewId), eq(tradeReviewTags.tradeTagId, tradeTagId)))
       .returning();
     return result.length > 0;
+  },
+
+  // ─── risk governor (Phase 5) ─────────────────────────────────────
+  //
+  // Open-position risk: for each Phase 2/3 plan still in status='open', compute
+  // share-weighted average fill price (across entry + partial_exit rows) and
+  // current open shares (entries minus exits). Risk dollars =
+  // |avgFillPrice - stopPrice| × openShares (interpretation B, locked with user).
+  //
+  // Legacy `trades` table has a separate, simpler lifecycle and is intentionally
+  // excluded here — Phase 5 governs the new-lifecycle plans only.
+  async listOpenPositionRisks(): Promise<Array<{
+    id: string;
+    ticker: string;
+    direction: "long" | "short";
+    avgFillPrice: number;
+    stopPrice: number;
+    openShares: number;
+    riskDollars: number;
+    source: "new";
+  }>> {
+    const result: any = await db.execute(sql`
+      WITH exec_agg AS (
+        SELECT
+          tp.id AS plan_id,
+          tp.ticker,
+          tp.direction,
+          tp.stop_price,
+          COALESCE(SUM(CASE WHEN te.execution_type IN ('entry','add') THEN te.shares ELSE 0 END), 0)
+            AS shares_in,
+          COALESCE(SUM(CASE WHEN te.execution_type IN ('partial_exit','exit') THEN te.shares ELSE 0 END), 0)
+            AS shares_out,
+          -- Share-weighted avg cost basis over entry + add rows. partial_exits
+          -- realize trims at a different price and are excluded from cost basis.
+          -- For B-interpretation open risk we want cost basis of the still-open
+          -- shares; using only entry/add fills approximates that without
+          -- scan-and-allocate accounting.
+          CASE
+            WHEN COALESCE(SUM(CASE WHEN te.execution_type IN ('entry','add') THEN te.shares ELSE 0 END), 0) > 0
+            THEN SUM(CASE WHEN te.execution_type IN ('entry','add') THEN te.shares * te.price ELSE 0 END)
+              / SUM(CASE WHEN te.execution_type IN ('entry','add') THEN te.shares ELSE 0 END)
+            ELSE NULL
+          END AS avg_entry_price
+        FROM trade_plans tp
+        LEFT JOIN trade_executions te ON te.trade_plan_id = tp.id
+        WHERE tp.status = 'open'
+        GROUP BY tp.id, tp.ticker, tp.direction, tp.stop_price
+      )
+      SELECT
+        plan_id,
+        ticker,
+        direction,
+        stop_price,
+        avg_entry_price,
+        (shares_in - shares_out) AS open_shares
+      FROM exec_agg
+      WHERE (shares_in - shares_out) > 0
+        AND avg_entry_price IS NOT NULL
+    `);
+    const rows: any[] = Array.isArray(result) ? result : (result?.rows ?? []);
+    return rows.map((r) => {
+      const avg = Number(r.avg_entry_price);
+      const stop = Number(r.stop_price);
+      const shares = Number(r.open_shares);
+      const riskDollars = Math.abs(avg - stop) * shares;
+      return {
+        id: `new:${r.plan_id}`,
+        ticker: String(r.ticker),
+        direction: r.direction === "short" ? "short" : "long",
+        avgFillPrice: avg,
+        stopPrice: stop,
+        openShares: shares,
+        riskDollars,
+        source: "new" as const,
+      };
+    });
   },
 
   // ─── analytics (Phase 4) ─────────────────────────────────────────

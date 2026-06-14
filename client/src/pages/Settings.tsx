@@ -85,6 +85,13 @@ export default function SettingsPage() {
   const [maxPosG, setMaxPosG] = useState("4");
   const [maxPosY, setMaxPosY] = useState("3");
   const [maxPosR, setMaxPosR] = useState("2");
+  // Phase 5 — Risk Governor fields
+  const [maxDailyLoss, setMaxDailyLoss] = useState("50");
+  const [maxWeeklyLoss, setMaxWeeklyLoss] = useState("150");
+  const [maxDD, setMaxDD] = useState("15");
+  const [scaleUpTrades, setScaleUpTrades] = useState("20");
+  const [scaleUpExp, setScaleUpExp] = useState("0.3");
+  const [scaleDownDD, setScaleDownDD] = useState("8");
 
   const activeRiskPct =
     activeRegime === "GREEN" ? Number(riskG) : activeRegime === "RED" ? Number(riskR) : Number(riskY);
@@ -100,6 +107,12 @@ export default function SettingsPage() {
       setMaxPosG(String(settings.maxPositionsGreen));
       setMaxPosY(String(settings.maxPositionsYellow));
       setMaxPosR(String(settings.maxPositionsRed));
+      setMaxDailyLoss(String(settings.maxDailyLossAmount));
+      setMaxWeeklyLoss(String(settings.maxWeeklyLossAmount));
+      setMaxDD(String(settings.maxDrawdownPercent));
+      setScaleUpTrades(String(settings.scaleUpMinTrades));
+      setScaleUpExp(String(settings.scaleUpMinExpectancy));
+      setScaleDownDD(String(settings.scaleDownDrawdownPercent));
     }
   }, [settings]);
 
@@ -115,6 +128,12 @@ export default function SettingsPage() {
       maxPositionsYellow: Number(maxPosY),
       maxPositionsRed: Number(maxPosR),
       watchlistTier: Number(equity) >= 2500 ? 2 : 1,
+      maxDailyLossAmount: Number(maxDailyLoss),
+      maxWeeklyLossAmount: Number(maxWeeklyLoss),
+      maxDrawdownPercent: Number(maxDD),
+      scaleUpMinTrades: Number(scaleUpTrades),
+      scaleUpMinExpectancy: Number(scaleUpExp),
+      scaleDownDrawdownPercent: Number(scaleDownDD),
     });
     queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
     toast({ title: "Settings saved" });
@@ -167,6 +186,37 @@ export default function SettingsPage() {
           <Field label="Max Positions Red"><input type="number" value={maxPosR} onChange={e => setMaxPosR(e.target.value)} className="form-input num" /></Field>
           <Field label="Max Open Risk %"><input type="number" step="0.5" value={maxRisk} onChange={e => setMaxRisk(e.target.value)} className="form-input num" /></Field>
           <Field label="Min RR"><input type="number" step="0.1" value={minRR} onChange={e => setMinRR(e.target.value)} className="form-input num" /></Field>
+        </div>
+      </Panel>
+
+      <Panel
+        title="Risk Governor"
+        hint="Soft warnings shown in Planner + Cockpit. Not enforced server-side."
+      >
+        <div className="text-[11px] text-slate-gray mb-3">
+          Loss caps reset at local midnight (daily) and Monday 00:00 CT (weekly). Drawdown is peak-to-current of cumulative realized P&L across all closed trades.
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <Field label="Max Daily Loss ($)">
+            <input type="number" step="1" value={maxDailyLoss} onChange={(e) => setMaxDailyLoss(e.target.value)} className="form-input num" data-testid="input-max-daily-loss" />
+          </Field>
+          <Field label="Max Weekly Loss ($)">
+            <input type="number" step="1" value={maxWeeklyLoss} onChange={(e) => setMaxWeeklyLoss(e.target.value)} className="form-input num" data-testid="input-max-weekly-loss" />
+          </Field>
+          <Field label="Max Drawdown %">
+            <input type="number" step="0.5" value={maxDD} onChange={(e) => setMaxDD(e.target.value)} className="form-input num" data-testid="input-max-drawdown" />
+          </Field>
+        </div>
+        <div className="grid grid-cols-3 gap-3 mt-3 pt-3 border-t border-ink-line/60">
+          <Field label="Scale-Up Min Trades">
+            <input type="number" step="1" value={scaleUpTrades} onChange={(e) => setScaleUpTrades(e.target.value)} className="form-input num" data-testid="input-scale-up-trades" />
+          </Field>
+          <Field label="Scale-Up Min Expectancy (R)">
+            <input type="number" step="0.05" value={scaleUpExp} onChange={(e) => setScaleUpExp(e.target.value)} className="form-input num" data-testid="input-scale-up-exp" />
+          </Field>
+          <Field label="Scale-Down Drawdown %">
+            <input type="number" step="0.5" value={scaleDownDD} onChange={(e) => setScaleDownDD(e.target.value)} className="form-input num" data-testid="input-scale-down-dd" />
+          </Field>
         </div>
       </Panel>
 
