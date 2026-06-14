@@ -19,6 +19,7 @@ import {
   alertContacts,
   alertLog,
   tradePlans,
+  tradeExecutions,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -41,6 +42,8 @@ import type {
   AlertContact, InsertAlertContact,
   AlertLogRow, InsertAlertLog,
   TradePlan, InsertTradePlan,
+  TradeExecution, InsertTradeExecution,
+  TradePlanStatus,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -355,6 +358,26 @@ CREATE TABLE IF NOT EXISTS trade_plans (
 CREATE INDEX IF NOT EXISTS idx_trade_plans_status ON trade_plans(status);
 CREATE INDEX IF NOT EXISTS idx_trade_plans_ticker ON trade_plans(ticker);
 CREATE INDEX IF NOT EXISTS idx_trade_plans_created_at ON trade_plans(created_at DESC);
+
+-- ── trade_executions (Phase 2: actual fills against a plan) ───────────────
+CREATE TABLE IF NOT EXISTS trade_executions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trade_plan_id UUID NOT NULL REFERENCES trade_plans(id) ON DELETE CASCADE,
+  execution_type TEXT NOT NULL,
+  shares INTEGER NOT NULL CHECK (shares > 0),
+  price DOUBLE PRECISION NOT NULL CHECK (price > 0),
+  fees DOUBLE PRECISION NOT NULL DEFAULT 0 CHECK (fees >= 0),
+  executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trade_executions_plan_id     ON trade_executions(trade_plan_id);
+CREATE INDEX IF NOT EXISTS idx_trade_executions_type        ON trade_executions(execution_type);
+CREATE INDEX IF NOT EXISTS idx_trade_executions_executed_at ON trade_executions(executed_at DESC);
+
+-- Phase 2 A1: remap any legacy trade_plans.status='executed' → 'open' (idempotent).
+UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
 `);
 
   // Idempotent column additions (Postgres supports ADD COLUMN IF NOT EXISTS natively)
@@ -1138,7 +1161,7 @@ export const storage = {
       .returning();
     return created;
   },
-  async updateTradePlanStatus(id: string, status: "planned" | "cancelled" | "executed"): Promise<TradePlan | undefined> {
+  async updateTradePlanStatus(id: string, status: TradePlanStatus): Promise<TradePlan | undefined> {
     const now = new Date().toISOString();
     const [updated] = await db
       .update(tradePlans)
@@ -1147,9 +1170,36 @@ export const storage = {
       .returning();
     return updated;
   },
+  async getTradePlan(id: string): Promise<TradePlan | undefined> {
+    const [row] = await db.select().from(tradePlans).where(eq(tradePlans.id, id));
+    return row;
+  },
   async sumPlannedOpenRisk(): Promise<number> {
     // Sum risk_percent across status='planned' rows. Used to enforce maxOpenRiskPct.
     const rows = await db.select().from(tradePlans).where(eq(tradePlans.status, "planned"));
     return rows.reduce((acc, r) => acc + Number(r.riskPercent || 0), 0);
+  },
+
+  // ─── trade_executions (Phase 2) ─────────────────────────────────────────
+  async listExecutions(tradePlanId: string): Promise<TradeExecution[]> {
+    return db
+      .select()
+      .from(tradeExecutions)
+      .where(eq(tradeExecutions.tradePlanId, tradePlanId))
+      .orderBy(tradeExecutions.executedAt);
+  },
+  async createExecution(input: InsertTradeExecution): Promise<TradeExecution> {
+    const [created] = await db
+      .insert(tradeExecutions)
+      .values(input as any)
+      .returning();
+    return created;
+  },
+  async deleteExecution(id: string, tradePlanId: string): Promise<boolean> {
+    const result = await db
+      .delete(tradeExecutions)
+      .where(and(eq(tradeExecutions.id, id), eq(tradeExecutions.tradePlanId, tradePlanId)))
+      .returning();
+    return result.length > 0;
   },
 };

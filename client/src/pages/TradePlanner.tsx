@@ -2,6 +2,7 @@
 // Layout: header (account + regime risk + open-risk meter) + form (left)
 // + saved plans table (right/below). No journaling/charts/AI/screenshots.
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
@@ -21,7 +22,7 @@ import { errMsg } from "@/lib/errors";
 import { riskPctFromSettings, type Regime } from "@/lib/engine";
 import { PositionSizeCalculator } from "@/components/PositionSizeCalculator";
 import { calcPositionSize, calcRR } from "@/lib/positionSize";
-import type { Settings, TradePlan, RegimeState, RegimeInputsRow } from "@shared/schema";
+import type { Settings, TradePlan, RegimeState, RegimeInputsRow, TradePlanStatus } from "@shared/schema";
 
 interface RegimePayload {
   state: RegimeState;
@@ -64,6 +65,9 @@ export default function TradePlanner() {
   const [riskPctStr, setRiskPctStr] = useState<string>(defaultRiskPct.toFixed(1));
   const [thesis, setThesis] = useState("");
   const [prefilled, setPrefilled] = useState(false);
+
+  // Saved-plans filter view
+  const [planView, setPlanView] = useState<"open" | "closed" | "all">("open");
 
   // Pre-fill from URL query (?ticker=SMH&entry=210&stop=205&target=225&setup=Hammer&direction=long).
   // wouter's useHashLocation puts the query in window.location.search (not the hash) when
@@ -138,13 +142,29 @@ export default function TradePlanner() {
   });
 
   const statusMutation = useMutation({
-    mutationFn: async ({ id, status }: { id: string; status: "planned" | "cancelled" | "executed" }) => {
+    mutationFn: async ({ id, status }: { id: string; status: TradePlanStatus }) => {
       const res = await apiRequest("PATCH", `/api/trade-plans/${id}`, { status });
       return res.json();
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/trade-plans"] }),
     onError: (e: any) => toast({ title: "Update failed", description: errMsg(e), variant: "destructive" }),
   });
+
+  // Open = planned, open, partial. Closed = closed, cancelled.
+  const counts = useMemo(() => {
+    let open = 0, closed = 0;
+    for (const p of plans) {
+      if (p.status === "closed" || p.status === "cancelled") closed++;
+      else open++;
+    }
+    return { open, closed, all: plans.length };
+  }, [plans]);
+
+  const filteredPlans = useMemo(() => {
+    if (planView === "all") return plans;
+    if (planView === "closed") return plans.filter((p) => p.status === "closed" || p.status === "cancelled");
+    return plans.filter((p) => p.status !== "closed" && p.status !== "cancelled");
+  }, [plans, planView]);
 
   const canSave = calc.ok && ticker.trim().length > 0 && setupType.length > 0 && !overCap;
 
@@ -332,14 +352,38 @@ export default function TradePlanner() {
         </Panel>
 
         {/* ── Saved plans ─────────────────────────────────────────────────── */}
-        <Panel title="Saved Plans" hint={`${plans.filter((p) => p.status === "planned").length} open · ${plans.length} total`}>
+        <Panel
+          title="Saved Plans"
+          hint={`${counts.open} open · ${counts.closed} closed · ${counts.all} total`}
+          action={
+            <div className="flex gap-1" data-testid="tabs-plan-view">
+              {(["open", "closed", "all"] as const).map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => setPlanView(v)}
+                  data-testid={`tab-plan-view-${v}`}
+                  className={`px-2 py-0.5 text-[10px] uppercase tracking-wider font-display border rounded-sm transition-colors ${
+                    planView === v
+                      ? "text-neon-blue border-neon-blue/60 bg-neon-blue/10"
+                      : "text-slate-gray border-ink-line hover:text-soft-white"
+                  }`}
+                >
+                  {v} ({counts[v]})
+                </button>
+              ))}
+            </div>
+          }
+        >
           {plansLoading ? (
             <div className="text-[12px] text-slate-gray">Loading…</div>
           ) : plans.length === 0 ? (
             <div className="text-[12px] text-slate-gray" data-testid="text-empty-plans">No plans yet. Build one on the left.</div>
+          ) : filteredPlans.length === 0 ? (
+            <div className="text-[12px] text-slate-gray" data-testid="text-empty-filtered-plans">No {planView} plans.</div>
           ) : (
             <div className="space-y-2" data-testid="list-plans">
-              {plans.map((p) => (
+              {filteredPlans.map((p) => (
                 <PlanRow
                   key={p.id}
                   plan={p}
@@ -390,12 +434,19 @@ function PlanRow({
   isPending,
 }: {
   plan: TradePlan;
-  onStatus: (s: "cancelled" | "executed") => void;
+  onStatus: (s: TradePlanStatus) => void;
   isPending: boolean;
 }) {
   const rr = calcRR(Number(plan.entryPrice), Number(plan.stopPrice), plan.targetPrice == null ? null : Number(plan.targetPrice));
-  const statusTone =
-    plan.status === "planned" ? "blue" : plan.status === "executed" ? "green" : "amber";
+  const statusTone: "blue" | "green" | "red" | "amber" =
+    plan.status === "planned" || plan.status === "open"
+      ? "blue"
+      : plan.status === "closed"
+      ? "green"
+      : plan.status === "cancelled"
+      ? "red"
+      : "amber"; // partial
+  const detailLabel = plan.status === "planned" ? "Log Execution" : "View";
   return (
     <div className="border border-ink-line rounded-sm p-2" data-testid={`row-plan-${plan.id}`}>
       <div className="flex items-center justify-between gap-2 mb-1">
@@ -404,7 +455,7 @@ function PlanRow({
           <span className="text-[10px] uppercase tracking-wider text-slate-gray">{plan.setupType}</span>
           <Chip tone={plan.direction === "long" ? "green" : "red"}>{plan.direction}</Chip>
         </div>
-        <Chip tone={statusTone as any}>{plan.status}</Chip>
+        <Chip tone={statusTone}>{plan.status}</Chip>
       </div>
       <div className="grid grid-cols-5 gap-2 text-[11px] font-mono-num tabular-nums">
         <Kv k="Entry" v={`$${Number(plan.entryPrice).toFixed(2)}`} />
@@ -416,18 +467,15 @@ function PlanRow({
       {plan.thesis && (
         <div className="mt-1.5 text-[11px] text-slate-gray line-clamp-2" data-testid={`text-thesis-${plan.id}`}>{plan.thesis}</div>
       )}
-      {plan.status === "planned" && (
-        <div className="flex gap-2 mt-2">
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={isPending}
-            onClick={() => onStatus("executed")}
-            data-testid={`button-execute-${plan.id}`}
-            className="flex-1 text-[11px]"
-          >
-            Mark Executed
-          </Button>
+      <div className="flex gap-2 mt-2">
+        <Link
+          href={`/trade/${plan.id}`}
+          data-testid={`link-detail-${plan.id}`}
+          className="flex-1 inline-flex items-center justify-center px-2 py-1 text-[11px] font-display uppercase tracking-wider border border-neon-blue/60 text-neon-blue bg-neon-blue/10 hover:bg-neon-blue/20 rounded-sm transition-colors"
+        >
+          {detailLabel}
+        </Link>
+        {plan.status === "planned" && (
           <Button
             size="sm"
             variant="outline"
@@ -438,8 +486,8 @@ function PlanRow({
           >
             Cancel
           </Button>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }

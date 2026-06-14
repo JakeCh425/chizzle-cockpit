@@ -46,7 +46,10 @@ import {
   insertChizzleScoreSchema,
   insertLeapReserveSchema,
   insertTradePlanSchema,
+  insertTradeExecutionSchema,
+  TRADE_PLAN_STATUSES,
 } from "@shared/schema";
+import { calcExecutionStats, validateExecution } from "@shared/executions";
 import { z, type ZodTypeAny } from "zod";
 import { fromZodError } from "zod-validation-error";
 import {
@@ -2005,7 +2008,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
   app.patch("/api/trade-plans/:id", async (req, res) => {
     try {
-      const statusSchema = z.object({ status: z.enum(["planned", "cancelled", "executed"]) });
+      const statusSchema = z.object({ status: z.enum(TRADE_PLAN_STATUSES) });
       const parsed = statusSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: fromZodError(parsed.error).toString() });
@@ -2015,6 +2018,96 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "failed to update trade plan" });
+    }
+  });
+
+  // ─── Single trade plan (used by Trade Detail page) ───────────────────────
+  app.get("/api/trade-plans/:id", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+      res.json(plan);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load trade plan" });
+    }
+  });
+
+  // ─── Trade Executions (Phase 2) ───────────────────────────────────────────
+  app.get("/api/trade-plans/:id/executions", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+      const rows = await storage.listExecutions(req.params.id);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to list executions" });
+    }
+  });
+
+  app.post("/api/trade-plans/:id/executions", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+
+      // Inject tradePlanId from URL so the client can't lie about it.
+      const body = { ...(req.body ?? {}), tradePlanId: req.params.id };
+      const parsed = insertTradeExecutionSchema.safeParse(body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+      }
+
+      // Server-side defense: re-validate against current execution state.
+      const existing = await storage.listExecutions(req.params.id);
+      const direction = (plan.direction === "short" ? "short" : "long") as "long" | "short";
+      const stats = calcExecutionStats(existing, direction);
+      const errMsg = validateExecution(
+        {
+          executionType: parsed.data.executionType,
+          shares: parsed.data.shares,
+          price: parsed.data.price,
+          fees: parsed.data.fees ?? 0,
+        },
+        stats,
+      );
+      if (errMsg) {
+        return res.status(400).json({ error: errMsg, code: "EXECUTION_VALIDATION" });
+      }
+
+      const created = await storage.createExecution(parsed.data);
+
+      // Re-derive plan status after insert and persist if changed.
+      // Manual 'cancelled' is preserved — only auto-update when current status is not 'cancelled'.
+      const after = calcExecutionStats([...existing, created], direction);
+      let updatedPlan = plan;
+      if (plan.status !== "cancelled" && plan.status !== after.derivedStatus) {
+        const next = await storage.updateTradePlanStatus(req.params.id, after.derivedStatus);
+        if (next) updatedPlan = next;
+      }
+      res.status(201).json({ execution: created, plan: updatedPlan });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to create execution" });
+    }
+  });
+
+  app.delete("/api/trade-plans/:id/executions/:executionId", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+      const ok = await storage.deleteExecution(req.params.executionId, req.params.id);
+      if (!ok) return res.status(404).json({ error: "execution not found" });
+
+      // Re-derive plan status after deletion.
+      const remaining = await storage.listExecutions(req.params.id);
+      const direction = (plan.direction === "short" ? "short" : "long") as "long" | "short";
+      const after = calcExecutionStats(remaining, direction);
+      let updatedPlan = plan;
+      if (plan.status !== "cancelled" && plan.status !== after.derivedStatus) {
+        const next = await storage.updateTradePlanStatus(req.params.id, after.derivedStatus);
+        if (next) updatedPlan = next;
+      }
+      res.json({ ok: true, plan: updatedPlan });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to delete execution" });
     }
   });
 

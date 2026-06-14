@@ -353,6 +353,13 @@ export const insertAlertLogSchema = createInsertSchema(alertLog).omit({ id: true
 // Independent of `trades`. Lets Jake stage entry/stop/target/risk before
 // committing to an executed trade. Reuses Settings (equity + regime risk %) as
 // the risk profile — no separate risk_profiles table.
+// Phase 2 widened the status enum to support execution-derived lifecycle states.
+export const TRADE_PLAN_STATUSES = ["planned", "open", "partial", "closed", "cancelled"] as const;
+export type TradePlanStatus = (typeof TRADE_PLAN_STATUSES)[number];
+
+export const EXECUTION_TYPES = ["entry", "add", "partial_exit", "exit"] as const;
+export type ExecutionType = (typeof EXECUTION_TYPES)[number];
+
 export const tradePlans = pgTable("trade_plans", {
   id: uuid("id").primaryKey().defaultRandom(),
   ticker: text("ticker").notNull(),
@@ -380,7 +387,34 @@ export const insertTradePlanSchema = createInsertSchema(tradePlans)
     riskPercent: z.number().positive().max(100),
     plannedShares: z.number().int().min(0),
     thesis: z.string().default(""),
-    status: z.enum(["planned", "cancelled", "executed"]).default("planned"),
+    status: z.enum(TRADE_PLAN_STATUSES).default("planned"),
+  });
+
+// ─── trade_executions (Phase 2: actual fills logged against a trade plan) ────
+// One trade_plans row may have many executions. Executions are the source of
+// truth for realized P&L. Status on trade_plans is derived from these rows.
+export const tradeExecutions = pgTable("trade_executions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tradePlanId: uuid("trade_plan_id").notNull().references(() => tradePlans.id, { onDelete: "cascade" }),
+  executionType: text("execution_type").notNull(),
+  shares: integer("shares").notNull(),
+  price: doublePrecision("price").notNull(),
+  fees: doublePrecision("fees").notNull().default(0),
+  executedAt: timestamp("executed_at", { withTimezone: true }).notNull().defaultNow(),
+  notes: text("notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const insertTradeExecutionSchema = createInsertSchema(tradeExecutions)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    tradePlanId: z.string().uuid(),
+    executionType: z.enum(EXECUTION_TYPES),
+    shares: z.number().int().positive(),
+    price: z.number().positive(),
+    fees: z.number().min(0).default(0),
+    executedAt: z.coerce.date().default(() => new Date()),
+    notes: z.string().max(2000).default(""),
   });
 
 export type Settings = typeof settings.$inferSelect;
@@ -423,3 +457,5 @@ export type AlertLogRow = typeof alertLog.$inferSelect;
 export type InsertAlertLog = z.infer<typeof insertAlertLogSchema>;
 export type TradePlan = typeof tradePlans.$inferSelect;
 export type InsertTradePlan = z.infer<typeof insertTradePlanSchema>;
+export type TradeExecution = typeof tradeExecutions.$inferSelect;
+export type InsertTradeExecution = z.infer<typeof insertTradeExecutionSchema>;
