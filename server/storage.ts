@@ -18,6 +18,7 @@ import {
   signalHistory,
   alertContacts,
   alertLog,
+  tradePlans,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -39,6 +40,7 @@ import type {
   SignalHistory, InsertSignalHistory,
   AlertContact, InsertAlertContact,
   AlertLogRow, InsertAlertLog,
+  TradePlan, InsertTradePlan,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -334,6 +336,25 @@ CREATE INDEX IF NOT EXISTS idx_signal_history_ts ON signal_history(timestamp DES
 CREATE INDEX IF NOT EXISTS idx_signal_history_ticker ON signal_history(ticker);
 CREATE UNIQUE INDEX IF NOT EXISTS uniq_signal_history_dedup
   ON signal_history(ticker, pattern_type, timestamp);
+
+CREATE TABLE IF NOT EXISTS trade_plans (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ticker TEXT NOT NULL,
+  setup_type TEXT NOT NULL,
+  direction TEXT NOT NULL DEFAULT 'long',
+  entry_price DOUBLE PRECISION NOT NULL,
+  stop_price DOUBLE PRECISION NOT NULL,
+  target_price DOUBLE PRECISION,
+  risk_percent DOUBLE PRECISION NOT NULL,
+  planned_shares INTEGER NOT NULL,
+  thesis TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'planned',
+  created_at TEXT NOT NULL DEFAULT '',
+  updated_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_trade_plans_status ON trade_plans(status);
+CREATE INDEX IF NOT EXISTS idx_trade_plans_ticker ON trade_plans(ticker);
+CREATE INDEX IF NOT EXISTS idx_trade_plans_created_at ON trade_plans(created_at DESC);
 `);
 
   // Idempotent column additions (Postgres supports ADD COLUMN IF NOT EXISTS natively)
@@ -1100,5 +1121,35 @@ export const storage = {
     const before = await db.select().from(alertLog);
     await db.delete(alertLog);
     return before.length;
+  },
+
+  // ─── trade_plans ────────────────────────────────────────────────────────────
+  async listTradePlans(status?: string): Promise<TradePlan[]> {
+    if (status) {
+      return db.select().from(tradePlans).where(eq(tradePlans.status, status)).orderBy(desc(tradePlans.createdAt));
+    }
+    return db.select().from(tradePlans).orderBy(desc(tradePlans.createdAt));
+  },
+  async createTradePlan(input: InsertTradePlan): Promise<TradePlan> {
+    const now = new Date().toISOString();
+    const [created] = await db
+      .insert(tradePlans)
+      .values({ ...input, createdAt: now, updatedAt: now } as any)
+      .returning();
+    return created;
+  },
+  async updateTradePlanStatus(id: string, status: "planned" | "cancelled" | "executed"): Promise<TradePlan | undefined> {
+    const now = new Date().toISOString();
+    const [updated] = await db
+      .update(tradePlans)
+      .set({ status, updatedAt: now })
+      .where(eq(tradePlans.id, id))
+      .returning();
+    return updated;
+  },
+  async sumPlannedOpenRisk(): Promise<number> {
+    // Sum risk_percent across status='planned' rows. Used to enforce maxOpenRiskPct.
+    const rows = await db.select().from(tradePlans).where(eq(tradePlans.status, "planned"));
+    return rows.reduce((acc, r) => acc + Number(r.riskPercent || 0), 0);
   },
 };

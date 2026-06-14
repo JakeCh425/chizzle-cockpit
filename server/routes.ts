@@ -45,6 +45,7 @@ import {
   insertEquityHistorySchema,
   insertChizzleScoreSchema,
   insertLeapReserveSchema,
+  insertTradePlanSchema,
 } from "@shared/schema";
 import { z, type ZodTypeAny } from "zod";
 import { fromZodError } from "zod-validation-error";
@@ -1965,6 +1966,57 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   setTimeout(bullBarScan, 30000);
   setInterval(bullBarScan, 5 * 60 * 1000);
+
+  // ─── Trade Plans (Phase 1 Trade Planner) ──────────────────────────────────────
+  app.get("/api/trade-plans", async (req, res) => {
+    try {
+      const status = typeof req.query.status === "string" ? req.query.status : undefined;
+      const rows = await storage.listTradePlans(status);
+      res.json(rows);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to list trade plans" });
+    }
+  });
+  app.post("/api/trade-plans", async (req, res) => {
+    try {
+      const parsed = insertTradePlanSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+      }
+      // Enforce maxOpenRiskPct: block save if cumulative planned risk would exceed cap.
+      const s = await storage.getSettings();
+      const cap = Number(s?.maxOpenRiskPct ?? 6);
+      const currentOpen = await storage.sumPlannedOpenRisk();
+      const projected = currentOpen + Number(parsed.data.riskPercent || 0);
+      if (projected > cap + 1e-6) {
+        return res.status(409).json({
+          error: `Adding this plan would push planned open risk to ${projected.toFixed(2)}%, above your cap of ${cap.toFixed(2)}%. Cancel or execute an existing plan, or raise the cap in Settings.`,
+          code: "OPEN_RISK_CAP_EXCEEDED",
+          cap,
+          currentOpen,
+          projected,
+        });
+      }
+      const created = await storage.createTradePlan(parsed.data);
+      res.status(201).json(created);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to create trade plan" });
+    }
+  });
+  app.patch("/api/trade-plans/:id", async (req, res) => {
+    try {
+      const statusSchema = z.object({ status: z.enum(["planned", "cancelled", "executed"]) });
+      const parsed = statusSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+      }
+      const updated = await storage.updateTradePlanStatus(req.params.id, parsed.data.status);
+      if (!updated) return res.status(404).json({ error: "trade plan not found" });
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to update trade plan" });
+    }
+  });
 
   return httpServer;
 }

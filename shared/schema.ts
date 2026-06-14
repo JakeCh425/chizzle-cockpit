@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, doublePrecision, serial } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, doublePrecision, serial, timestamp, uuid, numeric } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -349,6 +349,40 @@ export const insertSignalHistorySchema = createInsertSchema(signalHistory).omit(
 export const insertAlertContactSchema = createInsertSchema(alertContacts).omit({ id: true, createdAt: true });
 export const insertAlertLogSchema = createInsertSchema(alertLog).omit({ id: true });
 
+// ─── trade_plans (Phase 1 Trade Planner) ──────────────────────────────────────
+// Independent of `trades`. Lets Jake stage entry/stop/target/risk before
+// committing to an executed trade. Reuses Settings (equity + regime risk %) as
+// the risk profile — no separate risk_profiles table.
+export const tradePlans = pgTable("trade_plans", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticker: text("ticker").notNull(),
+  setupType: text("setup_type").notNull(),
+  direction: text("direction").notNull().default("long"), // long | short
+  entryPrice: doublePrecision("entry_price").notNull(),
+  stopPrice: doublePrecision("stop_price").notNull(),
+  targetPrice: doublePrecision("target_price"),
+  riskPercent: doublePrecision("risk_percent").notNull(),
+  plannedShares: integer("planned_shares").notNull(),
+  thesis: text("thesis").notNull().default(""),
+  status: text("status").notNull().default("planned"), // planned | cancelled | executed
+  createdAt: text("created_at").notNull().default(""),
+  updatedAt: text("updated_at").notNull().default(""),
+});
+export const insertTradePlanSchema = createInsertSchema(tradePlans)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    ticker: z.string().min(1).max(16).transform((s) => s.toUpperCase()),
+    setupType: z.string().min(1),
+    direction: z.enum(["long", "short"]).default("long"),
+    entryPrice: z.number().positive(),
+    stopPrice: z.number().positive(),
+    targetPrice: z.number().positive().nullable().optional(),
+    riskPercent: z.number().positive().max(100),
+    plannedShares: z.number().int().min(0),
+    thesis: z.string().default(""),
+    status: z.enum(["planned", "cancelled", "executed"]).default("planned"),
+  });
+
 export type Settings = typeof settings.$inferSelect;
 export type InsertSettings = z.infer<typeof insertSettingsSchema>;
 export type Ticker = typeof tickers.$inferSelect;
@@ -387,3 +421,5 @@ export type AlertContact = typeof alertContacts.$inferSelect;
 export type InsertAlertContact = z.infer<typeof insertAlertContactSchema>;
 export type AlertLogRow = typeof alertLog.$inferSelect;
 export type InsertAlertLog = z.infer<typeof insertAlertLogSchema>;
+export type TradePlan = typeof tradePlans.$inferSelect;
+export type InsertTradePlan = z.infer<typeof insertTradePlanSchema>;
