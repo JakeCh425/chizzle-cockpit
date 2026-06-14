@@ -1,7 +1,7 @@
 // Phase 1 — Trade Planner page.
 // Layout: header (account + regime risk + open-risk meter) + form (left)
 // + saved plans table (right/below). No journaling/charts/AI/screenshots.
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { Button } from "@/components/ui/button";
@@ -35,7 +35,7 @@ const SETUP_TYPES = [
   "Strong Bull Bar",
   "Aggressive Bounce",
   "V-Bottom Continuation",
-  "Green Run",
+  "Follow-through Green Run",
   "SMA20 Bounce",
   "Other",
 ] as const;
@@ -63,6 +63,34 @@ export default function TradePlanner() {
   const [target, setTarget] = useState("");
   const [riskPctStr, setRiskPctStr] = useState<string>(defaultRiskPct.toFixed(1));
   const [thesis, setThesis] = useState("");
+  const [prefilled, setPrefilled] = useState(false);
+
+  // Pre-fill from URL query (?ticker=SMH&entry=210&stop=205&target=225&setup=Hammer&direction=long).
+  // wouter's useHashLocation puts the query in window.location.search (not the hash) when
+  // navigating with hrefs like "/trade-planner?ticker=...".
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const search = window.location.search;
+    if (!search || search.length <= 1) return;
+    const params = new URLSearchParams(search);
+    const t = params.get("ticker");
+    const e = params.get("entry");
+    const s = params.get("stop");
+    const tg = params.get("target");
+    const setup = params.get("setup");
+    const dir = params.get("direction");
+    if (t) setTicker(t.toUpperCase());
+    if (e) setEntry(e);
+    if (s) setStop(s);
+    if (tg) setTarget(tg);
+    if (setup && (SETUP_TYPES as readonly string[]).includes(setup)) setSetupType(setup);
+    if (dir === "long" || dir === "short") setDirection(dir);
+    if (t || e || s || tg || setup || dir) {
+      setPrefilled(true);
+      // Strip the query so a refresh doesn't re-prefill stale values.
+      window.history.replaceState(null, "", window.location.pathname + window.location.hash);
+    }
+  }, []);
 
   // Sync risk% with regime when user hasn't touched it / when regime flips
   // (only auto-fill if current value matches a previously-derived default)
@@ -164,7 +192,7 @@ export default function TradePlanner() {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* ── New plan form ───────────────────────────────────────────────── */}
-        <Panel title="New Trade Plan" hint="Phase 1 · sized via your risk profile">
+        <Panel title="New Trade Plan" hint={prefilled ? "Pre-filled from monitor — review and save" : "Phase 1 · sized via your risk profile"}>
           <form onSubmit={onSubmit} className="space-y-3" data-testid="form-trade-plan">
             <div className="grid grid-cols-2 gap-3">
               <div>

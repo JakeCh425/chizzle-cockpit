@@ -12,9 +12,11 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { formatShares } from "@/lib/engine";
 import { sharesForPlan, useSharesContext } from "@/lib/useShares";
+import { buildPlannerHref } from "@/lib/planLink";
 
 type Timeframe = "1h" | "4h";
 type Rr = 2 | 3 | 4 | 5;
@@ -180,6 +182,7 @@ export default function ContinuationMonitor() {
               <th className="text-right py-1 px-2">Target</th>
               <th className="text-right py-1 px-2">Shares</th>
               <th className="text-left py-1 pl-2">Notes</th>
+              <th className="text-right py-1 pl-2 pr-1">Plan</th>
             </tr>
           </thead>
           <tbody>
@@ -230,11 +233,32 @@ export default function ContinuationMonitor() {
                     {sharesVal}
                   </td>
                   <td className="pl-2 text-slate-gray text-[11px] max-w-[260px] truncate" title={s.notes}>{s.notes}</td>
+                  <td className="pl-2 pr-1 text-right">
+                    {s.trade_plan && s.pattern ? (
+                      <Link
+                        href={buildPlannerHref({
+                          ticker: s.symbol,
+                          entry: s.trade_plan.entry,
+                          stop: s.trade_plan.stop_loss,
+                          target: s.trade_plan.target,
+                          setup: s.pattern,
+                          direction: "long",
+                        })}
+                        className="inline-block px-2 py-0.5 rounded border text-[10px] uppercase tracking-wide bg-neon-blue/10 text-neon-blue border-neon-blue/40 hover:bg-neon-blue/20"
+                        data-testid={`btn-cm-plan-${s.symbol}`}
+                        title="Pre-fill Trade Planner with this setup"
+                      >
+                        Plan
+                      </Link>
+                    ) : (
+                      <span className="text-slate-gray text-[10px]">—</span>
+                    )}
+                  </td>
                 </tr>
               );
             })}
             {data.symbols.length === 0 && (
-              <tr><td colSpan={14} className="text-center text-slate-gray py-4">No data returned.</td></tr>
+              <tr><td colSpan={15} className="text-center text-slate-gray py-4">No data returned.</td></tr>
             )}
           </tbody>
         </table>
