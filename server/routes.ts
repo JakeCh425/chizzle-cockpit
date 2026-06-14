@@ -2248,5 +2248,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Phase 4: unified analytics feed ──────────────────────────────────
+  // Returns closed trades from legacy `trades` + Phase 2/3 lifecycle,
+  // pre-joined with executions, reviews, and tags. Date range applied
+  // server-side; all other filters applied client-side for instant UI.
+  app.get("/api/analytics/trades", async (req, res) => {
+    try {
+      const fromRaw = typeof req.query.from === "string" ? req.query.from.trim() : "";
+      const toRaw   = typeof req.query.to   === "string" ? req.query.to.trim()   : "";
+      // Validate YYYY-MM-DD if present. Invalid dates are silently ignored
+      // (treated as no filter) to keep the endpoint forgiving.
+      const dateRe = /^\d{4}-\d{2}-\d{2}$/;
+      const from = dateRe.test(fromRaw) ? fromRaw : undefined;
+      const to   = dateRe.test(toRaw)   ? toRaw   : undefined;
+      const rows = await storage.listUnifiedClosedTrades({ from, to });
+      res.json(rows);
+    } catch (e: any) {
+      console.error("[analytics] listUnifiedClosedTrades failed:", e);
+      res.status(500).json({ error: e?.message || "failed to load analytics trades" });
+    }
+  });
+
   return httpServer;
 }

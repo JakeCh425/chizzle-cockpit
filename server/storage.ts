@@ -1320,4 +1320,160 @@ export const storage = {
       .returning();
     return result.length > 0;
   },
+
+  // ─── analytics (Phase 4) ─────────────────────────────────────────
+  // Unified closed-trades feed: legacy `trades` (status=CLOSED) UNION ALL
+  // Phase 2/3 lifecycle (`trade_plans` status='closed' with aggregated
+  // executions, optional review, optional tags).
+  //
+  // Filtering by date range is done in SQL to keep payloads small on long
+  // histories; everything else is filtered client-side for instant UI.
+  async listUnifiedClosedTrades(opts?: {
+    from?: string;
+    to?: string;
+  }): Promise<Array<{
+    id: string;
+    source: "legacy" | "new";
+    ticker: string;
+    setupType: string;
+    setupTypeRaw: string;
+    direction: "long" | "short";
+    status: "closed";
+    openedAt: string;
+    closedAt: string;
+    netPnl: number;
+    plannedRiskDollars: number | null;
+    rMultiple: number | null;
+    followedPlan: boolean | null;
+    tags: string[];
+    holdDays: number;
+  }>> {
+    // Inclusive date window. `to` is end-of-day.
+    const fromIso = opts?.from ? new Date(opts.from + "T00:00:00Z").toISOString() : null;
+    const toIso = opts?.to ? new Date(opts.to + "T23:59:59.999Z").toISOString() : null;
+
+    // The query uses raw SQL because it spans two table groups with very
+    // different shapes, and Drizzle's relational API would force two queries +
+    // an in-memory join. Single SQL pass is simpler and faster.
+    const result = await db.execute(sql`
+      WITH legacy_closed AS (
+        SELECT
+          ('legacy:' || t.id::text)                              AS id,
+          'legacy'::text                                         AS source,
+          t.ticker                                               AS ticker,
+          LOWER(TRIM(t.setup))                                   AS setup_type,
+          t.setup                                                AS setup_type_raw,
+          'long'::text                                           AS direction,
+          'closed'::text                                         AS status,
+          t.opened_at::text                                      AS opened_at,
+          t.closed_at::text                                      AS closed_at,
+          -- Legacy stored shares + entry/exit (long-only). Net P&L = (exit - entry) * shares.
+          CASE WHEN t.exit IS NOT NULL THEN (t.exit - t.entry) * t.shares ELSE 0 END AS net_pnl,
+          -- Legacy risk_dollars was the planned per-trade risk.
+          NULLIF(t.risk_dollars, 0)                              AS planned_risk_dollars,
+          t.r_multiple                                           AS r_multiple,
+          t.plan_followed                                        AS followed_plan,
+          ARRAY[]::text[]                                        AS tags,
+          GREATEST(0, EXTRACT(EPOCH FROM (t.closed_at::timestamptz - t.opened_at::timestamptz)) / 86400.0)::double precision AS hold_days
+        FROM trades t
+        WHERE t.status = 'CLOSED'
+          AND t.archived = false
+          AND t.closed_at IS NOT NULL
+          AND (${fromIso}::timestamptz IS NULL OR t.closed_at::timestamptz >= ${fromIso}::timestamptz)
+          AND (${toIso}::timestamptz   IS NULL OR t.closed_at::timestamptz <= ${toIso}::timestamptz)
+      ),
+      new_exec_agg AS (
+        SELECT
+          te.trade_plan_id,
+          SUM(
+            CASE
+              WHEN te.execution_type IN ('exit','partial_exit') THEN  te.shares * te.price - COALESCE(te.fees, 0)
+              WHEN te.execution_type IN ('entry','add')         THEN -(te.shares * te.price + COALESCE(te.fees, 0))
+              ELSE 0
+            END
+          )                              AS net_pnl,
+          MIN(te.executed_at)::text      AS opened_at,
+          MAX(te.executed_at)::text      AS closed_at
+        FROM trade_executions te
+        GROUP BY te.trade_plan_id
+      ),
+      new_review_tags AS (
+        SELECT
+          tr.trade_plan_id,
+          tr.followed_plan,
+          COALESCE(
+            ARRAY_AGG(LOWER(tt.name)) FILTER (WHERE tt.id IS NOT NULL),
+            ARRAY[]::text[]
+          ) AS tags
+        FROM trade_reviews tr
+        LEFT JOIN trade_review_tags trt ON trt.trade_review_id = tr.id
+        LEFT JOIN trade_tags tt          ON tt.id = trt.trade_tag_id
+        GROUP BY tr.id
+      ),
+      new_closed AS (
+        SELECT
+          ('new:' || tp.id::text)                                AS id,
+          'new'::text                                            AS source,
+          tp.ticker                                              AS ticker,
+          LOWER(TRIM(tp.setup_type))                             AS setup_type,
+          tp.setup_type                                          AS setup_type_raw,
+          tp.direction                                           AS direction,
+          'closed'::text                                         AS status,
+          COALESCE(nea.opened_at, tp.created_at)::text           AS opened_at,
+          COALESCE(nea.closed_at, tp.updated_at)::text           AS closed_at,
+          COALESCE(nea.net_pnl, 0)                               AS net_pnl,
+          -- Planned risk = |entry - stop| * planned_shares.
+          CASE
+            WHEN ABS(tp.entry_price - tp.stop_price) * tp.planned_shares > 0
+              THEN ABS(tp.entry_price - tp.stop_price) * tp.planned_shares
+            ELSE NULL
+          END                                                    AS planned_risk_dollars,
+          -- Realized R = net P&L / planned $ risk. NULL if risk not computable.
+          CASE
+            WHEN ABS(tp.entry_price - tp.stop_price) * tp.planned_shares > 0
+              THEN COALESCE(nea.net_pnl, 0) / (ABS(tp.entry_price - tp.stop_price) * tp.planned_shares)
+            ELSE NULL
+          END                                                    AS r_multiple,
+          nrt.followed_plan                                      AS followed_plan,
+          COALESCE(nrt.tags, ARRAY[]::text[])                    AS tags,
+          GREATEST(
+            0,
+            EXTRACT(EPOCH FROM (
+              COALESCE(nea.closed_at, tp.updated_at)::timestamptz
+              - COALESCE(nea.opened_at, tp.created_at)::timestamptz
+            )) / 86400.0
+          )::double precision                                    AS hold_days
+        FROM trade_plans tp
+        LEFT JOIN new_exec_agg   nea ON nea.trade_plan_id = tp.id
+        LEFT JOIN new_review_tags nrt ON nrt.trade_plan_id = tp.id
+        WHERE tp.status = 'closed'
+          AND (${fromIso}::timestamptz IS NULL OR COALESCE(nea.closed_at, tp.updated_at)::timestamptz >= ${fromIso}::timestamptz)
+          AND (${toIso}::timestamptz   IS NULL OR COALESCE(nea.closed_at, tp.updated_at)::timestamptz <= ${toIso}::timestamptz)
+      )
+      SELECT * FROM legacy_closed
+      UNION ALL
+      SELECT * FROM new_closed
+      ORDER BY closed_at ASC NULLS LAST
+    `);
+
+    // pg returns column names in snake_case; map to camelCase + coerce types.
+    const rows: any[] = (result as any).rows ?? (result as any[]);
+    return rows.map((r) => ({
+      id: String(r.id),
+      source: r.source as "legacy" | "new",
+      ticker: String(r.ticker ?? ""),
+      setupType: String(r.setup_type ?? ""),
+      setupTypeRaw: String(r.setup_type_raw ?? ""),
+      direction: (r.direction === "short" ? "short" : "long") as "long" | "short",
+      status: "closed" as const,
+      openedAt: r.opened_at ? new Date(r.opened_at).toISOString() : "",
+      closedAt: r.closed_at ? new Date(r.closed_at).toISOString() : "",
+      netPnl: Number(r.net_pnl ?? 0),
+      plannedRiskDollars: r.planned_risk_dollars == null ? null : Number(r.planned_risk_dollars),
+      rMultiple: r.r_multiple == null ? null : Number(r.r_multiple),
+      followedPlan: r.followed_plan == null ? null : Boolean(r.followed_plan),
+      tags: Array.isArray(r.tags) ? r.tags.map((t: any) => String(t)) : [],
+      holdDays: Number(r.hold_days ?? 0),
+    }));
+  },
 };

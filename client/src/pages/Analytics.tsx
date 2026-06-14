@@ -1,262 +1,201 @@
+// ─── Phase 4: Analytics dashboard ────────────────────────────────────────────
+// Reads the unified closed-trades feed from /api/analytics/trades. Server
+// applies the date filter; everything else is filtered + computed client-side.
+//
+// Layout:
+//   1. Header + filter bar
+//   2. 13 KPI cards (2 rows)
+//   3. Equity curve + drawdown (recharts, area + line)
+//   4. R-distribution histogram
+//   5. Four breakdown tables (ticker / setup / tag / followedPlan)
+//   6. Time-bucket breakdown (month / week / day toggle)
+
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Panel, Chip } from "@/components/Panel";
-import type { Trade, EquityHistory } from "@shared/schema";
-import { expectancy, drawdown, fmtR } from "@/lib/engine";
 import {
-  BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis,
-  CartesianGrid, ResponsiveContainer, Tooltip, ReferenceLine,
+  AreaChart, Area, BarChart, Bar, ComposedChart, Line,
+  XAxis, YAxis, CartesianGrid, ResponsiveContainer, Tooltip, ReferenceLine,
 } from "recharts";
+import { Panel } from "@/components/Panel";
+import { AnalyticsFilters } from "@/components/AnalyticsFilters";
+import {
+  applyFilters,
+  computeCoreMetrics,
+  computeEquityCurve,
+  computeRDistribution,
+  computeBreakdown,
+  fmtUsd, fmtPct, fmtR, fmtFactor, fmtDays,
+} from "@/lib/analytics";
+import type {
+  UnifiedTrade,
+  AnalyticsFilters as AnalyticsFiltersT,
+  BreakdownDimension,
+  BreakdownRow,
+} from "@shared/analytics";
+
+// ─── Page ────────────────────────────────────────────────────────────────────
 
 export default function Analytics() {
-  const { data: trades } = useQuery<Trade[]>({ queryKey: ["/api/trades"] });
-  const { data: equity } = useQuery<EquityHistory[]>({ queryKey: ["/api/equity-history"] });
+  const [filters, setFilters] = useState<AnalyticsFiltersT>({});
 
-  const closed = (trades || []).filter(t => t.status === "CLOSED");
-  const exp = expectancy(closed);
-  const dd = drawdown(equity || []);
-  const last20 = closed.slice(0, 20).map((t, i) => ({ i, r: t.rMultiple ?? 0 })).reverse();
-  const eqData = (equity || []).map(e => ({ date: e.date, equity: e.equity, dd: e.drawdownPct }));
+  // Server-side filter only carries the date range; other filters apply
+  // client-side without a refetch. The query key includes from/to so date
+  // changes trigger a refetch.
+  const qs = new URLSearchParams();
+  if (filters.from) qs.set("from", filters.from);
+  if (filters.to)   qs.set("to", filters.to);
+  const queryString = qs.toString();
 
-  // Per ticker breakdown
-  const byTicker: Record<string, { count: number; totalR: number; wins: number }> = {};
-  for (const t of closed) {
-    if (!byTicker[t.ticker]) byTicker[t.ticker] = { count: 0, totalR: 0, wins: 0 };
-    byTicker[t.ticker].count++;
-    byTicker[t.ticker].totalR += t.rMultiple ?? 0;
-    if ((t.rMultiple ?? 0) > 0) byTicker[t.ticker].wins++;
-  }
-  const tickerData = Object.entries(byTicker).map(([sym, v]) => ({ sym, totalR: v.totalR, count: v.count }));
+  const { data: trades = [], isLoading, isError } = useQuery<UnifiedTrade[]>({
+    queryKey: ["/api/analytics/trades", filters.from ?? null, filters.to ?? null],
+    queryFn: async () => {
+      const res = await fetch("/api/analytics/trades" + (queryString ? `?${queryString}` : ""));
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.json();
+    },
+  });
 
-  // Per setup (now with win rate + avg R)
-  const setups = ["TREND_PULLBACK", "BREAKOUT"] as const;
-  const setupData = setups.map(s => {
-    const arr = closed.filter(t => t.setup === s);
-    const expe = expectancy(arr);
-    const totalR = arr.reduce((acc, t) => acc + (t.rMultiple ?? 0), 0);
-    const avgR = arr.length ? totalR / arr.length : 0;
+  // Distinct values for selects — taken from the loaded dataset so we never
+  // present a filter value that yields zero rows.
+  const options = useMemo(() => {
+    const tickers = new Set<string>();
+    const setupMap = new Map<string, string>();
+    const tags = new Set<string>();
+    for (const t of trades) {
+      if (t.ticker) tickers.add(t.ticker);
+      if (t.setupType) setupMap.set(t.setupType, t.setupTypeRaw || t.setupType);
+      for (const tag of t.tags) tags.add(tag);
+    }
     return {
-      setup: s === "BREAKOUT" ? "Breakout" : "Trend",
-      expectancy: expe.value,
-      winRate: expe.winRate * 100,
-      avgR,
-      n: arr.length,
+      tickers: Array.from(tickers).sort(),
+      setups: Array.from(setupMap.entries()).map(([key, label]) => ({ key, label })).sort((a, b) => a.label.localeCompare(b.label)),
+      tags: Array.from(tags).sort(),
     };
-  });
+  }, [trades]);
 
-  // Avg R across all closed trades
-  const totalRAll = closed.reduce((s, t) => s + (t.rMultiple ?? 0), 0);
-  const avgRAll = closed.length ? totalRAll / closed.length : 0;
-
-  // Per quality grade (A / B / C / unknown)
-  const qualities = ["A", "B", "C"] as const;
-  const qualityData = qualities.map(q => {
-    const arr = closed.filter(t => (t.qualityAtEntry || "") === q);
-    const expe = expectancy(arr);
-    const totalR = arr.reduce((acc, t) => acc + (t.rMultiple ?? 0), 0);
-    const avgR = arr.length ? totalR / arr.length : 0;
-    return { grade: q, n: arr.length, winRate: expe.winRate * 100, avgR, totalR };
-  });
-
-  // Per regime
-  const regimes = ["GREEN", "YELLOW", "RED"] as const;
-  const regimeData = regimes.map(r => {
-    const arr = closed.filter(t => t.regimeAtEntry === r);
-    const totalR = arr.reduce((s, t) => s + (t.rMultiple ?? 0), 0);
-    return { regime: r, totalR, n: arr.length };
-  });
-
-  // Hold buckets
-  const buckets = [
-    { label: "1–3d", min: 1, max: 3 },
-    { label: "4–7d", min: 4, max: 7 },
-    { label: "8–15d", min: 8, max: 15 },
-  ];
-  const bucketData = buckets.map(b => {
-    const arr = closed.filter(t => {
-      if (!t.closedAt) return false;
-      const days = Math.floor((new Date(t.closedAt).getTime() - new Date(t.openedAt).getTime()) / 86400000);
-      return days >= b.min && days <= b.max;
-    });
-    const expe = expectancy(arr);
-    return { bucket: b.label, expectancy: expe.value, n: arr.length };
-  });
-
-  // Health flags
-  const flags: { label: string; tone: "red" | "amber" | "green" }[] = [];
-  if (exp.n >= 10 && exp.value < 0.1) flags.push({ label: "Expectancy Decay", tone: "red" });
-  for (const s of setupData) {
-    if (s.n >= 10 && s.expectancy < 0) flags.push({ label: `Setup Drift · ${s.setup}`, tone: "red" });
-  }
+  // The filtered dataset is the input to every calc on the page.
+  const filtered = useMemo(() => applyFilters(trades, filters), [trades, filters]);
+  const metrics  = useMemo(() => computeCoreMetrics(filtered), [filtered]);
+  const curve    = useMemo(() => computeEquityCurve(filtered), [filtered]);
+  const rDist    = useMemo(() => computeRDistribution(filtered), [filtered]);
+  const byTicker = useMemo(() => computeBreakdown(filtered, "ticker"), [filtered]);
+  const bySetup  = useMemo(() => computeBreakdown(filtered, "setup"), [filtered]);
+  const byTag    = useMemo(() => computeBreakdown(filtered, "tag"), [filtered]);
+  const byPlan   = useMemo(() => computeBreakdown(filtered, "followedPlan"), [filtered]);
 
   return (
-    <div className="p-3 md:p-4 space-y-4">
-      <div className="flex items-baseline gap-3 pb-1 border-b border-ink-line/60">
+    <div className="p-3 md:p-4 space-y-4" data-testid="page-analytics">
+      <div className="flex flex-wrap items-baseline gap-3 pb-1 border-b border-ink-line/60">
         <h1 className="font-display text-[15px] tracking-[0.2em] uppercase text-soft-white">Analytics</h1>
-        <span className="text-[10px] uppercase tracking-wider text-slate-gray">{exp.n} closed trades</span>
-      </div>
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        <KPI label="Closed Trades" value={exp.n.toString()} />
-        <KPI label="Win Rate" value={exp.n === 0 ? "—" : `${(exp.winRate * 100).toFixed(1)}%`} tone={exp.n === 0 ? "empty" : exp.winRate >= 0.5 ? "green" : exp.winRate >= 0.35 ? "neutral" : "red"} />
-        <KPI label="Avg R" value={exp.n === 0 ? "—" : fmtR(avgRAll)} tone={exp.n === 0 ? "empty" : avgRAll >= 0.35 ? "green" : avgRAll >= 0 ? "neutral" : "red"} />
-        <KPI label="Expectancy" value={exp.n === 0 ? "—" : fmtR(exp.value)} tone={exp.n === 0 ? "empty" : exp.value >= 0.35 ? "green" : exp.value >= 0 ? "neutral" : "red"} />
-        <KPI label="Max Drawdown" value={!equity || equity.length === 0 ? "—" : `${dd.max.toFixed(2)}%`} tone={!equity || equity.length === 0 ? "empty" : dd.max <= -15 ? "red" : "neutral"} />
+        <span className="text-[10px] uppercase tracking-wider text-slate-gray" data-testid="text-analytics-count">
+          {isLoading ? "loading…" : isError ? "error" : `${filtered.length} of ${trades.length} closed trades`}
+        </span>
       </div>
 
+      <Panel title="Filters">
+        <AnalyticsFilters
+          filters={filters}
+          onChange={setFilters}
+          options={options}
+          onReset={Object.keys(filters).length ? () => setFilters({}) : undefined}
+        />
+      </Panel>
+
+      {/* ─── KPI grid: 7 cards row 1, 6 cards row 2 ─── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-3">
+        <KPI label="Total Trades"  value={metrics.totalTrades.toString()} testId="kpi-total" />
+        <KPI label="Win Rate"      value={metrics.totalTrades ? fmtPct(metrics.winRate) : "—"}
+             tone={!metrics.totalTrades ? "empty" : metrics.winRate >= 0.5 ? "green" : metrics.winRate >= 0.35 ? "neutral" : "red"}
+             testId="kpi-winrate" />
+        <KPI label="Avg Win"       value={metrics.wins ? fmtUsd(metrics.avgWin) : "—"} tone={metrics.wins ? "green" : "empty"} testId="kpi-avgwin" />
+        <KPI label="Avg Loss"      value={metrics.losses ? `−${fmtUsd(metrics.avgLoss).replace(/^[−-]/, "")}` : "—"} tone={metrics.losses ? "red" : "empty"} testId="kpi-avgloss" />
+        <KPI label="Avg R:R"       value={metrics.avgRR ? metrics.avgRR.toFixed(2) : "—"} tone={metrics.avgRR >= 1.5 ? "green" : metrics.avgRR > 0 ? "neutral" : "empty"} testId="kpi-rr" />
+        <KPI label="Expectancy"    value={metrics.totalTrades ? fmtUsd(metrics.expectancy, { sign: true }) : "—"} tone={metrics.expectancy > 0 ? "green" : metrics.expectancy < 0 ? "red" : "empty"} testId="kpi-expectancy" />
+        <KPI label="Profit Factor" value={metrics.totalTrades ? fmtFactor(metrics.profitFactor) : "—"} tone={metrics.profitFactor >= 1.5 ? "green" : metrics.profitFactor >= 1 ? "neutral" : metrics.profitFactor > 0 ? "red" : "empty"} testId="kpi-pf" />
+      </div>
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <KPI label="Gross P&L"     value={fmtUsd(metrics.grossPnl)} tone={metrics.grossPnl > 0 ? "green" : "empty"} testId="kpi-gross" />
+        <KPI label="Net P&L"       value={fmtUsd(metrics.netPnl, { sign: true })} tone={metrics.netPnl > 0 ? "green" : metrics.netPnl < 0 ? "red" : "empty"} testId="kpi-net" />
+        <KPI label="Max Drawdown"  value={metrics.maxDrawdown < 0 ? `${fmtUsd(metrics.maxDrawdown)} (${metrics.maxDrawdownPct.toFixed(1)}%)` : "—"} tone={metrics.maxDrawdown < 0 ? "red" : "empty"} testId="kpi-dd" />
+        <KPI label="Avg Hold"      value={metrics.totalTrades ? fmtDays(metrics.avgHoldDays) : "—"} testId="kpi-hold" />
+        <KPI label="Avg R"         value={metrics.rCounted ? fmtR(metrics.avgR) : "—"} tone={!metrics.rCounted ? "empty" : metrics.avgR >= 0.35 ? "green" : metrics.avgR >= 0 ? "neutral" : "red"} testId="kpi-avgr" />
+        <KPI label="Streaks (W/L)" value={`${metrics.longestWinStreak} / ${metrics.longestLossStreak}`} testId="kpi-streaks" />
+      </div>
+
+      {/* ─── Equity + drawdown curve ─── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-        <Panel title="Equity Curve · Drawdown">
-          <div className="h-56">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={eqData} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
-                <CartesianGrid stroke="hsl(var(--ink-line))" vertical={false} />
-                <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} />
-                <YAxis fontSize={10} tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ background: "hsl(var(--ink-panel))", border: "1px solid hsl(var(--ink-line))", fontSize: 11 }} />
-                <Area type="monotone" dataKey="equity" stroke="hsl(var(--neon-blue))" fill="hsl(var(--neon-blue) / 0.15)" strokeWidth={1.5} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-
-        <Panel title="Expectancy — 20-Trade Rolling">
-          {last20.length === 0 ? (
-            <div className="text-[12px] text-slate-gray py-8 text-center">No closed trades yet.</div>
+        <Panel title="Cumulative Net P&L · Drawdown" hint={curve.length ? `${curve.length} points` : ""}>
+          {curve.length === 0 ? (
+            <Empty label="No closed trades in range." />
           ) : (
-            <div className="h-56">
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={last20}>
+                <ComposedChart data={curve.map((p) => ({
+                  date: p.date.slice(0, 10),
+                  cum: p.cumulativePnl,
+                  dd:  p.drawdown,
+                }))} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
                   <CartesianGrid stroke="hsl(var(--ink-line))" vertical={false} />
-                  <XAxis dataKey="i" fontSize={10} tickLine={false} axisLine={false} />
-                  <YAxis fontSize={10} tickLine={false} axisLine={false} />
-                  <ReferenceLine y={0.35} stroke="hsl(var(--signal-green))" strokeDasharray="2 2" />
+                  <XAxis dataKey="date" fontSize={10} tickLine={false} axisLine={false} minTickGap={32} />
+                  <YAxis fontSize={10} tickLine={false} axisLine={false} tickFormatter={(v) => `$${Number(v).toFixed(0)}`} />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--ink-panel))", border: "1px solid hsl(var(--ink-line))", fontSize: 11 }}
+                    formatter={(v: number, k) => [fmtUsd(v, { sign: k === "cum" }), k === "cum" ? "Cumulative" : "Drawdown"]}
+                  />
                   <ReferenceLine y={0} stroke="hsl(var(--ink-line))" />
-                  <Bar dataKey="r" fill="hsl(var(--neon-blue))" />
-                </BarChart>
+                  <Area type="monotone" dataKey="cum" stroke="hsl(var(--neon-blue))" fill="hsl(var(--neon-blue) / 0.15)" strokeWidth={1.5} />
+                  <Line type="monotone" dataKey="dd"  stroke="hsl(var(--signal-red))" strokeWidth={1} dot={false} />
+                </ComposedChart>
               </ResponsiveContainer>
             </div>
           )}
         </Panel>
-      </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-3">
-        <Panel title="Per Ticker P/L (R)">
-          {tickerData.length === 0 ? <Empty /> : (
-            <div className="h-44">
+        <Panel title="R-Multiple Distribution" hint={metrics.rCounted ? `${metrics.rCounted} with R` : "no R data"}>
+          {metrics.rCounted === 0 ? (
+            <Empty label="No closed trades with computable R in range." />
+          ) : (
+            <div className="h-64">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={tickerData}>
+                <BarChart data={rDist}>
                   <CartesianGrid stroke="hsl(var(--ink-line))" vertical={false} />
-                  <XAxis dataKey="sym" fontSize={10} />
-                  <YAxis fontSize={10} />
-                  <Bar dataKey="totalR" fill="hsl(var(--neon-blue))" />
+                  <XAxis dataKey="label" fontSize={10} tickLine={false} axisLine={false} />
+                  <YAxis fontSize={10} tickLine={false} axisLine={false} allowDecimals={false} />
+                  <Tooltip
+                    contentStyle={{ background: "hsl(var(--ink-panel))", border: "1px solid hsl(var(--ink-line))", fontSize: 11 }}
+                    formatter={(v: number) => [`${v} trade${v === 1 ? "" : "s"}`, "Count"]}
+                  />
+                  <Bar dataKey="count" fill="hsl(var(--neon-blue))" />
                 </BarChart>
               </ResponsiveContainer>
             </div>
           )}
         </Panel>
-        <Panel title="Per Setup Expectancy (R)">
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={setupData}>
-                <CartesianGrid stroke="hsl(var(--ink-line))" vertical={false} />
-                <XAxis dataKey="setup" fontSize={10} />
-                <YAxis fontSize={10} />
-                <ReferenceLine y={0.35} stroke="hsl(var(--signal-green))" strokeDasharray="2 2" />
-                <Bar dataKey="expectancy" fill="hsl(var(--neon-blue))" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
-        <Panel title="Per Hold-Bucket Expectancy">
-          <div className="h-44">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={bucketData}>
-                <CartesianGrid stroke="hsl(var(--ink-line))" vertical={false} />
-                <XAxis dataKey="bucket" fontSize={10} />
-                <YAxis fontSize={10} />
-                <Bar dataKey="expectancy" fill="hsl(var(--gold-lux))" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        </Panel>
       </div>
 
-      <Panel title="Setup Performance — Win Rate · Avg R">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          {setupData.map(s => (
-            <div key={s.setup} className="border border-ink-line p-3 rounded-sm">
-              <div className="flex justify-between items-baseline">
-                <span className="font-display text-[12px] uppercase tracking-widest text-soft-white">{s.setup}</span>
-                <span className="text-[10px] text-slate-gray tabular-nums">{s.n} closed</span>
-              </div>
-              <div className="grid grid-cols-3 gap-2 mt-2">
-                <div>
-                  <div className="text-[10px] text-slate-gray uppercase tracking-wider">Win Rate</div>
-                  <div className={`font-mono-num text-[16px] tabular-nums ${s.n ? "" : "text-slate-gray/60"}`}>{s.n ? `${s.winRate.toFixed(1)}%` : "—"}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-gray uppercase tracking-wider">Avg R</div>
-                  <div className={`font-mono-num text-[16px] tabular-nums ${!s.n ? "text-slate-gray/60" : s.avgR > 0 ? "text-signal-green" : s.avgR < 0 ? "text-signal-red" : ""}`}>{s.n ? fmtR(s.avgR) : "—"}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-gray uppercase tracking-wider">Expectancy</div>
-                  <div className={`font-mono-num text-[16px] tabular-nums ${!s.n ? "text-slate-gray/60" : s.expectancy >= 0.35 ? "text-signal-green" : s.expectancy < 0 ? "text-signal-red" : ""}`}>{s.n ? fmtR(s.expectancy) : "—"}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
+      {/* ─── Breakdowns ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <BreakdownPanel title="Performance by Ticker"         rows={byTicker} dim="ticker" />
+        <BreakdownPanel title="Performance by Setup"          rows={bySetup}  dim="setup" />
+        <BreakdownPanel title="Performance by Tag"            rows={byTag}    dim="tag" />
+        <BreakdownPanel title="Performance by Plan Adherence" rows={byPlan}   dim="followedPlan" />
+      </div>
 
-      <Panel title="Per Quality Grade (A / B / C)">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-          {qualityData.map(q => (
-            <div key={q.grade} className="border border-ink-line p-3 rounded-sm">
-              <div className="flex items-baseline justify-between">
-                <Chip tone={q.grade === "A" ? "green" : q.grade === "B" ? "amber" : "red"}>Grade {q.grade}</Chip>
-                <span className="text-[10px] text-slate-gray tabular-nums">{q.n} trades</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2 mt-2">
-                <div>
-                  <div className="text-[10px] text-slate-gray uppercase tracking-wider">Win Rate</div>
-                  <div className={`font-mono-num text-[16px] tabular-nums ${q.n ? "" : "text-slate-gray/60"}`}>{q.n ? `${q.winRate.toFixed(1)}%` : "—"}</div>
-                </div>
-                <div>
-                  <div className="text-[10px] text-slate-gray uppercase tracking-wider">Avg R</div>
-                  <div className={`font-mono-num text-[16px] tabular-nums ${!q.n ? "text-slate-gray/60" : q.avgR > 0 ? "text-signal-green" : q.avgR < 0 ? "text-signal-red" : ""}`}>{q.n ? fmtR(q.avgR) : "—"}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="Per Regime P/L (R)">
-        <div className="grid grid-cols-3 gap-3">
-          {regimeData.map(r => (
-            <div key={r.regime} className="border border-ink-line p-3 rounded-sm">
-              <div className="flex justify-between">
-                <Chip tone={r.regime === "GREEN" ? "green" : r.regime === "YELLOW" ? "amber" : "red"}>{r.regime}</Chip>
-                <span className="text-[10px] text-slate-gray tabular-nums">{r.n} trades</span>
-              </div>
-              <div className={`mt-2 font-mono-num text-[18px] tabular-nums ${r.totalR > 0 ? "text-signal-green" : r.totalR < 0 ? "text-signal-red" : ""}`}>{fmtR(r.totalR)}</div>
-            </div>
-          ))}
-        </div>
-      </Panel>
-
-      <Panel title="Health Flags">
-        {flags.length === 0 ? (
-          <div className="text-[12px] text-signal-green">All clear. No health flags.</div>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {flags.map((f, i) => <Chip key={i} tone={f.tone}>{f.label}</Chip>)}
-          </div>
-        )}
-      </Panel>
+      <TimeBreakdownPanel trades={filtered} />
     </div>
   );
 }
 
-function KPI({ label, value, tone }: { label: string; value: string; tone?: "green" | "red" | "neutral" | "empty" }) {
+// ─── Subcomponents ───────────────────────────────────────────────────────────
+
+function KPI({
+  label, value, tone, testId,
+}: {
+  label: string;
+  value: string;
+  tone?: "green" | "red" | "neutral" | "empty";
+  testId?: string;
+}) {
   const color =
     tone === "green" ? "text-signal-green"
     : tone === "red" ? "text-signal-red"
@@ -264,11 +203,124 @@ function KPI({ label, value, tone }: { label: string; value: string; tone?: "gre
     : "text-soft-white";
   return (
     <Panel title={label}>
-      <div className={`font-mono-num text-[22px] tabular-nums leading-none ${color}`}>{value}</div>
+      <div className={`font-mono-num text-[20px] tabular-nums leading-none ${color}`} data-testid={testId}>
+        {value}
+      </div>
     </Panel>
   );
 }
 
-function Empty() {
-  return <div className="text-[11px] text-slate-gray py-6 text-center">No data yet.</div>;
+function Empty({ label }: { label: string }) {
+  return <div className="text-[12px] text-slate-gray py-8 text-center">{label}</div>;
 }
+
+function BreakdownPanel({
+  title, rows, dim,
+}: {
+  title: string;
+  rows: BreakdownRow[];
+  dim: BreakdownDimension;
+}) {
+  return (
+    <Panel title={title} hint={rows.length ? `${rows.length} group${rows.length === 1 ? "" : "s"}` : ""}>
+      {rows.length === 0 ? (
+        <Empty label="No data in range." />
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-[12px] min-w-0" data-testid={`table-breakdown-${dim}`}>
+            <thead>
+              <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
+                <th className="text-left py-1.5 pr-2 font-normal">{labelFor(dim)}</th>
+                <th className="text-right py-1.5 px-2 font-normal">N</th>
+                <th className="text-right py-1.5 px-2 font-normal">Win %</th>
+                <th className="text-right py-1.5 px-2 font-normal">Avg R</th>
+                <th className="text-right py-1.5 px-2 font-normal">Total R</th>
+                <th className="text-right py-1.5 pl-2 font-normal">Net P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key} className="border-t border-ink-line/40">
+                  <td className="py-1.5 pr-2 text-soft-white truncate max-w-[200px]" title={r.label}>{r.label}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums text-slate-gray">{r.n}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums">{r.n ? fmtPct(r.winRate, 0) : "—"}</td>
+                  <td className={`py-1.5 px-2 text-right tabular-nums ${r.avgR > 0 ? "text-signal-green" : r.avgR < 0 ? "text-signal-red" : ""}`}>{fmtR(r.avgR)}</td>
+                  <td className={`py-1.5 px-2 text-right tabular-nums ${r.totalR > 0 ? "text-signal-green" : r.totalR < 0 ? "text-signal-red" : ""}`}>{fmtR(r.totalR)}</td>
+                  <td className={`py-1.5 pl-2 text-right tabular-nums ${r.netPnl > 0 ? "text-signal-green" : r.netPnl < 0 ? "text-signal-red" : ""}`}>{fmtUsd(r.netPnl, { sign: true })}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+function labelFor(dim: BreakdownDimension): string {
+  switch (dim) {
+    case "ticker": return "Ticker";
+    case "setup": return "Setup";
+    case "tag": return "Tag";
+    case "followedPlan": return "Plan adherence";
+    case "month": return "Month";
+    case "week": return "Week";
+    case "day": return "Day";
+  }
+}
+
+function TimeBreakdownPanel({ trades }: { trades: UnifiedTrade[] }) {
+  const [granularity, setGranularity] = useState<"month" | "week" | "day">("month");
+  const rows = useMemo(() => computeBreakdown(trades, granularity), [trades, granularity]);
+
+  return (
+    <Panel
+      title="Performance Over Time"
+      action={
+        <div className="flex items-center gap-1">
+          {(["day", "week", "month"] as const).map((g) => (
+            <button
+              key={g}
+              type="button"
+              onClick={() => setGranularity(g)}
+              className={`px-2 py-1 text-[10px] uppercase tracking-wider rounded-sm border ${granularity === g ? "border-neon-blue text-neon-blue" : "border-ink-line text-slate-gray hover:text-soft-white"}`}
+              data-testid={`button-granularity-${g}`}
+            >
+              {g}
+            </button>
+          ))}
+        </div>
+      }
+    >
+      {rows.length === 0 ? (
+        <Empty label="No data in range." />
+      ) : (
+        <div className="overflow-x-auto max-h-72 overflow-y-auto">
+          <table className="w-full text-[12px] min-w-0">
+            <thead className="sticky top-0 bg-ink-panel">
+              <tr className="text-[10px] uppercase tracking-wider text-slate-gray">
+                <th className="text-left py-1.5 pr-2 font-normal">{labelFor(granularity)}</th>
+                <th className="text-right py-1.5 px-2 font-normal">N</th>
+                <th className="text-right py-1.5 px-2 font-normal">Win %</th>
+                <th className="text-right py-1.5 px-2 font-normal">Total R</th>
+                <th className="text-right py-1.5 pl-2 font-normal">Net P&L</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.key} className="border-t border-ink-line/40">
+                  <td className="py-1.5 pr-2 text-soft-white">{r.label}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums text-slate-gray">{r.n}</td>
+                  <td className="py-1.5 px-2 text-right tabular-nums">{fmtPct(r.winRate, 0)}</td>
+                  <td className={`py-1.5 px-2 text-right tabular-nums ${r.totalR > 0 ? "text-signal-green" : r.totalR < 0 ? "text-signal-red" : ""}`}>{fmtR(r.totalR)}</td>
+                  <td className={`py-1.5 pl-2 text-right tabular-nums ${r.netPnl > 0 ? "text-signal-green" : r.netPnl < 0 ? "text-signal-red" : ""}`}>{fmtUsd(r.netPnl, { sign: true })}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}
+
