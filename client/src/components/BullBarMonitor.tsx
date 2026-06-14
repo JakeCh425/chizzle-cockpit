@@ -4,9 +4,11 @@
 
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { formatShares } from "@/lib/engine";
 import { sharesForPlan, useSharesContext } from "@/lib/useShares";
+import { buildPlannerHref } from "@/lib/planLink";
 
 type Phase =
   | "Scanning"
@@ -326,6 +328,20 @@ export default function BullBarMonitor() {
                   title={sharesTitle}
                   testId="text-bullbar-shares"
                 />
+                <Link
+                  href={buildPlannerHref({
+                    ticker: s.symbol,
+                    entry: s.trade_plan!.entry,
+                    stop: s.trade_plan!.stop_loss,
+                    target: s.trade_plan!.target,
+                    setup: "Strong Bull Bar",
+                    direction: "long",
+                  })}
+                  className="inline-block mt-2 w-full text-center px-2 py-1 rounded border text-[10px] uppercase tracking-wide bg-signal-blue/10 text-signal-blue border-signal-blue/40 hover:bg-signal-blue/20 transition-colors"
+                  data-testid={`btn-bb-plan-${s.symbol}`}
+                >
+                  Plan this
+                </Link>
               </div>
             );
           })()}
