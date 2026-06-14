@@ -10,8 +10,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip, StatRow } from "@/components/Panel";
 import { ExecutionLogForm } from "@/components/ExecutionLogForm";
 import { ExecutionsList } from "@/components/ExecutionsList";
+import { TradeReviewForm } from "@/components/TradeReviewForm";
+import { TagPicker } from "@/components/TagPicker";
 import { calcExecutionStats, formatHoldingDuration } from "@shared/executions";
-import type { TradePlan, TradeExecution, TradePlanStatus } from "@shared/schema";
+import type { TradePlan, TradeExecution, TradePlanStatus, TradeReview } from "@shared/schema";
 import { calcRR } from "@/lib/positionSize";
 
 function statusTone(s: TradePlanStatus): "blue" | "green" | "amber" | "red" | "neutral" {
@@ -48,6 +50,12 @@ export default function TradeDetail() {
 
   const execsQ = useQuery<TradeExecution[]>({
     queryKey: ["/api/trade-plans", id, "executions"],
+    enabled: !!id,
+  });
+
+  // Phase 3: review (null if not yet written).
+  const reviewQ = useQuery<TradeReview | null>({
+    queryKey: ["/api/trade-plans", id, "review"],
     enabled: !!id,
   });
 
@@ -178,6 +186,46 @@ export default function TradeDetail() {
             Total fees: ${stats.totalFees.toFixed(2)}
           </div>
         )}
+      </Panel>
+
+      {/* ── Review panel (Phase 3) ──────────────────────────────────── */}
+      <Panel
+        title="Review"
+        hint={reviewQ.data ? "Last updated " + new Date(reviewQ.data.updatedAt).toLocaleString() : "Not yet reviewed"}
+      >
+        <div className="grid grid-cols-1 lg:grid-cols-[2fr_1fr] gap-4">
+          <div>
+            {reviewQ.isLoading ? (
+              <div className="text-[12px] text-slate-gray" data-testid="text-review-loading">Loading review…</div>
+            ) : reviewQ.error ? (
+              <div className="text-[12px] text-signal-red" data-testid="text-review-error">
+                Could not load review.
+              </div>
+            ) : (
+              <TradeReviewForm
+                planId={plan.id}
+                existing={reviewQ.data ?? null}
+                disabledReason={
+                  (execsQ.data ?? []).length === 0
+                    ? "Log at least one execution before writing a review."
+                    : undefined
+                }
+              />
+            )}
+          </div>
+          <div className="lg:border-l lg:border-ink-line/60 lg:pl-4">
+            <TagPicker planId={plan.id} reviewExists={!!reviewQ.data} />
+            <div className="mt-4 pt-2 border-t border-ink-line/60">
+              <Link
+                href="/tags"
+                data-testid="link-manage-tags"
+                className="text-[11px] text-neon-blue hover:underline"
+              >
+                Manage all tags →
+              </Link>
+            </div>
+          </div>
+        </div>
       </Panel>
     </div>
   );

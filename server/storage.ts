@@ -20,6 +20,9 @@ import {
   alertLog,
   tradePlans,
   tradeExecutions,
+  tradeReviews,
+  tradeTags,
+  tradeReviewTags,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -44,6 +47,8 @@ import type {
   TradePlan, InsertTradePlan,
   TradeExecution, InsertTradeExecution,
   TradePlanStatus,
+  TradeReview, InsertTradeReview,
+  TradeTag, InsertTradeTag,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -375,6 +380,42 @@ CREATE TABLE IF NOT EXISTS trade_executions (
 CREATE INDEX IF NOT EXISTS idx_trade_executions_plan_id     ON trade_executions(trade_plan_id);
 CREATE INDEX IF NOT EXISTS idx_trade_executions_type        ON trade_executions(execution_type);
 CREATE INDEX IF NOT EXISTS idx_trade_executions_executed_at ON trade_executions(executed_at DESC);
+
+-- ── trade_reviews (Phase 3: one post-trade review per plan) ──────────────
+CREATE TABLE IF NOT EXISTS trade_reviews (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trade_plan_id UUID NOT NULL UNIQUE REFERENCES trade_plans(id) ON DELETE CASCADE,
+  confidence_before INTEGER CHECK (confidence_before IS NULL OR (confidence_before BETWEEN 1 AND 10)),
+  grade_after TEXT CHECK (grade_after IS NULL OR grade_after IN ('A','B','C','D','F')),
+  followed_plan BOOLEAN NOT NULL DEFAULT false,
+  emotional_state TEXT,
+  lesson_learned TEXT NOT NULL DEFAULT '',
+  review_notes TEXT NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_trade_reviews_plan_id ON trade_reviews(trade_plan_id);
+
+-- ── trade_tags (Phase 3: user tag library) ─────────────────────────────
+CREATE TABLE IF NOT EXISTS trade_tags (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  category TEXT NOT NULL CHECK (category IN ('setup','market','mistake','psychology','other')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_trade_tags_category_name ON trade_tags(category, lower(name));
+CREATE INDEX        IF NOT EXISTS idx_trade_tags_category     ON trade_tags(category);
+
+-- ── trade_review_tags (Phase 3: review↔tag join) ───────────────────────
+CREATE TABLE IF NOT EXISTS trade_review_tags (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  trade_review_id UUID NOT NULL REFERENCES trade_reviews(id) ON DELETE CASCADE,
+  trade_tag_id    UUID NOT NULL REFERENCES trade_tags(id)    ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_review_tags_pair  ON trade_review_tags(trade_review_id, trade_tag_id);
+CREATE INDEX        IF NOT EXISTS idx_review_tags_tag  ON trade_review_tags(trade_tag_id);
 
 -- Phase 2 A1: remap any legacy trade_plans.status='executed' → 'open' (idempotent).
 UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
@@ -1199,6 +1240,83 @@ export const storage = {
     const result = await db
       .delete(tradeExecutions)
       .where(and(eq(tradeExecutions.id, id), eq(tradeExecutions.tradePlanId, tradePlanId)))
+      .returning();
+    return result.length > 0;
+  },
+
+  // ─── trade_reviews (Phase 3) ───────────────────────────────────
+  async getReviewByPlanId(tradePlanId: string): Promise<TradeReview | undefined> {
+    const rows = await db
+      .select()
+      .from(tradeReviews)
+      .where(eq(tradeReviews.tradePlanId, tradePlanId))
+      .limit(1);
+    return rows[0];
+  },
+  // Upsert: ON CONFLICT (trade_plan_id) DO UPDATE. Whole-record replace per PUT semantics.
+  async upsertReview(input: InsertTradeReview): Promise<TradeReview> {
+    const [row] = await db
+      .insert(tradeReviews)
+      .values(input as any)
+      .onConflictDoUpdate({
+        target: tradeReviews.tradePlanId,
+        set: {
+          confidenceBefore: (input as any).confidenceBefore ?? null,
+          gradeAfter: (input as any).gradeAfter ?? null,
+          followedPlan: (input as any).followedPlan ?? false,
+          emotionalState: (input as any).emotionalState ?? null,
+          lessonLearned: (input as any).lessonLearned ?? "",
+          reviewNotes: (input as any).reviewNotes ?? "",
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
+    return row;
+  },
+
+  // ─── trade_tags (Phase 3) ──────────────────────────────────────
+  async listTags(category?: string): Promise<TradeTag[]> {
+    const q = db.select().from(tradeTags);
+    if (category) {
+      return q.where(eq(tradeTags.category, category)).orderBy(tradeTags.category, tradeTags.name);
+    }
+    return q.orderBy(tradeTags.category, tradeTags.name);
+  },
+  async createTag(input: InsertTradeTag): Promise<TradeTag> {
+    const [row] = await db.insert(tradeTags).values(input as any).returning();
+    return row;
+  },
+  async deleteTag(id: string): Promise<boolean> {
+    const result = await db.delete(tradeTags).where(eq(tradeTags.id, id)).returning();
+    return result.length > 0;
+  },
+
+  // ─── trade_review_tags (Phase 3) ────────────────────────────────
+  async listReviewTags(tradeReviewId: string): Promise<TradeTag[]> {
+    return db
+      .select({
+        id: tradeTags.id,
+        name: tradeTags.name,
+        category: tradeTags.category,
+        createdAt: tradeTags.createdAt,
+        updatedAt: tradeTags.updatedAt,
+      })
+      .from(tradeReviewTags)
+      .innerJoin(tradeTags, eq(tradeReviewTags.tradeTagId, tradeTags.id))
+      .where(eq(tradeReviewTags.tradeReviewId, tradeReviewId))
+      .orderBy(tradeTags.category, tradeTags.name);
+  },
+  async attachTag(tradeReviewId: string, tradeTagId: string): Promise<void> {
+    // Idempotent via the unique pair index.
+    await db
+      .insert(tradeReviewTags)
+      .values({ tradeReviewId, tradeTagId } as any)
+      .onConflictDoNothing();
+  },
+  async detachTag(tradeReviewId: string, tradeTagId: string): Promise<boolean> {
+    const result = await db
+      .delete(tradeReviewTags)
+      .where(and(eq(tradeReviewTags.tradeReviewId, tradeReviewId), eq(tradeReviewTags.tradeTagId, tradeTagId)))
       .returning();
     return result.length > 0;
   },

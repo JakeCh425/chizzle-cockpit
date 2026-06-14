@@ -459,3 +459,76 @@ export type TradePlan = typeof tradePlans.$inferSelect;
 export type InsertTradePlan = z.infer<typeof insertTradePlanSchema>;
 export type TradeExecution = typeof tradeExecutions.$inferSelect;
 export type InsertTradeExecution = z.infer<typeof insertTradeExecutionSchema>;
+
+// ───────────────────────── Phase 3: Reviews & Tags ───────────────────────────
+// Review is 1:1 with a trade plan. Tags are global. Review↔Tag is many-to-many.
+
+export const REVIEW_GRADES = ["A", "B", "C", "D", "F"] as const;
+export type ReviewGrade = (typeof REVIEW_GRADES)[number];
+
+export const TAG_CATEGORIES = ["setup", "market", "mistake", "psychology", "other"] as const;
+export type TagCategory = (typeof TAG_CATEGORIES)[number];
+
+export const EMOTIONAL_STATES = [
+  "calm",
+  "confident",
+  "impatient",
+  "fearful",
+  "greedy",
+  "frustrated",
+  "focused",
+  "distracted",
+  "other",
+] as const;
+export type EmotionalState = (typeof EMOTIONAL_STATES)[number];
+
+export const tradeReviews = pgTable("trade_reviews", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tradePlanId: uuid("trade_plan_id").notNull().unique().references(() => tradePlans.id, { onDelete: "cascade" }),
+  confidenceBefore: integer("confidence_before"), // 1-10 or null
+  gradeAfter: text("grade_after"), // 'A'|'B'|'C'|'D'|'F' or null
+  followedPlan: boolean("followed_plan").notNull().default(false),
+  emotionalState: text("emotional_state"), // free text, soft-validated against EMOTIONAL_STATES
+  lessonLearned: text("lesson_learned").notNull().default(""),
+  reviewNotes: text("review_notes").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const insertTradeReviewSchema = createInsertSchema(tradeReviews)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    tradePlanId: z.string().uuid(),
+    confidenceBefore: z.number().int().min(1).max(10).nullable().optional(),
+    gradeAfter: z.enum(REVIEW_GRADES).nullable().optional(),
+    followedPlan: z.boolean().default(false),
+    emotionalState: z.string().max(60).nullable().optional(),
+    lessonLearned: z.string().max(4000).default(""),
+    reviewNotes: z.string().max(8000).default(""),
+  });
+
+export const tradeTags = pgTable("trade_tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  category: text("category").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const insertTradeTagSchema = createInsertSchema(tradeTags)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    name: z.string().min(1).max(40).transform((s) => s.trim()),
+    category: z.enum(TAG_CATEGORIES),
+  });
+
+export const tradeReviewTags = pgTable("trade_review_tags", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  tradeReviewId: uuid("trade_review_id").notNull().references(() => tradeReviews.id, { onDelete: "cascade" }),
+  tradeTagId: uuid("trade_tag_id").notNull().references(() => tradeTags.id, { onDelete: "cascade" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type TradeReview = typeof tradeReviews.$inferSelect;
+export type InsertTradeReview = z.infer<typeof insertTradeReviewSchema>;
+export type TradeTag = typeof tradeTags.$inferSelect;
+export type InsertTradeTag = z.infer<typeof insertTradeTagSchema>;
+export type TradeReviewTag = typeof tradeReviewTags.$inferSelect;

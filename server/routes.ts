@@ -48,6 +48,9 @@ import {
   insertTradePlanSchema,
   insertTradeExecutionSchema,
   TRADE_PLAN_STATUSES,
+  insertTradeReviewSchema,
+  insertTradeTagSchema,
+  TAG_CATEGORIES,
 } from "@shared/schema";
 import { calcExecutionStats, validateExecution } from "@shared/executions";
 import { z, type ZodTypeAny } from "zod";
@@ -2108,6 +2111,140 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json({ ok: true, plan: updatedPlan });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || "failed to delete execution" });
+    }
+  });
+
+  // ═════════════ Phase 3: Reviews & Tags ════════════════════════════
+
+  // ─── Review: GET (returns null if none) ────────────────────────────────────
+  app.get("/api/trade-plans/:id/review", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+      const review = await storage.getReviewByPlanId(req.params.id);
+      res.json(review ?? null);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load review" });
+    }
+  });
+
+  // ─── Review: PUT upsert ────────────────────────────────────────────────────
+  app.put("/api/trade-plans/:id/review", async (req, res) => {
+    try {
+      const plan = await storage.getTradePlan(req.params.id);
+      if (!plan) return res.status(404).json({ error: "trade plan not found" });
+
+      // Phase 3 rule: reviews allowed only after executions exist.
+      const execs = await storage.listExecutions(req.params.id);
+      if (execs.length === 0) {
+        return res.status(400).json({
+          error: "Log at least one execution before writing a review.",
+          code: "NO_EXECUTIONS",
+        });
+      }
+
+      const body = { ...req.body, tradePlanId: req.params.id };
+      const parsed = insertTradeReviewSchema.safeParse(body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+      }
+      const review = await storage.upsertReview(parsed.data);
+      res.json(review);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to save review" });
+    }
+  });
+
+  // ─── Review tags: list ────────────────────────────────────────────────────
+  app.get("/api/trade-plans/:id/review/tags", async (req, res) => {
+    try {
+      const review = await storage.getReviewByPlanId(req.params.id);
+      if (!review) return res.json([]);
+      const tags = await storage.listReviewTags(review.id);
+      res.json(tags);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load review tags" });
+    }
+  });
+
+  // ─── Review tags: attach (idempotent) ────────────────────────────────────
+  app.post("/api/trade-plans/:id/review/tags/:tagId", async (req, res) => {
+    try {
+      const review = await storage.getReviewByPlanId(req.params.id);
+      if (!review) {
+        return res.status(400).json({
+          error: "Save the review before attaching tags.",
+          code: "NO_REVIEW",
+        });
+      }
+      await storage.attachTag(review.id, req.params.tagId);
+      const tags = await storage.listReviewTags(review.id);
+      res.json({ ok: true, tags });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to attach tag" });
+    }
+  });
+
+  // ─── Review tags: detach ───────────────────────────────────────────────
+  app.delete("/api/trade-plans/:id/review/tags/:tagId", async (req, res) => {
+    try {
+      const review = await storage.getReviewByPlanId(req.params.id);
+      if (!review) return res.status(404).json({ error: "review not found" });
+      await storage.detachTag(review.id, req.params.tagId);
+      const tags = await storage.listReviewTags(review.id);
+      res.json({ ok: true, tags });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to detach tag" });
+    }
+  });
+
+  // ─── Tag library: list (optional ?category=) ───────────────────────────
+  app.get("/api/tags", async (req, res) => {
+    try {
+      const cat = typeof req.query.category === "string" ? req.query.category : undefined;
+      if (cat && !(TAG_CATEGORIES as readonly string[]).includes(cat)) {
+        return res.status(400).json({ error: "invalid category" });
+      }
+      const tags = await storage.listTags(cat);
+      res.json(tags);
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to load tags" });
+    }
+  });
+
+  // ─── Tag library: create ───────────────────────────────────────────────
+  app.post("/api/tags", async (req, res) => {
+    try {
+      const parsed = insertTradeTagSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+      }
+      try {
+        const tag = await storage.createTag(parsed.data);
+        res.status(201).json(tag);
+      } catch (e: any) {
+        // Postgres unique violation on (category, lower(name)).
+        // Drizzle wraps the original pg error; check both top-level and cause.
+        const pgCode = e?.code ?? e?.cause?.code;
+        const msg = String(e?.message ?? "") + " " + String(e?.cause?.message ?? "");
+        if (pgCode === "23505" || msg.includes("uq_trade_tags_category_name") || msg.includes("duplicate key")) {
+          return res.status(409).json({ error: "A tag with that name already exists in this category.", code: "DUPLICATE_TAG" });
+        }
+        throw e;
+      }
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to create tag" });
+    }
+  });
+
+  // ─── Tag library: delete (cascades to review_tags) ──────────────────────
+  app.delete("/api/tags/:id", async (req, res) => {
+    try {
+      const ok = await storage.deleteTag(req.params.id);
+      if (!ok) return res.status(404).json({ error: "tag not found" });
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || "failed to delete tag" });
     }
   });
 

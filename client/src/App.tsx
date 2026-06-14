@@ -17,6 +17,7 @@ import SpecReview from "@/pages/SpecReview";
 import SignalHistoryPage from "@/pages/SignalHistory";
 import TradePlanner from "@/pages/TradePlanner";
 import TradeDetail from "@/pages/TradeDetail";
+import TagsPage from "@/pages/TagsPage";
 
 function AppRouter() {
   return (
@@ -27,6 +28,7 @@ function AppRouter() {
         <Route path="/trades" component={Trades} />
         <Route path="/trade-planner" component={TradePlanner} />
         <Route path="/trade/:id" component={TradeDetail} />
+        <Route path="/tags" component={TagsPage} />
         <Route path="/journal" component={Journal} />
         <Route path="/leap" component={LeapLadder} />
         <Route path="/analytics" component={Analytics} />
