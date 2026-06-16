@@ -15,7 +15,9 @@ type Phase =
   | "Bull Bar Forming"
   | "Confirmed Bull Bar"
   | "Ready to Trade"
-  | "Invalidated";
+  | "Invalidated"
+  | "Off-Band Bull Bar Forming"
+  | "Off-Band Confirmed Bull Bar";
 
 type TradeMode = "conservative" | "aggressive";
 
@@ -92,12 +94,23 @@ interface MonitorState {
 }
 
 const phaseStyle: Record<Phase, string> = {
-  "Ready to Trade":     "border-signal-green/70 bg-signal-green/15 text-signal-green",
-  "Confirmed Bull Bar": "border-signal-blue/60 bg-signal-blue/10 text-signal-blue",
-  "Bull Bar Forming":   "border-signal-amber/70 bg-signal-amber/15 text-signal-amber",
-  "Scanning":           "border-ink-line/50 bg-ink-deep/20 text-slate-gray",
-  "Invalidated":        "border-signal-red/60 bg-signal-red/10 text-signal-red",
+  "Ready to Trade":              "border-signal-green/70 bg-signal-green/15 text-signal-green",
+  "Confirmed Bull Bar":          "border-signal-blue/60 bg-signal-blue/10 text-signal-blue",
+  "Bull Bar Forming":            "border-signal-amber/70 bg-signal-amber/15 text-signal-amber",
+  "Scanning":                    "border-ink-line/50 bg-ink-deep/20 text-slate-gray",
+  "Invalidated":                 "border-signal-red/60 bg-signal-red/10 text-signal-red",
+  // Off-band: dashed amber border, dimmer fill — awareness only.
+  "Off-Band Confirmed Bull Bar": "border-dashed border-signal-amber/60 bg-signal-amber/5 text-signal-amber",
+  "Off-Band Bull Bar Forming":   "border-dashed border-signal-amber/50 bg-signal-amber/5 text-signal-amber/80",
 };
+
+// True for phases that belong in the textbook (trade-ready) queue.
+function isTextbookPhase(p: Phase): boolean {
+  return p === "Ready to Trade" || p === "Confirmed Bull Bar" || p === "Bull Bar Forming";
+}
+function isOffBandPhase(p: Phase): boolean {
+  return p === "Off-Band Confirmed Bull Bar" || p === "Off-Band Bull Bar Forming";
+}
 
 function fmt(n: number | null | undefined, d = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
@@ -120,12 +133,30 @@ export default function BullBarMonitor() {
   const [symbol, setSymbol] = useState<string>("SMH");
   const [mode, setMode] = useState<TradeMode>("conservative");
   const [rr, setRr] = useState<number>(2);
+  const [allowOffBand, setAllowOffBand] = useState<boolean>(false);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MonitorState>({
-    queryKey: ["/api/bull-bar-monitor", symbol, mode, rr],
+    queryKey: ["/api/bull-bar-monitor", symbol, mode, rr, allowOffBand],
     queryFn: () =>
-      apiRequest("GET", `/api/bull-bar-monitor?symbol=${symbol}&mode=${mode}&rr=${rr}`).then((r) => r.json()),
+      apiRequest(
+        "GET",
+        `/api/bull-bar-monitor?symbol=${symbol}&mode=${mode}&rr=${rr}&offband=${allowOffBand}`
+      ).then((r) => r.json()),
     refetchInterval: 60_000,
+  });
+
+  // Multi-symbol scan powering the two-queue header. Only fires when off-band
+  // is enabled — otherwise the textbook queue is just the single-symbol view.
+  const symbolsCsv = SYMBOL_OPTIONS.join(",");
+  const { data: scan } = useQuery<MonitorState[]>({
+    queryKey: ["/api/bull-bar-monitor/scan", symbolsCsv, mode, rr, allowOffBand],
+    queryFn: () =>
+      apiRequest(
+        "GET",
+        `/api/bull-bar-monitor/scan?symbols=${symbolsCsv}&mode=${mode}&rr=${rr}&offband=${allowOffBand}`
+      ).then((r) => r.json()),
+    refetchInterval: 60_000,
+    enabled: allowOffBand,
   });
 
   // Shares-to-buy context: equity × day-color risk % ÷ risk_per_share.
@@ -141,8 +172,45 @@ export default function BullBarMonitor() {
   const s = data;
   const phaseCls = phaseStyle[s.phase];
 
+  // Partition the scan into Textbook + Off-Band queues (only used when
+  // allowOffBand is on). Sorted by priority within each queue.
+  const phasePriority: Record<Phase, number> = {
+    "Ready to Trade": 0,
+    "Confirmed Bull Bar": 1,
+    "Bull Bar Forming": 2,
+    "Off-Band Confirmed Bull Bar": 3,
+    "Off-Band Bull Bar Forming": 4,
+    "Invalidated": 8,
+    "Scanning": 9,
+  };
+  const scanRows = (scan ?? []).slice().sort(
+    (a, b) => (phasePriority[a.phase] ?? 99) - (phasePriority[b.phase] ?? 99)
+  );
+  const textbookRows = scanRows.filter(r => isTextbookPhase(r.phase));
+  const offBandRows  = scanRows.filter(r => isOffBandPhase(r.phase));
+
   return (
     <div className="space-y-3" data-testid="bull-bar-monitor">
+      {/* Two-queue strip (only when off-band detection is enabled) */}
+      {allowOffBand && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+          <QueuePanel
+            title="Textbook Queue"
+            subtitle="In-band setups — alert-eligible"
+            rows={textbookRows}
+            onSelect={setSymbol}
+            variant="textbook"
+          />
+          <QueuePanel
+            title="Off-Band Awareness"
+            subtitle="Outside SMA20 band — awareness only"
+            rows={offBandRows}
+            onSelect={setSymbol}
+            variant="offband"
+          />
+        </div>
+      )}
+
       {/* Header row: symbol selector, phase, price */}
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex items-center gap-3">
@@ -196,6 +264,22 @@ export default function BullBarMonitor() {
             </span>
           </label>
         </div>
+
+        <label
+          className="flex items-center gap-1 cursor-pointer"
+          title="When ON, the engine surfaces bull-bar setups that are outside the ±2.5% SMA20 pullback band as awareness-only cards. They never auto-promote to Ready-to-Trade and never emit alerts."
+        >
+          <input
+            type="checkbox"
+            checked={allowOffBand}
+            onChange={e => setAllowOffBand(e.target.checked)}
+            className="accent-signal-amber"
+            data-testid="checkbox-bullbar-offband"
+          />
+          <span className={`text-[10px] uppercase tracking-wide ${allowOffBand ? "text-signal-amber" : "text-slate-gray"}`}>
+            Allow off-band
+          </span>
+        </label>
 
         <div className="flex items-center gap-2" data-testid="selector-bullbar-rr">
           <span className="text-slate-gray uppercase tracking-wide text-[10px]">Target R:R</span>
@@ -305,6 +389,8 @@ export default function BullBarMonitor() {
                 ? "Awaiting next 1H bar > bull-bar high."
                 : s.phase === "Bull Bar Forming"
                 ? "Awaiting bar close."
+                : s.phase === "Off-Band Bull Bar Forming"
+                ? "Off-band: awaiting bar close (awareness only)."
                 : s.phase === "Invalidated"
                 ? "Setup invalidated."
                 : "No active setup."}
@@ -398,6 +484,84 @@ function Row({
     <div className="flex items-center justify-between gap-2" title={title} data-testid={testId}>
       <span className="text-slate-gray text-[10px] uppercase tracking-wide">{label}</span>
       <span className={`text-right ${valueCls}`}>{value}</span>
+    </div>
+  );
+}
+
+// QueuePanel — compact card list used to surface multiple symbols at once.
+// Textbook variant uses the standard solid border + phase color.
+// Off-band variant uses a dashed amber border to make awareness-only obvious.
+function QueuePanel({
+  title,
+  subtitle,
+  rows,
+  onSelect,
+  variant,
+}: {
+  title: string;
+  subtitle: string;
+  rows: MonitorState[];
+  onSelect: (sym: string) => void;
+  variant: "textbook" | "offband";
+}) {
+  const containerCls =
+    variant === "offband"
+      ? "rounded border border-dashed border-signal-amber/40 bg-signal-amber/[0.03] p-3"
+      : "rounded border border-ink-line/40 bg-ink-deep/30 p-3";
+  const titleCls =
+    variant === "offband" ? "text-signal-amber" : "text-soft-white";
+
+  return (
+    <div className={containerCls} data-testid={`queue-${variant}`}>
+      <div className="flex items-baseline justify-between gap-2 mb-2">
+        <div>
+          <div className={`text-[11px] uppercase tracking-wide font-semibold ${titleCls}`}>{title}</div>
+          <div className="text-[9px] text-slate-gray uppercase tracking-wider">{subtitle}</div>
+        </div>
+        <span className="text-[9px] text-slate-gray font-mono-num tabular-nums">{rows.length}</span>
+      </div>
+      {rows.length === 0 ? (
+        <div className="text-[11px] text-slate-gray py-3 text-center">
+          {variant === "offband" ? "No off-band candidates." : "No textbook candidates right now."}
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          {rows.map((r) => (
+            <button
+              key={r.symbol}
+              type="button"
+              onClick={() => onSelect(r.symbol)}
+              className={`w-full text-left rounded px-2 py-1.5 text-[11px] font-mono transition-colors border ${
+                variant === "offband"
+                  ? "border-dashed border-signal-amber/30 hover:border-signal-amber/60 hover:bg-signal-amber/[0.06]"
+                  : "border-ink-line/40 hover:border-signal-blue/60 hover:bg-signal-blue/5"
+              }`}
+              data-testid={`queue-row-${variant}-${r.symbol}`}
+              title={r.notes}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-soft-white">{r.symbol}</span>
+                  <span className="text-slate-gray">${r.price?.toFixed(2) ?? "—"}</span>
+                </div>
+                <span
+                  className={`inline-flex items-center rounded border px-1.5 py-0.5 text-[9px] uppercase tracking-wide font-medium ${phaseStyle[r.phase]}`}
+                >
+                  {r.phase.replace("Off-Band ", "")}
+                </span>
+              </div>
+              <div className="mt-0.5 text-[9px] text-slate-gray uppercase tracking-wider">
+                {r.sma20_distance_pct >= 0 ? "+" : ""}{r.sma20_distance_pct?.toFixed(2)}% from SMA20
+                {r.trade_plan && (
+                  <span className="ml-2">
+                    · entry ${r.trade_plan.entry.toFixed(2)} / stop ${r.trade_plan.stop_loss.toFixed(2)}
+                  </span>
+                )}
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

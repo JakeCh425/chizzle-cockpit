@@ -46,6 +46,11 @@ export interface BullBarEvalOpts {
   symbol?: string;        // default "SMH"
   mode?: BullBarTradeMode;
   rr?: number;
+  allow_off_band?: boolean; // default false. When true, the engine emits
+                            // Off-Band Forming / Off-Band Confirmed phases
+                            // when price sits outside the SMA20 pullback band
+                            // but the rest of the pattern is intact.
+                            // Awareness-only — never auto-promotes to Ready.
 }
 
 export type BullBarPhase =
@@ -53,7 +58,11 @@ export type BullBarPhase =
   | "Bull Bar Forming"
   | "Confirmed Bull Bar"
   | "Ready to Trade"
-  | "Invalidated";
+  | "Invalidated"
+  // Off-band variants: same pattern geometry + decline + cluster, but price
+  // is not in the SMA20 pullback band. Lower priority, no Ready-to-Trade.
+  | "Off-Band Bull Bar Forming"
+  | "Off-Band Confirmed Bull Bar";
 
 export interface BullBar {
   timestamp: string;
@@ -317,9 +326,15 @@ export async function evaluateBullBarMonitor(opts: BullBarEvalOpts = {}): Promis
   baseState.decline_pct = Number(declinePct.toFixed(2));
   baseState.has_decline = hasDecline;
 
+  const allowOffBand = !!opts.allow_off_band;
+
   // Gates 1+2: must be in pullback band AND have a recent decline. (Aggressive
   // mode keeps both gates — the only difference is the readiness trigger.)
-  if (!inBand) {
+  //
+  // When allow_off_band is OFF — hard-fail outside the band, current behavior.
+  // When ON — we still continue the detection so we can surface off-band
+  // candidates as awareness cards. We never let off-band reach Ready-to-Trade.
+  if (!inBand && !allowOffBand) {
     return { ...baseState, notes: `Price ${currentPrice.toFixed(2)} is ${sma20Distance.toFixed(2)}% from daily SMA20 ${dailySma20.toFixed(2)} — outside ±${PULLBACK_BAND_PCT}% pullback band.` };
   }
   if (!hasDecline) {
@@ -345,6 +360,12 @@ export async function evaluateBullBarMonitor(opts: BullBarEvalOpts = {}): Promis
       if (brokeLow) {
         phase = "Invalidated";
         notes = `Next 1H bar broke below bull-bar low ${prior.low.toFixed(2)}. Setup voided.`;
+      } else if (!inBand) {
+        // Off-band: still surface the confirmed bull bar with trade-plan math
+        // (so the user can plan it manually) but mark it as awareness-only.
+        phase = "Off-Band Confirmed Bull Bar";
+        trade_plan = buildTradePlan(prior.high, prior.low, rr);
+        notes = `Off-band: bull bar confirmed at ${sma20Distance.toFixed(2)}% from SMA20 (outside ±${PULLBACK_BAND_PCT}%). Awareness only — plan manually if you take it.`;
       } else if (brokeHigh) {
         phase = "Ready to Trade";
         trade_plan = buildTradePlan(prior.high, prior.low, rr);
@@ -405,7 +426,11 @@ export async function evaluateBullBarMonitor(opts: BullBarEvalOpts = {}): Promis
       let notes: string;
 
       if (isClosed && currentIsStrong) {
-        if (mode === "aggressive") {
+        if (!inBand) {
+          phase = "Off-Band Confirmed Bull Bar";
+          trade_plan = buildTradePlan(current.high, current.low, rr);
+          notes = `Off-band: bull bar closed at ${sma20Distance.toFixed(2)}% from SMA20 (outside ±${PULLBACK_BAND_PCT}%). Awareness only — plan manually if you take it.`;
+        } else if (mode === "aggressive") {
           phase = "Ready to Trade";
           trade_plan = buildTradePlan(current.high, current.low, rr);
           notes = `Aggressive: bull bar closed; ready immediately. Buy stop ${trade_plan.entry}, stop ${trade_plan.stop_loss}, target ${trade_plan.target} (1:${rr} R:R).`;
@@ -414,8 +439,13 @@ export async function evaluateBullBarMonitor(opts: BullBarEvalOpts = {}): Promis
           notes = `Bull bar confirmed at close (body ${(((current.close - current.open) / (current.high - current.low)) * 100).toFixed(0)}%, close in top ${((1 - (current.high - current.close) / (current.high - current.low)) * 100).toFixed(0)}% of range). Wait for next 1H bar > ${current.high.toFixed(2)}.`;
         }
       } else {
-        phase = "Bull Bar Forming";
-        notes = `Bull bar forming live after cluster of ${cluster.bar_count} lows near ${cluster.swing_low.toFixed(2)} (${cluster.red_count} red). Wait for 1H close to confirm.`;
+        if (!inBand) {
+          phase = "Off-Band Bull Bar Forming";
+          notes = `Off-band: bull bar forming at ${sma20Distance.toFixed(2)}% from SMA20 (outside ±${PULLBACK_BAND_PCT}%). Awareness only — wait for close.`;
+        } else {
+          phase = "Bull Bar Forming";
+          notes = `Bull bar forming live after cluster of ${cluster.bar_count} lows near ${cluster.swing_low.toFixed(2)} (${cluster.red_count} red). Wait for 1H close to confirm.`;
+        }
       }
 
       return {

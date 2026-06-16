@@ -858,17 +858,49 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ── Bull Bar Monitor (1H pattern) ──────────────────────────────
+  const parseBullBarOpts = (req: any) => {
+    const modeRaw = String(req.query.mode || "").toLowerCase();
+    const rrRaw = Number(req.query.rr);
+    const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
+    const rr = [2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2;
+    const offbandRaw = String(req.query.offband || "").toLowerCase();
+    const allow_off_band = offbandRaw === "true" || offbandRaw === "1";
+    return { mode, rr, allow_off_band };
+  };
+
   app.get("/api/bull-bar-monitor", async (req, res) => {
     try {
       const { evaluateBullBarMonitor, maybeEmitBullBarAlert } = await import("./bullBarMonitor");
       const symbol = String(req.query.symbol || "SMH").toUpperCase();
-      const modeRaw = String(req.query.mode || "").toLowerCase();
-      const rrRaw = Number(req.query.rr);
-      const mode: "conservative" | "aggressive" = modeRaw === "aggressive" ? "aggressive" : "conservative";
-      const rr = [2, 3, 4, 5].includes(rrRaw) ? rrRaw : 2;
-      const state = await evaluateBullBarMonitor({ symbol, mode, rr });
+      const { mode, rr, allow_off_band } = parseBullBarOpts(req);
+      const state = await evaluateBullBarMonitor({ symbol, mode, rr, allow_off_band });
       const emitted = await maybeEmitBullBarAlert(state);
       res.json({ ...state, alert_emitted: emitted });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // Multi-symbol scan — powers the two-queue dashboard view (Textbook vs
+  // Off-Band Awareness). No alerts are emitted from this endpoint; alert
+  // emission stays on the single-symbol route + the background scanner.
+  app.get("/api/bull-bar-monitor/scan", async (req, res) => {
+    try {
+      const { evaluateBullBarMonitor } = await import("./bullBarMonitor");
+      const { mode, rr, allow_off_band } = parseBullBarOpts(req);
+      const symbolsRaw = String(req.query.symbols || "SMH,QQQ,SPY,AAPL");
+      const symbols = symbolsRaw
+        .split(",")
+        .map(s => s.trim().toUpperCase())
+        .filter(Boolean)
+        .slice(0, 8);
+      const results = await Promise.all(
+        symbols.map(symbol =>
+          evaluateBullBarMonitor({ symbol, mode, rr, allow_off_band })
+            .catch(() => null)
+        )
+      );
+      res.json(results.filter(r => r !== null));
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }
