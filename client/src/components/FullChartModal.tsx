@@ -97,15 +97,36 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
   // OHLC bars (for candle bodies + wicks). Polled every 60s like the close-only
   // series — candle bars only repaint on close, the live overlay (below) handles
   // intra-bar price movement.
-  const { data: candles = [], isLoading, error } = useQuery<OHLC[]>({
+  //
+  // Defensive: a third-party browser extension (Capital One Shopping, coupon
+  // helpers, ad blockers, etc.) can wrap window.fetch and corrupt the JSON
+  // body. We log + throw with a clear message so the error state surfaces
+  // instead of leaving the modal blank.
+  const { data: candles = [], isLoading, error, refetch } = useQuery<OHLC[]>({
     queryKey: ["/api/candles-ohlc", symbol, interval, "full"],
     queryFn: async ({ signal }) => {
-      const res = await apiRequest("GET", `/api/candles-ohlc/${symbol}?interval=${interval}`, undefined, signal);
-      return res.json();
+      try {
+        const res = await apiRequest("GET", `/api/candles-ohlc/${symbol}?interval=${interval}`, undefined, signal);
+        const body = await res.json();
+        if (!Array.isArray(body)) {
+          console.error("[FullChartModal] candles-ohlc returned non-array:", body);
+          throw new Error(`Unexpected response shape (got ${typeof body})`);
+        }
+        return body;
+      } catch (e) {
+        // Surface fetch failures (CORS, extension shims, network) with a
+        // readable message rather than a silent empty array.
+        if (e instanceof Error) {
+          console.error("[FullChartModal] candles-ohlc fetch failed:", e);
+          throw e;
+        }
+        throw new Error("Chart fetch failed (unknown error)");
+      }
     },
     enabled: open && !!symbol,
     staleTime: 30_000,
     refetchInterval: open ? 60_000 : false,
+    retry: 1,
   });
 
   // Bull Bar Monitor poll — same source as the dashboard panel. Used to surface
@@ -452,13 +473,31 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
         {/* Chart body */}
         <div className="flex-1 min-h-0 p-4 flex flex-col gap-2">
           {isLoading && rows.length === 0 && (
-            <div className="flex-1 flex items-center justify-center text-[11px] uppercase tracking-wider text-slate-gray">
+            <div className="flex-1 flex items-center justify-center text-[11px] uppercase tracking-wider text-slate-gray" data-testid="chart-modal-loading">
               Loading chart…
             </div>
           )}
           {error && (
-            <div className="flex-1 flex items-center justify-center text-[11px] uppercase tracking-wider text-signal-red">
-              {errMsg.slice(0, 120) || "Fetch error"}
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[11px] uppercase tracking-wider" data-testid="chart-modal-error">
+              <div className="text-signal-red max-w-md text-center">{errMsg.slice(0, 180) || "Fetch error"}</div>
+              <button
+                onClick={() => refetch()}
+                className="px-3 py-1 border border-neon-blue/40 text-neon-blue rounded-sm hover:bg-neon-blue/10 transition-colors"
+                data-testid="button-chart-retry"
+              >Retry</button>
+              <div className="text-slate-gray text-[10px] normal-case tracking-normal max-w-md text-center">
+                If this keeps failing, try disabling browser extensions (coupon, ad-block, shopping helpers) — they sometimes intercept network requests.
+              </div>
+            </div>
+          )}
+          {!isLoading && !error && rows.length === 0 && (
+            <div className="flex-1 flex flex-col items-center justify-center gap-3 text-[11px] uppercase tracking-wider" data-testid="chart-modal-empty">
+              <div className="text-slate-gray">No chart data available for {symbol} · {interval}</div>
+              <button
+                onClick={() => refetch()}
+                className="px-3 py-1 border border-neon-blue/40 text-neon-blue rounded-sm hover:bg-neon-blue/10 transition-colors"
+                data-testid="button-chart-reload"
+              >Reload</button>
             </div>
           )}
           {rows.length > 0 && (
