@@ -808,8 +808,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const mode = String(req.query.mode || "conservative").toLowerCase();
     const conservative_mode = mode !== "aggressive";
     const bandRaw = Number(req.query.band);
+    // Band ceiling raised from 3.0 → 4.0 to match the wider UI slider (Phase 5.1).
     const sma_band_percent = Number.isFinite(bandRaw) && bandRaw > 0 && bandRaw <= 10 ? bandRaw : 2.0;
-    return { timeframe, conservative_mode, sma_band_percent };
+    const offbandRaw = String(req.query.offband || "").toLowerCase();
+    const allow_off_band = offbandRaw === "true" || offbandRaw === "1";
+    return { timeframe, conservative_mode, sma_band_percent, allow_off_band };
   };
 
   app.get("/api/candle-confirmation/:symbol", async (req, res) => {

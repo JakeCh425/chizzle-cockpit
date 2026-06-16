@@ -26,7 +26,11 @@ export type PatternStatus =
   | "Engulfing Forming"
   | "Confirmed Hammer"
   | "Confirmed Bullish Engulfing"
-  | "Ready to Trade";
+  | "Ready to Trade"
+  // Off-band variants: pattern + decline confirmed but price is outside the
+  // SMA20 pullback band. Awareness-only — never auto-upgrades to Ready.
+  | "Hammer (Off-Band)"
+  | "Engulfing (Off-Band)";
 
 export type EntryMode = "aggressive" | "conservative";
 export type Timeframe = "daily" | "4h";
@@ -53,6 +57,10 @@ export interface ConfirmOptions {
   conservative_mode?: boolean;          // default: true
   sma_band_percent?: number;            // default: 2.0  (2.0 = ±2% band)
   timeframe?: Timeframe;                // default: "daily"
+  allow_off_band?: boolean;             // default: false. When true, a pattern
+                                        // outside the SMA20 band can fire as a
+                                        // tagged off-band card (lower priority,
+                                        // no Ready-to-Trade upgrade).
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -169,6 +177,12 @@ function buildNote(
   pattern: "Hammer" | "Engulfing" | null,
   entry_mode: EntryMode
 ): string {
+  switch (status) {
+    case "Hammer (Off-Band)":
+      return "Hammer confirmed BUT outside SMA20 pullback band — awareness only, not a textbook setup.";
+    case "Engulfing (Off-Band)":
+      return "Bullish engulfing confirmed BUT outside SMA20 pullback band — awareness only, not a textbook setup.";
+  }
   if (!near_sma20 && pattern) {
     return "Pattern valid but extended from pullback zone.";
   }
@@ -303,6 +317,8 @@ export async function evaluateCandleConfirmation(
   const prev = candleClosed ? bars[bars.length - 2] : bars[bars.length - 1];
   const engulfing = prev ? isBullishEngulfing(prev, currentCandle) : false;
 
+  const allow_off_band = !!opts.allow_off_band;
+
   let pattern_status: PatternStatus = "No Valid Trigger Yet";
   let pattern_detected_on: "Hammer" | "Engulfing" | null = null;
   let trigger_price: number | null = null;
@@ -329,9 +345,21 @@ export async function evaluateCandleConfirmation(
       pattern_detected_on = "Engulfing";
       trigger_price = currentCandle.high;
       invalidation_price = currentCandle.low;
+    } else if (allow_off_band && !near_sma20 && short_term_decline && hammer) {
+      // Off-band hammer — awareness only. Trigger/stop still computed so the
+      // user can plan, but never auto-upgrades to Ready-to-Trade.
+      pattern_status = "Hammer (Off-Band)";
+      pattern_detected_on = "Hammer";
+      trigger_price = currentCandle.high;
+      invalidation_price = currentCandle.low;
+    } else if (allow_off_band && !near_sma20 && short_term_decline && engulfing) {
+      pattern_status = "Engulfing (Off-Band)";
+      pattern_detected_on = "Engulfing";
+      trigger_price = currentCandle.high;
+      invalidation_price = currentCandle.low;
     }
 
-    // READY TO TRADE upgrade
+    // READY TO TRADE upgrade — only for in-band confirmed patterns.
     if (pattern_status === "Confirmed Hammer" || pattern_status === "Confirmed Bullish Engulfing") {
       if (!conservative) {
         pattern_status = "Ready to Trade";

@@ -18,7 +18,9 @@ export type PatternStatus =
   | "Engulfing Forming"
   | "Confirmed Hammer"
   | "Confirmed Bullish Engulfing"
-  | "Ready to Trade";
+  | "Ready to Trade"
+  | "Hammer (Off-Band)"
+  | "Engulfing (Off-Band)";
 
 export interface CandleConfirmationRow {
   ticker: string;
@@ -38,22 +40,29 @@ export interface CandleConfirmationRow {
 }
 
 // Status pill styling — matches the project's neon-on-ink palette.
+// Off-band variants use amber + dashed border so they read as "awareness only".
 const statusClass: Record<PatternStatus, string> = {
   "Ready to Trade":              "border-signal-green/70 bg-signal-green/15 text-signal-green",
   "Confirmed Hammer":            "border-signal-green/50 bg-signal-green/10 text-signal-green",
   "Confirmed Bullish Engulfing": "border-signal-green/50 bg-signal-green/10 text-signal-green",
   "Hammer Forming":              "border-signal-amber/60 bg-signal-amber/10 text-signal-amber",
   "Engulfing Forming":           "border-signal-amber/60 bg-signal-amber/10 text-signal-amber",
+  "Hammer (Off-Band)":           "border-dashed border-signal-amber/60 bg-signal-amber/5 text-signal-amber",
+  "Engulfing (Off-Band)":        "border-dashed border-signal-amber/60 bg-signal-amber/5 text-signal-amber",
   "No Valid Trigger Yet":        "border-ink-line/50 bg-ink-deep/20 text-slate-gray",
 };
 
 // Severity for sort order (lower = higher priority).
+// Off-band sits below in-band confirmed but above forming — reflects that the
+// pattern IS confirmed, just not at the textbook location.
 const sevOrder: Record<PatternStatus, number> = {
   "Ready to Trade":              0,
   "Confirmed Hammer":            1,
   "Confirmed Bullish Engulfing": 1,
   "Hammer Forming":              2,
   "Engulfing Forming":           2,
+  "Hammer (Off-Band)":           3,
+  "Engulfing (Off-Band)":        3,
   "No Valid Trigger Yet":        9,
 };
 
@@ -67,13 +76,14 @@ export default function CandleConfirmationPanel() {
   const [mode, setMode] = useState<"conservative" | "aggressive">("conservative");
   const [band, setBand] = useState<number>(2.0);
   const [hideNoTrigger, setHideNoTrigger] = useState<boolean>(false);
+  const [allowOffBand, setAllowOffBand] = useState<boolean>(false);
 
   const { data, isLoading, isFetching, refetch } = useQuery<CandleConfirmationRow[]>({
-    queryKey: ["/api/candle-confirmation", timeframe, mode, band],
+    queryKey: ["/api/candle-confirmation", timeframe, mode, band, allowOffBand],
     queryFn: async () => {
       const res = await apiRequest(
         "GET",
-        `/api/candle-confirmation?timeframe=${timeframe}&mode=${mode}&band=${band}`
+        `/api/candle-confirmation?timeframe=${timeframe}&mode=${mode}&band=${band}&offband=${allowOffBand}`
       );
       return res.json();
     },
@@ -124,15 +134,25 @@ export default function CandleConfirmationPanel() {
         <div className="flex items-center gap-2">
           <span className="text-slate-gray uppercase tracking-wider text-[9px]">SMA20 Band</span>
           <input
-            type="range" min={1.0} max={3.0} step={0.1}
+            type="range" min={1.0} max={4.0} step={0.1}
             value={band}
             onChange={e => setBand(Number(e.target.value))}
-            className="accent-neon-blue w-24"
+            className="accent-neon-blue w-32"
             aria-label="SMA20 band percent"
             data-testid="input-cc-band"
           />
           <span className="font-mono-num tabular-nums text-soft-white w-12">±{band.toFixed(1)}%</span>
         </div>
+        <label className="flex items-center gap-1 cursor-pointer" title="When ON, a confirmed hammer/engulfing fires even if price isn't in the SMA20 band. Tagged Off-Band, never auto-upgrades to Ready-to-Trade.">
+          <input
+            type="checkbox"
+            checked={allowOffBand}
+            onChange={e => setAllowOffBand(e.target.checked)}
+            className="accent-neon-blue"
+            data-testid="checkbox-cc-offband"
+          />
+          <span className="text-slate-gray uppercase tracking-wider text-[9px]">Allow off-band</span>
+        </label>
         <label className="flex items-center gap-1 cursor-pointer">
           <input
             type="checkbox"
