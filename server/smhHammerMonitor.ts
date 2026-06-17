@@ -3,8 +3,10 @@
 //
 // Two trade modes:
 //   - conservative: hammer must form within 1.5% of SMA20/SMA50/swing-low support
-//   - aggressive: hammer just needs to print AFTER ≥ 1 red candle
-//     (bullish hammer following down momentum) — the user's original strategy
+//   - aggressive: hammer just needs to print AFTER ≥ 2 red candles
+//     (bullish hammer following down momentum) — the user's original strategy.
+//     2-red-candle floor matches the Off-Band Pullback Reversal spec
+//     (pullback structure requires ≥ 2 consecutive lower lows).
 //
 // Both modes:
 //   - scan live + on close for hammer formation
@@ -23,7 +25,8 @@ const VOLUME_MULTIPLIER = 1.2;        // high-volume filter
 const SUPPORT_PROXIMITY_PCT = 1.5;    // hammer must be within 1.5% of support (conservative)
 const SWING_LOOKBACK = 30;            // bars to scan for swing-low supports
 const SWING_PIVOT_HALF_WIDTH = 3;     // bars left/right that define a swing low
-const AGGRESSIVE_MIN_RED_CANDLES = 1; // aggressive: need ≥ N red candles before the hammer
+const AGGRESSIVE_MIN_RED_CANDLES = 2; // aggressive: need ≥ N red candles before the hammer
+                                       // (raised from 1 → 2 to match Off-Band Pullback spec)
 const DEFAULT_RR_RATIO = 2;           // default 1:2 risk:reward
 
 export type TradeMode = "conservative" | "aggressive";

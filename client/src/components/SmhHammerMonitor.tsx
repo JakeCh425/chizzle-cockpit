@@ -3,7 +3,7 @@
 // with high-volume breakout. Displays state, hammer details, confirmation
 // progress, and the 1:2 R:R trade plan.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
@@ -116,9 +116,35 @@ function fmtVol(n: number | null | undefined): string {
   return n.toFixed(0);
 }
 
+// Persist mode + R:R across refreshes via localStorage.
+const LS_MODE_KEY = "chizzle-smh-hammer-mode";
+const LS_RR_KEY = "chizzle-smh-hammer-rr";
+function readMode(): TradeMode {
+  try {
+    const v = localStorage.getItem(LS_MODE_KEY);
+    return v === "conservative" ? "conservative" : "aggressive"; // aggressive by default
+  } catch {
+    return "aggressive";
+  }
+}
+function readRr(): number {
+  try {
+    const v = Number(localStorage.getItem(LS_RR_KEY));
+    return Number.isFinite(v) && v >= 2 && v <= 5 ? v : 2;
+  } catch {
+    return 2;
+  }
+}
+
 export default function SmhHammerMonitor() {
-  const [mode, setMode] = useState<TradeMode>("conservative");
-  const [rr, setRr] = useState<number>(2);
+  const [mode, setMode] = useState<TradeMode>(readMode);
+  const [rr, setRr] = useState<number>(readRr);
+
+  // Persist on change.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { try { localStorage.setItem(LS_MODE_KEY, mode); } catch {} }, [mode]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { try { localStorage.setItem(LS_RR_KEY, String(rr)); } catch {} }, [rr]);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MonitorState>({
     queryKey: ["/api/smh-hammer-monitor", mode, rr],
@@ -162,7 +188,7 @@ export default function SmhHammerMonitor() {
             <span
               className="inline-flex items-center rounded border px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium border-signal-amber/70 bg-signal-amber/10 text-signal-amber"
               data-testid="badge-setup-type"
-              title="Hammer after red candles — not at SMA20"
+              title="Hammer after ≥ 2 red candles — SMA20 gate off"
             >
               post-decline
             </span>
@@ -193,7 +219,7 @@ export default function SmhHammerMonitor() {
               onChange={(e) => setMode(e.target.checked ? "aggressive" : "conservative")}
             />
             <span className={mode === "aggressive" ? "text-signal-amber" : "text-slate-gray"}>
-              Aggressive (hammer after red candles, no SMA20 gate)
+              Aggressive (hammer after ≥ 2 red candles, no SMA20 gate)
             </span>
           </label>
         </div>
