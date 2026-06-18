@@ -7,10 +7,41 @@
 // Controls: conservative/aggressive toggle, SMA band slider (1.0%–3.0%),
 // timeframe toggle (Daily / 4H).
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { X } from "lucide-react";
+
+// Persist Candle Confirmation toggles across refreshes.
+const LS_CC_TF = "chizzle-cc-timeframe";
+const LS_CC_MODE = "chizzle-cc-mode";
+const LS_CC_BAND = "chizzle-cc-band";
+const LS_CC_HIDE = "chizzle-cc-hide-notrigger";
+const LS_CC_OFFBAND = "chizzle-cc-offband";
+function readTf(): "daily" | "4h" {
+  try { return localStorage.getItem(LS_CC_TF) === "4h" ? "4h" : "daily"; } catch { return "daily"; }
+}
+function readMode(): "conservative" | "aggressive" {
+  try { return localStorage.getItem(LS_CC_MODE) === "aggressive" ? "aggressive" : "conservative"; }
+  catch { return "conservative"; }
+}
+function readBand(): number {
+  try {
+    const v = Number(localStorage.getItem(LS_CC_BAND));
+    return Number.isFinite(v) && v >= 1.0 && v <= 4.0 ? v : 2.0;
+  } catch { return 2.0; }
+}
+function readHide(): boolean {
+  try { return localStorage.getItem(LS_CC_HIDE) === "1"; } catch { return false; }
+}
+function readOffBand(): boolean {
+  // Default ON — user requested off-band as the default behavior on the
+  // live ticker watch surface. Falsy stored value ("0") respects user opt-out.
+  try {
+    const v = localStorage.getItem(LS_CC_OFFBAND);
+    return v === null ? true : v === "1";
+  } catch { return true; }
+}
 
 export type PatternStatus =
   | "No Valid Trigger Yet"
@@ -72,11 +103,17 @@ function fmt(n: number | null | undefined, digits = 2): string {
 }
 
 export default function CandleConfirmationPanel() {
-  const [timeframe, setTimeframe] = useState<"daily" | "4h">("daily");
-  const [mode, setMode] = useState<"conservative" | "aggressive">("conservative");
-  const [band, setBand] = useState<number>(2.0);
-  const [hideNoTrigger, setHideNoTrigger] = useState<boolean>(false);
-  const [allowOffBand, setAllowOffBand] = useState<boolean>(false);
+  const [timeframe, setTimeframe] = useState<"daily" | "4h">(readTf);
+  const [mode, setMode] = useState<"conservative" | "aggressive">(readMode);
+  const [band, setBand] = useState<number>(readBand);
+  const [hideNoTrigger, setHideNoTrigger] = useState<boolean>(readHide);
+  const [allowOffBand, setAllowOffBand] = useState<boolean>(readOffBand);
+
+  useEffect(() => { try { localStorage.setItem(LS_CC_TF, timeframe); } catch {} }, [timeframe]);
+  useEffect(() => { try { localStorage.setItem(LS_CC_MODE, mode); } catch {} }, [mode]);
+  useEffect(() => { try { localStorage.setItem(LS_CC_BAND, String(band)); } catch {} }, [band]);
+  useEffect(() => { try { localStorage.setItem(LS_CC_HIDE, hideNoTrigger ? "1" : "0"); } catch {} }, [hideNoTrigger]);
+  useEffect(() => { try { localStorage.setItem(LS_CC_OFFBAND, allowOffBand ? "1" : "0"); } catch {} }, [allowOffBand]);
 
   const { data, isLoading, isFetching, refetch } = useQuery<CandleConfirmationRow[]>({
     queryKey: ["/api/candle-confirmation", timeframe, mode, band, allowOffBand],

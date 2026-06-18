@@ -237,18 +237,27 @@ export async function detectPatternForming(
   if (isHammer(liveBar)) {
     // To "confirm" tomorrow's close needs to clear today's high. For *today's*
     // forming label, we report shape + lower-low context.
+    const isGreen = liveBar.close > liveBar.open;
+    const shapeLabel = isGreen ? "Green hammer" : "Hammer";
     let label: string;
     let severity: FormingSeverity = "warm";
     if (lowerLow) {
-      label = "Hammer forming after lower low — watch the close";
+      label = `${shapeLabel} forming after lower low — watch the close`;
       severity = "hot";
     } else {
-      label = "Hammer forming — needs to hold the lower wick";
+      label = `${shapeLabel} forming — needs to hold the lower wick`;
     }
-    // SMA20 sanity
+    // Off-band: extended above SMA20. Per Off-Band Pullback spec, this is
+    // awareness-only (not weak) when it follows a lower low. Keep severity
+    // honest; never drop below "warm" if lower-low context is present.
     if (distPct != null && distPct > SMA_ABOVE_PCT) {
-      label = "Hammer shape but too extended above SMA20 — setup weak";
-      severity = "watch";
+      if (lowerLow && isGreen) {
+        label = `Off-Band ${shapeLabel.toLowerCase()} after lower low — awareness setup`;
+        severity = "warm";
+      } else {
+        label = `Off-Band ${shapeLabel.toLowerCase()} — outside SMA20 band`;
+        severity = "watch";
+      }
     }
     return {
       symbol: sym,
@@ -274,8 +283,13 @@ export async function detectPatternForming(
     let label = "Bullish engulfing in progress — close must hold above setup";
     let severity: FormingSeverity = "hot";
     if (distPct != null && distPct > SMA_ABOVE_PCT) {
-      label = "Engulfing shape but too extended above SMA20";
-      severity = "watch";
+      if (lowerLow) {
+        label = "Off-Band engulfing after lower low — awareness setup";
+        severity = "warm";
+      } else {
+        label = "Off-Band engulfing — outside SMA20 band";
+        severity = "watch";
+      }
     }
     return {
       symbol: sym,

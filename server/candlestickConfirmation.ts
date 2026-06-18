@@ -99,6 +99,34 @@ function shortTermDecline(priors: DailyBar[], currentLow: number): boolean {
   return lowerHighs || lowerLows || currentBelowRecentLow || fivebarDrop;
 }
 
+// Stricter decline check for OFF-BAND entries.
+//
+// When the SMA20 gate is off, the engine must lean harder on pullback structure
+// to avoid catching falling knives mid-trend. This mirrors the Off-Band Pullback
+// Reversal spec: ≥ 2 consecutive lower lows before the trigger candle, with a
+// measurable depth from the recent swing high.
+function offBandPullbackQualified(priors: DailyBar[]): boolean {
+  if (priors.length < 4) return false;
+  // Look at the 3 bars immediately before the current bar.
+  const last3 = priors.slice(-3);
+  const consecutiveLowerLows =
+    last3[0].low > last3[1].low && last3[1].low > last3[2].low;
+  if (!consecutiveLowerLows) return false;
+
+  // Require measurable pullback depth: swing high in last 8 bars to lowest
+  // low must be ≥ 1.0% of the swing high (a real dip, not noise).
+  const window = priors.slice(-8);
+  const swingHigh = Math.max(...window.map(b => b.high));
+  const pullbackLow = Math.min(...window.map(b => b.low));
+  const depthPct = ((swingHigh - pullbackLow) / swingHigh) * 100;
+  return depthPct >= 1.0;
+}
+
+// Off-band hammer must be GREEN (bullish close above open) per strategy spec.
+function isGreenBullishHammer(c: DailyBar): boolean {
+  return isHammer(c) && c.close > c.open;
+}
+
 // ─── Pattern primitives (spec verbatim) ─────────────────────────────────────
 function isHammer(c: DailyBar): boolean {
   const body = Math.abs(c.close - c.open);
@@ -345,14 +373,26 @@ export async function evaluateCandleConfirmation(
       pattern_detected_on = "Engulfing";
       trigger_price = currentCandle.high;
       invalidation_price = currentCandle.low;
-    } else if (allow_off_band && !near_sma20 && short_term_decline && hammer) {
-      // Off-band hammer — awareness only. Trigger/stop still computed so the
-      // user can plan, but never auto-upgrades to Ready-to-Trade.
+    } else if (
+      allow_off_band &&
+      !near_sma20 &&
+      offBandPullbackQualified(bars.slice(0, -1)) &&
+      isGreenBullishHammer(currentCandle)
+    ) {
+      // Off-band hammer — awareness only. Requires ≥ 2 consecutive lower lows,
+      // measurable pullback depth (≥ 1%), and a GREEN bullish hammer (close > open).
+      // Trigger/stop still computed so the user can plan, but never auto-upgrades
+      // to Ready-to-Trade.
       pattern_status = "Hammer (Off-Band)";
       pattern_detected_on = "Hammer";
       trigger_price = currentCandle.high;
       invalidation_price = currentCandle.low;
-    } else if (allow_off_band && !near_sma20 && short_term_decline && engulfing) {
+    } else if (
+      allow_off_band &&
+      !near_sma20 &&
+      offBandPullbackQualified(bars.slice(0, -1)) &&
+      engulfing
+    ) {
       pattern_status = "Engulfing (Off-Band)";
       pattern_detected_on = "Engulfing";
       trigger_price = currentCandle.high;
