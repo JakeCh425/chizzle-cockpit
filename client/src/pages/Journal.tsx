@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -28,7 +29,7 @@ function endOfMonth(d = new Date()): Date {
 }
 
 export default function Journal() {
-  const [tab, setTab] = useState<"weekly" | "monthly" | "per-trade">("weekly");
+  const [tab, setTab] = usePersistentState<"weekly" | "monthly" | "per-trade">("journal-tab", "weekly");
   return (
     <div className="p-3 md:p-4 space-y-4">
       <div className="flex items-baseline gap-3 pb-1 border-b border-ink-line/60">

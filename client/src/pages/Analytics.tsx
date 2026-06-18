@@ -11,6 +11,7 @@
 //   6. Time-bucket breakdown (month / week / day toggle)
 
 import { useMemo, useState } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaChart, Area, BarChart, Bar, ComposedChart, Line,
@@ -270,7 +271,7 @@ function labelFor(dim: BreakdownDimension): string {
 }
 
 function TimeBreakdownPanel({ trades }: { trades: UnifiedTrade[] }) {
-  const [granularity, setGranularity] = useState<"month" | "week" | "day">("month");
+  const [granularity, setGranularity] = usePersistentState<"month" | "week" | "day">("analytics-granularity", "month");
   const rows = useMemo(() => computeBreakdown(trades, granularity), [trades, granularity]);
 
   return (

@@ -3,7 +3,7 @@
 // with high-volume breakout. Displays state, hammer details, confirmation
 // progress, and the 1:2 R:R trade plan.
 
-import { useState, useEffect } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
@@ -116,35 +116,9 @@ function fmtVol(n: number | null | undefined): string {
   return n.toFixed(0);
 }
 
-// Persist mode + R:R across refreshes via localStorage.
-const LS_MODE_KEY = "chizzle-smh-hammer-mode";
-const LS_RR_KEY = "chizzle-smh-hammer-rr";
-function readMode(): TradeMode {
-  try {
-    const v = localStorage.getItem(LS_MODE_KEY);
-    return v === "conservative" ? "conservative" : "aggressive"; // aggressive by default
-  } catch {
-    return "aggressive";
-  }
-}
-function readRr(): number {
-  try {
-    const v = Number(localStorage.getItem(LS_RR_KEY));
-    return Number.isFinite(v) && v >= 2 && v <= 5 ? v : 2;
-  } catch {
-    return 2;
-  }
-}
-
 export default function SmhHammerMonitor() {
-  const [mode, setMode] = useState<TradeMode>(readMode);
-  const [rr, setRr] = useState<number>(readRr);
-
-  // Persist on change.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { try { localStorage.setItem(LS_MODE_KEY, mode); } catch {} }, [mode]);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { try { localStorage.setItem(LS_RR_KEY, String(rr)); } catch {} }, [rr]);
+  const [mode, setMode] = usePersistentState<TradeMode>("smh-mode", "aggressive");
+  const [rr, setRr] = usePersistentState<number>("smh-rr", 2);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MonitorState>({
     queryKey: ["/api/smh-hammer-monitor", mode, rr],

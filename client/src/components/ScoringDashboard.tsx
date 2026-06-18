@@ -4,6 +4,7 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 import { memo, useCallback, useMemo, useState } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { ArrowDown, ArrowUp, ChevronsUpDown } from "lucide-react";
 import FullChartModal from "@/components/FullChartModal";
 import { useWatchlistSymbols, useWatchlistCandles, type WatchlistRow } from "@/lib/useWatchlistCandles";
@@ -58,8 +59,8 @@ function HeaderCell({ k, label, sort, dir, onSort, align = "left" }: {
 export default function ScoringDashboard({ className = "" }: { className?: string }) {
   const symbols = useWatchlistSymbols();
   const rows = useWatchlistCandles(symbols, "1D");
-  const [sort, setSort] = useState<SortKey>("aScore");
-  const [dir, setDir] = useState<SortDir>("desc");
+  const [sort, setSort] = usePersistentState<SortKey>("scoring-sort-key", "aScore");
+  const [dir, setDir] = usePersistentState<SortDir>("scoring-sort-dir", "desc");
   const [modal, setModal] = useState<string | null>(null);
 
   const onSort = (k: SortKey) => {

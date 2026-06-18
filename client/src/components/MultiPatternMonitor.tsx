@@ -12,8 +12,8 @@
 // risk profile.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { formatShares } from "@/lib/engine";
@@ -88,9 +88,9 @@ function fmt(n: number | null | undefined, digits = 2): string {
 }
 
 export default function MultiPatternMonitor() {
-  const [timeframe, setTimeframe] = useState<Timeframe>("1h");
-  const [mode, setMode] = useState<Mode>("conservative");
-  const [rr, setRr] = useState<Rr>(2);
+  const [timeframe, setTimeframe] = usePersistentState<Timeframe>("multipattern-tf", "1h");
+  const [mode, setMode] = usePersistentState<Mode>("multipattern-mode", "conservative");
+  const [rr, setRr] = usePersistentState<Rr>("multipattern-rr", 2);
   const sharesCtx = useSharesContext();
 
   const { data, isLoading, error, isFetching, refetch } = useQuery<Response>({

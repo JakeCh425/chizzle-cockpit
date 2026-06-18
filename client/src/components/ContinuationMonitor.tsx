@@ -10,8 +10,8 @@
 // immediately knocked out by noise.
 // ─────────────────────────────────────────────────────────────────────────────
 
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
 import { formatShares } from "@/lib/engine";
@@ -88,9 +88,9 @@ function fmt(n: number | null | undefined, digits = 2): string {
 
 export default function ContinuationMonitor() {
   // Default 4H since Jake's miss was on 4H V-rallies
-  const [timeframe, setTimeframe] = useState<Timeframe>("4h");
-  const [rr, setRr] = useState<Rr>(2);
-  const [minRiskPct, setMinRiskPct] = useState<number>(1.5);
+  const [timeframe, setTimeframe] = usePersistentState<Timeframe>("continuation-tf", "4h");
+  const [rr, setRr] = usePersistentState<Rr>("continuation-rr", 2);
+  const [minRiskPct, setMinRiskPct] = usePersistentState<number>("continuation-min-risk-pct", 1.5);
   const sharesCtx = useSharesContext();
 
   const { data, isLoading, error, isFetching, refetch } = useQuery<Response>({

@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { errMsg } from "@/lib/errors";
 import { useState, useMemo } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { Panel, StatRow, Chip } from "@/components/Panel";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -143,7 +144,7 @@ export default function Cockpit() {
   const leapPct = equity > 0 ? (leapValue / equity) * 100 : 0;
 
   // alerts feed (latest 10) + category filter
-  const [alertFilter, setAlertFilter] = useState<"all" | "critical" | "action" | "info">("all");
+  const [alertFilter, setAlertFilter] = usePersistentState<"all" | "critical" | "action" | "info">("cockpit-alert-filter", "all");
   const feed = useMemo(() => {
     const f = (alerts || []);
     return (alertFilter === "all" ? f : f.filter(a => a.severity === alertFilter)).slice(0, 10);
@@ -188,7 +189,8 @@ export default function Cockpit() {
 
   const [recomputing, setRecomputing] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
-  const [helpTab, setHelpTab] = useState<"ascore" | "minicharts">("ascore");
+  // helpTab persists so the user's last viewed help section opens again next time.
+  const [helpTab, setHelpTab] = usePersistentState<"ascore" | "minicharts">("cockpit-help-tab", "ascore");
   const recomputeAll = async () => {
     if (recomputing) return;
     setRecomputing(true);
@@ -1116,7 +1118,7 @@ function JournalQueue({ openTrades, closedTrades }: { openTrades: Trade[]; close
 // Polls /api/pattern-forming for all watchlist symbols and renders one row per
 // symbol with an active or recently-invalidated setup.
 function LivePatternWatch() {
-  const [timeframe, setTimeframe] = useState<"daily" | "4h">("daily");
+  const [timeframe, setTimeframe] = usePersistentState<"daily" | "4h">("live-pattern-watch-tf", "daily");
   const { data, isLoading } = useQuery<PatternFormingStatus[]>({
     queryKey: ["/api/pattern-forming", timeframe],
     queryFn: async () => {

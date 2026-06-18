@@ -64,13 +64,14 @@ export default function SignalHistoryPanel() {
   });
 
   // ── Filters / sort / search state ───────────────────────────────────────
-  const [filterTicker, setFilterTicker] = useState<string>("ALL");
-  const [filterPattern, setFilterPattern] = useState<"ALL" | "Hammer" | "Engulfing">("ALL");
-  const [minScore, setMinScore] = useState<number>(0);
-  const [dateFrom, setDateFrom] = useState<string>(""); // YYYY-MM-DD
-  const [dateTo, setDateTo] = useState<string>("");
-  const [sortKey, setSortKey] = useState<SortKey>("timestamp");
-  const [sortDir, setSortDir] = useState<SortDir>("desc");
+  // Filter / sort prefs persist; search + expanded set stay session-local.
+  const [filterTicker, setFilterTicker] = usePersistentState<string>("signal-history-ticker", "ALL");
+  const [filterPattern, setFilterPattern] = usePersistentState<"ALL" | "Hammer" | "Engulfing">("signal-history-pattern", "ALL");
+  const [minScore, setMinScore] = usePersistentState<number>("signal-history-min-score", 0);
+  const [dateFrom, setDateFrom] = usePersistentState<string>("signal-history-date-from", "");
+  const [dateTo, setDateTo] = usePersistentState<string>("signal-history-date-to", "");
+  const [sortKey, setSortKey] = usePersistentState<SortKey>("signal-history-sort-key", "timestamp");
+  const [sortDir, setSortDir] = usePersistentState<SortDir>("signal-history-sort-dir", "desc");
   const [search, setSearch] = useState<string>("");
   const [expanded, setExpanded] = useState<Set<number>>(new Set());
 

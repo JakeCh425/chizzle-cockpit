@@ -2,7 +2,7 @@
 // Strong Bull Bar After Cluster of Lows — 1H pattern across watchlist symbols.
 // Mirrors the SMH Hammer Monitor design language. Pulls from /api/bull-bar-monitor.
 
-import { useState, useEffect } from "react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { apiRequest } from "@/lib/queryClient";
@@ -129,35 +129,12 @@ function fmtPct(n: number | null | undefined): string {
   return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
 }
 
-// Persist toggles across refreshes via localStorage.
-const LS_MODE_KEY = "chizzle-bullbar-mode";
-const LS_RR_KEY = "chizzle-bullbar-rr";
-const LS_OFFBAND_KEY = "chizzle-bullbar-offband";
-function readMode(): TradeMode {
-  try {
-    const v = localStorage.getItem(LS_MODE_KEY);
-    return v === "conservative" ? "conservative" : "aggressive"; // aggressive by default
-  } catch { return "aggressive"; }
-}
-function readRr(): number {
-  try {
-    const v = Number(localStorage.getItem(LS_RR_KEY));
-    return Number.isFinite(v) && v >= 2 && v <= 5 ? v : 2;
-  } catch { return 2; }
-}
-function readOffBand(): boolean {
-  try { return localStorage.getItem(LS_OFFBAND_KEY) === "1"; } catch { return false; }
-}
-
 export default function BullBarMonitor() {
-  const [symbol, setSymbol] = useState<string>("SMH");
-  const [mode, setMode] = useState<TradeMode>(readMode);
-  const [rr, setRr] = useState<number>(readRr);
-  const [allowOffBand, setAllowOffBand] = useState<boolean>(readOffBand);
-
-  useEffect(() => { try { localStorage.setItem(LS_MODE_KEY, mode); } catch {} }, [mode]);
-  useEffect(() => { try { localStorage.setItem(LS_RR_KEY, String(rr)); } catch {} }, [rr]);
-  useEffect(() => { try { localStorage.setItem(LS_OFFBAND_KEY, allowOffBand ? "1" : "0"); } catch {} }, [allowOffBand]);
+  const [symbol, setSymbol] = usePersistentState<string>("bullbar-symbol", "SMH");
+  const [mode, setMode] = usePersistentState<TradeMode>("bullbar-mode", "aggressive");
+  const [rr, setRr] = usePersistentState<number>("bullbar-rr", 2);
+  // Off-band defaults to ON per user spec: “stay defaulted as on for allow off band”.
+  const [allowOffBand, setAllowOffBand] = usePersistentState<boolean>("bullbar-offband", true);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MonitorState>({
     queryKey: ["/api/bull-bar-monitor", symbol, mode, rr, allowOffBand],
