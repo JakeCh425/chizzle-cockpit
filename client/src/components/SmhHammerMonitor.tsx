@@ -104,6 +104,44 @@ const phaseStyle: Record<Phase, string> = {
   "Invalidated":        "border-signal-red/60 bg-signal-red/10 text-signal-red",
 };
 
+// ─── Tier classification ───────────────────────────────────────────────────
+// Maps the engine's internal phase/mode/setup-type into the three-state tier
+// the user wants surfaced on every card: A+, RULES-LOOSENED, or REJECTED.
+//
+// A+              → strict mode + breakout confirmed (textbook setup)
+// RULES-LOOSENED  → aggressive mode hit, OR post-decline setup, OR a forming
+//                   hammer that hasn't yet earned breakout confirmation
+// REJECTED        → explicit invalidation by the engine
+// (no badge)      → pure Scanning state — nothing to classify yet
+type Tier = "A+" | "RULES-LOOSENED" | "REJECTED" | null;
+
+function classifyTier(
+  phase: Phase,
+  mode: TradeMode,
+  setupType: SetupType,
+): Tier {
+  if (phase === "Invalidated") return "REJECTED";
+  if (phase === "Scanning") return null;
+  if (phase === "Breakout Confirmed" && mode === "conservative" && setupType !== "post_decline_hammer") {
+    return "A+";
+  }
+  // Anything firing under aggressive mode, post-decline path, or a still-forming
+  // hammer is loosened relative to the textbook A+ definition.
+  return "RULES-LOOSENED";
+}
+
+const tierStyle: Record<Exclude<Tier, null>, string> = {
+  "A+":               "border-signal-green bg-signal-green/20 text-signal-green font-bold",
+  "RULES-LOOSENED":   "border-signal-amber bg-signal-amber/15 text-signal-amber font-semibold",
+  "REJECTED":         "border-signal-red bg-signal-red/15 text-signal-red font-semibold",
+};
+
+const tierTitle: Record<Exclude<Tier, null>, string> = {
+  "A+":               "A+ setup — strict rules satisfied (conservative mode, breakout confirmed)",
+  "RULES-LOOSENED":   "Rules-loosened setup — aggressive mode, post-decline, or still-forming. Practice-grade.",
+  "REJECTED":         "Rejected — invalidated by the engine. Do not enter.",
+};
+
 function fmt(n: number | null | undefined, d = 2): string {
   if (n == null || !Number.isFinite(n)) return "—";
   return n.toFixed(d);
@@ -158,6 +196,19 @@ export default function SmhHammerMonitor() {
           >
             {phase}
           </span>
+          {(() => {
+            const tier = classifyTier(phase, s.mode, s.setup_type);
+            if (!tier) return null;
+            return (
+              <span
+                className={`inline-flex items-center rounded border px-2.5 py-0.5 text-[11px] uppercase tracking-[0.12em] ${tierStyle[tier]}`}
+                data-testid="badge-tier"
+                title={tierTitle[tier]}
+              >
+                {tier}
+              </span>
+            );
+          })()}
           {s.setup_type === "post_decline_hammer" && (
             <span
               className="inline-flex items-center rounded border px-2 py-0.5 text-[10px] uppercase tracking-wide font-medium border-signal-amber/70 bg-signal-amber/10 text-signal-amber"
