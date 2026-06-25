@@ -39,6 +39,7 @@ import ContinuationMonitor from "@/components/ContinuationMonitor";
 import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
+import ActiveSetupsStrip from "@/components/ActiveSetupsStrip";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
 import { Zap } from "lucide-react";
 
@@ -250,6 +251,9 @@ export default function Cockpit() {
 
       {/* Phase 5: Risk Governor status strip */}
       <RiskStatusBar />
+
+      {/* Active Setups Strip — sticky, hidden when nothing is firing */}
+      <ErrorBoundary label="Active Setups Strip"><ActiveSetupsStrip /></ErrorBoundary>
 
       {/* Row 0: Pre-Market Scan one-tap briefing */}
       <PreMarketScan />
