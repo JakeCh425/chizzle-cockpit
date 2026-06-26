@@ -14,8 +14,13 @@ interface AlertContact {
   enabled: boolean;
   triggerForming: boolean;
   triggerConfirmed: boolean;
+  tickerFilter: string; // CSV; empty string = all tickers
   createdAt: string;
 }
+
+// Tickers offered as quick-pick checkboxes. Empty selection means "all tickers".
+// Add new symbols here as the user starts trading them.
+const ALERT_TICKER_OPTIONS = ["SMH", "QQQ", "SPY", "AAPL", "IWM", "META"] as const;
 
 interface AlertLogRow {
   id: number;
@@ -71,6 +76,9 @@ export default function AlertContactsPanel() {
   const [channel, setChannel] = useState<Channel>("email");
   const [destination, setDestination] = useState("");
   const [label, setLabel] = useState("");
+  // Default new contacts to SMH-only — user currently trades only SMH.
+  // They can toggle on others later from the contact row.
+  const [newTickerFilter, setNewTickerFilter] = useState<string[]>(["SMH"]);
   const [telegramChats, setTelegramChats] = useState<TelegramChat[] | null>(null);
   const [telegramLoading, setTelegramLoading] = useState(false);
 
@@ -89,7 +97,7 @@ export default function AlertContactsPanel() {
   });
 
   const addMutation = useMutation({
-    mutationFn: async (body: { channel: string; destination: string; label: string }) => {
+    mutationFn: async (body: { channel: string; destination: string; label: string; tickerFilter: string }) => {
       const res = await apiRequest("POST", "/api/alert-contacts", body);
       return res.json();
     },
@@ -97,6 +105,7 @@ export default function AlertContactsPanel() {
       queryClient.invalidateQueries({ queryKey: ["/api/alert-contacts"] });
       setDestination("");
       setLabel("");
+      setNewTickerFilter(["SMH"]);
       toast({ title: "Contact added", description: "You'll get alerts on the next signal." });
     },
     onError: async (err: any) => {
@@ -166,7 +175,12 @@ export default function AlertContactsPanel() {
       if (digits.length === 10) dest = `+1${digits}`;
       else if (!dest.startsWith("+")) dest = `+${digits}`;
     }
-    addMutation.mutate({ channel, destination: dest, label });
+    addMutation.mutate({
+      channel,
+      destination: dest,
+      label,
+      tickerFilter: newTickerFilter.join(","),
+    });
   }
 
   const showResendBanner = config && !config.resendConfigured;
@@ -246,6 +260,38 @@ export default function AlertContactsPanel() {
         >
           <Plus className="w-3.5 h-3.5" /> Add
         </button>
+
+        {/* Ticker filter chips for the new contact. Empty selection = all tickers.
+            Defaults to SMH-only per user's current trading focus. */}
+        <div className="w-full flex flex-wrap items-center gap-1.5 pt-1">
+          <span className="text-[10px] uppercase tracking-wider text-zinc-500 mr-1">Send alerts for:</span>
+          {ALERT_TICKER_OPTIONS.map((t) => {
+            const selected = newTickerFilter.includes(t);
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() =>
+                  setNewTickerFilter((prev) =>
+                    prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]
+                  )
+                }
+                className={`rounded-full px-2.5 py-0.5 text-[11px] font-mono border transition-colors ${
+                  selected
+                    ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300"
+                    : "bg-zinc-900 border-zinc-700 text-zinc-500 hover:text-zinc-300 hover:border-zinc-600"
+                }`}
+                data-testid={`button-new-ticker-${t}`}
+                aria-pressed={selected}
+              >
+                {selected ? "✓ " : ""}{t}
+              </button>
+            );
+          })}
+          <span className="text-[10px] text-zinc-600 italic ml-1">
+            {newTickerFilter.length === 0 ? "None selected → all tickers will alert" : `Only ${newTickerFilter.join(", ")}`}
+          </span>
+        </div>
       </form>
 
       {/* telegram chat resolver */}
@@ -332,6 +378,45 @@ export default function AlertContactsPanel() {
                 />
                 <span>{c.enabled ? "On" : "Off"}</span>
               </label>
+              {/* Per-contact ticker filter chips. Toggling PATCHes ticker_filter CSV.
+                  Empty CSV = all tickers allowed. */}
+              <div className="flex items-center gap-1">
+                {ALERT_TICKER_OPTIONS.map((t) => {
+                  const current = (c.tickerFilter || "")
+                    .split(",")
+                    .map((x) => x.trim().toUpperCase())
+                    .filter(Boolean);
+                  const allTickers = current.length === 0;
+                  const selected = allTickers || current.includes(t);
+                  return (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => {
+                        const next = current.includes(t)
+                          ? current.filter((x) => x !== t)
+                          : [...current, t];
+                        togglePhase.mutate({
+                          id: c.id,
+                          patch: { tickerFilter: next.join(",") },
+                        });
+                      }}
+                      className={`rounded px-1.5 py-0.5 text-[10px] font-mono border transition-colors ${
+                        allTickers
+                          ? "bg-zinc-800/60 border-zinc-700 text-zinc-400"
+                          : selected
+                          ? "bg-emerald-500/20 border-emerald-500/60 text-emerald-300"
+                          : "bg-zinc-900 border-zinc-800 text-zinc-600 hover:text-zinc-400"
+                      }`}
+                      data-testid={`button-ticker-${c.id}-${t}`}
+                      title={allTickers ? "All tickers enabled — click to scope to specific ones" : selected ? `Alerts for ${t} are on` : `Alerts for ${t} are off`}
+                      aria-pressed={selected}
+                    >
+                      {t}
+                    </button>
+                  );
+                })}
+              </div>
               <button
                 onClick={() => testMutation.mutate(c.id)}
                 disabled={testMutation.isPending}

@@ -1796,6 +1796,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (channel === "email" && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(destination)) return res.status(400).json({ error: "invalid email" });
       if (channel === "sms" && !/^\+\d{10,15}$/.test(destination)) return res.status(400).json({ error: "phone must be E.164 format, e.g. +14175551234" });
       if (channel === "telegram" && !/^-?\d+$/.test(destination)) return res.status(400).json({ error: "telegram destination must be a numeric chat_id" });
+      // tickerFilter — CSV stored uppercase. Empty = all tickers.
+      const tickerFilter = typeof body.tickerFilter === "string"
+        ? body.tickerFilter
+            .split(",")
+            .map((s: string) => s.trim().toUpperCase())
+            .filter(Boolean)
+            .join(",")
+        : "";
       const created = await storage.createAlertContact({
         channel,
         destination,
@@ -1803,7 +1811,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         enabled: body.enabled !== false,
         triggerForming: body.triggerForming !== false,
         triggerConfirmed: body.triggerConfirmed !== false,
-      });
+        tickerFilter,
+      } as any);
       res.json(created);
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
@@ -1819,6 +1828,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (typeof b.triggerForming === "boolean") patch.triggerForming = b.triggerForming;
       if (typeof b.triggerConfirmed === "boolean") patch.triggerConfirmed = b.triggerConfirmed;
       if (typeof b.label === "string") patch.label = b.label;
+      // tickerFilter: CSV of allowed tickers, empty string = all tickers
+      if (typeof b.tickerFilter === "string") {
+        patch.tickerFilter = b.tickerFilter
+          .split(",")
+          .map((s: string) => s.trim().toUpperCase())
+          .filter(Boolean)
+          .join(",");
+      }
       const updated = await storage.updateAlertContact(id, patch);
       if (!updated) return res.status(404).json({ error: "not found" });
       res.json(updated);

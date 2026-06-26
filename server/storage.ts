@@ -473,6 +473,8 @@ UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
       v TEXT NOT NULL,
       updated_at TEXT NOT NULL DEFAULT ''
     )`,
+    // 2026-06: per-contact ticker filter for alerts. Empty = all tickers.
+    "ALTER TABLE alert_contacts ADD COLUMN IF NOT EXISTS ticker_filter TEXT NOT NULL DEFAULT ''",
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);

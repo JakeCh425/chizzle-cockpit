@@ -255,6 +255,17 @@ export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<
       if (payload.phase === "forming" && !c.triggerForming) continue;
       if (payload.phase === "confirmed" && !c.triggerConfirmed) continue;
 
+      // honor per-contact ticker filter — empty string = all tickers allowed.
+      // Stored as CSV, e.g. "SMH" or "SMH,QQQ". Case-insensitive match.
+      const rawFilter = (c as any).tickerFilter as string | undefined;
+      const filterList = (rawFilter ?? "")
+        .split(",")
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      if (filterList.length > 0 && !filterList.includes(payload.ticker.toUpperCase())) {
+        continue;
+      }
+
       // dedupe
       const already = await storage.hasAlertBeenSent(signalKey, c.channel, c.destination);
       if (already) {

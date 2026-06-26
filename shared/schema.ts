@@ -311,12 +311,15 @@ export const chizzleScores = pgTable("chizzle_scores", {
 // ─── alert contacts (email + SMS destinations) ────────────────────────────────
 export const alertContacts = pgTable("alert_contacts", {
   id: serial("id").primaryKey(),
-  channel: text("channel").notNull(), // email | sms
+  channel: text("channel").notNull(), // email | sms | telegram
   destination: text("destination").notNull(), // email addr or E.164 phone
   label: text("label").notNull().default(""),
   enabled: boolean("enabled").notNull().default(true),
   triggerForming: boolean("trigger_forming").notNull().default(true),
   triggerConfirmed: boolean("trigger_confirmed").notNull().default(true),
+  // CSV of tickers this contact wants alerts for. Empty string = ALL tickers.
+  // Example: "SMH" → only SMH alerts. "SMH,QQQ" → both.
+  tickerFilter: text("ticker_filter").notNull().default(""),
   createdAt: text("created_at").notNull(),
 });
 

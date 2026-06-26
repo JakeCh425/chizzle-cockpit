@@ -52,6 +52,10 @@ interface ActiveCard {
 // HIDE   = scanning, expired, invalidated
 function classifyStatus(phase: string): CardStatus | null {
   const p = phase.toLowerCase();
+  // Reject states — explicitly hide from strip
+  if (p === "invalidated" || p === "expired" || p === "rejected" || p === "scanning" || p === "") {
+    return null;
+  }
   // Ready states across all monitors
   if (
     p === "ready to trade" ||
@@ -76,6 +80,31 @@ function classifyStatus(phase: string): CardStatus | null {
 }
 
 // ─── Tier classifier (mirrors SmhHammerMonitor.classifyTier) ───────────────
+// Beginner-friendly explainer for each phase + source.
+function phasePlainEnglish(phase: string, source: string): string {
+  const p = phase.toLowerCase();
+  if (p === "ready to trade") return "Buy at entry if price reaches it";
+  if (p === "breakout confirmed") return "Breakout fired — enter on the next push above entry";
+  if (p === "hammer confirmed") return "Bounce candle confirmed — fire on next bar";
+  if (p === "hammer forming") return "Bounce candle building — not safe yet, wait for close";
+  if (p === "confirmed bull bar") return "Strong up bar printed — wait for breakout above its high";
+  if (p === "bull bar forming") return "Up bar building — still inside the bar";
+  if (p.endsWith(" forming")) return "Pattern forming — still developing, not actionable";
+  if (p.startsWith("confirmed ")) {
+    if (source === "Continuation") return "Trend pullback confirmed — ride the next push";
+    return "Pattern confirmed — watch for trigger price";
+  }
+  return phase;
+}
+
+function sourceExplanation(source: string): string {
+  if (source === "Bull Bar") return "Momentum: strong green candle setup";
+  if (source === "SMH Hammer") return "Reversal: bounce off support on SMH";
+  if (source === "Multi-Pattern") return "Hybrid: multiple candle signals combined";
+  if (source === "Continuation") return "Trend-follow: buy-the-dip inside uptrend";
+  return source;
+}
+
 function classifyTier(opts: {
   phase: string;
   mode?: string | null;
@@ -161,6 +190,11 @@ export default function ActiveSetupsStrip() {
   const [collapsed, setCollapsed] = usePersistentState<boolean>("cockpit-active-strip-collapsed", false);
   const sharesCtx = useSharesContext();
   const opts = useStripInputs();
+  const qc = useQueryClient();
+
+  // Shared query config — force fresh reads every poll so entry/stop/target reflect
+  // the latest intraday bars from the monitor endpoints.
+  const freshOpts = { staleTime: 0, refetchOnWindowFocus: true } as const;
 
   // Bull-Bar scan endpoint covers all watchlist symbols in one shot
   const bullBarQ = useQuery<BullBarItem[]>({
@@ -170,7 +204,8 @@ export default function ActiveSetupsStrip() {
         "GET",
         `/api/bull-bar-monitor/scan?symbols=${DEFAULT_SYMBOLS}&mode=${opts.bbMode}&rr=${opts.bbRr}&offband=${opts.bbOffBand}`,
       ).then((r) => r.json()),
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
+    ...freshOpts,
   });
 
   // SMH-only hammer monitor
@@ -178,7 +213,8 @@ export default function ActiveSetupsStrip() {
     queryKey: ["/api/smh-hammer-monitor", opts.smhMode, opts.smhRr],
     queryFn: () =>
       apiRequest("GET", `/api/smh-hammer-monitor?mode=${opts.smhMode}&rr=${opts.smhRr}`).then((r) => r.json()),
-    refetchInterval: 60_000,
+    refetchInterval: 30_000,
+    ...freshOpts,
   });
 
   // Multi-pattern across the watchlist
@@ -189,7 +225,8 @@ export default function ActiveSetupsStrip() {
         "GET",
         `/api/multi-pattern-monitor?timeframe=${opts.mpTf}&mode=${opts.mpMode}&rr=${opts.mpRr}&symbols=${encodeURIComponent(DEFAULT_SYMBOLS)}`,
       ).then((r) => r.json()),
-    refetchInterval: 90_000,
+    refetchInterval: 45_000,
+    ...freshOpts,
   });
 
   // Continuation across the watchlist
@@ -200,8 +237,41 @@ export default function ActiveSetupsStrip() {
         "GET",
         `/api/continuation-monitor?timeframe=${opts.ctTf}&rr=${opts.ctRr}&min_risk_pct=0.5&symbols=${encodeURIComponent(DEFAULT_SYMBOLS)}`,
       ).then((r) => r.json()),
-    refetchInterval: 90_000,
+    refetchInterval: 45_000,
+    ...freshOpts,
   });
+
+  // Live last-price snapshot (cheap server-side cache, no third-party hit)
+  // Used to show "now: $X" and "% to entry" on every card.
+  const pricesQ = useQuery<Record<string, { last?: number; close?: number; price?: number }>>({
+    queryKey: ["/api/prices"],
+    queryFn: () => apiRequest("GET", "/api/prices").then((r) => r.json()),
+    refetchInterval: 10_000, // poll prices every 10s for live feel
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+  });
+
+  // Manual refresh — nukes the React-Query cache for every monitor + prices
+  // so the user can pull fresh entry/stop/target on demand.
+  const refreshAll = () => {
+    qc.invalidateQueries({ queryKey: ["/api/bull-bar-monitor/scan"] });
+    qc.invalidateQueries({ queryKey: ["/api/smh-hammer-monitor"] });
+    qc.invalidateQueries({ queryKey: ["/api/multi-pattern-monitor"] });
+    qc.invalidateQueries({ queryKey: ["/api/continuation-monitor"] });
+    qc.invalidateQueries({ queryKey: ["/api/prices"] });
+  };
+
+  const lastUpdated = useMemo(() => {
+    const ts = [
+      bullBarQ.dataUpdatedAt,
+      smhQ.dataUpdatedAt,
+      multiQ.dataUpdatedAt,
+      contQ.dataUpdatedAt,
+    ].filter((n) => n > 0);
+    return ts.length === 0 ? 0 : Math.max(...ts);
+  }, [bullBarQ.dataUpdatedAt, smhQ.dataUpdatedAt, multiQ.dataUpdatedAt, contQ.dataUpdatedAt]);
+
+  const isFetching = bullBarQ.isFetching || smhQ.isFetching || multiQ.isFetching || contQ.isFetching;
 
   const cards: ActiveCard[] = useMemo(() => {
     const out: ActiveCard[] = [];
@@ -320,8 +390,11 @@ export default function ActiveSetupsStrip() {
       });
     }
 
+    // Drop REJECTED tier rows entirely — they don't belong in an "active" strip.
+    const live = out.filter((c) => c.tier !== "REJECTED");
+
     // READY first, then WARNING; preserve insertion order within each bucket
-    return out.sort((a, b) => {
+    return live.sort((a, b) => {
       if (a.status === b.status) return 0;
       return a.status === "READY" ? -1 : 1;
     });
@@ -364,24 +437,67 @@ export default function ActiveSetupsStrip() {
             )}
           </span>
         </div>
-        <button
-          type="button"
-          onClick={() => setCollapsed((v) => !v)}
-          className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-gray hover:text-soft-white"
-          data-testid="button-toggle-active-strip"
-          aria-label={collapsed ? "Expand active setups" : "Collapse active setups"}
-        >
-          {collapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
-          <span>{collapsed ? "Show" : "Hide"}</span>
-        </button>
+        <div className="flex items-center gap-3">
+          <span
+            className="text-[9px] uppercase tracking-wider text-slate-gray font-mono tabular-nums hidden sm:inline"
+            title="Time the monitor data was last fetched. Click refresh for fresh entry/stop/target."
+          >
+            {lastUpdated > 0
+              ? `updated ${new Date(lastUpdated).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit" })}`
+              : "—"}
+          </span>
+          <button
+            type="button"
+            onClick={refreshAll}
+            disabled={isFetching}
+            className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-gray hover:text-soft-white disabled:opacity-50"
+            data-testid="button-refresh-active-strip"
+            aria-label="Refresh entry, stop, and target prices"
+            title="Pull fresh entry, stop, target, and live price"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+            <span>Refresh</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setCollapsed((v) => !v)}
+            className="flex items-center gap-1 text-[10px] uppercase tracking-wider text-slate-gray hover:text-soft-white"
+            data-testid="button-toggle-active-strip"
+            aria-label={collapsed ? "Expand active setups" : "Collapse active setups"}
+          >
+            {collapsed ? <ChevronDown className="w-3 h-3" /> : <ChevronUp className="w-3 h-3" />}
+            <span>{collapsed ? "Show" : "Hide"}</span>
+          </button>
+        </div>
       </header>
 
       {!collapsed && (
-        <div className="p-2.5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
-          {cards.map((c) => (
-            <ActiveCardView key={c.key} card={c} sharesCtx={sharesCtx} />
-          ))}
-        </div>
+        <>
+          {/* Beginner help line — visible on every render of the strip */}
+          <div className="px-3.5 py-1.5 border-b border-ink-line bg-ink-panel/60 flex items-center gap-2 text-[10px] text-slate-gray">
+            <Info className="w-3 h-3 shrink-0" />
+            <span>
+              <span className="text-signal-green">READY</span> = setup is firing, you can enter at the listed price.{" "}
+              <span className="text-signal-amber">WARNING</span> = setup is forming, wait for confirmation.{" "}
+              <span className="text-soft-white">Now</span> shows live price — the % is how far it is from entry.
+            </span>
+          </div>
+          <div className="p-2.5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {cards.map((c) => (
+              <ActiveCardView
+                key={c.key}
+                card={c}
+                sharesCtx={sharesCtx}
+                livePrice={
+                  pricesQ.data?.[c.symbol]?.last ??
+                  pricesQ.data?.[c.symbol]?.price ??
+                  pricesQ.data?.[c.symbol]?.close ??
+                  null
+                }
+              />
+            ))}
+          </div>
+        </>
       )}
     </section>
   );
@@ -395,9 +511,10 @@ function fmt(n: number | null | undefined, digits = 2): string {
 interface CardViewProps {
   card: ActiveCard;
   sharesCtx: ReturnType<typeof useSharesContext>;
+  livePrice: number | null;
 }
 
-function ActiveCardView({ card, sharesCtx }: CardViewProps) {
+function ActiveCardView({ card, sharesCtx, livePrice }: CardViewProps) {
   const shares = sharesForPlan(sharesCtx, card.riskPerShare);
   const riskDollars =
     card.riskPerShare != null && shares > 0
@@ -444,10 +561,31 @@ function ActiveCardView({ card, sharesCtx }: CardViewProps) {
         </div>
       </div>
 
-      {/* Phase line */}
-      <div className="text-[10px] text-slate-gray mb-1.5 truncate" title={card.phase}>
-        {card.phase}
+      {/* Plain-English explainer (beginner-friendly) */}
+      <div className="mb-1.5">
+        <div
+          className="text-[10px] text-soft-white/90 leading-tight"
+          title={`Raw phase: ${card.phase}`}
+        >
+          {phasePlainEnglish(card.phase, card.source)}
+        </div>
+        <div className="text-[9px] text-slate-gray italic mt-0.5">
+          {sourceExplanation(card.source)}
+        </div>
       </div>
+
+      {/* Live price + distance to entry */}
+      {livePrice != null && card.entry != null && (
+        <div className="flex items-center justify-between gap-2 mb-1.5 px-1.5 py-1 rounded-sm bg-ink-line/40 border border-ink-line/60">
+          <div className="flex items-center gap-1.5">
+            <span className="text-[9px] uppercase tracking-wider text-slate-gray">Now</span>
+            <span className="font-mono tabular-nums text-[11px] text-soft-white font-semibold">
+              ${livePrice.toFixed(2)}
+            </span>
+          </div>
+          <DistanceToEntry livePrice={livePrice} entry={card.entry} />
+        </div>
+      )}
 
       {/* Numbers grid */}
       <div className="grid grid-cols-3 gap-1 text-[10px] font-mono tabular-nums">
@@ -492,4 +630,32 @@ function ActiveCardView({ card, sharesCtx }: CardViewProps) {
     return <Link href={card.plannerHref}>{inner}</Link>;
   }
   return inner;
+}
+
+// ─── % distance from live price to entry ───────────────────────────────
+function DistanceToEntry({ livePrice, entry }: { livePrice: number; entry: number }) {
+  if (entry <= 0) return null;
+  const diff = livePrice - entry;
+  const pct = (diff / entry) * 100;
+  const abovePending = pct >= 0; // price already above entry
+  const cls = abovePending
+    ? "text-signal-green"
+    : Math.abs(pct) < 0.5
+    ? "text-signal-amber"
+    : "text-slate-gray";
+  const sign = abovePending ? "+" : "";
+  const label = abovePending
+    ? "at/above entry"
+    : Math.abs(pct) < 0.5
+    ? "near entry"
+    : "to entry";
+  return (
+    <span className="flex items-center gap-1 text-[10px] font-mono tabular-nums">
+      <span className={cls}>
+        {sign}
+        {pct.toFixed(2)}%
+      </span>
+      <span className="text-[9px] text-slate-gray uppercase tracking-wider">{label}</span>
+    </span>
+  );
 }
