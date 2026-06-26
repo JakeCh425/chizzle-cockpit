@@ -14,7 +14,7 @@
 // cards get a dashed amber border + slow pulse.
 
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { apiRequest } from "@/lib/queryClient";
