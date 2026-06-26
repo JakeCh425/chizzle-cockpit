@@ -21,7 +21,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { sharesForPlan, useSharesContext } from "@/lib/useShares";
 import { formatShares } from "@/lib/engine";
 import { buildPlannerHref } from "@/lib/planLink";
-import { ChevronDown, ChevronUp, Zap } from "lucide-react";
+import { ChevronDown, ChevronUp, Zap, RefreshCw, Info } from "lucide-react";
 
 const DEFAULT_SYMBOLS = "SMH,QQQ,SPY,AAPL";
 
