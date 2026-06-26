@@ -40,6 +40,7 @@ import AlertContactsPanel from "@/components/AlertContactsPanel";
 import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
 import ActiveSetupsStrip from "@/components/ActiveSetupsStrip";
+import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
 import { Zap } from "lucide-react";
 
@@ -254,6 +255,9 @@ export default function Cockpit() {
 
       {/* Active Setups Strip — sticky, hidden when nothing is firing */}
       <ErrorBoundary label="Active Setups Strip"><ActiveSetupsStrip /></ErrorBoundary>
+
+      {/* Fidelity OTOCO order placement cheat sheet — collapsed by default */}
+      <ErrorBoundary label="Fidelity Cheat Sheet"><FidelityCheatSheet /></ErrorBoundary>
 
       {/* Row 0: Pre-Market Scan one-tap briefing */}
       <PreMarketScan />
