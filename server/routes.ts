@@ -61,6 +61,8 @@ import {
   computeFinalRMultiple,
 } from "./tradeLifecycle";
 import { decideDiscipline } from "../shared/discipline";
+import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
+import { runSwingScan } from "./swingScanner";
 
 /**
  * Validate `req.body` against a zod schema. On failure, send 400 + a readable
@@ -1786,6 +1788,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.status(500).json({ error: e?.message || String(e) });
     }
   });
+  // ─── Chizzle Trade Evaluator ──────────────────────────────────────────────
+  // POST /api/trade-check
+  // Body: { ticker, entry, stop, t1, t2?, notes? }
+  // Returns: TradeCheckResult JSON (status + all scoring + card summary)
+  const tradeCheckSchema = z.object({
+    ticker: z.string().min(1).max(10),
+    entry: z.number().positive(),
+    stop: z.number().positive(),
+    t1: z.number().positive(),
+    t2: z.number().positive().optional().nullable(),
+    notes: z.string().max(2000).optional(),
+  });
+  app.post("/api/trade-check", async (req, res) => {
+    const parsed = validateBody(req, res, tradeCheckSchema);
+    if (!parsed) return;
+    try {
+      const result = await evaluateTrade(parsed as TradeCheckInput);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "trade-check failed";
+      res.status(400).json({ error: msg });
+    }
+  });
+
+  // ─── Chizzle Swing Scanner ────────────────────────────────────────────────
+  // POST /api/swing-scan
+  // Body: { include_stocks?: boolean, universe?: string[] }
+  // Returns: SwingScanResult (market_tone + top setups + risk guidance)
+  const swingScanSchema = z.object({
+    include_stocks: z.boolean().optional(),
+    universe: z.array(z.string().min(1).max(10)).max(30).optional(),
+  });
+  app.post("/api/swing-scan", async (req, res) => {
+    const parsed = validateBody(req, res, swingScanSchema);
+    if (!parsed) return;
+    try {
+      const result = await runSwingScan(parsed);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "swing-scan failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
   app.post("/api/alert-contacts", async (req, res) => {
     try {
       const body = req.body || {};

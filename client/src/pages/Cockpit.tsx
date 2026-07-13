@@ -41,6 +41,8 @@ import AScoreLegend from "@/components/AScoreLegend";
 import PreMarketScan from "@/components/PreMarketScan";
 import ActiveSetupsStrip from "@/components/ActiveSetupsStrip";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
+import TradeCheckPanel from "@/components/TradeCheckPanel";
+import SwingScannerPanel from "@/components/SwingScannerPanel";
 import HelpDrawer, { HelpDrawerButton } from "@/components/HelpDrawer";
 import { Zap } from "lucide-react";
 
@@ -258,6 +260,12 @@ export default function Cockpit() {
 
       {/* Fidelity OTOCO order placement cheat sheet — collapsed by default */}
       <ErrorBoundary label="Fidelity Cheat Sheet"><FidelityCheatSheet /></ErrorBoundary>
+
+      {/* Chizzle Trade Evaluator — vet any trade idea before placing the order */}
+      <ErrorBoundary label="Trade Check"><TradeCheckPanel /></ErrorBoundary>
+
+      {/* Swing Scanner — one-tap scan across the ETF universe for pro setups */}
+      <ErrorBoundary label="Swing Scanner"><SwingScannerPanel /></ErrorBoundary>
 
       {/* Row 0: Pre-Market Scan one-tap briefing */}
       <PreMarketScan />
