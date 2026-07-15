@@ -20,6 +20,7 @@ import {
   type TradeStatus,
 } from "./tradeEvaluator";
 import { safeHistory, type DailyBar } from "./marketData";
+import { computeSmhRegime, type SmhRegimeSnapshot } from "./smhRegime";
 
 export type MarketTone = "trending" | "orderly_pullback" | "choppy";
 
@@ -58,6 +59,7 @@ export interface SwingScanResult {
     size: "tiny_practice" | "small" | "normal" | "no_new";
     note: string;
   };
+  smh_regime: SmhRegimeSnapshot;
   diagnostics: {
     spy_last: number | null;
     spy_sma20: number | null;
@@ -330,7 +332,32 @@ export async function runSwingScan(
 
   // Keep only approved-tier or better (drop NO_TRADEs from output).
   const approved = rawSetups.filter((s) => s.status !== "NO_TRADE");
-  const risk = pickSize(tone, approved.length);
+  // Compute SMH-led day classification (Chizzle regime rule, 2026-07-15).
+  // This gates the scanner OUTPUT — not the filter logic. Setups still surface
+  // for transparency, but risk guidance and max_positions get downgraded so
+  // the user never accidentally sizes up on a STANDBY day.
+  const smhRegime = await computeSmhRegime();
+
+  let risk = pickSize(tone, approved.length);
+
+  // Regime override — STANDBY forces no-new-trades, PRACTICE caps at tiny.
+  if (smhRegime.day_class === "STANDBY_DAY") {
+    risk = {
+      max_positions: 0,
+      size: "no_new",
+      note: `SMH regime is STANDBY_DAY — ${smhRegime.reason} No new trades.`,
+    };
+  } else if (
+    smhRegime.day_class === "PRACTICE_SWING_DAY" &&
+    risk.size !== "no_new"
+  ) {
+    risk = {
+      max_positions: Math.min(risk.max_positions, 1),
+      size: "tiny_practice",
+      note: `SMH regime is PRACTICE_SWING_DAY — ${smhRegime.reason} Practice size only, 1 position max.`,
+    };
+  }
+
   const topSetups = approved.slice(0, risk.max_positions);
 
   return {
@@ -340,6 +367,7 @@ export async function runSwingScan(
     include_stocks: includeStocks,
     setups: topSetups,
     risk_guidance: risk,
+    smh_regime: smhRegime,
     diagnostics: {
       spy_last: spyLast,
       spy_sma20: spySma20,

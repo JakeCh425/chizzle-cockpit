@@ -63,6 +63,7 @@ import {
 import { decideDiscipline } from "../shared/discipline";
 import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
+import { computeSmhRegime } from "./smhRegime";
 
 /**
  * Validate `req.body` against a zod schema. On failure, send 400 + a readable
@@ -1828,6 +1829,19 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "swing-scan failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── SMH-led regime gauge ───────────────────────────────────────────────────
+  // GET /api/smh-regime — returns SmhRegimeSnapshot (day_class + diagnostics).
+  // Cheap enough (5 symbols, all cached) to hit from a UI badge on load.
+  app.get("/api/smh-regime", async (_req, res) => {
+    try {
+      const snap = await computeSmhRegime();
+      res.json(snap);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "smh-regime failed";
       res.status(500).json({ error: msg });
     }
   });

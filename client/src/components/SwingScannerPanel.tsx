@@ -17,6 +17,7 @@ import { apiRequest } from "@/lib/queryClient";
 import {
   ChevronDown, ChevronUp, ShieldCheck, BookOpenCheck, XCircle,
   Loader2, Sparkles, Radar, TrendingUp, TrendingDown, MinusCircle,
+  Cpu, Pause,
 } from "lucide-react";
 
 type TradeStatus =
@@ -27,6 +28,30 @@ type TradeStatus =
 
 type MarketTone = "trending" | "orderly_pullback" | "choppy";
 type RiskSize = "tiny_practice" | "small" | "normal" | "no_new";
+
+type SmhDayClass = "SWING_DAY" | "PRACTICE_SWING_DAY" | "STANDBY_DAY";
+
+interface SmhRegimeSnapshot {
+  day_class: SmhDayClass;
+  reason: string;
+  smh: {
+    last: number;
+    sma20: number;
+    sma50: number;
+    sma50_slope_10d_pct: number;
+    peak_120d: number;
+    drawdown_from_peak_pct: number;
+    dist_from_20sma_pct: number;
+    dist_from_50sma_pct: number;
+    trend_intact: boolean;
+    structure_messy: boolean;
+  };
+  leaders: {
+    breadth_above_20sma_pct: number;
+    detail: Array<{ ticker: string; last: number; sma20: number; above: boolean }>;
+  };
+  computed_at: string;
+}
 
 interface SwingSetup {
   ticker: string;
@@ -54,6 +79,7 @@ interface SwingScanResult {
   include_stocks: boolean;
   setups: SwingSetup[];
   risk_guidance: { max_positions: number; size: RiskSize; note: string };
+  smh_regime: SmhRegimeSnapshot;
   diagnostics: {
     spy_last: number | null;
     spy_sma20: number | null;
@@ -62,6 +88,30 @@ interface SwingScanResult {
     rejected: Array<{ ticker: string; reason: string }>;
   };
 }
+
+const SMH_TIER_STYLES: Record<SmhDayClass, { border: string; bg: string; text: string; label: string; Icon: any }> = {
+  SWING_DAY: {
+    border: "border-signal-green",
+    bg: "bg-signal-green/10",
+    text: "text-signal-green",
+    label: "SWING DAY",
+    Icon: Cpu,
+  },
+  PRACTICE_SWING_DAY: {
+    border: "border-signal-amber",
+    bg: "bg-signal-amber/10",
+    text: "text-signal-amber",
+    label: "PRACTICE DAY",
+    Icon: BookOpenCheck,
+  },
+  STANDBY_DAY: {
+    border: "border-signal-red",
+    bg: "bg-signal-red/10",
+    text: "text-signal-red",
+    label: "STANDBY",
+    Icon: Pause,
+  },
+};
 
 const TIER_STYLES: Record<TradeStatus, { border: string; bg: string; text: string; label: string; Icon: any }> = {
   STANDARD_SWING_APPROVED: {
@@ -240,6 +290,70 @@ export default function SwingScannerPanel() {
           {/* Result */}
           {result && (
             <div className="space-y-3">
+              {/* SMH regime gauge — primary day classifier */}
+              {(() => {
+                const smh = result.smh_regime;
+                const style = SMH_TIER_STYLES[smh.day_class];
+                const Icon = style.Icon;
+                return (
+                  <div
+                    className={`rounded-md border ${style.border} ${style.bg} p-3`}
+                    data-testid="section-smh-regime"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <Icon className={`h-4 w-4 ${style.text}`} />
+                        <span className={`text-sm font-bold ${style.text}`}>
+                          SMH REGIME: {style.label}
+                        </span>
+                      </div>
+                      <div className="text-xs text-slate-gray">
+                        SMH ${smh.smh.last.toFixed(2)} · 20SMA ${smh.smh.sma20.toFixed(2)} · 50SMA ${smh.smh.sma50.toFixed(2)}
+                      </div>
+                    </div>
+                    <div className="text-xs text-soft-white mb-2">{smh.reason}</div>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                      <div>
+                        <div className="text-slate-gray">Drawdown</div>
+                        <div className={`font-mono ${smh.smh.drawdown_from_peak_pct <= -8 ? "text-signal-amber" : "text-soft-white"}`}>
+                          {smh.smh.drawdown_from_peak_pct.toFixed(2)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-gray">50 SMA slope 10d</div>
+                        <div className={`font-mono ${smh.smh.sma50_slope_10d_pct >= 0 ? "text-signal-green" : "text-signal-red"}`}>
+                          {smh.smh.sma50_slope_10d_pct >= 0 ? "+" : ""}{smh.smh.sma50_slope_10d_pct.toFixed(2)}%
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-gray">Trend intact</div>
+                        <div className={`font-mono ${smh.smh.trend_intact ? "text-signal-green" : "text-signal-red"}`}>
+                          {smh.smh.trend_intact ? "YES" : "NO"}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-slate-gray">Leaders ≥ 20 SMA</div>
+                        <div className="font-mono text-soft-white">
+                          {smh.leaders.breadth_above_20sma_pct.toFixed(0)}%
+                        </div>
+                      </div>
+                    </div>
+                    {smh.leaders.detail.length > 0 && (
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {smh.leaders.detail.map((l) => (
+                          <span
+                            key={l.ticker}
+                            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${l.above ? "border-signal-green text-signal-green" : "border-signal-red text-signal-red"}`}
+                          >
+                            {l.ticker} {l.above ? "↑" : "↓"}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {/* MARKET_TONE + RISK_GUIDANCE strip */}
               <div className="flex flex-wrap items-center gap-3 rounded-md border border-ink-line bg-ink-black p-3">
                 {(() => {
