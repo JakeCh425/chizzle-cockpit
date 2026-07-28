@@ -49,6 +49,11 @@ export interface TradeCheckResult {
   // the UI for trust / "show your work":
   diagnostics: {
     sma20: number;
+    sma50: number | null;
+    sma200: number | null;
+    above_20sma: boolean;
+    above_50sma: boolean;
+    above_200sma: boolean;
     distance_from_sma20_pct: number;
     current_price: number;
     near_resistance: boolean;
@@ -56,6 +61,7 @@ export interface TradeCheckResult {
     structure: string;
     standard_failures: string[];
     flex_failures: string[];
+    practice_failures: string[];
     technical_breakdown: Record<string, number>;
     fundamental_breakdown: Record<string, number>;
   };
@@ -266,6 +272,8 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
   const volumes = bars.map((b) => b.volume);
 
   const sma20 = sma(closes, 20)!;
+  const sma50 = sma(closes, 50);
+  const sma200 = sma(closes, 200);
   const lastClose = closes[closes.length - 1];
 
   // Use live snapshot if available so distance reflects right-now price
@@ -280,6 +288,13 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
   }
 
   const distancePct = ((entry - sma20) / sma20) * 100;
+
+  // ── Chizzle SMA-stack gates (2026-07-28 spec) ──
+  // Longs are never allowed below the 200-day SMA. This is a hard reject that
+  // supersedes every other classifier below.
+  const above200 = sma200 != null && entry > sma200;
+  const above50 = sma50 != null && entry > sma50;
+  const above20 = entry > sma20;
 
   // ── Resistance check ──
   const resistance = nearestResistance(highs, entry, 30);
@@ -303,16 +318,23 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
   const regime = await readRegime();
 
   // ── Stage 1: Standard test ──
+  // Standard: above 20/50/200 SMA, near 20-SMA pullback or clean 20-SMA reclaim.
   const standardFailures: string[] = [];
   if (regime === "RED") standardFailures.push(`regime ${regime} (risk-off)`);
+  if (!above200) standardFailures.push(`entry below 200-SMA (${sma200?.toFixed(2) ?? "insufficient history"}) — no longs below 200-day`);
+  if (!above50) standardFailures.push(`entry below 50-SMA (${sma50?.toFixed(2) ?? "insufficient history"})`);
+  if (!above20 && !structure.isReclaim) standardFailures.push(`entry below 20-SMA without a clean reclaim — cannot be standard`);
   if (distancePct < -3 || distancePct > 1.0) standardFailures.push(`entry ${distancePct.toFixed(2)}% from 20-SMA (standard band: -3% to +1%)`);
   if (structure.score < 3) standardFailures.push(`structure too weak: ${structure.label}`);
   if (rrT1 < 2.0) standardFailures.push(`R:R to T1 ${rrT1.toFixed(2)}:1 < 2:1 floor`);
   if (nearResistance) standardFailures.push(`entry within 1.5% of resistance ${resistance!.toFixed(2)}`);
 
   // ── Stage 2: Flex test ──
+  // Flex: must still be above 50-SMA and 200-SMA with pro structure + 2:1 RR.
   const flexFailures: string[] = [];
   if (regime === "RED") flexFailures.push(`regime ${regime} (risk-off)`);
+  if (!above200) flexFailures.push(`entry below 200-SMA — no longs below 200-day`);
+  if (!above50) flexFailures.push(`entry below 50-SMA — flex requires >50-SMA`);
   if (fundies.total < 4) flexFailures.push(`fundamentals weak (${fundies.total}/5)`);
   if ((THEME_SCORES[ticker] ?? 3) < 4) flexFailures.push(`theme/sector not strong enough`);
   if (structure.score < 3) flexFailures.push(`structure too weak: ${structure.label}`);
@@ -325,25 +347,67 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
   if (rrT1 < 2.0) flexFailures.push(`R:R to T1 ${rrT1.toFixed(2)}:1 < 2:1 floor`);
   if (nearResistance) flexFailures.push(`entry within 1.5% of resistance ${resistance!.toFixed(2)} — chase`);
 
+  // ── Stage 3: Practice Card test (spec 2026-07-28) ──
+  // Practice: below 20-SMA but ABOVE 50-SMA and 200-SMA, near the 50-SMA area,
+  // intact larger trend, defined stop, RR >= 2:1, real confirmation
+  // (reclaim / bullish reversal / bounce off 50 / supportive volume).
+  const nearSma50 = sma50 != null && Math.abs((entry - sma50) / sma50) <= 0.03; // within ±3% of 50-SMA
+  const bullishReversal = structure.label.toLowerCase().includes("bounce") ||
+                          structure.label.toLowerCase().includes("reclaim") ||
+                          structure.label.toLowerCase().includes("higher low");
+  const supportiveVolume = tVolume >= 3;
+  const practiceFailures: string[] = [];
+  if (!above200) practiceFailures.push("entry below 200-SMA — no longs below 200-day");
+  if (!above50) practiceFailures.push("entry below 50-SMA — practice card requires >50 & >200 SMA");
+  if (!nearSma50) practiceFailures.push(`entry not near 50-SMA (${sma50?.toFixed(2) ?? "n/a"}, within ±3% required)`);
+  if (rrT1 < 2.0) practiceFailures.push(`R:R to T1 ${rrT1.toFixed(2)}:1 < 2:1 floor`);
+  if (!bullishReversal && !structure.isReclaim && !supportiveVolume) {
+    practiceFailures.push("no confirmation: need reclaim, bullish reversal, bounce off 50, or supportive volume");
+  }
+  if (nearResistance) practiceFailures.push(`entry within 1.5% of resistance — chase`);
+
   // ── Decision ──
   let status: TradeStatus;
   let reason: string;
   let setupType = structure.label;
 
-  if (standardFailures.length === 0) {
+  // Hard reject: no longs below the 200-day SMA — no tier, no override.
+  if (!above200) {
+    status = "NO_TRADE";
+    reason = `NO TRADE: entry ${entry.toFixed(2)} is below 200-SMA (${sma200?.toFixed(2) ?? "insufficient history"}). Longs are never approved below the 200-day.`;
+  } else if (standardFailures.length === 0) {
     status = "STANDARD_SWING_APPROVED";
-    reason = `Standard setup: ${structure.label} ${distancePct.toFixed(2)}% from 20-SMA, R:R ${rrT1.toFixed(2)}:1 to T1, regime ${regime}.`;
+    reason = `Standard setup: ${structure.label} ${distancePct.toFixed(2)}% from 20-SMA, above 20/50/200 SMA, R:R ${rrT1.toFixed(2)}:1 to T1, regime ${regime}.`;
   } else if (flexFailures.length === 0) {
     status = "FLEX_SWING_APPROVED";
-    reason = `Flex setup: ${structure.label} ${distancePct.toFixed(2)}% from 20-SMA (within flex band), strong theme/fundamentals (${fundies.total}/5), R:R ${rrT1.toFixed(2)}:1.`;
+    reason = `Flex setup: ${structure.label} ${distancePct.toFixed(2)}% from 20-SMA, above 50 & 200 SMA, strong theme/fundamentals (${fundies.total}/5), R:R ${rrT1.toFixed(2)}:1.`;
+  } else if (practiceFailures.length === 0) {
+    status = "PRACTICE_CARD";
+    reason = `Practice Card: entry near 50-SMA with confirmation (${structure.label}), R:R ${rrT1.toFixed(2)}:1, larger trend intact.`;
   } else if (
-    techTotal >= 3 && fundies.total >= 3 && rrT1 >= 1.5 && !nearResistance
+    techTotal >= 3 && fundies.total >= 3 && rrT1 >= 1.5 && !nearResistance && above50
   ) {
     status = "PRACTICE_CARD";
     reason = `Interesting but not pro-grade — ${flexFailures[0]}; log as practice.`;
   } else {
     status = "NO_TRADE";
     reason = flexFailures[0] ?? standardFailures[0] ?? "setup does not meet professional criteria";
+  }
+
+  // Below-20-SMA clamp: a setup below the 20-day SMA can never be STANDARD,
+  // and is usually capped at PRACTICE_CARD unless momentum is clearly reclaiming
+  // AND structure is exceptional (isReclaim + isHigherLow + structure.score >= 4).
+  if (!above20 && status !== "NO_TRADE") {
+    const exceptionalReclaim =
+      structure.isReclaim && structure.isHigherLow && structure.score >= 4;
+    if (status === "STANDARD_SWING_APPROVED") {
+      // Only allow FLEX on an exceptional reclaim; otherwise cap at PRACTICE.
+      status = exceptionalReclaim ? "FLEX_SWING_APPROVED" : "PRACTICE_CARD";
+      reason = `Clamped: entry below 20-SMA cannot be STANDARD. ${exceptionalReclaim ? "Exceptional reclaim + higher low — kept as FLEX." : "Capped at PRACTICE_CARD."}`;
+    } else if (status === "FLEX_SWING_APPROVED" && !exceptionalReclaim) {
+      status = "PRACTICE_CARD";
+      reason = `Clamped: entry below 20-SMA without exceptional reclaim — capped at PRACTICE_CARD.`;
+    }
   }
 
   // Downgrade rule: if uncertain (mixed signals), one level down. Apply when
@@ -378,6 +442,11 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
     card_summary_5_lines,
     diagnostics: {
       sma20: Number(sma20.toFixed(2)),
+      sma50: sma50 != null ? Number(sma50.toFixed(2)) : null,
+      sma200: sma200 != null ? Number(sma200.toFixed(2)) : null,
+      above_20sma: above20,
+      above_50sma: above50,
+      above_200sma: above200,
       distance_from_sma20_pct: Number(distancePct.toFixed(2)),
       current_price: Number(currentPrice.toFixed(2)),
       near_resistance: nearResistance,
@@ -385,6 +454,7 @@ export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckR
       structure: structure.label,
       standard_failures: standardFailures,
       flex_failures: flexFailures,
+      practice_failures: practiceFailures,
       technical_breakdown,
       fundamental_breakdown: fundies.breakdown,
     },
