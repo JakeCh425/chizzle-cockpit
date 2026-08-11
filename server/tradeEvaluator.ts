@@ -244,27 +244,79 @@ async function readRegime(): Promise<"GREEN" | "YELLOW" | "RED" | "MIXED" | "UNK
 
 // ─── Main evaluator ────────────────────────────────────────────────────────
 
+// Build a safe fallback response so the API never 400s / throws to the client.
+// Per the spec: "Return Unknown instead of failing."
+function unknownResult(
+  input: TradeCheckInput,
+  reason: string,
+): TradeCheckResult {
+  const entry = Number.isFinite(input.entry) ? input.entry : 0;
+  const stop = Number.isFinite(input.stop) ? input.stop : 0;
+  const t1 = Number.isFinite(input.t1) ? input.t1 : 0;
+  const t2 = input.t2 != null && Number.isFinite(input.t2) ? input.t2 : null;
+  const risk = entry - stop;
+  const rrT1 = risk > 0 && t1 > entry ? (t1 - entry) / risk : 0;
+  const rrT2 = risk > 0 && t2 != null && t2 > entry ? (t2 - entry) / risk : null;
+  return {
+    status: "NO_TRADE",
+    setup_type: "Unknown",
+    regime: "UNKNOWN",
+    entry,
+    stop,
+    t1,
+    t2,
+    risk_reward: { t1: Number(rrT1.toFixed(2)), t2: rrT2 != null ? Number(rrT2.toFixed(2)) : null },
+    technical_score: 0,
+    fundamental_score: 0,
+    one_sentence_reason: reason,
+    card_summary_5_lines: null,
+    diagnostics: {
+      sma20: 0,
+      sma50: null,
+      sma200: null,
+      above_20sma: false,
+      above_50sma: false,
+      above_200sma: false,
+      distance_from_sma20_pct: 0,
+      current_price: entry,
+      near_resistance: false,
+      nearest_resistance: null,
+      structure: "Unknown",
+      standard_failures: [reason],
+      flex_failures: [reason],
+      practice_failures: [reason],
+      technical_breakdown: {},
+      fundamental_breakdown: {},
+    },
+  };
+}
+
 export async function evaluateTrade(input: TradeCheckInput): Promise<TradeCheckResult> {
   const ticker = input.ticker.trim().toUpperCase();
   const { entry, stop, t1 } = input;
   const t2 = input.t2 ?? null;
 
-  // ── Validate inputs ──
+  // ── Validate inputs ── (return Unknown instead of throwing)
   if (!Number.isFinite(entry) || !Number.isFinite(stop) || !Number.isFinite(t1)) {
-    throw new Error("entry, stop, t1 must be numbers");
+    return unknownResult(input, "entry, stop, and t1 must be numbers — cannot evaluate");
   }
-  if (stop >= entry) throw new Error("stop must be below entry for a long");
-  if (t1 <= entry) throw new Error("t1 must be above entry for a long");
+  if (stop >= entry) return unknownResult(input, "stop must be below entry for a long — cannot evaluate");
+  if (t1 <= entry) return unknownResult(input, "t1 must be above entry for a long — cannot evaluate");
 
   // ── Risk/reward ──
   const risk = entry - stop;
   const rrT1 = (t1 - entry) / risk;
   const rrT2 = t2 != null && t2 > entry ? (t2 - entry) / risk : null;
 
-  // ── Fetch price history ──
-  const bars = await fetchTwelveDataDailyOHLC(ticker);
+  // ── Fetch price history (never throw — fall back to Unknown) ──
+  let bars: Awaited<ReturnType<typeof fetchTwelveDataDailyOHLC>> = [];
+  try {
+    bars = await fetchTwelveDataDailyOHLC(ticker);
+  } catch (err) {
+    return unknownResult(input, `Price history unavailable for ${ticker} — evaluated as Unknown`);
+  }
   if (!bars || bars.length < 30) {
-    throw new Error(`could not fetch enough daily history for ${ticker}`);
+    return unknownResult(input, `Insufficient price history for ${ticker} — evaluated as Unknown`);
   }
   const closes = bars.map((b) => b.close);
   const highs = bars.map((b) => b.high);

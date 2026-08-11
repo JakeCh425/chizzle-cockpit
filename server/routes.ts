@@ -51,6 +51,8 @@ import {
   insertTradeReviewSchema,
   insertTradeTagSchema,
   TAG_CATEGORIES,
+  insertActiveSetupSchema,
+  ACTIVE_SETUP_STATUSES,
 } from "@shared/schema";
 import { calcExecutionStats, validateExecution } from "@shared/executions";
 import { z, type ZodTypeAny } from "zod";
@@ -64,6 +66,7 @@ import { decideDiscipline } from "../shared/discipline";
 import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
 import { computeSmhRegime } from "./smhRegime";
+import { computeRegimeV2 } from "./regimeEngineV2";
 
 /**
  * Validate `req.body` against a zod schema. On failure, send 400 + a readable
@@ -1802,14 +1805,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     notes: z.string().max(2000).optional(),
   });
   app.post("/api/trade-check", async (req, res) => {
-    const parsed = validateBody(req, res, tradeCheckSchema);
-    if (!parsed) return;
+    // Never 400 — the evaluator always returns a valid response (Unknown
+    // fallback if inputs or data are bad). This is the 400-safe contract.
+    const parsed = tradeCheckSchema.safeParse(req.body);
     try {
-      const result = await evaluateTrade(parsed as TradeCheckInput);
+      let input: TradeCheckInput;
+      if (parsed.success) {
+        input = parsed.data as TradeCheckInput;
+      } else {
+        // Coerce whatever we can and let the evaluator's Unknown path handle it.
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        input = {
+          ticker: String(body.ticker ?? "").trim() || "UNKNOWN",
+          entry: Number(body.entry ?? 0),
+          stop: Number(body.stop ?? 0),
+          t1: Number(body.t1 ?? 0),
+          t2: body.t2 == null ? null : Number(body.t2),
+          notes: typeof body.notes === "string" ? body.notes : undefined,
+        };
+      }
+      const result = await evaluateTrade(input);
       res.json(result);
     } catch (err) {
+      // Absolute last-resort catch — still return a valid Unknown result body.
       const msg = err instanceof Error ? err.message : "trade-check failed";
-      res.status(400).json({ error: msg });
+      res.json({
+        status: "NO_TRADE",
+        setup_type: "Unknown",
+        regime: "UNKNOWN",
+        entry: Number(req.body?.entry ?? 0),
+        stop: Number(req.body?.stop ?? 0),
+        t1: Number(req.body?.t1 ?? 0),
+        t2: null,
+        risk_reward: { t1: 0, t2: null },
+        technical_score: 0,
+        fundamental_score: 0,
+        one_sentence_reason: `Evaluator error: ${msg} — returned Unknown`,
+        card_summary_5_lines: null,
+        diagnostics: null,
+      });
     }
   });
 
@@ -1843,6 +1877,83 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (err) {
       const msg = err instanceof Error ? err.message : "smh-regime failed";
       res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── Regime Engine v2 (VIX + breadth + distribution) ───────────────────
+  app.get("/api/regime-v2", async (req, res) => {
+    try {
+      const universe = typeof req.query.universe === "string"
+        ? req.query.universe.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : undefined;
+      const snap = await computeRegimeV2(universe);
+      res.json(snap);
+    } catch (err) {
+      // Never 400/500 the regime endpoint — return Unknown snapshot
+      res.json({
+        day_class: "UNKNOWN",
+        reason: err instanceof Error ? err.message : "regime-v2 failed",
+        vix: { last: null, band: "UNKNOWN" },
+        breadth: { pct_above_20sma: null, universe_size: 0, band: "UNKNOWN" },
+        distribution: { days_last_25: null, band: "UNKNOWN" },
+        detail: [],
+        computed_at: new Date().toISOString(),
+      });
+    }
+  });
+
+  // ─── Active Setups (Chizzle Pipeline persistence) ──────────────────────
+  app.get("/api/active-setups", async (req, res) => {
+    try {
+      const includeArchived = req.query.includeArchived === "true";
+      const rows = await storage.listActiveSetups(includeArchived);
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "failed to list active setups" });
+    }
+  });
+
+  app.post("/api/active-setups", async (req, res) => {
+    const parsed = validateBody(req, res, insertActiveSetupSchema);
+    if (!parsed) return;
+    try {
+      const row = await storage.createActiveSetup(parsed);
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "failed to create active setup" });
+    }
+  });
+
+  app.patch("/api/active-setups/:id", async (req, res) => {
+    const parsed = validateBody(req, res, insertActiveSetupSchema.partial());
+    if (!parsed) return;
+    try {
+      const row = await storage.updateActiveSetup(req.params.id, parsed);
+      if (!row) return res.status(404).json({ error: "active setup not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "failed to update active setup" });
+    }
+  });
+
+  app.post("/api/active-setups/:id/archive", async (req, res) => {
+    try {
+      const row = await storage.archiveActiveSetup(req.params.id);
+      if (!row) return res.status(404).json({ error: "active setup not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "failed to archive active setup" });
+    }
+  });
+
+  app.post("/api/active-setups/:id/pin", async (req, res) => {
+    try {
+      const pinned = req.body?.pinned !== false; // default true
+      const row = await storage.pinActiveSetup(req.params.id, pinned);
+      if (!row) return res.status(404).json({ error: "active setup not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "failed to pin active setup" });
     }
   });
 

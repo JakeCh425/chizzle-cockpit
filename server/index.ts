@@ -28,6 +28,19 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// 400-safe JSON parser fallback for /api/trade-check — the Chizzle spec requires
+// the evaluator to NEVER return 400. Any malformed JSON is coerced to an
+// empty body so the route can respond with an Unknown result instead of 400.
+app.use((err: any, req: any, res: any, next: any) => {
+  if (err && err.type === "entity.parse.failed") {
+    if (req.path === "/api/trade-check") {
+      req.body = {};
+      return next();
+    }
+  }
+  return next(err);
+});
+
 // Health check endpoint (Render pings this)
 app.get("/health", (_req, res) => {
   res.json({

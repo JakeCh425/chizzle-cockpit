@@ -7,6 +7,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppShell } from "@/components/AppShell";
 import Cockpit from "@/pages/Cockpit";
+import PipelineCockpit from "@/pages/PipelineCockpit";
 import Watchlist from "@/pages/Watchlist";
 import Trades from "@/pages/Trades";
 import Journal from "@/pages/Journal";
@@ -23,7 +24,8 @@ function AppRouter() {
   return (
     <AppShell>
       <Switch>
-        <Route path="/" component={Cockpit} />
+        <Route path="/" component={PipelineCockpit} />
+        <Route path="/advanced" component={Cockpit} />
         <Route path="/watchlist" component={Watchlist} />
         <Route path="/trades" component={Trades} />
         <Route path="/trade-planner" component={TradePlanner} />

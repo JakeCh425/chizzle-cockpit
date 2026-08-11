@@ -542,3 +542,62 @@ export type InsertTradeReview = z.infer<typeof insertTradeReviewSchema>;
 export type TradeTag = typeof tradeTags.$inferSelect;
 export type InsertTradeTag = z.infer<typeof insertTradeTagSchema>;
 export type TradeReviewTag = typeof tradeReviewTags.$inferSelect;
+
+// ─── Active Setups (Chizzle Pipeline persistence, 2026-08-11) ──────────────
+// Confirmed swing setups that survive scans, refreshes, and deploys. Only
+// removed on explicit archive. This is the source of truth for the Cockpit's
+// ACTIVE SETUPS system.
+
+export const ACTIVE_SETUP_STATUSES = [
+  "planned",
+  "active",
+  "trimmed",
+  "closed",
+  "archived",
+] as const;
+export type ActiveSetupStatus = typeof ACTIVE_SETUP_STATUSES[number];
+
+export const activeSetups = pgTable("active_setups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticker: text("ticker").notNull(),
+  sector: text("sector").default(""),
+  theme: text("theme").default(""),
+  thesis: text("thesis").notNull().default(""),
+  entry: doublePrecision("entry").notNull(),
+  stop: doublePrecision("stop").notNull(),
+  targetT1: doublePrecision("target_t1").notNull(),
+  targetT2: doublePrecision("target_t2"),
+  riskPercent: doublePrecision("risk_percent").notNull().default(0.75),
+  regime: text("regime").notNull().default("UNKNOWN"),
+  structureVerdict: text("structure_verdict").notNull().default(""),
+  rrRatio: doublePrecision("rr_ratio").notNull().default(0),
+  status: text("status").notNull().default("planned"),
+  pinned: boolean("pinned").notNull().default(false),
+  notes: text("notes").default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+});
+
+export const insertActiveSetupSchema = createInsertSchema(activeSetups)
+  .omit({ id: true, createdAt: true, updatedAt: true, archivedAt: true })
+  .extend({
+    ticker: z.string().min(1).max(10).transform((s) => s.trim().toUpperCase()),
+    thesis: z.string().max(2000).default(""),
+    sector: z.string().max(60).optional().default(""),
+    theme: z.string().max(60).optional().default(""),
+    entry: z.number().positive(),
+    stop: z.number().positive(),
+    targetT1: z.number().positive(),
+    targetT2: z.number().positive().optional().nullable(),
+    riskPercent: z.number().min(0).max(10).default(0.75),
+    regime: z.enum(["GREEN", "YELLOW", "RED", "UNKNOWN", "MIXED"]).default("UNKNOWN"),
+    structureVerdict: z.string().max(200).default(""),
+    rrRatio: z.number().min(0).default(0),
+    status: z.enum(ACTIVE_SETUP_STATUSES).default("planned"),
+    pinned: z.boolean().default(false),
+    notes: z.string().max(4000).optional().default(""),
+  });
+
+export type ActiveSetup = typeof activeSetups.$inferSelect;
+export type InsertActiveSetup = z.infer<typeof insertActiveSetupSchema>;

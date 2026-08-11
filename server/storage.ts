@@ -23,6 +23,7 @@ import {
   tradeReviews,
   tradeTags,
   tradeReviewTags,
+  activeSetups,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -49,6 +50,7 @@ import type {
   TradePlanStatus,
   TradeReview, InsertTradeReview,
   TradeTag, InsertTradeTag,
+  ActiveSetup, InsertActiveSetup,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -475,6 +477,28 @@ UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
     )`,
     // 2026-06: per-contact ticker filter for alerts. Empty = all tickers.
     "ALTER TABLE alert_contacts ADD COLUMN IF NOT EXISTS ticker_filter TEXT NOT NULL DEFAULT ''",
+    // 2026-08: Active Setups persistence table for the Chizzle Pipeline system.
+    `CREATE TABLE IF NOT EXISTS active_setups (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticker TEXT NOT NULL,
+      sector TEXT DEFAULT '',
+      theme TEXT DEFAULT '',
+      thesis TEXT NOT NULL DEFAULT '',
+      entry DOUBLE PRECISION NOT NULL,
+      stop DOUBLE PRECISION NOT NULL,
+      target_t1 DOUBLE PRECISION NOT NULL,
+      target_t2 DOUBLE PRECISION,
+      risk_percent DOUBLE PRECISION NOT NULL DEFAULT 0.75,
+      regime TEXT NOT NULL DEFAULT 'UNKNOWN',
+      structure_verdict TEXT NOT NULL DEFAULT '',
+      rr_ratio DOUBLE PRECISION NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'planned',
+      pinned BOOLEAN NOT NULL DEFAULT false,
+      notes TEXT DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      archived_at TIMESTAMPTZ
+    )`,
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
@@ -1560,5 +1584,39 @@ export const storage = {
       tags: Array.isArray(r.tags) ? r.tags.map((t: any) => String(t)) : [],
       holdDays: Number(r.hold_days ?? 0),
     }));
+  },
+
+  // ─── Active Setups (Chizzle Pipeline persistence) ──────────────────────
+  async listActiveSetups(includeArchived = false): Promise<ActiveSetup[]> {
+    const rows = await db.select().from(activeSetups).orderBy(desc(activeSetups.pinned), desc(activeSetups.createdAt));
+    return includeArchived ? rows : rows.filter((r) => r.status !== "archived");
+  },
+  async getActiveSetup(id: string): Promise<ActiveSetup | undefined> {
+    const rows = await db.select().from(activeSetups).where(eq(activeSetups.id, id)).limit(1);
+    return rows[0];
+  },
+  async createActiveSetup(p: InsertActiveSetup): Promise<ActiveSetup> {
+    const row = (await db.insert(activeSetups).values(p as any).returning())[0];
+    return row;
+  },
+  async updateActiveSetup(id: string, patch: Partial<InsertActiveSetup>): Promise<ActiveSetup | undefined> {
+    await db.update(activeSetups)
+      .set({ ...(patch as any), updatedAt: new Date() })
+      .where(eq(activeSetups.id, id));
+    return this.getActiveSetup(id);
+  },
+  async archiveActiveSetup(id: string): Promise<ActiveSetup | undefined> {
+    await db.update(activeSetups)
+      .set({ status: "archived", archivedAt: new Date(), updatedAt: new Date() })
+      .where(eq(activeSetups.id, id));
+    return this.getActiveSetup(id);
+  },
+  async pinActiveSetup(id: string, pinned: boolean): Promise<ActiveSetup | undefined> {
+    // Enforce single pinned setup: clear existing pins first when pinning
+    if (pinned) {
+      await db.update(activeSetups).set({ pinned: false, updatedAt: new Date() }).where(eq(activeSetups.pinned, true));
+    }
+    await db.update(activeSetups).set({ pinned, updatedAt: new Date() }).where(eq(activeSetups.id, id));
+    return this.getActiveSetup(id);
   },
 };
