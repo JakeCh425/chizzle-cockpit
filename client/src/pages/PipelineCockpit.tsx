@@ -1,197 +1,118 @@
 // ─── PipelineCockpit ───────────────────────────────────────────────────────
 // Chizzle Wealth Engine — 6-step swing pipeline.
-// SCAN → SELECT → PLAN → EXECUTE → MANAGE → REVIEW
-// Zero widget clutter. Hard section boundaries. Operator tone.
-// Every step contains only its relevant tool(s). Ancillary widgets live in
-// the Tools drawer. Active Setups always render at the bottom, persistent
-// until manually archived.
+//
+// Layout order (top to bottom):
+//   1. P&L header
+//   2. Regime v2 gauge
+//   3. Active Setups (pinned at top per user spec — persistent watchlist)
+//   4. Proximity Watch (REACHING → TOUCHING → READY → REJECTED)
+//   5. Pipeline: SCAN → SELECT → PLAN → EXECUTE → MANAGE → REVIEW
+//   6. Tools drawer (Mini Charts + Advanced Cockpit link)
+//
+// CRITICAL: lanes are always mounted, hidden via CSS. This keeps input focus
+// stable inside TradeCheckPanel and prevents remount-loss on collapse toggles.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Link } from "wouter";
 import { Search, Target, ClipboardList, Play, Activity, BookOpen, ChevronDown, ChevronRight, Wrench, ArrowRight } from "lucide-react";
 import PnLHeader from "@/components/PnLHeader";
 import RegimeV2Panel from "@/components/RegimeV2Panel";
 import ActiveSetupsPanel from "@/components/ActiveSetupsPanel";
+import ProximityWatchPanel from "@/components/ProximityWatchPanel";
 import SwingScannerPanel from "@/components/SwingScannerPanel";
 import TradeCheckPanel from "@/components/TradeCheckPanel";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
 
-interface StepDef {
-  key: string;
-  index: number;
-  title: string;
-  purpose: string;
-  Icon: typeof Search;
-  content: React.ReactNode;
+// Static lane definitions — kept outside the render body so array identity is
+// stable across renders (React can reconcile without remounting children).
+const LANE_KEYS = ["SCAN", "SELECT", "PLAN", "EXECUTE", "MANAGE", "REVIEW"] as const;
+type LaneKey = typeof LANE_KEYS[number];
+
+const LANE_META: Record<LaneKey, { index: number; purpose: string; Icon: typeof Search }> = {
+  SCAN:    { index: 1, purpose: "Propose candidates from the universe",  Icon: Search },
+  SELECT:  { index: 2, purpose: "Choose one setup to develop",          Icon: Target },
+  PLAN:    { index: 3, purpose: "Evaluator + full setup fields",         Icon: ClipboardList },
+  EXECUTE: { index: 4, purpose: "Fidelity OTOCO reference + mark Active",Icon: Play },
+  MANAGE:  { index: 5, purpose: "Trim, trail, adjust risk",              Icon: Activity },
+  REVIEW:  { index: 6, purpose: "Log notes, analytics, archive",         Icon: BookOpen },
+};
+
+interface LaneShellProps {
+  laneKey: LaneKey;
+  expanded: boolean;
+  onToggle: () => void;
+  children: React.ReactNode;
 }
 
-function StepLane({ step, expanded, onToggle }: { step: StepDef; expanded: boolean; onToggle: () => void }) {
-  const Icon = step.Icon;
+function LaneShell({ laneKey, expanded, onToggle, children }: LaneShellProps) {
+  const meta = LANE_META[laneKey];
+  const Icon = meta.Icon;
   return (
-    <div className="rounded-md border border-ink-line bg-ink-black" data-testid={`step-${step.key.toLowerCase()}`}>
+    <div className="rounded-md border border-ink-line bg-ink-black" data-testid={`step-${laneKey.toLowerCase()}`}>
       <button
         onClick={onToggle}
         className="w-full flex items-center justify-between p-3 hover:bg-ink-deep transition-colors"
-        data-testid={`button-toggle-${step.key.toLowerCase()}`}
+        data-testid={`button-toggle-${laneKey.toLowerCase()}`}
       >
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-mono text-slate-gray">{String(step.index).padStart(2, "0")}</span>
+            <span className="text-xs font-mono text-slate-gray">{String(meta.index).padStart(2, "0")}</span>
             <Icon className="h-4 w-4 text-neon-blue" />
-            <span className="text-sm font-bold text-soft-white tracking-wide">{step.key}</span>
+            <span className="text-sm font-bold text-soft-white tracking-wide">{laneKey}</span>
           </div>
-          <span className="text-xs text-slate-gray hidden sm:inline">— {step.purpose}</span>
+          <span className="text-xs text-slate-gray hidden sm:inline">— {meta.purpose}</span>
         </div>
         {expanded ? <ChevronDown className="h-4 w-4 text-slate-gray" /> : <ChevronRight className="h-4 w-4 text-slate-gray" />}
       </button>
-      {expanded && (
-        <div className="border-t border-ink-line p-3">
-          <ErrorBoundary>{step.content}</ErrorBoundary>
-        </div>
-      )}
+      {/* Always mounted; hidden via CSS to preserve child state (input focus). */}
+      <div className={`border-t border-ink-line p-3 ${expanded ? "" : "hidden"}`}>
+        <ErrorBoundary>{children}</ErrorBoundary>
+      </div>
     </div>
   );
 }
 
 export default function PipelineCockpit() {
-  // Default: SCAN and SELECT expanded, others collapsed for one-screen readability.
-  const [expandedKey, setExpandedKey] = useState<string>("SCAN");
+  const [expandedKey, setExpandedKey] = useState<LaneKey | "">("SCAN");
   const [toolsOpen, setToolsOpen] = useState(false);
 
-  const steps: StepDef[] = [
-    {
-      key: "SCAN",
-      index: 1,
-      title: "Scan the tape",
-      purpose: "Propose candidates from the universe",
-      Icon: Search,
-      content: <SwingScannerPanel />,
-    },
-    {
-      key: "SELECT",
-      index: 2,
-      title: "Select a candidate",
-      purpose: "Choose one setup to develop",
-      Icon: Target,
-      content: (
-        <div className="space-y-2 text-sm">
-          <div className="text-xs text-slate-gray">
-            Pick the strongest candidate from SCAN. Judgment prevails — regime, fundamentals, structure, R:R.
-          </div>
-          <div className="text-xs text-soft-white">
-            Then click <span className="font-bold text-neon-blue">PLAN</span> below to write the full setup.
-          </div>
-          <button
-            onClick={() => setExpandedKey("PLAN")}
-            className="text-xs px-3 py-1.5 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1"
-            data-testid="button-goto-plan"
-          >
-            Go to PLAN <ArrowRight className="h-3 w-3" />
-          </button>
-        </div>
-      ),
-    },
-    {
-      key: "PLAN",
-      index: 3,
-      title: "Write the plan",
-      purpose: "Evaluator + full setup fields",
-      Icon: ClipboardList,
-      content: (
-        <div className="space-y-3">
-          <TradeCheckPanel />
-          <div className="border-t border-ink-line pt-3">
-            <div className="text-xs text-slate-gray mb-2">
-              Once the evaluator returns Standard/Flex/Practice, save the plan to Active Setups below.
-            </div>
-          </div>
-        </div>
-      ),
-    },
-    {
-      key: "EXECUTE",
-      index: 4,
-      title: "Execute the trade",
-      purpose: "Fidelity OTOCO reference + mark Active",
-      Icon: Play,
-      content: (
-        <div className="space-y-3">
-          <div className="text-xs text-slate-gray">
-            Place the OTOCO (One-Triggers-One-Cancels-Other) bracket at your broker.
-            Then click "Mark Active" on the corresponding setup in Active Setups below.
-          </div>
-          <FidelityCheatSheet />
-        </div>
-      ),
-    },
-    {
-      key: "MANAGE",
-      index: 5,
-      title: "Manage the position",
-      purpose: "Trim, trail, adjust risk",
-      Icon: Activity,
-      content: (
-        <div className="space-y-2 text-sm">
-          <div className="text-xs text-slate-gray">
-            Adjust risk, log scaling, or move stops directly on each active setup below.
-            Trim at T1 (typically half), let T2 run with trail.
-          </div>
-          <ul className="text-xs text-soft-white space-y-1 pl-4 list-disc marker:text-slate-gray">
-            <li>At T1: trim half, move stop to breakeven</li>
-            <li>At T2: exit remainder or trail 20-SMA</li>
-            <li>Stop hit: exit and log to REVIEW</li>
-          </ul>
-        </div>
-      ),
-    },
-    {
-      key: "REVIEW",
-      index: 6,
-      title: "Review the outcome",
-      purpose: "Log notes, analytics, archive",
-      Icon: BookOpen,
-      content: (
-        <div className="space-y-2 text-sm">
-          <div className="text-xs text-slate-gray">Close out finished setups. Log lessons in the Journal.</div>
-          <div className="flex gap-2">
-            <Link
-              href="/journal"
-              className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep"
-              data-testid="link-journal"
-            >
-              Open Journal
-            </Link>
-            <Link
-              href="/analytics"
-              className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep"
-              data-testid="link-analytics"
-            >
-              Open Analytics
-            </Link>
-            <Link
-              href="/trades"
-              className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep"
-              data-testid="link-trades"
-            >
-              Trade History
-            </Link>
-          </div>
-        </div>
-      ),
-    },
-  ];
+  // When a proximity READY tile is clicked, the ProximityWatchPanel fires a
+  // custom event; we intercept it here to auto-expand PLAN so the prefilled
+  // trade-check form is immediately visible.
+  useEffect(() => {
+    function onPrefill() {
+      setExpandedKey("PLAN");
+      // Give the DOM a tick, then scroll to the PLAN lane.
+      setTimeout(() => {
+        const el = document.querySelector('[data-testid="step-plan"]');
+        el?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 100);
+    }
+    window.addEventListener("chizzle:prefill-plan", onPrefill);
+    return () => window.removeEventListener("chizzle:prefill-plan", onPrefill);
+  }, []);
+
+  function toggle(key: LaneKey) {
+    setExpandedKey(expandedKey === key ? "" : key);
+  }
 
   return (
     <div className="max-w-6xl mx-auto p-3 sm:p-4 space-y-4">
-      {/* P&L header — always visible at top */}
+      {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
 
-      {/* Regime v2 gauge — always visible, drives every decision below */}
+      {/* 2. Regime v2 gauge */}
       <RegimeV2Panel />
 
-      {/* Pipeline lane header */}
+      {/* 3. Active Setups — pinned at top per user spec */}
+      <ActiveSetupsPanel />
+
+      {/* 4. Proximity Watch — pipeline of tickers approaching Chizzle parameters */}
+      <ProximityWatchPanel />
+
+      {/* 5. Pipeline lanes */}
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-bold text-soft-white uppercase tracking-wide">Pipeline</h2>
         <button
@@ -203,22 +124,84 @@ export default function PipelineCockpit() {
         </button>
       </div>
 
-      {/* 6-step pipeline */}
       <div className="space-y-2">
-        {steps.map((step) => (
-          <StepLane
-            key={step.key}
-            step={step}
-            expanded={expandedKey === step.key}
-            onToggle={() => setExpandedKey(expandedKey === step.key ? "" : step.key)}
-          />
-        ))}
+        <LaneShell laneKey="SCAN" expanded={expandedKey === "SCAN"} onToggle={() => toggle("SCAN")}>
+          <SwingScannerPanel />
+        </LaneShell>
+
+        <LaneShell laneKey="SELECT" expanded={expandedKey === "SELECT"} onToggle={() => toggle("SELECT")}>
+          <div className="space-y-2 text-sm">
+            <div className="text-xs text-slate-gray">
+              Pick the strongest candidate from SCAN or Proximity Watch above. Judgment prevails —
+              regime, fundamentals, structure, R:R.
+            </div>
+            <div className="text-xs text-soft-white">
+              Then click <span className="font-bold text-neon-blue">PLAN</span> below to write the full setup.
+            </div>
+            <button
+              onClick={() => setExpandedKey("PLAN")}
+              className="text-xs px-3 py-1.5 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1"
+              data-testid="button-goto-plan"
+            >
+              Go to PLAN <ArrowRight className="h-3 w-3" />
+            </button>
+          </div>
+        </LaneShell>
+
+        <LaneShell laneKey="PLAN" expanded={expandedKey === "PLAN"} onToggle={() => toggle("PLAN")}>
+          <div className="space-y-3">
+            <TradeCheckPanel />
+            <div className="border-t border-ink-line pt-3">
+              <div className="text-xs text-slate-gray mb-2">
+                Once the evaluator returns Standard/Flex/Practice, save the plan to Active Setups at the top.
+              </div>
+            </div>
+          </div>
+        </LaneShell>
+
+        <LaneShell laneKey="EXECUTE" expanded={expandedKey === "EXECUTE"} onToggle={() => toggle("EXECUTE")}>
+          <div className="space-y-3">
+            <div className="text-xs text-slate-gray">
+              Place the OTOCO (One-Triggers-One-Cancels-Other) bracket at your broker.
+              Then click "Mark Active" on the corresponding setup in Active Setups.
+            </div>
+            <FidelityCheatSheet />
+          </div>
+        </LaneShell>
+
+        <LaneShell laneKey="MANAGE" expanded={expandedKey === "MANAGE"} onToggle={() => toggle("MANAGE")}>
+          <div className="space-y-2 text-sm">
+            <div className="text-xs text-slate-gray">
+              Adjust risk, log scaling, or move stops directly on each active setup.
+              Trim at T1 (typically half), let T2 run with trail.
+            </div>
+            <ul className="text-xs text-soft-white space-y-1 pl-4 list-disc marker:text-slate-gray">
+              <li>At T1: trim half, move stop to breakeven</li>
+              <li>At T2: exit remainder or trail 20-SMA</li>
+              <li>Stop hit: exit and log to REVIEW</li>
+            </ul>
+          </div>
+        </LaneShell>
+
+        <LaneShell laneKey="REVIEW" expanded={expandedKey === "REVIEW"} onToggle={() => toggle("REVIEW")}>
+          <div className="space-y-2 text-sm">
+            <div className="text-xs text-slate-gray">Close out finished setups. Log lessons in the Journal.</div>
+            <div className="flex gap-2 flex-wrap">
+              <Link href="/journal" className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep" data-testid="link-journal">
+                Open Journal
+              </Link>
+              <Link href="/analytics" className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep" data-testid="link-analytics">
+                Open Analytics
+              </Link>
+              <Link href="/trades" className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:bg-ink-deep" data-testid="link-trades">
+                Trade History
+              </Link>
+            </div>
+          </div>
+        </LaneShell>
       </div>
 
-      {/* Active Setups — persistent, always after the pipeline */}
-      <ActiveSetupsPanel />
-
-      {/* Tools drawer — accessed via button, contains ancillary widgets */}
+      {/* Tools drawer */}
       {toolsOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-start justify-center p-4 overflow-y-auto"
@@ -249,11 +232,7 @@ export default function PipelineCockpit() {
                 <p className="text-xs text-slate-gray mb-2">
                   The full legacy Cockpit with every widget is still available.
                 </p>
-                <Link
-                  href="/advanced"
-                  className="text-xs px-3 py-1.5 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 inline-block"
-                  data-testid="link-advanced-cockpit"
-                >
+                <Link href="/advanced" className="text-xs px-3 py-1.5 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 inline-block" data-testid="link-advanced-cockpit">
                   Open Advanced Cockpit
                 </Link>
               </div>

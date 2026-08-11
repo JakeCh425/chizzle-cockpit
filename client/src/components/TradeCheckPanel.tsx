@@ -10,7 +10,7 @@
 //
 // Collapsed by default to keep the cockpit clean.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
@@ -113,6 +113,26 @@ export default function TradeCheckPanel() {
   const [t2, setT2] = useState("");
   const [result, setResult] = useState<TradeCheckResult | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Listen for prefill-plan events fired by ProximityWatchPanel READY tiles.
+  useEffect(() => {
+    function onPrefill(e: Event) {
+      const detail = (e as CustomEvent).detail as {
+        ticker: string; entry: number; stop: number; t1: number; t2: number | null;
+      };
+      if (!detail) return;
+      setTicker(detail.ticker);
+      setEntry(String(detail.entry));
+      setStop(String(detail.stop));
+      setT1(String(detail.t1));
+      setT2(detail.t2 != null ? String(detail.t2) : "");
+      setResult(null);
+      setValidationError(null);
+      setOpen(true);
+    }
+    window.addEventListener("chizzle:prefill-plan", onPrefill);
+    return () => window.removeEventListener("chizzle:prefill-plan", onPrefill);
+  }, []);
 
   const checkMutation = useMutation({
     mutationFn: async (payload: { ticker: string; entry: number; stop: number; t1: number; t2: number | null }) => {

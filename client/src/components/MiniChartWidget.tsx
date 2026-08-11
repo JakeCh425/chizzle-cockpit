@@ -240,7 +240,7 @@ export default function MiniChartWidget({
   }, [ticker]);
 
   const effectiveRefresh = refreshMs ?? DEFAULT_REFRESH[interval];
-  const { data: candles = [], isLoading, error } = useCandles(symbol, interval, effectiveRefresh);
+  const { data: candles = [], isLoading, error, refetch, isFetching } = useCandles(symbol, interval, effectiveRefresh);
 
   // Live tick stream — used to override the headline price with the most recent
   // intraday tick instead of yesterday's close from the historical candle array.
@@ -472,7 +472,18 @@ export default function MiniChartWidget({
                 </span>
               </>
             ) : (
-              <span>No {interval} data yet</span>
+              <>
+                <span>No {interval} data yet</span>
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); refetch(); }}
+                  disabled={isFetching}
+                  className="mt-1 text-[9px] normal-case tracking-normal px-2 py-0.5 rounded border border-ink-line text-neon-blue hover:bg-neon-blue/10 disabled:opacity-50"
+                  data-testid={`button-retry-${symbol}`}
+                >
+                  {isFetching ? "Retrying..." : "Retry"}
+                </button>
+              </>
             )}
           </div>
         )}

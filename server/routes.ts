@@ -67,6 +67,7 @@ import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
+import { scanProximity } from "./proximityEngine";
 
 /**
  * Validate `req.body` against a zod schema. On failure, send 400 + a readable
@@ -1881,6 +1882,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // ─── Regime Engine v2 (VIX + breadth + distribution) ───────────────────
+  // ─── Proximity Watch (setups approaching Chizzle parameters) ───────────
+  // Never 4xx/5xx — always returns a scan payload; individual failures are
+  // captured as REJECTED per-ticker with the failure reason.
+  app.get("/api/proximity-watch", async (req, res) => {
+    try {
+      const universe = typeof req.query.universe === "string"
+        ? req.query.universe.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+        : undefined;
+      const scan = await scanProximity(universe);
+      res.json(scan);
+    } catch (err) {
+      res.json({
+        universe_size: 0,
+        candidates: [],
+        computed_at: new Date().toISOString(),
+        error: err instanceof Error ? err.message : "proximity-watch failed",
+      });
+    }
+  });
+
   app.get("/api/regime-v2", async (req, res) => {
     try {
       const universe = typeof req.query.universe === "string"
