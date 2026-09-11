@@ -601,3 +601,52 @@ export const insertActiveSetupSchema = createInsertSchema(activeSetups)
 
 export type ActiveSetup = typeof activeSetups.$inferSelect;
 export type InsertActiveSetup = z.infer<typeof insertActiveSetupSchema>;
+
+// ─── Proximity Universe (editable ticker list for Proximity Watch scan) ─────
+// This is the operator-editable universe that feeds /api/proximity-watch.
+// Tickers can be added/removed/archived independently of any hard-coded list.
+//
+// kind:      "etf" | "stock" — used purely for UI grouping.
+// status:    "active"   — included in every scan.
+//            "archived" — soft-deleted, hidden from scans and default UI.
+//            "dismissed"— hidden from UI until the ticker re-qualifies
+//                        (leaves REJECTED status). Auto-clears when the
+//                        engine sees a non-REJECTED classification.
+// dismissedAt / dismissalReason are set when the user clicks the X on a
+// NO-TRADE tile. The engine snapshots the last known status so a follow-up
+// scan can detect re-qualification and clear the dismissal automatically.
+export const proximityUniverse = pgTable("proximity_universe", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  ticker: text("ticker").notNull().unique(),
+  kind: text("kind").notNull().default("etf"),          // etf | stock
+  status: text("status").notNull().default("active"),   // active | archived | dismissed
+  sortOrder: integer("sort_order").notNull().default(100),
+  notes: text("notes").default(""),
+  dismissedAt: timestamp("dismissed_at", { withTimezone: true }),
+  dismissalReason: text("dismissal_reason").default(""),
+  lastStatus: text("last_status").default(""),          // last engine classification
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertProximityUniverseSchema = createInsertSchema(proximityUniverse)
+  .omit({
+    id: true,
+    createdAt: true,
+    updatedAt: true,
+    archivedAt: true,
+    dismissedAt: true,
+    lastStatus: true,
+  })
+  .extend({
+    ticker: z.string().min(1).max(10).transform((s) => s.trim().toUpperCase()),
+    kind: z.enum(["etf", "stock"]).default("etf"),
+    status: z.enum(["active", "archived", "dismissed"]).default("active"),
+    sortOrder: z.number().int().min(0).max(9999).default(100),
+    notes: z.string().max(500).optional().default(""),
+    dismissalReason: z.string().max(200).optional().default(""),
+  });
+
+export type ProximityUniverseRow = typeof proximityUniverse.$inferSelect;
+export type InsertProximityUniverse = z.infer<typeof insertProximityUniverseSchema>;

@@ -24,6 +24,7 @@ import {
   tradeTags,
   tradeReviewTags,
   activeSetups,
+  proximityUniverse,
 } from "@shared/schema";
 import type {
   Settings, InsertSettings,
@@ -51,6 +52,7 @@ import type {
   TradeReview, InsertTradeReview,
   TradeTag, InsertTradeTag,
   ActiveSetup, InsertActiveSetup,
+  ProximityUniverseRow, InsertProximityUniverse,
 } from "@shared/schema";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
@@ -499,6 +501,21 @@ UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       archived_at TIMESTAMPTZ
     )`,
+    // 2026-08: Proximity Universe — editable ticker list for /api/proximity-watch.
+    `CREATE TABLE IF NOT EXISTS proximity_universe (
+      id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      ticker TEXT NOT NULL UNIQUE,
+      kind TEXT NOT NULL DEFAULT 'etf',
+      status TEXT NOT NULL DEFAULT 'active',
+      sort_order INTEGER NOT NULL DEFAULT 100,
+      notes TEXT DEFAULT '',
+      dismissed_at TIMESTAMPTZ,
+      dismissal_reason TEXT DEFAULT '',
+      last_status TEXT DEFAULT '',
+      archived_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`,
   ];
   for (const stmt of alterStatements) {
     await pool.query(stmt);
@@ -633,6 +650,29 @@ async function seedIfEmpty() {
       equity: 1000,
       drawdownPct: 0,
     });
+  }
+
+  // Proximity universe — seed foundation once. User can freely edit after this.
+  const proxRows = await db.select().from(proximityUniverse).limit(1);
+  if (proxRows.length === 0) {
+    const foundation: InsertProximityUniverse[] = [
+      // Core swing ETFs — index breadth
+      { ticker: "QQQ",  kind: "etf",   status: "active", sortOrder: 10,  notes: "Core — Nasdaq 100" },
+      { ticker: "SMH",  kind: "etf",   status: "active", sortOrder: 20,  notes: "Core — Semis" },
+      { ticker: "SPY",  kind: "etf",   status: "active", sortOrder: 30,  notes: "Core — S&P 500" },
+      // Editable adjacent ETFs
+      { ticker: "XLK",  kind: "etf",   status: "active", sortOrder: 40,  notes: "Tech sector" },
+      { ticker: "IWM",  kind: "etf",   status: "active", sortOrder: 50,  notes: "Small caps" },
+      // Foundation single stocks (semis + mega-cap)
+      { ticker: "NVDA", kind: "stock", status: "active", sortOrder: 100, notes: "Semis leader" },
+      { ticker: "AMD",  kind: "stock", status: "active", sortOrder: 110, notes: "Semis" },
+      { ticker: "AAPL", kind: "stock", status: "active", sortOrder: 120, notes: "Mega-cap" },
+      { ticker: "META", kind: "stock", status: "active", sortOrder: 130, notes: "Mega-cap" },
+      { ticker: "TSM",  kind: "stock", status: "active", sortOrder: 140, notes: "Foundry" },
+    ];
+    for (const row of foundation) {
+      await db.insert(proximityUniverse).values(row as any).onConflictDoNothing();
+    }
   }
 }
 
@@ -1618,5 +1658,114 @@ export const storage = {
     }
     await db.update(activeSetups).set({ pinned, updatedAt: new Date() }).where(eq(activeSetups.id, id));
     return this.getActiveSetup(id);
+  },
+
+  // ─── Proximity Universe (editable ticker list) ──────────────────────
+  async listProximityUniverse(opts?: { includeArchived?: boolean; includeDismissed?: boolean }): Promise<ProximityUniverseRow[]> {
+    const rows = await db.select().from(proximityUniverse).orderBy(proximityUniverse.sortOrder, proximityUniverse.ticker);
+    return rows.filter((r) => {
+      if (r.status === "archived" && !opts?.includeArchived) return false;
+      if (r.status === "dismissed" && !opts?.includeDismissed) return false;
+      return true;
+    });
+  },
+  // Returns tickers the scan engine should evaluate: active + dismissed
+  // (dismissed still gets evaluated so we can auto-clear the dismissal when
+  // the ticker leaves REJECTED status).
+  async listProximityScanTickers(): Promise<ProximityUniverseRow[]> {
+    const rows = await db.select().from(proximityUniverse).orderBy(proximityUniverse.sortOrder, proximityUniverse.ticker);
+    return rows.filter((r) => r.status === "active" || r.status === "dismissed");
+  },
+  async getProximityUniverseRow(id: string): Promise<ProximityUniverseRow | undefined> {
+    const rows = await db.select().from(proximityUniverse).where(eq(proximityUniverse.id, id)).limit(1);
+    return rows[0];
+  },
+  async getProximityUniverseByTicker(ticker: string): Promise<ProximityUniverseRow | undefined> {
+    const rows = await db.select().from(proximityUniverse).where(eq(proximityUniverse.ticker, ticker.toUpperCase())).limit(1);
+    return rows[0];
+  },
+  async upsertProximityUniverse(p: InsertProximityUniverse): Promise<ProximityUniverseRow> {
+    const ticker = p.ticker.toUpperCase();
+    const existing = await this.getProximityUniverseByTicker(ticker);
+    if (existing) {
+      // If the ticker exists (even archived), restoring it via add always
+      // resets it to active status — that's the user intent when re-adding.
+      const row = (await db.update(proximityUniverse)
+        .set({
+          kind: p.kind ?? existing.kind,
+          status: "active",
+          sortOrder: p.sortOrder ?? existing.sortOrder,
+          notes: p.notes ?? existing.notes ?? "",
+          dismissedAt: null,
+          dismissalReason: "",
+          archivedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(proximityUniverse.id, existing.id))
+        .returning())[0];
+      return row;
+    }
+    const row = (await db.insert(proximityUniverse).values({ ...p, ticker } as any).returning())[0];
+    return row;
+  },
+  async updateProximityUniverse(id: string, patch: Partial<InsertProximityUniverse>): Promise<ProximityUniverseRow | undefined> {
+    const next: any = { ...patch, updatedAt: new Date() };
+    if (patch.ticker) next.ticker = patch.ticker.toUpperCase();
+    await db.update(proximityUniverse).set(next).where(eq(proximityUniverse.id, id));
+    return this.getProximityUniverseRow(id);
+  },
+  async archiveProximityUniverse(id: string): Promise<ProximityUniverseRow | undefined> {
+    await db.update(proximityUniverse)
+      .set({ status: "archived", archivedAt: new Date(), updatedAt: new Date() })
+      .where(eq(proximityUniverse.id, id));
+    return this.getProximityUniverseRow(id);
+  },
+  async restoreProximityUniverse(id: string): Promise<ProximityUniverseRow | undefined> {
+    await db.update(proximityUniverse)
+      .set({ status: "active", archivedAt: null, dismissedAt: null, dismissalReason: "", updatedAt: new Date() })
+      .where(eq(proximityUniverse.id, id));
+    return this.getProximityUniverseRow(id);
+  },
+  async dismissProximityUniverse(id: string, reason: string): Promise<ProximityUniverseRow | undefined> {
+    await db.update(proximityUniverse)
+      .set({
+        status: "dismissed",
+        dismissedAt: new Date(),
+        dismissalReason: reason.slice(0, 200),
+        updatedAt: new Date(),
+      })
+      .where(eq(proximityUniverse.id, id));
+    return this.getProximityUniverseRow(id);
+  },
+  // Called by the proximity engine after each scan: if a dismissed ticker
+  // is no longer REJECTED, restore it to active so it re-enters the UI.
+  async syncProximityDismissals(scans: Array<{ ticker: string; status: string }>): Promise<number> {
+    let restored = 0;
+    const dismissed = (await db.select().from(proximityUniverse)).filter((r) => r.status === "dismissed");
+    for (const row of dismissed) {
+      const scan = scans.find((s) => s.ticker === row.ticker);
+      if (scan && scan.status !== "REJECTED") {
+        await db.update(proximityUniverse)
+          .set({
+            status: "active",
+            dismissedAt: null,
+            dismissalReason: "",
+            lastStatus: scan.status,
+            updatedAt: new Date(),
+          })
+          .where(eq(proximityUniverse.id, row.id));
+        restored++;
+      }
+    }
+    // Also snapshot lastStatus for all active tickers we scanned
+    for (const scan of scans) {
+      await db.update(proximityUniverse)
+        .set({ lastStatus: scan.status })
+        .where(eq(proximityUniverse.ticker, scan.ticker));
+    }
+    return restored;
+  },
+  async deleteProximityUniverse(id: string): Promise<void> {
+    await db.delete(proximityUniverse).where(eq(proximityUniverse.id, id));
   },
 };

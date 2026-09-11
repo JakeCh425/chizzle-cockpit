@@ -70,6 +70,28 @@ export async function fetchYahooHistory(symbol: string, range: string = "1y"): P
   return bars;
 }
 
+// Fallback provider: Tiingo daily EOD. Fires when Yahoo returns empty or errors
+// (rate limits, unlisted symbols, etc.). Requires TIINGO_API_KEY env var.
+export async function fetchTiingoHistory(symbol: string): Promise<DailyBar[]> {
+  const key = process.env.TIINGO_API_KEY;
+  if (!key) throw new Error("TIINGO_API_KEY missing");
+  // ~14 months of daily bars — enough for 200-SMA + buffer
+  const start = new Date(Date.now() - 430 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+  const url = `https://api.tiingo.com/tiingo/daily/${encodeURIComponent(symbol)}/prices?startDate=${start}&token=${key}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`Tiingo ${symbol} HTTP ${res.status}`);
+  const rows = (await res.json()) as Array<{
+    date: string; open: number; high: number; low: number; close: number; volume: number;
+  }>;
+  if (!Array.isArray(rows) || rows.length === 0) throw new Error(`Tiingo ${symbol} empty`);
+  return rows.map((r) => ({
+    date: r.date.slice(0, 10),
+    ts: Math.floor(new Date(r.date).getTime() / 1000),
+    open: r.open, high: r.high, low: r.low, close: r.close,
+    volume: Number(r.volume ?? 0),
+  }));
+}
+
 export async function getHistory(symbol: string, forceRefresh = false): Promise<DailyBar[]> {
   const sym = symbol.toUpperCase();
   const cached = histCache.get(sym);
@@ -77,15 +99,27 @@ export async function getHistory(symbol: string, forceRefresh = false): Promise<
   if (!forceRefresh && cached && cached.cacheDate === today && cached.bars.length) {
     return cached.bars;
   }
+  // Provider chain: Yahoo → Tiingo. Cache whichever succeeds.
+  let bars: DailyBar[] = [];
+  let yahooErr: any = null;
   try {
-    const bars = await fetchYahooHistory(sym);
-    histCache.set(sym, { bars, fetchedAt: Date.now(), cacheDate: today });
-    return bars;
+    bars = await fetchYahooHistory(sym);
   } catch (e: any) {
+    yahooErr = e;
     console.warn(`[marketData] Yahoo ${sym} failed: ${e?.message || e}`);
-    if (cached) return cached.bars;
-    throw e;
   }
+  if (!bars.length) {
+    try {
+      bars = await fetchTiingoHistory(sym);
+      console.info(`[marketData] Tiingo fallback OK for ${sym} (${bars.length} bars)`);
+    } catch (e: any) {
+      console.warn(`[marketData] Tiingo ${sym} failed: ${e?.message || e}`);
+      if (cached) return cached.bars;
+      throw yahooErr || e;
+    }
+  }
+  histCache.set(sym, { bars, fetchedAt: Date.now(), cacheDate: today });
+  return bars;
 }
 
 export async function safeHistory(symbol: string, forceRefresh = false): Promise<DailyBar[]> {

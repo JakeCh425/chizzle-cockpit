@@ -52,6 +52,7 @@ import {
   insertTradeTagSchema,
   TAG_CATEGORIES,
   insertActiveSetupSchema,
+  insertProximityUniverseSchema,
   ACTIVE_SETUP_STATUSES,
 } from "@shared/schema";
 import { calcExecutionStats, validateExecution } from "@shared/executions";
@@ -1890,15 +1891,134 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const universe = typeof req.query.universe === "string"
         ? req.query.universe.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
         : undefined;
-      const scan = await scanProximity(universe);
+      const profileRaw = String(req.query.profile ?? "medium").toLowerCase();
+      const profile = (["low", "medium", "high", "custom"] as const).includes(profileRaw as any)
+        ? (profileRaw as "low" | "medium" | "high" | "custom")
+        : "medium";
+      // Custom lever overrides (all optional, all numeric)
+      const custom: Record<string, any> = {};
+      const num = (k: string) => {
+        const v = req.query[k];
+        if (v == null || v === "") return;
+        const n = Number(v);
+        if (Number.isFinite(n)) custom[k] = n;
+      };
+      num("band_low"); num("band_high"); num("min_rr");
+      num("extended_ceiling"); num("deep_pullback_floor");
+      if (req.query.require_above_50sma != null)
+        custom.require_above_50sma = req.query.require_above_50sma === "true";
+      if (req.query.require_above_200sma != null)
+        custom.require_above_200sma = req.query.require_above_200sma === "true";
+      const scan = await scanProximity(universe, profile, Object.keys(custom).length ? custom : undefined);
       res.json(scan);
     } catch (err) {
       res.json({
         universe_size: 0,
         candidates: [],
         computed_at: new Date().toISOString(),
+        risk_profile: "medium",
+        levers: null,
         error: err instanceof Error ? err.message : "proximity-watch failed",
       });
+    }
+  });
+
+  // ─── Proximity Universe (editable ticker list) ──────────────────────
+  // GET — list rows. ?includeArchived=true to see soft-deleted.
+  //       ?includeDismissed=true to see dismissed rows.
+  app.get("/api/proximity-universe", async (req, res) => {
+    try {
+      const rows = await storage.listProximityUniverse({
+        includeArchived: req.query.includeArchived === "true",
+        includeDismissed: req.query.includeDismissed === "true",
+      });
+      res.json(rows);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "list failed" });
+    }
+  });
+
+  // POST — upsert a ticker. If it already exists (archived/dismissed),
+  // re-adding restores it to active.
+  app.post("/api/proximity-universe", async (req, res) => {
+    const parsed = validateBody(req, res, insertProximityUniverseSchema);
+    if (!parsed) return;
+    try {
+      const row = await storage.upsertProximityUniverse(parsed);
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "upsert failed" });
+    }
+  });
+
+  // PATCH — edit fields (ticker rename, kind, sortOrder, notes).
+  app.patch("/api/proximity-universe/:id", async (req, res) => {
+    const parsed = validateBody(req, res, insertProximityUniverseSchema.partial());
+    if (!parsed) return;
+    try {
+      const row = await storage.updateProximityUniverse(req.params.id, parsed);
+      if (!row) return res.status(404).json({ error: "not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "update failed" });
+    }
+  });
+
+  // POST /archive — soft-delete (persists, hidden from scans).
+  app.post("/api/proximity-universe/:id/archive", async (req, res) => {
+    try {
+      const row = await storage.archiveProximityUniverse(req.params.id);
+      if (!row) return res.status(404).json({ error: "not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "archive failed" });
+    }
+  });
+
+  // POST /restore — un-archive / un-dismiss.
+  app.post("/api/proximity-universe/:id/restore", async (req, res) => {
+    try {
+      const row = await storage.restoreProximityUniverse(req.params.id);
+      if (!row) return res.status(404).json({ error: "not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "restore failed" });
+    }
+  });
+
+  // POST /dismiss — hide a REJECTED ticker until it re-qualifies.
+  app.post("/api/proximity-universe/:id/dismiss", async (req, res) => {
+    try {
+      const reason = typeof req.body?.reason === "string" ? req.body.reason : "user dismissed";
+      const row = await storage.dismissProximityUniverse(req.params.id, reason);
+      if (!row) return res.status(404).json({ error: "not found" });
+      res.json(row);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "dismiss failed" });
+    }
+  });
+
+  // POST /dismiss-by-ticker — dismiss by symbol (used from Proximity Watch tile
+  // where the frontend only has the ticker string, not the DB id).
+  app.post("/api/proximity-universe/by-ticker/:ticker/dismiss", async (req, res) => {
+    try {
+      const row = await storage.getProximityUniverseByTicker(req.params.ticker);
+      if (!row) return res.status(404).json({ error: "ticker not in universe" });
+      const reason = typeof req.body?.reason === "string" ? req.body.reason : "user dismissed";
+      const updated = await storage.dismissProximityUniverse(row.id, reason);
+      res.json(updated);
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "dismiss failed" });
+    }
+  });
+
+  // DELETE — hard delete (used sparingly; archive is preferred).
+  app.delete("/api/proximity-universe/:id", async (req, res) => {
+    try {
+      await storage.deleteProximityUniverse(req.params.id);
+      res.json({ ok: true });
+    } catch (err) {
+      res.status(500).json({ error: err instanceof Error ? err.message : "delete failed" });
     }
   });
 
