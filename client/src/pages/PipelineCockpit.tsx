@@ -21,6 +21,7 @@ import ActiveSetupsPanel from "@/components/ActiveSetupsPanel";
 import ProximityWatchPanel from "@/components/ProximityWatchPanel";
 import SwingScannerPanel from "@/components/SwingScannerPanel";
 import TradeCheckPanel from "@/components/TradeCheckPanel";
+import PlanCheckPanel from "@/components/PlanCheckPanel";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -151,6 +152,9 @@ export default function PipelineCockpit() {
         <LaneShell laneKey="PLAN" expanded={expandedKey === "PLAN"} onToggle={() => toggle("PLAN")}>
           <div className="space-y-3">
             <TradeCheckPanel />
+            <div className="border-t border-ink-line pt-3">
+              <PlanCheckPanel />
+            </div>
             <div className="border-t border-ink-line pt-3">
               <div className="text-xs text-slate-gray mb-2">
                 Once the evaluator returns Standard/Flex/Practice, save the plan to Active Setups at the top.
