@@ -9,9 +9,9 @@
 import { useState, useCallback } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
-  ShieldCheck, AlertTriangle, XCircle, CheckCircle2, Download, Zap, RefreshCw,
+  ShieldCheck, AlertTriangle, XCircle, CheckCircle2, Download, Zap, RefreshCw, Save, Check,
 } from "lucide-react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
   ChizzleWealthEnginePlanCheck,
   PlanCheckInput,
@@ -121,6 +121,22 @@ export default function PlanCheckPanel() {
       const data = await r.json();
       return data;
     },
+    onSuccess: () => setSaveState("idle"),
+  });
+
+  // ─── Save-to-Active-Setups mutation ─────────────────────────────────
+  // Only exposed when the last check returned an APPROVED plan.
+  const [saveState, setSaveState] = useState<"idle" | "saved">("idle");
+  const saveMut = useMutation<any, Error, ChizzleWealthEnginePlanCheck>({
+    mutationFn: async (plan) => {
+      const body = planToActiveSetup(plan);
+      const r = await apiRequest("POST", "/api/active-setups", body);
+      return r.json();
+    },
+    onSuccess: () => {
+      setSaveState("saved");
+      queryClient.invalidateQueries({ queryKey: ["/api/active-setups"] });
+    },
   });
 
   const setField = useCallback(<K extends keyof FormState>(k: K, v: FormState[K]) => {
@@ -149,6 +165,9 @@ export default function PlanCheckPanel() {
   const result = checkMut.data;
   const plan = result?.plan;
   const decisionMeta = plan ? decisionStyle(plan.decision) : null;
+  const isApproved =
+    plan?.decision === "APPROVED TREND" ||
+    plan?.decision === "APPROVED COUNTERTREND - REDUCED SIZE";
 
   return (
     <div className="bg-ink-black rounded-lg border border-ink-line p-3 space-y-3">
@@ -336,6 +355,35 @@ export default function PlanCheckPanel() {
                 </div>
               )}
 
+              {/* Save-to-Active-Setups (APPROVED only) */}
+              {isApproved && (
+                <div className="pt-1">
+                  <button
+                    onClick={() => saveMut.mutate(plan)}
+                    disabled={saveMut.isPending || saveState === "saved"}
+                    className={`w-full py-2 rounded font-bold text-xs flex items-center justify-center gap-1.5 transition-colors ${
+                      saveState === "saved"
+                        ? "bg-signal-green/20 border border-signal-green text-signal-green cursor-default"
+                        : "bg-signal-green text-ink-black hover:brightness-110 disabled:opacity-40"
+                    }`}
+                    data-testid="button-save-active-setup"
+                  >
+                    {saveMut.isPending ? (
+                      <><RefreshCw className="h-3 w-3 animate-spin" /> Saving…</>
+                    ) : saveState === "saved" ? (
+                      <><Check className="h-3 w-3" /> Saved to Active Setups</>
+                    ) : (
+                      <><Save className="h-3 w-3" /> Save to Active Setups</>
+                    )}
+                  </button>
+                  {saveMut.isError && (
+                    <div className="text-[10px] text-signal-red mt-1 font-mono">
+                      Save failed: {String(saveMut.error?.message ?? "unknown")}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Probability boilerplate */}
               <div className="text-[10px] italic text-slate-gray text-center pt-1 border-t border-ink-line">
                 {plan.probability}
@@ -449,6 +497,36 @@ function RiskCell({ label, value }: { label: string; value: string }) {
       <div className="font-mono text-[11px] text-soft-white font-bold">{value}</div>
     </div>
   );
+}
+
+// ─── Plan → ActiveSetup body builder ───────────────────────────────────
+// Maps a validated APPROVED plan onto the shape the /api/active-setups
+// POST route expects (see insertActiveSetupSchema in shared/schema.ts).
+function planToActiveSetup(plan: ChizzleWealthEnginePlanCheck) {
+  const structure = plan.why.slice(0, 3).join(" · ").slice(0, 200);
+  return {
+    ticker: plan.symbol,
+    sector: plan.type === "Countertrend" ? "countertrend" : "trend",
+    theme: `${plan.decision} · ${plan.grade}`.slice(0, 60),
+    thesis: [
+      `${plan.decision} on ${plan.symbol}.`,
+      `Score ${plan.score} (${plan.grade}), regime ${plan.regime}.`,
+      plan.why.length ? `Why: ${plan.why.join("; ")}.` : "",
+      `Management: +1R ${plan.management.plus_1r}; T1 ${plan.management.at_t1}; fail ${plan.management.failure}.`,
+      plan.invalidate_if.length ? `Invalidate if: ${plan.invalidate_if.join("; ")}.` : "",
+    ].filter(Boolean).join(" ").slice(0, 2000),
+    entry: plan.entry.price,
+    stop: plan.stop.price,
+    targetT1: plan.t1.price,
+    targetT2: plan.t2.price ?? undefined,
+    riskPercent: plan.risk.pct ?? 0.75,
+    regime: (plan.regime === "MIXED" ? "YELLOW" : plan.regime) as "GREEN" | "YELLOW" | "RED",
+    structureVerdict: structure,
+    rrRatio: plan.t1.r_multiple ?? 0,
+    status: "planned" as const,
+    pinned: false,
+    notes: `Auto-saved from Plan Check on ${new Date().toISOString().slice(0, 10)}.`,
+  };
 }
 
 function decisionStyle(d: ChizzleWealthEnginePlanCheck["decision"]) {
