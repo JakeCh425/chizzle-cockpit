@@ -69,6 +69,7 @@ import { runSwingScan } from "./swingScanner";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
 import { scanProximity } from "./proximityEngine";
+import { checkPlan, buildPlanFromInput } from "./planCheck";
 
 /**
  * Validate `req.body` against a zod schema. On failure, send 400 + a readable
@@ -1919,6 +1920,32 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         risk_profile: "medium",
         levers: null,
         error: err instanceof Error ? err.message : "proximity-watch failed",
+      });
+    }
+  });
+
+  // ─── Plan Check ─────────────────────────────────────────────────────
+  // POST body accepts EITHER { input: PlanCheckInput } (deterministic
+  // builder from raw market data) OR { plan: ChizzleWealthEnginePlanCheck }
+  // (validate a pre-built plan). Returns { ok, plan, errors, rule_violations }.
+  app.post("/api/plan-check", async (req, res) => {
+    try {
+      const body = (req.body ?? {}) as { input?: unknown; plan?: unknown };
+      if (!body.input && !body.plan) {
+        return res.status(400).json({
+          ok: false, plan: null,
+          errors: [{ path: "(root)", message: "Provide either `input` or `plan`." }],
+          rule_violations: [],
+        });
+      }
+      const candidate = body.plan ?? buildPlanFromInput(body.input as any);
+      const result = checkPlan(candidate);
+      res.status(result.ok ? 200 : 422).json(result);
+    } catch (err) {
+      res.status(500).json({
+        ok: false, plan: null,
+        errors: [{ path: "(root)", message: err instanceof Error ? err.message : "plan-check failed" }],
+        rule_violations: [],
       });
     }
   });

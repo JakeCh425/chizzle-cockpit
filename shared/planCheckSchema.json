@@ -1,0 +1,332 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chizzle-wealth-engine.app/schemas/plan-check.v2.json",
+  "title": "ChizzleWealthEnginePlanCheck",
+  "description": "Machine-parseable output of the Chizzle Wealth Engine v2 decision system. Mirrors the fixed OUTPUT block in the system prompt.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "symbol",
+    "decision",
+    "regime",
+    "benchmarks",
+    "score",
+    "grade",
+    "type",
+    "why",
+    "entry",
+    "stop",
+    "t1",
+    "t2",
+    "risk",
+    "management",
+    "invalidate_if",
+    "probability"
+  ],
+  "properties": {
+    "symbol": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9.\\-]{0,9}$",
+      "description": "Uppercase ticker."
+    },
+    "decision": {
+      "type": "string",
+      "enum": [
+        "APPROVED TREND",
+        "APPROVED COUNTERTREND - REDUCED SIZE",
+        "WATCHLIST",
+        "NO TRADE"
+      ]
+    },
+    "regime": {
+      "type": "string",
+      "enum": ["GREEN", "YELLOW", "RED"]
+    },
+    "benchmarks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["spy", "qqq", "smh"],
+      "properties": {
+        "spy": { "$ref": "#/$defs/regimeState" },
+        "qqq": { "$ref": "#/$defs/regimeState" },
+        "smh": { "$ref": "#/$defs/regimeStateOrNA" }
+      }
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "grade": {
+      "type": "string",
+      "enum": ["A+", "A", "B", "C", "NO-TRADE"]
+    },
+    "type": {
+      "type": "string",
+      "enum": ["Trend", "Countertrend", "None"]
+    },
+    "why": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "items": { "type": "string", "minLength": 3, "maxLength": 200 }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "trigger"],
+      "properties": {
+        "price": { "$ref": "#/$defs/priceOrNull" },
+        "trigger": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "stop": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "reason"],
+      "properties": {
+        "price": { "$ref": "#/$defs/priceOrNull" },
+        "reason": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "t1": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "r_multiple", "reason"],
+      "properties": {
+        "price":      { "$ref": "#/$defs/priceOrNull" },
+        "r_multiple": { "$ref": "#/$defs/rMultipleOrNull" },
+        "reason":     { "type": "string", "maxLength": 200 }
+      }
+    },
+    "t2": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["price", "r_multiple", "reason"],
+      "properties": {
+        "price":      { "$ref": "#/$defs/priceOrNull" },
+        "r_multiple": { "$ref": "#/$defs/rMultipleOrNull" },
+        "reason":     { "type": "string", "maxLength": 200 }
+      }
+    },
+    "risk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pct", "dollar_risk", "shares", "position_value"],
+      "properties": {
+        "pct":            { "type": ["number", "null"], "minimum": 0, "maximum": 5 },
+        "dollar_risk":    { "type": ["number", "null"], "minimum": 0 },
+        "shares":         { "type": ["integer", "null"], "minimum": 0 },
+        "position_value": { "type": ["number", "null"], "minimum": 0 }
+      }
+    },
+    "management": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["plus_1r", "at_t1", "failure"],
+      "properties": {
+        "plus_1r": { "type": "string", "maxLength": 200 },
+        "at_t1":   { "type": "string", "maxLength": 200 },
+        "failure": { "type": "string", "maxLength": 200 }
+      }
+    },
+    "invalidate_if": {
+      "type": "array",
+      "minItems": 0,
+      "maxItems": 2,
+      "items": { "type": "string", "minLength": 3, "maxLength": 200 }
+    },
+    "probability": {
+      "type": "string",
+      "const": "Probability unavailable - Setup Quality is a current-conditions score, not a forecast."
+    },
+    "meta": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional diagnostics for the backend. Never surface to the trader.",
+      "properties": {
+        "generated_at":       { "type": "string", "format": "date-time" },
+        "prompt_version":     { "type": "string" },
+        "model":              { "type": "string" },
+        "input_hash":         { "type": "string" },
+        "missing_fields":     { "type": "array", "items": { "type": "string" } },
+        "rule_violations":    { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  },
+
+  "$defs": {
+    "regimeState":       { "type": "string", "enum": ["GREEN", "YELLOW", "RED"] },
+    "regimeStateOrNA":   { "type": "string", "enum": ["GREEN", "YELLOW", "RED", "N/A"] },
+    "priceOrNull":       { "type": ["number", "null"], "exclusiveMinimum": 0 },
+    "rMultipleOrNull":   { "type": ["number", "null"] }
+  },
+
+  "allOf": [
+    {
+      "description": "NO TRADE must set null prices, empty why not required, score may be < 60, grade NO-TRADE, type None.",
+      "if":   { "properties": { "decision": { "const": "NO TRADE" } } },
+      "then": {
+        "properties": {
+          "grade": { "const": "NO-TRADE" },
+          "type":  { "const": "None" },
+          "entry": { "properties": { "price": { "type": "null" } } },
+          "stop":  { "properties": { "price": { "type": "null" } } },
+          "t1":    { "properties": { "price": { "type": "null" }, "r_multiple": { "type": "null" } } },
+          "t2":    { "properties": { "price": { "type": "null" }, "r_multiple": { "type": "null" } } },
+          "risk":  {
+            "properties": {
+              "pct":            { "type": "null" },
+              "dollar_risk":    { "type": "null" },
+              "shares":         { "type": "null" },
+              "position_value": { "type": "null" }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Countertrend is capped at grade A and requires score >= 80. Regime must be GREEN or YELLOW.",
+      "if":   { "properties": { "type": { "const": "Countertrend" } } },
+      "then": {
+        "properties": {
+          "grade":  { "enum": ["A", "B", "C", "NO-TRADE"] },
+          "score":  { "minimum": 80 },
+          "regime": { "enum": ["GREEN", "YELLOW"] }
+        }
+      }
+    },
+    {
+      "description": "APPROVED COUNTERTREND: must be Countertrend type, risk 0.5-1.0% of account.",
+      "if":   { "properties": { "decision": { "const": "APPROVED COUNTERTREND - REDUCED SIZE" } } },
+      "then": {
+        "properties": {
+          "type": { "const": "Countertrend" },
+          "risk": { "properties": { "pct": { "type": "number", "minimum": 0.5, "maximum": 1.0 } } }
+        }
+      }
+    },
+    {
+      "description": "APPROVED TREND: must be Trend type, T1 >= 2R, regime GREEN or YELLOW, grade A+/A/B.",
+      "if":   { "properties": { "decision": { "const": "APPROVED TREND" } } },
+      "then": {
+        "properties": {
+          "type":   { "const": "Trend" },
+          "grade":  { "enum": ["A+", "A", "B"] },
+          "regime": { "enum": ["GREEN", "YELLOW"] },
+          "t1":     { "properties": { "r_multiple": { "type": "number", "minimum": 2.0 } } }
+        }
+      }
+    },
+    {
+      "description": "Any APPROVED decision requires T1 >= 2R and non-null entry/stop/T1/shares/dollar_risk.",
+      "if": {
+        "properties": {
+          "decision": { "enum": ["APPROVED TREND", "APPROVED COUNTERTREND - REDUCED SIZE"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "entry": { "properties": { "price":      { "type": "number" } }, "required": ["price"] },
+          "stop":  { "properties": { "price":      { "type": "number" } }, "required": ["price"] },
+          "t1":    {
+            "properties": {
+              "price":      { "type": "number" },
+              "r_multiple": { "type": "number", "minimum": 2.0 }
+            },
+            "required": ["price", "r_multiple"]
+          },
+          "risk": {
+            "properties": {
+              "pct":            { "type": "number", "minimum": 0.5, "maximum": 2.0 },
+              "dollar_risk":    { "type": "number", "exclusiveMinimum": 0 },
+              "shares":         { "type": "integer", "minimum": 1 },
+              "position_value": { "type": "number", "exclusiveMinimum": 0 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "description": "Grade must match score band. NO-TRADE grade only on <60 OR decision NO TRADE.",
+      "oneOf": [
+        {
+          "properties": {
+            "grade": { "const": "A+" },
+            "score": { "type": "integer", "minimum": 90, "maximum": 100 }
+          }
+        },
+        {
+          "properties": {
+            "grade": { "const": "A" },
+            "score": { "type": "integer", "minimum": 80, "maximum": 89 }
+          }
+        },
+        {
+          "properties": {
+            "grade": { "const": "B" },
+            "score": { "type": "integer", "minimum": 70, "maximum": 79 }
+          }
+        },
+        {
+          "properties": {
+            "grade": { "const": "C" },
+            "score": { "type": "integer", "minimum": 60, "maximum": 69 }
+          }
+        },
+        {
+          "properties": {
+            "grade": { "const": "NO-TRADE" }
+          }
+        }
+      ]
+    }
+  ],
+
+  "examples": [
+    {
+      "symbol": "IBM",
+      "decision": "NO TRADE",
+      "regime": "RED",
+      "benchmarks": { "spy": "YELLOW", "qqq": "RED", "smh": "RED" },
+      "score": 42,
+      "grade": "NO-TRADE",
+      "type": "None",
+      "why": ["Required input fields missing", "50D slope not supplied", "Cannot compute R:R without stop"],
+      "entry": { "price": null, "trigger": "n/a" },
+      "stop":  { "price": null, "reason": "n/a" },
+      "t1":    { "price": null, "r_multiple": null, "reason": "n/a" },
+      "t2":    { "price": null, "r_multiple": null, "reason": "n/a" },
+      "risk":  { "pct": null, "dollar_risk": null, "shares": null, "position_value": null },
+      "management": { "plus_1r": "n/a", "at_t1": "n/a", "failure": "n/a" },
+      "invalidate_if": [],
+      "probability": "Probability unavailable - Setup Quality is a current-conditions score, not a forecast."
+    },
+    {
+      "symbol": "NVDA",
+      "decision": "APPROVED TREND",
+      "regime": "GREEN",
+      "benchmarks": { "spy": "GREEN", "qqq": "GREEN", "smh": "GREEN" },
+      "score": 88,
+      "grade": "A",
+      "type": "Trend",
+      "why": [
+        "20D pullback held on rising 50D SMA",
+        "Volume ratio 1.6x with strong close",
+        "Leading SPY on 20D relative strength"
+      ],
+      "entry": { "price": 178.40, "trigger": "Break of prior-day high on volume" },
+      "stop":  { "price": 172.10, "reason": "Below reversal low and 20D SMA" },
+      "t1":    { "price": 191.00, "r_multiple": 2.0, "reason": "Prior swing high" },
+      "t2":    { "price": 203.20, "r_multiple": 3.94, "reason": "Weekly resistance shelf" },
+      "risk":  { "pct": 1.5, "dollar_risk": 750, "shares": 119, "position_value": 21229.60 },
+      "management": {
+        "plus_1r": "Move stop to breakeven",
+        "at_t1":   "Sell 1/2, trail remainder under 10D",
+        "failure": "Close below 172.10 on daily basis"
+      },
+      "invalidate_if": ["Loss of 20D SMA on volume", "QQQ turns RED"],
+      "probability": "Probability unavailable - Setup Quality is a current-conditions score, not a forecast."
+    }
+  ]
+}
