@@ -278,12 +278,37 @@ function DeskCard({ card, onSave, saved, saving }: {
     <div className={`rounded border-2 ${meta.border} bg-ink-black p-2 space-y-1 text-[10px]`} data-testid={`card-${card.ticker}`}>
       {/* Row 1: pin + ticker + state + score */}
       <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {card.pinned && <Pin className="h-3 w-3 text-neon-blue flex-shrink-0" />}
           <span className={`font-mono text-sm font-bold ${meta.text}`}>{card.ticker}</span>
           <span className={`text-[9px] px-1 py-0.5 rounded ${meta.bg} ${meta.text} font-bold`}>
             {meta.label}
           </span>
+          {card.vehicle_class && (
+            <span
+              className={`text-[8px] font-mono px-1 py-0.5 rounded border ${
+                card.vehicle_class === "GROWTH_TECH"  ? "border-neon-blue text-neon-blue"        :
+                card.vehicle_class === "BROAD_MARKET" ? "border-signal-green text-signal-green" :
+                card.vehicle_class === "NON_GROWTH"   ? "border-signal-amber text-signal-amber" :
+                                                        "border-slate-gray text-slate-gray"
+              }`}
+              title="Vehicle class"
+            >
+              {card.vehicle_class.replace("_", " ")}
+            </span>
+          )}
+          {card.permission && (
+            <span
+              className={`text-[8px] font-mono px-1 py-0.5 rounded ${
+                card.permission === "STANDARD_OR_FLEX" ? "bg-signal-green/20 text-signal-green" :
+                card.permission === "FLEX_ONLY"        ? "bg-signal-amber/20 text-signal-amber" :
+                                                         "bg-signal-red/20 text-signal-red"
+              }`}
+              title="Per-vehicle permission (SMH regime override)"
+            >
+              {card.permission.replace(/_/g, " ")}
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[9px] text-slate-gray italic">{card.setup}</span>

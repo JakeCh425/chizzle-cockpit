@@ -21,8 +21,14 @@ export type FlexRiskGrade =
 
 export type FlexAction =
   | "ENTER ONLY ON TRIGGER"
+  | "ENTER — SMALL"
+  | "ENTER — HALF SIZE"
   | "SET ALERT"
   | "STAND DOWN";
+
+export type VehicleClass = "GROWTH_TECH" | "BROAD_MARKET" | "NON_GROWTH" | "OTHER";
+
+export type VehiclePermission = "STANDARD_OR_FLEX" | "FLEX_ONLY" | "NO_LONG";
 
 export type FlexDayType =
   | "PRACTICE_SWING_DAY"
@@ -92,6 +98,8 @@ export interface FlexDeskCard {
   state: FlexState;
   ticker: string;
   pinned?: boolean;              // always true for SMH / QQQ / SPY
+  vehicle_class: VehicleClass;
+  permission: VehiclePermission;
   setup: FlexSetup;
   readiness_score: number;       // 0-100
   distance_to_ready: DistanceToReadyItem[]; // [] means READY
@@ -123,6 +131,21 @@ export interface FlexScanResult {
   };
   one_sentence_summary: string;
 }
+
+export const GROWTH_TECH_TICKERS = new Set([
+  "QQQ", "SMH", "SOXX", "XLK", "IGV", "SOXL", "SOXS", "QQQJ",
+]);
+
+export const BROAD_MARKET_TICKERS = new Set([
+  "SPY", "VOO", "VTI", "DIA", "IWM", "VXUS",
+]);
+
+// Non-growth: value / dividend / income / defensive / cyclical sectors.
+// These are evaluated on their own price structure; SMH RED does not veto.
+export const NON_GROWTH_TICKERS = new Set([
+  "XLF", "XLE", "XLV", "XLI", "XLY", "XLP", "XLU", "XLB", "XLC", "XLRE",
+  "VDE", "VTV", "VYM", "SCHD", "GLD", "SLV", "TLT",
+]);
 
 export interface FlexScanRequest {
   universe?: string[]; // optional override; else uses default ETF list

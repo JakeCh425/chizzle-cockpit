@@ -34,6 +34,13 @@ import type {
   SmhContextState,
   FlexDayType,
   DistanceToReadyItem,
+  VehicleClass,
+  VehiclePermission,
+} from "@shared/flexScanTypes";
+import {
+  GROWTH_TECH_TICKERS,
+  BROAD_MARKET_TICKERS,
+  NON_GROWTH_TICKERS,
 } from "@shared/flexScanTypes";
 
 // ─── Pinned tickers ─────────────────────────────────────────────────────────
@@ -210,15 +217,45 @@ interface TickerContext {
   ticker: string;
   smhContext: SmhContextState;
   smhNote: string;
-  isTechConcentrated: boolean;
+  vehicleClass: VehicleClass;
+}
+
+// Classify each ticker so SMH RED only vetoes growth/tech, never SPY or
+// non-growth ETFs (spec Section: SMH_RED permissions).
+function classifyVehicle(ticker: string): VehicleClass {
+  const t = ticker.toUpperCase();
+  if (GROWTH_TECH_TICKERS.has(t)) return "GROWTH_TECH";
+  if (BROAD_MARKET_TICKERS.has(t)) return "BROAD_MARKET";
+  if (NON_GROWTH_TICKERS.has(t)) return "NON_GROWTH";
+  return "OTHER";
+}
+
+// Per-vehicle permission derived from the spec's Vehicle-Specific Permissions.
+//   GROWTH/TECH  → driven by SMH regime (GREEN=STANDARD_OR_FLEX, YELLOW=FLEX_ONLY, RED=NO_LONG)
+//   BROAD_MARKET → evaluated on its own structure (price>200 flat/rising + HL)
+//   NON_GROWTH   → evaluated on its own structure; SMH RED does NOT veto
+//   OTHER        → evaluated like non-growth (independent)
+function computePermission(
+  vehicleClass: VehicleClass,
+  smhContext: SmhContextState,
+  ownStructurePass: boolean,
+): VehiclePermission {
+  if (vehicleClass === "GROWTH_TECH") {
+    if (smhContext === "GREEN")  return ownStructurePass ? "STANDARD_OR_FLEX" : "NO_LONG";
+    if (smhContext === "YELLOW") return ownStructurePass ? "FLEX_ONLY" : "NO_LONG";
+    return "NO_LONG"; // SMH_RED
+  }
+  // BROAD / NON_GROWTH / OTHER: independent of SMH regime.
+  return ownStructurePass ? "STANDARD_OR_FLEX" : "NO_LONG";
 }
 
 function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
-  const { ticker, smhContext, smhNote, isTechConcentrated } = ctx;
+  const { ticker, smhContext, smhNote, vehicleClass } = ctx;
+  const isGrowthTech = vehicleClass === "GROWTH_TECH";
 
   // Handle insufficient history up front.
   if (bars.length < 210) {
-    return standbyCard(ticker, `Insufficient history (${bars.length} bars, need 210).`, smhContext, smhNote);
+    return standbyCard(ticker, `Insufficient history (${bars.length} bars, need 210).`, smhContext, smhNote, vehicleClass);
   }
 
   const last = bars[bars.length - 1];
@@ -238,15 +275,16 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   const relVol = avgVol && avgVol > 0 ? last.volume / avgVol : 1;
 
   if (s20 == null || s50 == null || s200 == null) {
-    return standbyCard(ticker, "SMA(20/50/200) not available.", smhContext, smhNote);
+    return standbyCard(ticker, "SMA(20/50/200) not available.", smhContext, smhNote, vehicleClass);
   }
 
   const distFrom20  = ((price - s20)  / s20)  * 100;
   const distFrom50  = ((price - s50)  / s50)  * 100;
   const distFrom200 = ((price - s200) / s200) * 100;
 
-  // Primary-trend gate: must be above a flat/rising 200-SMA.
-  const primaryTrendPass = price > s200 && slope200 >= -0.25;
+  // Primary-trend gate (spec: "flat/rising 200-SMA").
+  // Tightened from -0.25% tolerance to 0% — the spec is explicit.
+  const primaryTrendPass = price > s200 && slope200 >= 0;
 
   // Nearest confirmed pivot support/resistance from the recent 6-bar-window scan.
   const sr = nearestSupportResistance(bars, price, 3, 3);
@@ -325,23 +363,51 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     last.high >= sr.resistance * 0.999 &&
     price < sr.resistance;
 
-  // ─── Hard blocks (spec: never long under any of these) ────────────────────
+  // ─── Hard blocks (spec: Non-Negotiable Long Rules) ────────────────────────
+  // Per spec, a long is blocked only if one of these is true:
+  //   1. Price below declining 200-SMA on primary timeframe
+  //   2. Confirmed support shelf or higher-low pivot has broken
+  //   3. No exact technical stop/invalidation level
+  //   4. Directly below material resistance AND < 1.5R to Target 1
+  //   5. Wick-only breakout / no close-and-hold or retest
+  //   6. Extended > 1.25 ATR above the valid trigger
+  //   7. Relative volume < 0.8x average on the trigger bar AND not improving
+  //   8. Tech/semi long while SMH is in structural failure (RED)
+  // A falling 50-SMA alone is NOT a hard block — it's a STANDARD→FLEX downgrade.
   const hard_blocks: string[] = [];
   if (price < s200 && slope200 < 0) hard_blocks.push(`Below declining 200-SMA (${fmt2(s200)}, slope ${fmtPct(slope200)})`);
   if (sr.support != null && price < sr.support * 0.995) hard_blocks.push(`Below prior confirmed support ${fmt2(sr.support)}`);
   if (wickOnlyBreakout) hard_blocks.push(`Wick-only breakout — no close above ${fmt2(priorSwingHigh!)}`);
   if (chasingBad) hard_blocks.push(`Extended: price ${fmt2(price)} > 1.25 ATR above 20-SMA (${fmt2(s20)})`);
-  if (directlyBelowResistance) hard_blocks.push(`Directly below resistance at ${fmt2(sr.resistance!)}`);
-  if (isTechConcentrated && smhContext === "RED") hard_blocks.push(`SMH RED invalidates growth-risk exposure`);
+  // Resistance block only if the room to T1 is < 1.5R (spec rule #4).
+  if (directlyBelowResistance && rrT1 < 1.5) {
+    hard_blocks.push(`Directly below resistance ${fmt2(sr.resistance!)} with only ${rrT1.toFixed(2)}R to T1`);
+  }
+  // Volume floor: below 0.8x AND not improving (spec rule #7).
+  if (relVol < 0.8 && !improvingTriggerVolume) {
+    hard_blocks.push(`Relative volume ${relVol.toFixed(2)}x < 0.8x floor and not improving`);
+  }
+  // Growth/tech only: SMH RED is a hard block.
+  if (isGrowthTech && smhContext === "RED") {
+    hard_blocks.push(`SMH RED — tech/semi long blocked while leadership is in structural failure`);
+  }
 
-  // Semi/tech alignment gate.
-  const smhOK = !isTechConcentrated || smhContext !== "RED";
+  // SMH alignment gate: only relevant for growth/tech vehicles.
+  const smhOK = !isGrowthTech || smhContext !== "RED";
+
+  // ── Per-vehicle permission (spec: SMH RED does NOT veto SPY or non-growth) ─
+  // Own structure = price above flat/rising 200-SMA AND has a confirmed HL.
+  const ownStructurePass = primaryTrendPass && confirmedHigherLow;
+  const permission = computePermission(vehicleClass, smhContext, ownStructurePass);
 
   // ── STANDARD_READY ─────────────────────────────────────────────────────────
+  // Trend continuation: price above flat/rising 200-SMA, above 50-SMA (flat/rising),
+  // confirmed HL, reclaim trigger, relVol >= 1.0, T1 >= 2.0R, per spec.
   const standardOk =
+    permission === "STANDARD_OR_FLEX" &&
     primaryTrendPass &&
     price > s50 &&
-    slope50 >= -0.10 &&
+    slope50 >= 0 &&
     confirmedHigherLow &&
     reclaimTrigger &&
     relVol >= 1.0 &&
@@ -351,7 +417,11 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     distFrom20 >= 0 && distFrom20 <= 2.5;
 
   // ── FLEX_READY ─────────────────────────────────────────────────────────────
+  // Recovery swing: 200-SMA flat/rising, confirmed HL above support, reclaim of
+  // 20-SMA/VWAP/PDH/pivot, 50-SMA may fall but price no more than 3% below it
+  // unless a support base with reclaim is confirmed. Half-size only.
   const flexReadyOk =
+    (permission === "STANDARD_OR_FLEX" || permission === "FLEX_ONLY") &&
     primaryTrendPass &&
     confirmedHigherLow &&
     reclaimTrigger &&
@@ -372,6 +442,7 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     Math.abs(distFrom50) <= 3 ||
     (priorSwingHigh != null && Math.abs(((price - priorSwingHigh) / priorSwingHigh) * 100) <= 2);
   const flexWatchOk =
+    permission !== "NO_LONG" &&
     primaryTrendPass &&
     (confirmedHigherLow || pivots.latest != null) &&
     nearReclaim &&
@@ -390,23 +461,32 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   if (!confirmedHigherLow) fakeoutReasons.push(`No confirmed higher-low pivot yet`);
   if (relVol < 0.8) fakeoutReasons.push(`Relative volume ${relVol.toFixed(2)}x below 0.8x floor`);
 
+  // Compute a provisional score BEFORE deciding state — the spec makes state
+  // partly dependent on score (STANDARD >= 80, FLEX >= 65, WATCH >= 45).
+  const provisionalScore = computeReadinessScore({
+    price, s200, slope200, confirmedHigherLow, reclaimTrigger,
+    rrT1, rrT2, relVol, s50, slope50, distFrom50,
+    smhContext, vehicleClass, ownStructurePass,
+    nearestTrigger, distToTriggerPct, nearestSupport: sr.support,
+  });
+
   if (hard_blocks.length > 0) {
     // Hard-block trumps everything: force STANDBY with the exact list of blocks.
     state = "STANDBY";
     setup = "No trade";
     risk_grade = "NO TRADE";
     action = "STAND DOWN";
-  } else if (standardOk) {
+  } else if (standardOk && fakeoutReasons.length === 0 && provisionalScore >= 80) {
     state = "STANDARD_READY";
     setup = "Trend continuation";
     risk_grade = "STANDARD SMALL";
-    action = "ENTER ONLY ON TRIGGER";
-  } else if (flexReadyOk) {
+    action = "ENTER — SMALL";
+  } else if (flexReadyOk && fakeoutReasons.length === 0 && provisionalScore >= 65) {
     state = "FLEX_READY";
     setup = "Higher-low recovery";
     risk_grade = "FLEX HALF SIZE";
-    action = "ENTER ONLY ON TRIGGER";
-  } else if (flexWatchOk) {
+    action = "ENTER — HALF SIZE";
+  } else if (flexWatchOk && provisionalScore >= 45) {
     state = "FLEX_WATCH";
     setup = "Developing recovery";
     risk_grade = "NO TRADE";
@@ -419,29 +499,25 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   }
 
   // ─── Readiness score + distance-to-ready ────────────────────────────────────
-  // The score aggregates seven weighted gates. Every unmet gate also
-  // contributes one DistanceToReadyItem so the desk sees exactly what's
-  // missing, its current value, the needed value, and the next action.
+  // Spec 7-bucket 100-point framework (see computeReadinessScore below).
+  // Build the human-readable distance-to-ready alongside.
   const distance_to_ready: DistanceToReadyItem[] = [];
-  let score = 0;
+  const rawScore = hard_blocks.length > 0 ? 0 : provisionalScore;
 
-  // 200-SMA trend (25 pts).
-  if (price > s200 && slope200 >= 0) score += 25;
-  else if (price > s200 && slope200 >= -0.25) score += 15;
-  else {
+  // Primary trend.
+  if (!(price > s200 && slope200 >= 0)) {
     distance_to_ready.push({
       name: "200-SMA trend",
       current: `Px ${fmt2(price)} vs 200 ${fmt2(s200)}, slope ${fmtPct(slope200)}`,
-      needed: "price > 200-SMA AND slope >= 0",
+      needed: "price > 200-SMA AND slope >= 0 (flat/rising)",
       next_action: price <= s200
         ? `Wait for daily close above 200-SMA (${fmt2(s200)})`
-        : `Wait for 200-SMA slope to turn non-negative (currently ${fmtPct(slope200)})`,
+        : `Wait for 200-SMA slope to flatten to at least 0% (currently ${fmtPct(slope200)})`,
     });
   }
 
-  // Higher-low structure (20 pts).
-  if (confirmedHigherLow) score += 20;
-  else {
+  // Structure (higher-low).
+  if (!confirmedHigherLow) {
     distance_to_ready.push({
       name: "Confirmed higher low",
       current: pivots.latest != null && pivots.prior != null
@@ -454,9 +530,8 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     });
   }
 
-  // Reclaim trigger (20 pts).
-  if (reclaimTrigger) score += 20;
-  else {
+  // Trigger.
+  if (!reclaimTrigger) {
     distance_to_ready.push({
       name: "Reclaim trigger",
       current: nearestTrigger != null
@@ -469,57 +544,66 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     });
   }
 
-  // R:R at T1 (15 pts, tiered).
-  if (rrT1 >= 2.0) score += 15;
-  else if (rrT1 >= 1.5) score += 10;
-  else {
+  // Location (entry vs 50-SMA base).
+  if (distFrom50 < -3) {
     distance_to_ready.push({
-      name: "R:R to T1",
-      current: `${rrT1.toFixed(2)}R`,
-      needed: ">= 1.5R (FLEX) or >= 2.0R (STANDARD)",
-      next_action: `Need pullback to entry closer to stop ${fmt2(stopPrice)} or higher T1`,
+      name: "Entry location vs 50-SMA",
+      current: `Px ${fmt2(price)} is ${distFrom50.toFixed(2)}% below 50-SMA ${fmt2(s50)}`,
+      needed: "price within -3% of 50-SMA or clear reclaim base + close-and-hold",
+      next_action: `Wait for price to lift toward ${fmt2(s50 * 0.97)}, or confirm a reclaim base — not a hard block on its own`,
     });
   }
 
-  // Relative volume (10 pts, tiered).
-  if (relVol >= 1.0) score += 10;
-  else if (relVol >= 0.8) score += 6;
-  else {
+  // R:R tiers.
+  if (rrT1 < 1.5) {
+    distance_to_ready.push({
+      name: "R:R to T1",
+      current: `${rrT1.toFixed(2)}R (T1 ${fmt2(t1Price)}, stop ${fmt2(stopPrice)})`,
+      needed: ">= 1.5R (FLEX) or >= 2.0R (STANDARD)",
+      next_action: `Wait for pullback closer to stop ${fmt2(stopPrice)}, or a higher T1 level`,
+    });
+  } else if (rrT1 < 2.0) {
+    distance_to_ready.push({
+      name: "R:R to T1 (STANDARD gap)",
+      current: `${rrT1.toFixed(2)}R (FLEX-eligible)`,
+      needed: ">= 2.0R for STANDARD",
+      next_action: "Take FLEX half-size, or wait for setup with >= 2.0R for STANDARD",
+    });
+  }
+
+  // Volume.
+  if (relVol < 0.8) {
     distance_to_ready.push({
       name: "Relative volume",
-      current: `${relVol.toFixed(2)}x`,
+      current: `${relVol.toFixed(2)}x (${improvingTriggerVolume ? "improving" : "not improving"})`,
       needed: ">= 0.8x (FLEX) or >= 1.0x (STANDARD)",
       next_action: "Wait for a session with rel-vol at or above the 20-day average",
     });
-  }
-
-  // 50-SMA posture (5 pts).
-  if (price > s50 && slope50 >= 0) score += 5;
-  else if (distFrom50 >= -3) score += 3;
-  else {
+  } else if (relVol < 1.0) {
     distance_to_ready.push({
-      name: "50-SMA posture",
-      current: `Px ${fmt2(price)} vs 50 ${fmt2(s50)}, slope ${fmtPct(slope50)}`,
-      needed: "price within -3% of 50-SMA or above with slope >= 0",
-      next_action: `Wait for price to reclaim 50-SMA at ${fmt2(s50)}`,
+      name: "Relative volume (STANDARD gap)",
+      current: `${relVol.toFixed(2)}x (FLEX-eligible)`,
+      needed: ">= 1.0x for STANDARD",
+      next_action: "Take FLEX half-size, or wait for volume for STANDARD",
     });
   }
 
-  // Market confirmation via SMH (5 pts).
-  if (smhContext === "GREEN") score += 5;
-  else if (smhContext === "YELLOW") score += 3;
-  else if (isTechConcentrated) {
+  // Market alignment via SMH (growth/tech only).
+  if (isGrowthTech && smhContext !== "GREEN") {
     distance_to_ready.push({
       name: "Market confirmation (SMH)",
-      current: `SMH RED — ${smhNote}`,
-      needed: "SMH GREEN or YELLOW (not RED for tech-concentrated tickers)",
-      next_action: "Wait for SMH to reclaim its 50-SMA with non-negative slope",
+      current: `SMH ${smhContext} — ${smhNote}`,
+      needed: smhContext === "RED"
+        ? "SMH GREEN or YELLOW to consider tech/semi longs"
+        : "SMH GREEN for STANDARD (YELLOW is FLEX-only)",
+      next_action: smhContext === "RED"
+        ? "Stand down on tech/semi until SMH reclaims 200-SMA with non-negative slope"
+        : "Take FLEX half-size only until SMH regime turns GREEN",
     });
   }
 
-  // Hard blocks zero the score, and their reasons dominate distance-to-ready.
+  // Hard blocks dominate distance-to-ready.
   if (hard_blocks.length > 0) {
-    score = 0;
     for (const b of hard_blocks) {
       distance_to_ready.unshift({
         name: "Hard block",
@@ -530,15 +614,24 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     }
   }
 
-  const readiness_score = Math.max(0, Math.min(100, Math.round(score)));
+  const readiness_score = Math.max(0, Math.min(100, Math.round(rawScore)));
 
-  // Market confirmation summary from SMH + broad-trend gate.
-  const market_confirmation: FlexDeskCard["market_confirmation"] =
-    hard_blocks.length > 0 || smhContext === "RED" && isTechConcentrated
-      ? "INVALIDATED"
-      : smhContext === "GREEN" && primaryTrendPass
-        ? "CONFIRMED"
-        : "MIXED";
+  // Market confirmation summary. Growth/tech is gated by SMH regime;
+  // broad/non-growth is judged on its own structure (SMH doesn't apply).
+  let market_confirmation: FlexDeskCard["market_confirmation"];
+  if (hard_blocks.length > 0) {
+    market_confirmation = "INVALIDATED";
+  } else if (isGrowthTech) {
+    market_confirmation =
+      smhContext === "RED" ? "INVALIDATED" :
+      smhContext === "GREEN" && primaryTrendPass ? "CONFIRMED" :
+      "MIXED";
+  } else {
+    market_confirmation =
+      primaryTrendPass && confirmedHigherLow ? "CONFIRMED" :
+      primaryTrendPass ? "MIXED" :
+      "INVALIDATED";
+  }
 
   // Fakeout final verdict.
   const fakeout_result: "PASS" | "FAIL" = fakeoutReasons.length === 0 ? "PASS" : "FAIL";
@@ -591,12 +684,14 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
       result: fakeout_result,
       reasons: fakeoutReasons,
     },
-    smh_market_context: isTechConcentrated
+    smh_market_context: isGrowthTech
       ? `SMH ${smhContext} — ${smhNote}`
-      : `Market: ${smhNote}`,
+      : `Independent vehicle (${vehicleClass.replace("_", " ").toLowerCase()}) — SMH ${smhContext} does not gate this ticker.`,
     market_confirmation,
     action,
     hard_blocks,
+    vehicle_class: vehicleClass,
+    permission,
     metrics: buildMetrics({
       price, prevClose, dayChangePct, s20, s50, s200,
       slope20, slope50, slope200,
@@ -664,11 +759,14 @@ function standbyCard(
   reason: string,
   smhContext: SmhContextState,
   smhNote: string,
+  vehicleClass: VehicleClass,
   extras: Partial<FlexDeskCard> = {},
 ): FlexDeskCard {
   return {
     state: "STANDBY",
     ticker,
+    vehicle_class: vehicleClass,
+    permission: "NO_LONG",
     setup: "No trade",
     readiness_score: 0,
     distance_to_ready: [{
@@ -694,30 +792,104 @@ function standbyCard(
   };
 }
 
+// ─── Readiness score ────────────────────────────────────────────────────────
+// Spec 7-bucket 100-point framework. Called before the state decision so
+// state gates (>=80/65/45) can consume the result.
+interface ScoreInputs {
+  price: number; s200: number; slope200: number;
+  confirmedHigherLow: boolean; reclaimTrigger: boolean;
+  rrT1: number; rrT2: number;
+  relVol: number;
+  s50: number; slope50: number; distFrom50: number;
+  smhContext: SmhContextState;
+  vehicleClass: VehicleClass;
+  ownStructurePass: boolean;
+  nearestTrigger: number | null;
+  distToTriggerPct: number | null;
+  nearestSupport: number | null;
+}
+
+function computeReadinessScore(x: ScoreInputs): number {
+  // primaryTrendScore (0-20).
+  let primary = 0;
+  if (x.price > x.s200 && x.slope200 >= 0) primary = 20;
+  else if (x.price > x.s200 && x.slope200 >= -0.5) primary = 12;
+  else if (x.price > x.s200) primary = 6;
+
+  // structureScore (0-20).
+  let structure = 0;
+  if (x.confirmedHigherLow) structure += 15;
+  if (x.nearestSupport != null && x.price >= x.nearestSupport) structure += 5;
+
+  // triggerScore (0-15).
+  const trigger =
+    x.reclaimTrigger                                                     ? 15 :
+    (x.distToTriggerPct != null && x.distToTriggerPct <= 1.0)            ? 10 :
+    (x.distToTriggerPct != null && x.distToTriggerPct <= 2.5)            ?  6 : 0;
+
+  // locationScore (0-10) — entry vs 50-SMA base.
+  let location = 0;
+  if (x.distFrom50 >= -3 && x.distFrom50 <= 5) location = 10;
+  else if (x.distFrom50 >= -6) location = 5;
+
+  // rrScore (0-15).
+  const rr =
+    x.rrT1 >= 2.0 && x.rrT2 >= 2.0 ? 15 :
+    x.rrT1 >= 1.5                  ? 10 :
+    x.rrT1 >= 1.0                  ?  5 : 0;
+
+  // volumeScore (0-10).
+  const vol =
+    x.relVol >= 1.0 ? 10 :
+    x.relVol >= 0.8 ?  7 :
+    x.relVol >= 0.6 ?  3 : 0;
+
+  // marketAlignmentScore (0-10).
+  let market = 0;
+  if (x.vehicleClass === "GROWTH_TECH") {
+    market = x.smhContext === "GREEN" ? 10 : x.smhContext === "YELLOW" ? 6 : 0;
+  } else {
+    market = x.ownStructurePass ? 10 : x.price > x.s200 ? 5 : 0;
+  }
+
+  return primary + structure + trigger + location + rr + vol + market;
+}
+
 // ─── Day-type classification ────────────────────────────────────────────────
 function classifyDay(
   cards: FlexDeskCard[],
   smhContext: SmhContextState,
 ): { day_type: FlexDayType; account: FlexScanResult["account_instructions"] } {
+  // Only count vehicles the desk actually intends to trade this session:
+  // broad-market + non-growth ETFs are evaluated independently of SMH.
+  const readyCards  = cards.filter((c) => c.state === "STANDARD_READY" || c.state === "FLEX_READY");
+  const watchCards  = cards.filter((c) => c.state === "FLEX_WATCH");
+  const readyNonGrowth = readyCards.filter((c) => c.vehicle_class !== "GROWTH_TECH").length;
+  const readyGrowth    = readyCards.filter((c) => c.vehicle_class === "GROWTH_TECH").length;
   const standard = cards.filter((c) => c.state === "STANDARD_READY").length;
   const flex     = cards.filter((c) => c.state === "FLEX_READY").length;
-  const watch    = cards.filter((c) => c.state === "FLEX_WATCH").length;
+  const watch    = watchCards.length;
 
-  if (smhContext === "RED") {
+  // Spec: SMH RED alone must NOT force STANDBY_DAY — broad/non-growth still evaluated.
+  // Only mark STANDBY_DAY when there are zero ready + zero watch across all vehicles.
+  if (standard + flex + watch === 0) {
     return {
       day_type: "STANDBY_DAY",
       account: {
-        swing: "No swing entries. Capital protection only.",
+        swing: smhContext === "RED"
+          ? "SMH RED and no qualifying broad/non-growth setup. Capital protection only."
+          : "No qualifying setup. Stand down.",
         etf: "Hold core positions; no additions.",
-        single_stock: "Base DCA only into diversified core (VOO/VTI/SCHD).",
+        single_stock: "Base DCA only into core (VOO/VTI/SCHD).",
       },
     };
   }
+
   if (standard >= 1) {
     return {
       day_type: "PRACTICE_SWING_DAY",
       account: {
-        swing: `${standard} STANDARD_READY setup(s) — small practice size only, defined dollar risk.`,
+        swing: `${standard} STANDARD_READY (${readyGrowth} growth/tech, ${readyNonGrowth} broad/non-growth) — small practice size only, defined dollar risk.`,
         etf: "Hold core positions; no additions triggered by swing signals.",
         single_stock: "Base DCA only. Do not convert failed swing into long-term hold.",
       },
@@ -727,28 +899,21 @@ function classifyDay(
     return {
       day_type: "PRACTICE_SWING_DAY",
       account: {
-        swing: `${flex} FLEX_READY setup(s) — HALF practice size only, defined dollar risk.`,
+        swing: `${flex} FLEX_READY (${readyGrowth} growth/tech, ${readyNonGrowth} broad/non-growth) — HALF practice size only, defined dollar risk.`,
         etf: "Hold core positions; no additions.",
         single_stock: "Base DCA only.",
       },
     };
   }
-  if (watch >= 1) {
-    return {
-      day_type: "ETF_EXPOSURE_DAY",
-      account: {
-        swing: `No triggers. ${watch} FLEX_WATCH — create alerts, no entry.`,
-        etf: "Hold; consider scheduled DCA into core ETFs.",
-        single_stock: "Base DCA only.",
-      },
-    };
-  }
+  // Only watch cards — no trigger, but broad/non-growth may still be scheduled DCA candidates.
   return {
-    day_type: "STANDBY_DAY",
+    day_type: "ETF_EXPOSURE_DAY",
     account: {
-      swing: "No qualifying setup. Stand down.",
-      etf: "Hold; no swing-driven additions.",
-      single_stock: "Base DCA only into core.",
+      swing: `No triggers. ${watch} FLEX_WATCH — create alerts, no entry.`,
+      etf: smhContext === "RED"
+        ? "Hold; consider scheduled DCA into non-growth core (SCHD/VOO) only."
+        : "Hold; consider scheduled DCA into core ETFs.",
+      single_stock: "Base DCA only.",
     },
   };
 }
@@ -757,28 +922,71 @@ function classifyDay(
 // and a short human-readable note for card copy.
 function mapSmhContext(
   smh: Awaited<ReturnType<typeof computeSmhRegime>>,
+  smhBars: DailyBar[] | null,
 ): { state: SmhContextState; note: string } {
-  const { day_class, smh: s } = smh;
-  if (day_class === "STANDBY_DAY" || s.structure_messy || !s.trend_intact) {
+  const { smh: s } = smh;
+
+  // Fallback: no SMH bars — degrade gracefully via structure_messy/trend_intact.
+  if (!smhBars || smhBars.length < 210) {
+    if (s.structure_messy || !s.trend_intact) {
+      return { state: "RED", note: `SMH ${fmt2(s.last)} — trend/structure impaired (insufficient bars for full 200-SMA gate).` };
+    }
+    return { state: "YELLOW", note: `SMH ${fmt2(s.last)} — insufficient bars for full 200-SMA gate.` };
+  }
+
+  const closes = smhBars.map((b) => b.close);
+  const price = closes[closes.length - 1];
+  const s50 = sma(closes, 50);
+  const s200v = sma(closes, 200);
+  const slope50 = sma50Slope(smhBars, 10);
+  const slope200 = sma200Slope(smhBars, 20);
+
+  if (s50 == null || s200v == null) {
+    return { state: "RED", note: `SMH: SMAs unavailable.` };
+  }
+
+  const pivots = findRecentPivotLows(smhBars, 3, 3);
+  const confirmedHL =
+    pivots.latest != null && pivots.prior != null &&
+    pivots.latest > pivots.prior * 1.002;
+
+  const above200 = price > s200v;
+  const above50  = price > s50;
+  const s200FlatOrRising = slope200 >= 0;
+  const s50FlatOrRising  = slope50  >= 0;
+
+  // RED: below declining 200-SMA OR structural failure.
+  if ((!above200 && slope200 < 0) || s.structure_messy) {
     return {
       state: "RED",
-      note: `SMH ${fmt2(s.last)} vs 50 ${fmt2(s.sma50)}, slope ${fmtPct(s.sma50_slope_10d_pct)}, drawdown ${fmtPct(s.drawdown_from_peak_pct)}`,
+      note: `SMH ${fmt2(price)} vs 200 ${fmt2(s200v)} slope ${fmtPct(slope200)}, drawdown ${fmtPct(s.drawdown_from_peak_pct)} — structural failure.`,
     };
   }
-  if (day_class === "PRACTICE_SWING_DAY") {
+
+  // GREEN: price > 50 AND > 200; both slopes flat/rising; HL confirmed.
+  if (above200 && above50 && s200FlatOrRising && s50FlatOrRising && confirmedHL) {
+    return {
+      state: "GREEN",
+      note: `SMH ${fmt2(price)} above 20/50/200; slopes 50 ${fmtPct(slope50)} / 200 ${fmtPct(slope200)}; HL confirmed.`,
+    };
+  }
+
+  // YELLOW: above flat/rising 200-SMA, may be under falling 50-SMA, HL forming.
+  if (above200 && s200FlatOrRising) {
     return {
       state: "YELLOW",
-      note: `SMH mixed: ${fmt2(s.last)} above 50 but trend cautious; breadth clean setups`,
+      note: `SMH ${fmt2(price)} above 200 (slope ${fmtPct(slope200)}); ${above50 ? "holding 50" : "below 50 (slope " + fmtPct(slope50) + ")"}; ${confirmedHL ? "HL confirmed" : "HL forming"} — flex-only.`,
     };
   }
+
+  // Otherwise RED.
   return {
-    state: "GREEN",
-    note: `SMH ${fmt2(s.last)} above 20/50; slope ${fmtPct(s.sma50_slope_10d_pct)}, breadth intact`,
+    state: "RED",
+    note: `SMH ${fmt2(price)} — below flat/rising 200-SMA or no confirmed HL.`,
   };
 }
 
 // ─── Public entry point ─────────────────────────────────────────────────────
-const TECH_CONCENTRATED = new Set(["QQQ", "SMH", "SOXX", "XLK", "IGV", "SOXL", "SOXS"]);
 
 export async function runFlexScan(req: FlexScanRequest = {}): Promise<FlexScanResult> {
   // Merge pinned tickers into whichever universe the caller passed. SMH/QQQ/SPY
@@ -789,8 +997,12 @@ export async function runFlexScan(req: FlexScanRequest = {}): Promise<FlexScanRe
     .filter(Boolean);
   const universe = Array.from(new Set([...PINNED_TICKERS, ...requested]));
 
+  // Fetch SMH bars once so we can derive the spec's three-state regime with
+  // SMH's own 200-SMA and slope (smhRegime.ts only tracks 20/50).
+  let smhBarsForRegime: DailyBar[] | null = null;
+  try { smhBarsForRegime = await safeHistory("SMH"); } catch { smhBarsForRegime = null; }
   const smhSnap = await computeSmhRegime();
-  const { state: smhState, note: smhNote } = mapSmhContext(smhSnap);
+  const { state: smhState, note: smhNote } = mapSmhContext(smhSnap, smhBarsForRegime);
 
   const cards: FlexDeskCard[] = [];
   const errors: string[] = [];
@@ -798,8 +1010,8 @@ export async function runFlexScan(req: FlexScanRequest = {}): Promise<FlexScanRe
   await Promise.all(universe.map(async (ticker) => {
     try {
       const bars = await safeHistory(ticker);
-      const isTechConcentrated = TECH_CONCENTRATED.has(ticker);
-      const card = classifyTicker(bars, { ticker, smhContext: smhState, smhNote, isTechConcentrated });
+      const vehicleClass = classifyVehicle(ticker);
+      const card = classifyTicker(bars, { ticker, smhContext: smhState, smhNote, vehicleClass });
       if (PINNED_TICKERS.includes(ticker)) card.pinned = true;
       cards.push(card);
     } catch (err) {
