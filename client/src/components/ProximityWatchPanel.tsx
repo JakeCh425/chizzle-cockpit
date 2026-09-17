@@ -109,6 +109,12 @@ function fmtPct(n: number | null | undefined, dp = 1): string {
 
 interface Props {
   onPrefillPlan?: (payload: PrefillPayload) => void;
+  /**
+   * When true, the entire panel renders `null` while no ticker is in the READY
+   * bucket. Used by PipelineCockpit to keep the top-of-page real estate clean
+   * until there's something actionable.
+   */
+  hideWhenNoReady?: boolean;
 }
 
 // LocalStorage is blocked in the sandbox iframe → use in-memory persistence
@@ -116,7 +122,7 @@ interface Props {
 // server-side promotion to Active Setup is the durable path.
 const actedReadyTickers = new Set<string>();
 
-export default function ProximityWatchPanel({ onPrefillPlan }: Props) {
+export default function ProximityWatchPanel({ onPrefillPlan, hideWhenNoReady = false }: Props) {
   const [editorOpen, setEditorOpen] = useState(false);
   const [leversOpen, setLeversOpen] = useState(false);
   const [profile, setProfile] = useState<RiskProfile | "custom">("medium");
@@ -291,6 +297,13 @@ export default function ProximityWatchPanel({ onPrefillPlan }: Props) {
     }
     return { kind: "idle" as const, text: "No qualifying setups. Consider loosening risk profile or adding tickers." };
   }, [buckets]);
+
+  // Hide-until-ready mode: when the operator only wants the panel to appear
+  // when there's something actionable, render null until at least one ticker
+  // is in the READY bucket.
+  if (hideWhenNoReady && buckets.ready.length === 0) {
+    return null;
+  }
 
   return (
     <div

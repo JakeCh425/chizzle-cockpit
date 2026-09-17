@@ -111,8 +111,9 @@ export default function PipelineCockpit() {
       {/* 3. Active Setups — pinned at top per user spec */}
       <ActiveSetupsPanel />
 
-      {/* 4. Proximity Watch — pipeline of tickers approaching Chizzle parameters */}
-      <ProximityWatchPanel />
+      {/* 4. Proximity Watch — hidden until at least one ticker is READY, per user
+           preference. Keeps the top-of-page clean when nothing is actionable. */}
+      <ProximityWatchPanel hideWhenNoReady />
 
       {/* 5. Pipeline lanes */}
       <div className="flex items-center justify-between">

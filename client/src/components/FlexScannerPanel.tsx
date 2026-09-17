@@ -145,7 +145,7 @@ export default function FlexScannerPanel() {
           <Radar className="h-4 w-4 text-neon-blue" />
           <div className="text-xs font-bold text-soft-white tracking-wider">FLEX SWING SCANNER</div>
           {result && (
-            <span className={`text-[9px] px-1.5 py-0.5 rounded font-mono ${
+            <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono ${
               result.day_type === "PRACTICE_SWING_DAY" ? "bg-signal-green/20 text-signal-green" :
               result.day_type === "ETF_EXPOSURE_DAY"   ? "bg-neon-blue/20 text-neon-blue" :
                                                         "bg-signal-red/20 text-signal-red"
@@ -157,7 +157,7 @@ export default function FlexScannerPanel() {
         <button
           onClick={() => scanQ.refetch()}
           disabled={scanQ.isFetching}
-          className="text-[10px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
+          className="text-[12px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
           data-testid="button-rescan"
         >
           <RefreshCw className={`h-3 w-3 ${scanQ.isFetching ? "animate-spin" : ""}`} />
@@ -167,24 +167,24 @@ export default function FlexScannerPanel() {
 
       {/* ── SMH + summary strip ── */}
       {result && (
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[13px]">
           <div className={`rounded border p-2 ${
             result.smh_context.state === "GREEN"  ? "border-signal-green" :
             result.smh_context.state === "YELLOW" ? "border-signal-amber" :
                                                     "border-signal-red"
           }`}>
-            <div className="text-[9px] text-slate-gray font-bold uppercase">SMH regime</div>
+            <div className="text-[11px] text-slate-gray font-bold uppercase">SMH regime</div>
             <div className={`font-mono text-sm ${
               result.smh_context.state === "GREEN"  ? "text-signal-green" :
               result.smh_context.state === "YELLOW" ? "text-signal-amber" :
                                                       "text-signal-red"
             }`}>{result.smh_context.state}</div>
-            <div className="text-[9px] text-slate-gray leading-tight">{result.smh_context.note}</div>
+            <div className="text-[11px] text-slate-gray leading-tight">{result.smh_context.note}</div>
           </div>
           <div className="rounded border border-ink-line p-2 sm:col-span-2">
-            <div className="text-[9px] text-slate-gray font-bold uppercase">Desk summary</div>
-            <div className="text-[11px] text-soft-white leading-tight">{result.one_sentence_summary}</div>
-            <div className="text-[9px] text-slate-gray mt-1 space-y-0.5">
+            <div className="text-[11px] text-slate-gray font-bold uppercase">Desk summary</div>
+            <div className="text-[13px] text-soft-white leading-tight">{result.one_sentence_summary}</div>
+            <div className="text-[11px] text-slate-gray mt-1 space-y-0.5">
               <div><span className="text-neon-blue font-bold">Swing:</span> {result.account_instructions.swing}</div>
               <div><span className="text-neon-blue font-bold">ETF:</span> {result.account_instructions.etf}</div>
               <div><span className="text-neon-blue font-bold">Single stock:</span> {result.account_instructions.single_stock}</div>
@@ -200,7 +200,7 @@ export default function FlexScannerPanel() {
         </div>
       )}
       {scanQ.isError && (
-        <div className="rounded border border-signal-red bg-signal-red/5 p-2 text-[10px] text-signal-red font-mono">
+        <div className="rounded border border-signal-red bg-signal-red/5 p-2 text-[12px] text-signal-red font-mono">
           Scan failed: {String(scanQ.error?.message ?? "unknown")}
         </div>
       )}
@@ -208,7 +208,7 @@ export default function FlexScannerPanel() {
       {/* ── Trading Vehicles (pinned SMH / QQQ / SPY) ── */}
       {result && pinnedCards.length > 0 && (
         <div className="space-y-2" data-testid="group-trading-vehicles">
-          <div className="flex items-center gap-1 text-[10px] font-bold tracking-wider text-neon-blue">
+          <div className="flex items-center gap-1 text-[12px] font-bold tracking-wider text-neon-blue">
             <Pin className="h-3 w-3" />
             <span>TRADING VEHICLES ({pinnedCards.length})</span>
             <span className="text-slate-gray font-normal ml-1 italic">always visible</span>
@@ -238,7 +238,7 @@ export default function FlexScannerPanel() {
           <div key={s} className="space-y-2" data-testid={`group-${s.toLowerCase()}`}>
             <button
               onClick={() => setExpandedState((p) => ({ ...p, [s]: !p[s] }))}
-              className="flex items-center gap-1 text-[10px] font-bold tracking-wider hover:text-soft-white"
+              className="flex items-center gap-1 text-[12px] font-bold tracking-wider hover:text-soft-white"
             >
               {expandedState[s] ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
               {meta.icon}
@@ -275,18 +275,18 @@ function DeskCard({ card, onSave, saved, saving }: {
 }) {
   const meta = STATE_META[card.state];
   return (
-    <div className={`rounded border-2 ${meta.border} bg-ink-black p-2 space-y-1 text-[10px]`} data-testid={`card-${card.ticker}`}>
+    <div className={`rounded border-2 ${meta.border} bg-ink-black p-2 space-y-1 text-[12px]`} data-testid={`card-${card.ticker}`}>
       {/* Row 1: pin + ticker + state + score */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {card.pinned && <Pin className="h-3 w-3 text-neon-blue flex-shrink-0" />}
           <span className={`font-mono text-sm font-bold ${meta.text}`}>{card.ticker}</span>
-          <span className={`text-[9px] px-1 py-0.5 rounded ${meta.bg} ${meta.text} font-bold`}>
+          <span className={`text-[11px] px-1 py-0.5 rounded ${meta.bg} ${meta.text} font-bold`}>
             {meta.label}
           </span>
           {card.vehicle_class && (
             <span
-              className={`text-[8px] font-mono px-1 py-0.5 rounded border ${
+              className={`text-[10px] font-mono px-1 py-0.5 rounded border ${
                 card.vehicle_class === "GROWTH_TECH"  ? "border-neon-blue text-neon-blue"        :
                 card.vehicle_class === "BROAD_MARKET" ? "border-signal-green text-signal-green" :
                 card.vehicle_class === "NON_GROWTH"   ? "border-signal-amber text-signal-amber" :
@@ -299,7 +299,7 @@ function DeskCard({ card, onSave, saved, saving }: {
           )}
           {card.permission && (
             <span
-              className={`text-[8px] font-mono px-1 py-0.5 rounded ${
+              className={`text-[10px] font-mono px-1 py-0.5 rounded ${
                 card.permission === "STANDARD_OR_FLEX" ? "bg-signal-green/20 text-signal-green" :
                 card.permission === "FLEX_ONLY"        ? "bg-signal-amber/20 text-signal-amber" :
                                                          "bg-signal-red/20 text-signal-red"
@@ -311,9 +311,9 @@ function DeskCard({ card, onSave, saved, saving }: {
           )}
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="text-[9px] text-slate-gray italic">{card.setup}</span>
+          <span className="text-[11px] text-slate-gray italic">{card.setup}</span>
           <span
-            className={`font-mono text-[11px] font-bold ${scoreColor(card.readiness_score)} border border-current rounded px-1`}
+            className={`font-mono text-[13px] font-bold ${scoreColor(card.readiness_score)} border border-current rounded px-1`}
             title="Readiness score (0-100)"
             data-testid={`score-${card.ticker}`}
           >
@@ -324,7 +324,7 @@ function DeskCard({ card, onSave, saved, saving }: {
 
       {/* Compact metric row */}
       {card.metrics && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-mono text-slate-gray border-t border-ink-line pt-1">
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray border-t border-ink-line pt-1">
           <span>Px <span className="text-soft-white">{fmt$(card.metrics.price)}</span></span>
           {card.metrics.day_change_pct != null && (
             <span>chg <span className={card.metrics.day_change_pct >= 0 ? "text-signal-green" : "text-signal-red"}>{fmtPct(card.metrics.day_change_pct, true)}</span></span>
@@ -343,7 +343,7 @@ function DeskCard({ card, onSave, saved, saving }: {
 
       {/* Support / Resistance / distance-to-trigger row */}
       {card.metrics && (card.metrics.nearest_support != null || card.metrics.nearest_resistance != null || card.metrics.dist_to_trigger_pct != null) && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-mono text-slate-gray">
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray">
           {card.metrics.nearest_support != null && (
             <span>sup <span className="text-signal-green">{fmt$(card.metrics.nearest_support)}</span></span>
           )}
@@ -358,7 +358,7 @@ function DeskCard({ card, onSave, saved, saving }: {
 
       {/* Hard-block callout */}
       {card.hard_blocks && card.hard_blocks.length > 0 && (
-        <div className="rounded border border-signal-red bg-signal-red/10 p-1 text-[9px] text-signal-red">
+        <div className="rounded border border-signal-red bg-signal-red/10 p-1 text-[11px] text-signal-red">
           <div className="font-bold flex items-center gap-1">
             <Shield className="h-2.5 w-2.5" />
             HARD BLOCK
@@ -371,7 +371,7 @@ function DeskCard({ card, onSave, saved, saving }: {
 
       {/* Distance-to-ready (only when there are unmet conditions) */}
       {card.distance_to_ready && card.distance_to_ready.length > 0 && card.state !== "STANDBY" && (
-        <div className="rounded border border-neon-blue/40 bg-neon-blue/5 p-1 text-[9px]">
+        <div className="rounded border border-neon-blue/40 bg-neon-blue/5 p-1 text-[11px]">
           <div className="font-bold text-neon-blue mb-0.5">DISTANCE TO READY</div>
           <div className="space-y-0.5">
             {card.distance_to_ready.slice(0, 4).map((item, i) => (
@@ -384,7 +384,7 @@ function DeskCard({ card, onSave, saved, saving }: {
       )}
 
       {/* Trend / structure / trigger */}
-      <div className="text-[10px] text-slate-gray leading-tight">
+      <div className="text-[12px] text-slate-gray leading-tight">
         <div><span className="text-neon-blue font-bold">TREND:</span> {card.trend}</div>
         <div><span className="text-neon-blue font-bold">STRUCT:</span> {card.structure}</div>
         <div><span className="text-neon-blue font-bold">TRIG:</span> {card.trigger}</div>
@@ -407,14 +407,14 @@ function DeskCard({ card, onSave, saved, saving }: {
               tone="green"
             />
           )}
-          <div className="col-span-3 text-[9px] text-slate-gray italic">
+          <div className="col-span-3 text-[11px] text-slate-gray italic">
             {card.stop.reason}
           </div>
         </div>
       )}
 
       {/* Fakeout check */}
-      <div className={`rounded p-1 text-[9px] ${
+      <div className={`rounded p-1 text-[11px] ${
         card.fakeout_check.result === "PASS"
           ? "bg-signal-green/10 text-signal-green"
           : "bg-signal-amber/10 text-signal-amber"
@@ -431,22 +431,22 @@ function DeskCard({ card, onSave, saved, saving }: {
       </div>
 
       {/* Market context */}
-      <div className="text-[9px] text-slate-gray italic border-t border-ink-line pt-1">
+      <div className="text-[11px] text-slate-gray italic border-t border-ink-line pt-1">
         {card.smh_market_context}
       </div>
 
       {/* Action + save + market confirmation */}
       <div className="flex items-center justify-between gap-2 pt-1">
-        <span className={`text-[9px] font-bold ${meta.text}`}>{card.action}</span>
+        <span className={`text-[11px] font-bold ${meta.text}`}>{card.action}</span>
         <div className="flex items-center gap-1">
-          <span className={`text-[8px] font-mono px-1 rounded ${
+          <span className={`text-[10px] font-mono px-1 rounded ${
             card.market_confirmation === "CONFIRMED"   ? "bg-signal-green/20 text-signal-green" :
             card.market_confirmation === "INVALIDATED" ? "bg-signal-red/20 text-signal-red" :
                                                          "bg-signal-amber/20 text-signal-amber"
           }`} title={`Market confirmation: ${card.market_confirmation}`}>
             MKT {card.market_confirmation}
           </span>
-          <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${meta.border} ${meta.text}`}>
+          <span className={`text-[11px] font-mono px-1 py-0.5 rounded border ${meta.border} ${meta.text}`}>
             {card.risk_grade}
           </span>
         </div>
@@ -456,7 +456,7 @@ function DeskCard({ card, onSave, saved, saving }: {
         <button
           onClick={onSave}
           disabled={saving || saved}
-          className={`w-full py-1 rounded font-bold text-[10px] flex items-center justify-center gap-1 ${
+          className={`w-full py-1 rounded font-bold text-[12px] flex items-center justify-center gap-1 ${
             saved
               ? "bg-signal-green/20 border border-signal-green text-signal-green cursor-default"
               : "bg-signal-green text-ink-black hover:brightness-110 disabled:opacity-40"
@@ -483,8 +483,8 @@ function PlanCell({ label, value, tone }: { label: string; value: string; tone?:
                   : "text-soft-white";
   return (
     <div>
-      <div className="text-[8px] text-slate-gray font-bold">{label}</div>
-      <div className={`font-mono text-[11px] ${toneClass}`}>{value}</div>
+      <div className="text-[10px] text-slate-gray font-bold">{label}</div>
+      <div className={`font-mono text-[13px] ${toneClass}`}>{value}</div>
     </div>
   );
 }
