@@ -14,6 +14,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
   FlexScanResult, FlexDeskCard, FlexState,
 } from "@shared/flexScanTypes";
+import { useAutoRescan } from "@/hooks/useAutoRescan";
+import AutoRescanPill from "@/components/AutoRescanPill";
 
 const STATE_META: Record<FlexState, {
   label: string; border: string; bg: string; text: string; icon: JSX.Element;
@@ -112,6 +114,18 @@ export default function FlexScannerPanel() {
     staleTime: 5 * 60_000,
   });
 
+  // Auto-rescan every 5 minutes during NYSE regular hours. Pill in the
+  // header shows the status and lets the operator cycle cadence (5/10/15/off).
+  const autoRescan = useAutoRescan(() => {
+    scanQ.refetch();
+    // Also nudge the top-of-page regime panels and downstream payloads so the
+    // whole cockpit stays in sync on the same tick.
+    queryClient.invalidateQueries({ queryKey: ["/api/regime"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/regime-v2"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/active-setups"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/proximity-watch"] });
+  }, 5 * 60_000, true);
+
   const saveMut = useMutation<any, Error, FlexDeskCard>({
     mutationFn: async (card) => {
       const r = await apiRequest("POST", "/api/active-setups", cardToActiveSetup(card));
@@ -154,15 +168,18 @@ export default function FlexScannerPanel() {
             </span>
           )}
         </div>
-        <button
-          onClick={() => scanQ.refetch()}
-          disabled={scanQ.isFetching}
-          className="text-[12px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
-          data-testid="button-rescan"
-        >
-          <RefreshCw className={`h-3 w-3 ${scanQ.isFetching ? "animate-spin" : ""}`} />
-          {scanQ.isFetching ? "Scanning…" : "Rescan"}
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <AutoRescanPill state={autoRescan} />
+          <button
+            onClick={() => scanQ.refetch()}
+            disabled={scanQ.isFetching}
+            className="text-[12px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
+            data-testid="button-rescan"
+          >
+            <RefreshCw className={`h-3 w-3 ${scanQ.isFetching ? "animate-spin" : ""}`} />
+            {scanQ.isFetching ? "Scanning…" : "Rescan"}
+          </button>
+        </div>
       </div>
 
       {/* ── SMH + summary strip ── */}
