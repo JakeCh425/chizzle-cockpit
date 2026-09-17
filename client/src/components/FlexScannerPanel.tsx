@@ -8,7 +8,7 @@ import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Radar, AlertTriangle, XCircle, CheckCircle2, Eye, Zap, RefreshCw, Save, Check,
-  ChevronDown, ChevronRight,
+  ChevronDown, ChevronRight, Pin, Shield,
 } from "lucide-react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
@@ -52,6 +52,19 @@ function fmt$(n: number | null | undefined): string {
   return n == null ? "—" : `$${n.toFixed(2)}`;
 }
 
+function fmtPct(n: number | null | undefined, signed = false): string {
+  if (n == null) return "—";
+  const sign = signed && n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(2)}%`;
+}
+
+function scoreColor(score: number): string {
+  if (score >= 80) return "text-signal-green";
+  if (score >= 60) return "text-neon-blue";
+  if (score >= 40) return "text-signal-amber";
+  return "text-signal-red";
+}
+
 // ─── Save mapper: FlexDeskCard → active-setups POST body ────────────────
 function cardToActiveSetup(c: FlexDeskCard) {
   return {
@@ -85,7 +98,7 @@ export default function FlexScannerPanel() {
     STANDARD_READY: true,
     FLEX_READY: true,
     FLEX_WATCH: true,
-    STANDBY: false,
+    STANDBY: true,  // now shown by default — STANDBY carries readiness score + distance-to-ready detail
   });
   const [savedTickers, setSavedTickers] = useState<Set<string>>(new Set());
 
@@ -112,11 +125,16 @@ export default function FlexScannerPanel() {
 
   const result = scanQ.data;
   const cards = result?.cards ?? [];
+  // Pinned tickers (SMH/QQQ/SPY) get their own "Trading Vehicles" section at
+  // the top so they're always visible, whatever their state that day. The
+  // remaining tickers still group by state below.
+  const pinnedCards = cards.filter((c) => c.pinned);
+  const restCards = cards.filter((c) => !c.pinned);
   const grouped: Record<FlexState, FlexDeskCard[]> = {
-    STANDARD_READY: cards.filter((c) => c.state === "STANDARD_READY"),
-    FLEX_READY:     cards.filter((c) => c.state === "FLEX_READY"),
-    FLEX_WATCH:     cards.filter((c) => c.state === "FLEX_WATCH"),
-    STANDBY:        cards.filter((c) => c.state === "STANDBY"),
+    STANDARD_READY: restCards.filter((c) => c.state === "STANDARD_READY"),
+    FLEX_READY:     restCards.filter((c) => c.state === "FLEX_READY"),
+    FLEX_WATCH:     restCards.filter((c) => c.state === "FLEX_WATCH"),
+    STANDBY:        restCards.filter((c) => c.state === "STANDBY"),
   };
 
   return (
@@ -187,7 +205,31 @@ export default function FlexScannerPanel() {
         </div>
       )}
 
-      {/* ── State groups ── */}
+      {/* ── Trading Vehicles (pinned SMH / QQQ / SPY) ── */}
+      {result && pinnedCards.length > 0 && (
+        <div className="space-y-2" data-testid="group-trading-vehicles">
+          <div className="flex items-center gap-1 text-[10px] font-bold tracking-wider text-neon-blue">
+            <Pin className="h-3 w-3" />
+            <span>TRADING VEHICLES ({pinnedCards.length})</span>
+            <span className="text-slate-gray font-normal ml-1 italic">always visible</span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {pinnedCards.map((c) => (
+              <DeskCard
+                key={c.ticker}
+                card={c}
+                onSave={c.state === "STANDARD_READY" || c.state === "FLEX_READY"
+                  ? () => saveMut.mutate(c)
+                  : undefined}
+                saved={savedTickers.has(c.ticker)}
+                saving={saveMut.isPending && saveMut.variables?.ticker === c.ticker}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ── State groups (non-pinned tickers) ── */}
       {result && (["STANDARD_READY", "FLEX_READY", "FLEX_WATCH", "STANDBY"] as FlexState[]).map((s) => {
         const meta = STATE_META[s];
         const list = grouped[s];
@@ -234,27 +276,85 @@ function DeskCard({ card, onSave, saved, saving }: {
   const meta = STATE_META[card.state];
   return (
     <div className={`rounded border-2 ${meta.border} bg-ink-black p-2 space-y-1 text-[10px]`} data-testid={`card-${card.ticker}`}>
-      {/* Row 1: ticker + state + setup */}
+      {/* Row 1: pin + ticker + state + score */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
+          {card.pinned && <Pin className="h-3 w-3 text-neon-blue flex-shrink-0" />}
           <span className={`font-mono text-sm font-bold ${meta.text}`}>{card.ticker}</span>
           <span className={`text-[9px] px-1 py-0.5 rounded ${meta.bg} ${meta.text} font-bold`}>
             {meta.label}
           </span>
         </div>
-        <span className="text-[9px] text-slate-gray italic">{card.setup}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-[9px] text-slate-gray italic">{card.setup}</span>
+          <span
+            className={`font-mono text-[11px] font-bold ${scoreColor(card.readiness_score)} border border-current rounded px-1`}
+            title="Readiness score (0-100)"
+            data-testid={`score-${card.ticker}`}
+          >
+            {card.readiness_score}
+          </span>
+        </div>
       </div>
 
       {/* Compact metric row */}
       {card.metrics && (
         <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-mono text-slate-gray border-t border-ink-line pt-1">
           <span>Px <span className="text-soft-white">{fmt$(card.metrics.price)}</span></span>
-          <span>20 <span className="text-soft-white">{fmt$(card.metrics.sma20)}</span></span>
-          <span>50 <span className="text-soft-white">{fmt$(card.metrics.sma50)}</span></span>
-          <span>200 <span className="text-soft-white">{fmt$(card.metrics.sma200)}</span></span>
+          {card.metrics.day_change_pct != null && (
+            <span>chg <span className={card.metrics.day_change_pct >= 0 ? "text-signal-green" : "text-signal-red"}>{fmtPct(card.metrics.day_change_pct, true)}</span></span>
+          )}
+          <span>20 <span className="text-soft-white">{fmt$(card.metrics.sma20)}</span> {fmtPct(card.metrics.sma20_slope_pct, true)}</span>
+          <span>50 <span className="text-soft-white">{fmt$(card.metrics.sma50)}</span> {fmtPct(card.metrics.sma50_slope_pct, true)}</span>
+          <span>200 <span className="text-soft-white">{fmt$(card.metrics.sma200)}</span> {fmtPct(card.metrics.sma200_slope_pct, true)}</span>
           {card.metrics.relative_volume != null && (
             <span>vol <span className={card.metrics.relative_volume >= 1 ? "text-signal-green" : "text-signal-amber"}>{card.metrics.relative_volume.toFixed(2)}x</span></span>
           )}
+          {card.metrics.confirmed_higher_low != null && (
+            <span>HL <span className={card.metrics.confirmed_higher_low ? "text-signal-green" : "text-slate-gray"}>{card.metrics.confirmed_higher_low ? "YES" : "no"}</span></span>
+          )}
+        </div>
+      )}
+
+      {/* Support / Resistance / distance-to-trigger row */}
+      {card.metrics && (card.metrics.nearest_support != null || card.metrics.nearest_resistance != null || card.metrics.dist_to_trigger_pct != null) && (
+        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[9px] font-mono text-slate-gray">
+          {card.metrics.nearest_support != null && (
+            <span>sup <span className="text-signal-green">{fmt$(card.metrics.nearest_support)}</span></span>
+          )}
+          {card.metrics.nearest_resistance != null && (
+            <span>res <span className="text-signal-red">{fmt$(card.metrics.nearest_resistance)}</span></span>
+          )}
+          {card.metrics.dist_to_trigger_pct != null && (
+            <span>d2trg <span className={card.metrics.dist_to_trigger_pct === 0 ? "text-signal-green" : "text-neon-blue"}>{fmtPct(card.metrics.dist_to_trigger_pct)}</span></span>
+          )}
+        </div>
+      )}
+
+      {/* Hard-block callout */}
+      {card.hard_blocks && card.hard_blocks.length > 0 && (
+        <div className="rounded border border-signal-red bg-signal-red/10 p-1 text-[9px] text-signal-red">
+          <div className="font-bold flex items-center gap-1">
+            <Shield className="h-2.5 w-2.5" />
+            HARD BLOCK
+          </div>
+          <ul className="list-disc list-inside ml-1 mt-0.5">
+            {card.hard_blocks.map((b, i) => <li key={i}>{b}</li>)}
+          </ul>
+        </div>
+      )}
+
+      {/* Distance-to-ready (only when there are unmet conditions) */}
+      {card.distance_to_ready && card.distance_to_ready.length > 0 && card.state !== "STANDBY" && (
+        <div className="rounded border border-neon-blue/40 bg-neon-blue/5 p-1 text-[9px]">
+          <div className="font-bold text-neon-blue mb-0.5">DISTANCE TO READY</div>
+          <div className="space-y-0.5">
+            {card.distance_to_ready.slice(0, 4).map((item, i) => (
+              <div key={i} className="text-slate-gray">
+                <span className="text-soft-white font-bold">{item.name}:</span> <span className="text-signal-amber">{item.current}</span> → <span className="text-signal-green">{item.next_action}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -310,12 +410,21 @@ function DeskCard({ card, onSave, saved, saving }: {
         {card.smh_market_context}
       </div>
 
-      {/* Action + save */}
+      {/* Action + save + market confirmation */}
       <div className="flex items-center justify-between gap-2 pt-1">
         <span className={`text-[9px] font-bold ${meta.text}`}>{card.action}</span>
-        <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${meta.border} ${meta.text}`}>
-          {card.risk_grade}
-        </span>
+        <div className="flex items-center gap-1">
+          <span className={`text-[8px] font-mono px-1 rounded ${
+            card.market_confirmation === "CONFIRMED"   ? "bg-signal-green/20 text-signal-green" :
+            card.market_confirmation === "INVALIDATED" ? "bg-signal-red/20 text-signal-red" :
+                                                         "bg-signal-amber/20 text-signal-amber"
+          }`} title={`Market confirmation: ${card.market_confirmation}`}>
+            MKT {card.market_confirmation}
+          </span>
+          <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${meta.border} ${meta.text}`}>
+            {card.risk_grade}
+          </span>
+        </div>
       </div>
 
       {onSave && (
