@@ -22,6 +22,7 @@ import ProximityWatchPanel from "@/components/ProximityWatchPanel";
 import SwingScannerPanel from "@/components/SwingScannerPanel";
 import TradeCheckPanel from "@/components/TradeCheckPanel";
 import PlanCheckPanel from "@/components/PlanCheckPanel";
+import FlexScannerPanel from "@/components/FlexScannerPanel";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
@@ -127,7 +128,12 @@ export default function PipelineCockpit() {
 
       <div className="space-y-2">
         <LaneShell laneKey="SCAN" expanded={expandedKey === "SCAN"} onToggle={() => toggle("SCAN")}>
-          <SwingScannerPanel />
+          <div className="space-y-3">
+            <FlexScannerPanel />
+            <div className="border-t border-ink-line pt-3">
+              <SwingScannerPanel />
+            </div>
+          </div>
         </LaneShell>
 
         <LaneShell laneKey="SELECT" expanded={expandedKey === "SELECT"} onToggle={() => toggle("SELECT")}>

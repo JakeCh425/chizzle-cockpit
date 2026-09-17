@@ -66,6 +66,7 @@ import {
 import { decideDiscipline } from "../shared/discipline";
 import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
+import { runFlexScan } from "./flexScanner";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
 import { scanProximity } from "./proximityEngine";
@@ -1866,6 +1867,28 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       res.json(result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "swing-scan failed";
+      res.status(500).json({ error: msg });
+    }
+  });
+
+  // ─── POST /api/flex-scan ──────────────────────────────────────────────────
+  // Body: { universe?: string[], include_tech_concentrated?: boolean }
+  // Deterministic implementation of the FLEX Swing Scanner spec:
+  // 4-tier state machine (STANDARD_READY / FLEX_READY / FLEX_WATCH / STANDBY),
+  // confirmed higher-low detection, reclaim triggers, anti-fakeout gates,
+  // SMH-led market context, and full desk-card output.
+  const flexScanSchema = z.object({
+    universe: z.array(z.string().min(1).max(10)).max(40).optional(),
+    include_tech_concentrated: z.boolean().optional(),
+  });
+  app.post("/api/flex-scan", async (req, res) => {
+    const parsed = validateBody(req, res, flexScanSchema);
+    if (!parsed) return;
+    try {
+      const result = await runFlexScan(parsed);
+      res.json(result);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "flex-scan failed";
       res.status(500).json({ error: msg });
     }
   });

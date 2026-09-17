@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://chizzle.local/flex-scan.schema.json",
+  "title": "ChizzleWealthFlexScanResult",
+  "type": "object",
+  "required": [
+    "computed_at",
+    "day_type",
+    "smh_context",
+    "cards",
+    "account_instructions",
+    "one_sentence_summary"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "computed_at": { "type": "string", "format": "date-time" },
+    "day_type": {
+      "type": "string",
+      "enum": [
+        "PRACTICE_SWING_DAY",
+        "ETF_EXPOSURE_DAY",
+        "SINGLE_STOCK_INVESTING_DAY",
+        "STANDBY_DAY"
+      ]
+    },
+    "smh_context": {
+      "type": "object",
+      "required": ["state", "note"],
+      "additionalProperties": false,
+      "properties": {
+        "state": { "type": "string", "enum": ["GREEN", "YELLOW", "RED"] },
+        "note": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "cards": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/desk_card" },
+      "maxItems": 30
+    },
+    "account_instructions": {
+      "type": "object",
+      "required": ["swing", "etf", "single_stock"],
+      "additionalProperties": false,
+      "properties": {
+        "swing": { "type": "string", "maxLength": 240 },
+        "etf": { "type": "string", "maxLength": 240 },
+        "single_stock": { "type": "string", "maxLength": 240 }
+      }
+    },
+    "one_sentence_summary": { "type": "string", "maxLength": 240 }
+  },
+  "$defs": {
+    "desk_card": {
+      "type": "object",
+      "required": [
+        "state",
+        "ticker",
+        "setup",
+        "trend",
+        "structure",
+        "trigger",
+        "entry_zone",
+        "stop",
+        "target_1",
+        "risk_grade",
+        "fakeout_check",
+        "smh_market_context",
+        "action"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": ["STANDARD_READY", "FLEX_READY", "FLEX_WATCH", "STANDBY"]
+        },
+        "ticker": { "type": "string", "minLength": 1, "maxLength": 10 },
+        "setup": {
+          "type": "string",
+          "enum": [
+            "Trend continuation",
+            "Higher-low recovery",
+            "Developing recovery",
+            "No trade"
+          ]
+        },
+        "trend": { "type": "string", "maxLength": 200 },
+        "structure": { "type": "string", "maxLength": 200 },
+        "trigger": { "type": "string", "maxLength": 200 },
+        "entry_zone": {
+          "type": "object",
+          "required": ["low", "high", "note"],
+          "additionalProperties": false,
+          "properties": {
+            "low":  { "type": ["number", "null"] },
+            "high": { "type": ["number", "null"] },
+            "note": { "type": "string", "maxLength": 120 }
+          }
+        },
+        "stop": {
+          "type": "object",
+          "required": ["price", "reason"],
+          "additionalProperties": false,
+          "properties": {
+            "price":  { "type": ["number", "null"] },
+            "reason": { "type": "string", "maxLength": 160 }
+          }
+        },
+        "target_1": {
+          "type": "object",
+          "required": ["price", "r_multiple"],
+          "additionalProperties": false,
+          "properties": {
+            "price":      { "type": ["number", "null"] },
+            "r_multiple": { "type": ["number", "null"] }
+          }
+        },
+        "target_2": {
+          "type": ["object", "null"],
+          "required": ["price", "r_multiple"],
+          "additionalProperties": false,
+          "properties": {
+            "price":      { "type": ["number", "null"] },
+            "r_multiple": { "type": ["number", "null"] }
+          }
+        },
+        "risk_grade": {
+          "type": "string",
+          "enum": ["STANDARD SMALL", "FLEX HALF SIZE", "NO TRADE"]
+        },
+        "fakeout_check": {
+          "type": "object",
+          "required": ["result", "reasons"],
+          "additionalProperties": false,
+          "properties": {
+            "result":  { "type": "string", "enum": ["PASS", "FAIL"] },
+            "reasons": {
+              "type": "array",
+              "items": { "type": "string", "maxLength": 160 },
+              "maxItems": 5
+            }
+          }
+        },
+        "smh_market_context": { "type": "string", "maxLength": 200 },
+        "action": {
+          "type": "string",
+          "enum": [
+            "ENTER ONLY ON TRIGGER",
+            "SET ALERT",
+            "STAND DOWN"
+          ]
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "price": { "type": "number" },
+            "sma20": { "type": "number" },
+            "sma50": { "type": "number" },
+            "sma200": { "type": "number" },
+            "sma200_slope_pct": { "type": "number" },
+            "sma50_slope_pct": { "type": "number" },
+            "dist_from_sma20_pct": { "type": "number" },
+            "dist_from_sma50_pct": { "type": "number" },
+            "relative_volume": { "type": "number" },
+            "atr14": { "type": "number" },
+            "confirmed_higher_low": { "type": "boolean" },
+            "reclaim_trigger": { "type": "boolean" },
+            "prior_pivot_low": { "type": ["number", "null"] },
+            "latest_pivot_low": { "type": ["number", "null"] },
+            "prior_swing_high": { "type": ["number", "null"] }
+          }
+        }
+      }
+    }
+  }
+}
