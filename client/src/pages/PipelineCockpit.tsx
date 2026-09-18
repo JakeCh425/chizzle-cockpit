@@ -26,6 +26,7 @@ import FlexScannerPanel from "@/components/FlexScannerPanel";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import TickerChartPanel from "@/components/TickerChartPanel";
 
 // Static lane definitions — kept outside the render body so array identity is
 // stable across renders (React can reconcile without remounting children).
@@ -101,7 +102,7 @@ export default function PipelineCockpit() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto p-3 sm:p-4 space-y-4">
+    <div className="max-w-[1440px] mx-auto p-3 sm:p-4 lg:p-5 space-y-4">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
 
@@ -130,9 +131,20 @@ export default function PipelineCockpit() {
       <div className="space-y-2">
         <LaneShell laneKey="SCAN" expanded={expandedKey === "SCAN"} onToggle={() => toggle("SCAN")}>
           <div className="space-y-3">
-            <FlexScannerPanel />
-            <div className="border-t border-ink-line pt-3">
-              <SwingScannerPanel />
+            {/* Cockpit v2: On xl+ screens the scanner sits beside a dedicated
+                chart + technical-snapshot panel that used to be dead space on
+                the left/right. Below xl the panels stack so the layout stays
+                comfortable on laptops and tablets. */}
+            <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_460px] gap-4 items-start">
+              <div className="min-w-0 space-y-3">
+                <FlexScannerPanel />
+                <div className="border-t border-ink-line pt-3">
+                  <SwingScannerPanel />
+                </div>
+              </div>
+              <ErrorBoundary label="Ticker Chart">
+                <TickerChartPanel />
+              </ErrorBoundary>
             </div>
           </div>
         </LaneShell>
