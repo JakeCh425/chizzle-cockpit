@@ -12,6 +12,7 @@ export type FlexSetup =
   | "Trend continuation"
   | "Higher-low recovery"
   | "Developing recovery"
+  | "Bounce reclaim"
   | "No trade";
 
 export type FlexRiskGrade =
@@ -89,6 +90,12 @@ export interface FlexMetrics {
   // Percent move of the current bar's close above `three_day_low`.
   // Positive when price is currently above the 3-day low.
   off_low_pct?: number | null;
+  // True when the "Bounce reclaim" trigger is armed on the current bar:
+  //   off_low_pct >= 3 AND relative_volume >= 1.2 AND |dist_from_sma20_pct| <= 2.
+  // Used by the FLEX scanner to promote the card to FLEX_READY with a
+  // prior-swing-low-based stop, and by the regime alert engine to fire a
+  // BOUNCE_RECLAIM alert on the same condition.
+  bounce_reclaim_trigger?: boolean;
 }
 
 // Precise, actionable gap between the ticker's current state and READY.

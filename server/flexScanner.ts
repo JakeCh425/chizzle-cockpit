@@ -314,6 +314,20 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   // Volume signals: improving = today > yesterday's volume.
   const improvingTriggerVolume = last.volume >= prevBar.volume;
 
+  // "Bounce reclaim" trigger — user-defined:
+  //   ≥3% off the 3-day low AND rel-vol ≥1.2x AND within 2% of 20-SMA.
+  // Fires the FLEX_READY promotion below and a BOUNCE_RECLAIM regime alert.
+  const threeDayLow = bars.length >= 4
+    ? Math.min(...bars.slice(-4, -1).map((b) => b.low))
+    : null;
+  const offLowPct = threeDayLow != null && threeDayLow > 0
+    ? ((price - threeDayLow) / threeDayLow) * 100
+    : null;
+  const bounceReclaimTrigger =
+    offLowPct != null && offLowPct >= 3 &&
+    relVol >= 1.2 &&
+    Math.abs(distFrom20) <= 2;
+
   // Distance-to-nearest-valid-trigger: how far price is from the closest
   // reclaim level that would fire a trigger (whichever is nearest above).
   const triggerCandidates = [s20, s50, priorSwingHigh, priorDayHigh]
@@ -434,6 +448,16 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     !chasingBad &&
     smhOK;
 
+  // ── FLEX_READY via BOUNCE RECLAIM trigger ─────────────────────────────────
+  // User-defined trigger: prints as FLEX_READY (half-size) with a stop below
+  // the last confirmed swing low. Only fires on non-blocked vehicles.
+  const bounceReclaimReadyOk =
+    bounceReclaimTrigger &&
+    permission !== "NO_LONG" &&
+    smhOK &&
+    !chasingBad &&
+    pivots.latest != null; // must have a real swing low for the stop
+
   // ── FLEX_WATCH ─────────────────────────────────────────────────────────────
   // Trend intact + potential higher low + near a reclaim level, but trigger not
   // fired yet (or R:R not confirmed). This yields an alert rather than a trade.
@@ -484,6 +508,13 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   } else if (flexReadyOk && fakeoutReasons.length === 0 && provisionalScore >= 65) {
     state = "FLEX_READY";
     setup = "Higher-low recovery";
+    risk_grade = "FLEX HALF SIZE";
+    action = "ENTER — HALF SIZE";
+  } else if (bounceReclaimReadyOk) {
+    // Independent path: bounce-reclaim doesn't require confirmed HL or the
+    // 7-bucket score threshold. It's a discrete, well-defined snapback setup.
+    state = "FLEX_READY";
+    setup = "Bounce reclaim";
     risk_grade = "FLEX HALF SIZE";
     action = "ENTER — HALF SIZE";
   } else if (flexWatchOk && provisionalScore >= 45) {
@@ -701,13 +732,8 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
       pivots, priorSwingHigh,
       support: sr.support, resistance: sr.resistance,
       distToTriggerPct,
-      // Bounce-off-low momentum: lowest low across the 3 bars prior to today.
-      // Positive off_low_pct means the current close is above that low.
-      threeDayLow: (() => {
-        if (bars.length < 4) return null;
-        const window = bars.slice(-4, -1); // last 3 completed bars before current
-        return Math.min(...window.map((b) => b.low));
-      })(),
+      threeDayLow,
+      bounceReclaimTrigger,
     }),
   };
 }
@@ -735,6 +761,7 @@ function buildMetrics(a: {
   support: number | null; resistance: number | null;
   distToTriggerPct: number | null;
   threeDayLow: number | null;
+  bounceReclaimTrigger: boolean;
 }): FlexMetrics {
   return {
     price: Number(a.price.toFixed(2)),
@@ -763,6 +790,7 @@ function buildMetrics(a: {
     off_low_pct: a.threeDayLow != null && a.threeDayLow > 0
       ? Number((((a.price - a.threeDayLow) / a.threeDayLow) * 100).toFixed(2))
       : null,
+    bounce_reclaim_trigger: a.bounceReclaimTrigger,
   };
 }
 

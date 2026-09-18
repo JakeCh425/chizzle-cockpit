@@ -30,7 +30,8 @@ type RegimeSignalKind =
   | "RECLAIM_50SMA"
   | "SLOPE50_INFLECT"
   | "HL_CONFIRMED"
-  | "BOUNCE_OFF_LOW";
+  | "BOUNCE_OFF_LOW"
+  | "BOUNCE_RECLAIM";
 
 // Per-(ticker+signal) cooldown to prevent alert spam. A regime flip is rare,
 // a bounce fires at most once a day.
@@ -41,6 +42,7 @@ const COOLDOWN_MS: Record<RegimeSignalKind, number> = {
   SLOPE50_INFLECT:  24 * 60 * 60 * 1000, // 24h
   HL_CONFIRMED:     24 * 60 * 60 * 1000, // 24h
   BOUNCE_OFF_LOW:   4 * 60 * 60 * 1000,  // 4h
+  BOUNCE_RECLAIM:   4 * 60 * 60 * 1000,  // 4h
 };
 const lastFiredAt = new Map<string, number>();
 
@@ -51,6 +53,7 @@ const LABEL: Record<RegimeSignalKind, string> = {
   SLOPE50_INFLECT: "50-SMA slope inflection",
   HL_CONFIRMED:    "Higher-low confirmed",
   BOUNCE_OFF_LOW:  "Bounce off 3-day low",
+  BOUNCE_RECLAIM:  "Bounce reclaim trigger",
 };
 
 // Snapshot of the fields we compare across ticks. Kept in memory only —
@@ -142,6 +145,13 @@ function diffSignals(card: FlexDeskCard, prev: Snapshot | undefined): RegimeSign
     out.push("BOUNCE_OFF_LOW");
   }
 
+  // 6. Bounce reclaim trigger armed — the specific user-defined FLEX_READY
+  //    setup. Fires only when the scanner promotes the card to FLEX_READY
+  //    with setup="Bounce reclaim" (higher bar than plain BOUNCE_OFF_LOW).
+  if (m.bounce_reclaim_trigger === true && card.setup === "Bounce reclaim") {
+    out.push("BOUNCE_RECLAIM");
+  }
+
   return out;
 }
 
@@ -161,6 +171,10 @@ function toDispatchPayload(
   } else if (kind === "BOUNCE_OFF_LOW") {
     setupNoteParts.push(
       `+${(m.off_low_pct ?? 0).toFixed(2)}% off 3-day low $${(m.three_day_low ?? 0).toFixed(2)} · rel-vol ${(m.relative_volume ?? 0).toFixed(2)}x. ${card.action}.`,
+    );
+  } else if (kind === "BOUNCE_RECLAIM") {
+    setupNoteParts.push(
+      `BOUNCE RECLAIM armed: +${(m.off_low_pct ?? 0).toFixed(2)}% off 3-day low, rel-vol ${(m.relative_volume ?? 0).toFixed(2)}x, within ${Math.abs(m.dist_from_sma20_pct ?? 0).toFixed(2)}% of 20-SMA. Half-size entry, stop below last swing low. ${card.action}.`,
     );
   } else if (kind === "RECLAIM_20SMA") {
     setupNoteParts.push(`Price $${(m.price ?? 0).toFixed(2)} closed above 20-SMA $${(m.sma20 ?? 0).toFixed(2)}. ${card.action}.`);
@@ -226,7 +240,7 @@ async function evaluateOne(ticker: string, allCards: FlexDeskCard[]) {
       await storage.createAlert({
         ticker,
         type: `REGIME_${kind}`,
-        severity: kind === "REGIME_FLIP" || kind === "RECLAIM_50SMA" ? "critical" : "action",
+        severity: kind === "REGIME_FLIP" || kind === "RECLAIM_50SMA" || kind === "BOUNCE_RECLAIM" ? "critical" : "action",
         message: msg,
         firedAt: nowIso,
         acknowledged: false,

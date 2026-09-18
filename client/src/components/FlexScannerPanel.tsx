@@ -596,6 +596,15 @@ function deriveVerdict(card: FlexDeskCard): Verdict {
 
   // Momentum badges — high-signal, one glance. Only add if actually true.
   const badges: VerdictBadge[] = [];
+  // Bounce-reclaim trigger sits FIRST when armed — it's the highest-signal
+  // event on the card. Green pill with a subtle pulse animation via ring.
+  if (m?.bounce_reclaim_trigger) {
+    badges.push({
+      text: `Bounce reclaim`,
+      cls: "border-signal-green text-signal-green bg-signal-green/20 ring-1 ring-signal-green/40",
+      tip: `Bounce-reclaim trigger armed: ≥3% off 3-day low, rel-vol ≥1.2x, within 2% of 20-SMA. Half-size entry, stop below last swing low.`,
+    });
+  }
   if (m?.off_low_pct != null && m.off_low_pct >= 3) {
     badges.push({
       text: `+${m.off_low_pct.toFixed(1)}% off 3d low`,
