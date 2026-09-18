@@ -8,14 +8,15 @@
 // and a nicer empty state. All mutations, form fields, event handlers, and
 // status rules are preserved exactly.
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Pin, PinOff, Archive, Plus, X, ArrowRight, ArrowUpRight, Play, Circle, ShieldAlert, TrendingUp, Eye, Search, ClipboardList } from "lucide-react";
+import { Pin, PinOff, Archive, Plus, X, ArrowRight, ArrowUpRight, Play, Circle, ShieldAlert, TrendingUp, Eye, Search, ClipboardList, ChevronDown, ChevronRight } from "lucide-react";
 import type { ActiveSetup } from "@shared/schema";
 import Sparkline from "@/components/charts/Sparkline";
 import { useCockpitTicker } from "@/components/CockpitTickerContext";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 
 const REGIME_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   GREEN: { bg: "bg-signal-green/10", text: "text-signal-green", label: "GREEN" },
@@ -171,6 +172,9 @@ export default function ActiveSetupsPanel() {
   const [showAddForm, setShowAddForm] = useState(false);
   const [draft, setDraft] = useState<NewSetupDraft>(BLANK_DRAFT);
   const { select } = useCockpitTicker();
+  // Persist the user's expanded/collapsed preference across reloads.
+  // Defaults to collapsed — the header + summary row stays visible either way.
+  const [collapsed, setCollapsed] = usePersistentState<boolean>("cockpit.activeSetups.collapsed", true);
 
   const setupsQ = useQuery<ActiveSetup[]>({
     queryKey: ["/api/active-setups"],
@@ -238,6 +242,26 @@ export default function ActiveSetupsPanel() {
   const setups = setupsQ.data ?? [];
   const activeSetups = setups.filter((s) => s.status !== "archived");
 
+  // Auto-expand as soon as at least one active setup exists so the user
+  // isn't hiding actionable positions. Preference is restored when the list
+  // drops back to zero.
+  useEffect(() => {
+    if (activeSetups.length > 0 && collapsed) setCollapsed(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSetups.length]);
+
+  // Short status line shown next to the count when collapsed.
+  const summaryText = (() => {
+    if (setupsQ.isLoading) return "loading...";
+    if (activeSetups.length === 0) return "no qualifying setups";
+    const planned = activeSetups.filter((s) => s.status === "planned").length;
+    const live = activeSetups.filter((s) => s.status === "active" || s.status === "trimmed").length;
+    const parts: string[] = [];
+    if (live > 0) parts.push(`${live} live`);
+    if (planned > 0) parts.push(`${planned} planned`);
+    return parts.length ? parts.join(" · ") : `${activeSetups.length} total`;
+  })();
+
   // Reveal the existing SCAN lane so the user can run the existing scanner.
   // No new route, no new event handler on scanner state — just scroll to it.
   function goToScanLane() {
@@ -245,26 +269,75 @@ export default function ActiveSetupsPanel() {
     el?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const hasSetups = activeSetups.length > 0;
+
   return (
-    <div className="rounded-md border border-ink-line bg-ink-black p-4 space-y-3" data-testid="section-active-setups">
-      <div className="flex items-center justify-between">
-        <div className="flex items-baseline gap-2">
-          <h3 className="text-sm font-bold text-soft-white uppercase tracking-wide">Active Setups</h3>
-          {activeSetups.length > 0 && (
-            <span className="text-[10px] font-mono text-slate-gray">
-              {activeSetups.length} {activeSetups.length === 1 ? "setup" : "setups"}
-            </span>
-          )}
-        </div>
+    <div className="rounded-md border border-ink-line bg-ink-black p-3 space-y-3" data-testid="section-active-setups">
+      {/* Always-visible header: clickable to toggle collapse. */}
+      <div className="flex items-center justify-between gap-2">
         <button
-          onClick={() => setShowAddForm((v) => !v)}
-          className="text-xs px-2 py-1 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1"
-          data-testid="button-add-setup"
+          type="button"
+          onClick={() => setCollapsed((v) => !v)}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left hover:text-neon-blue transition-colors"
+          data-testid="button-toggle-active-setups"
+          aria-expanded={!collapsed}
         >
-          {showAddForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
-          {showAddForm ? "Cancel" : "Add Setup"}
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5 text-slate-gray flex-shrink-0" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 text-slate-gray flex-shrink-0" />
+          )}
+          <h3 className="text-[13px] font-bold text-soft-white uppercase tracking-wide">Active Setups</h3>
+          <span
+            className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${
+              hasSetups
+                ? "border-signal-green/40 text-signal-green bg-signal-green/8"
+                : "border-ink-line text-slate-gray bg-ink-panel/40"
+            }`}
+            data-testid="badge-active-count"
+          >
+            {activeSetups.length} active
+          </span>
+          <span className="text-[11px] text-slate-gray truncate">— {summaryText}</span>
         </button>
+        {!collapsed && (
+          <button
+            onClick={(e) => { e.stopPropagation(); setShowAddForm((v) => !v); }}
+            className="text-xs px-2 py-1 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1 flex-shrink-0"
+            data-testid="button-add-setup"
+          >
+            {showAddForm ? <X className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
+            {showAddForm ? "Cancel" : "Add Setup"}
+          </button>
+        )}
       </div>
+
+      {/* Collapsed body: single-row summary. Preserves quick-open UX. */}
+      {collapsed && (
+        <div
+          className="flex items-center justify-between rounded border border-ink-line bg-ink-panel/30 px-2.5 py-1.5"
+          data-testid="active-setups-collapsed-summary"
+        >
+          <span className="text-[11px] text-slate-gray">
+            {hasSetups
+              ? `Click the header to review your ${activeSetups.length} active ${activeSetups.length === 1 ? "setup" : "setups"}.`
+              : "No confirmed setups. Expand to add one or run the scanner."}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCollapsed(false)}
+            className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue"
+            data-testid="button-expand-active-setups"
+          >
+            Expand
+          </button>
+        </div>
+      )}
+
+      {/* Everything below is hidden when collapsed. Mutations, form, and card
+          rendering below are unchanged. */}
+      {!collapsed && (
+      <>
 
       {showAddForm && (
         <div className="rounded-md border border-ink-line bg-ink-deep p-3 space-y-2" data-testid="form-add-setup">
@@ -592,6 +665,8 @@ export default function ActiveSetupsPanel() {
             );
           })}
         </div>
+      )}
+      </>
       )}
     </div>
   );

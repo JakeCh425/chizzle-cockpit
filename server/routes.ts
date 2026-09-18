@@ -2093,7 +2093,64 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ─── Active Setups (Chizzle Pipeline persistence) ──────────────────────
+  // Chart Layouts (per-ticker chart config persistence)
+  // GET returns the layout for the ticker, or a synthesized default when nothing
+  // saved yet. PUT is an upsert on (ticker).
+  app.get("/api/chart-layouts/:ticker", async (req, res) => {
+    try {
+      const { pool } = await import("./storage");
+      const ticker = String(req.params.ticker || "").toUpperCase();
+      const r = await pool.query(
+        `SELECT ticker, chart_style, theme, indicators, drawings, reflections, updated_at
+           FROM chart_layouts WHERE ticker = $1 LIMIT 1`,
+        [ticker],
+      );
+      if (r.rowCount === 0) {
+        return res.json({
+          ticker,
+          chart_style: "candles",
+          theme: "bloomberg",
+          indicators: [],
+          drawings: [],
+          reflections: [],
+          updated_at: null,
+        });
+      }
+      res.json(r.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to load chart layout", detail: e?.message || String(e) });
+    }
+  });
+
+  app.put("/api/chart-layouts/:ticker", async (req, res) => {
+    try {
+      const { pool } = await import("./storage");
+      const ticker = String(req.params.ticker || "").toUpperCase();
+      const body = req.body || {};
+      const chartStyle = String(body.chart_style || body.chartStyle || "candles");
+      const theme = String(body.theme || "bloomberg");
+      const indicators = body.indicators ?? [];
+      const drawings = body.drawings ?? [];
+      const reflections = body.reflections ?? [];
+      const r = await pool.query(
+        `INSERT INTO chart_layouts (ticker, chart_style, theme, indicators, drawings, reflections, updated_at)
+         VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, NOW())
+         ON CONFLICT (ticker) DO UPDATE SET
+           chart_style = EXCLUDED.chart_style,
+           theme       = EXCLUDED.theme,
+           indicators  = EXCLUDED.indicators,
+           drawings    = EXCLUDED.drawings,
+           reflections = EXCLUDED.reflections,
+           updated_at  = NOW()
+         RETURNING ticker, chart_style, theme, indicators, drawings, reflections, updated_at`,
+        [ticker, chartStyle, theme, JSON.stringify(indicators), JSON.stringify(drawings), JSON.stringify(reflections)],
+      );
+      res.json(r.rows[0]);
+    } catch (e: any) {
+      res.status(500).json({ error: "Failed to save chart layout", detail: e?.message || String(e) });
+    }
+  });
+
   app.get("/api/active-setups", async (req, res) => {
     try {
       const includeArchived = req.query.includeArchived === "true";

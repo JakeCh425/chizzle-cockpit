@@ -30,6 +30,7 @@ import TickerChartPanel from "@/components/TickerChartPanel";
 import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
+import CockpitWorkspace from "@/components/CockpitWorkspace";
 
 // Static lane definitions — kept outside the render body so array identity is
 // stable across renders (React can reconcile without remounting children).
@@ -190,11 +191,10 @@ export default function PipelineCockpit() {
            existing regime + scanner outputs. No new signals. */}
       <DoTodayCard />
 
-      {/* 3. Regime v2 gauge */}
-      <RegimeV2Panel />
-
-      {/* 4. Market Pulse — SMH/SPY/QQQ + user watchlist, clickable */}
-      <MarketPulsePanel />
+      {/* 3. Cockpit Workspace — 3-column: Regime + Pulse (L) / TradingView chart (C) / Strength + Snapshot + Coach (R) */}
+      <ErrorBoundary label="Cockpit Workspace">
+        <CockpitWorkspace />
+      </ErrorBoundary>
 
       {/* 5. Active Setups — pinned at top per user spec */}
       <ActiveSetupsPanel />
@@ -235,7 +235,8 @@ export default function PipelineCockpit() {
                 </div>
               </div>
               <ErrorBoundary label="Ticker Chart">
-                <TickerChartPanel />
+                {/* Legacy compact chart kept inside the SCAN lane for scanner-adjacent quick reference. */}
+                <TickerChartPanel embedded showSnapshot={false} />
               </ErrorBoundary>
             </div>
           </div>

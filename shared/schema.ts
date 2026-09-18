@@ -1,4 +1,4 @@
-import { pgTable, text, integer, boolean, doublePrecision, serial, timestamp, uuid, numeric } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, boolean, doublePrecision, serial, timestamp, uuid, numeric, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -359,6 +359,21 @@ export const insertSignalHistorySchema = createInsertSchema(signalHistory).omit(
 export const insertAlertContactSchema = createInsertSchema(alertContacts).omit({ id: true, createdAt: true });
 export const insertAlertLogSchema = createInsertSchema(alertLog).omit({ id: true });
 
+// ─── chart_layouts ─────────────────────────────────────────────────────────────────────────
+// Per-ticker chart configuration: chart style, theme, indicator list w/ colors,
+// drawings (trendlines / horizontals / verticals), and chart-local reflections.
+export const chartLayouts = pgTable("chart_layouts", {
+  id: serial("id").primaryKey(),
+  ticker: text("ticker").notNull().unique(),
+  chartStyle: text("chart_style").notNull().default("candles"),
+  theme: text("theme").notNull().default("bloomberg"),
+  indicators: jsonb("indicators").notNull().default([] as any),
+  drawings: jsonb("drawings").notNull().default([] as any),
+  reflections: jsonb("reflections").notNull().default([] as any),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const insertChartLayoutSchema = createInsertSchema(chartLayouts).omit({ id: true, updatedAt: true });
+
 // ─── trade_plans (Phase 1 Trade Planner) ──────────────────────────────────────
 // Independent of `trades`. Lets Jake stage entry/stop/target/risk before
 // committing to an executed trade. Reuses Settings (equity + regime risk %) as
@@ -465,6 +480,8 @@ export type AlertContact = typeof alertContacts.$inferSelect;
 export type InsertAlertContact = z.infer<typeof insertAlertContactSchema>;
 export type AlertLogRow = typeof alertLog.$inferSelect;
 export type InsertAlertLog = z.infer<typeof insertAlertLogSchema>;
+export type ChartLayout = typeof chartLayouts.$inferSelect;
+export type InsertChartLayout = z.infer<typeof insertChartLayoutSchema>;
 export type TradePlan = typeof tradePlans.$inferSelect;
 export type InsertTradePlan = z.infer<typeof insertTradePlanSchema>;
 export type TradeExecution = typeof tradeExecutions.$inferSelect;

@@ -63,7 +63,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
@@ -423,6 +423,20 @@ CREATE INDEX        IF NOT EXISTS idx_review_tags_tag  ON trade_review_tags(trad
 
 -- Phase 2 A1: remap any legacy trade_plans.status='executed' → 'open' (idempotent).
 UPDATE trade_plans SET status = 'open' WHERE status = 'executed';
+
+-- Chart layouts — per-ticker chart config (indicators, colors, drawings, chart style).
+-- Single-user app; no user scope. Uniqueness on (ticker) means one saved layout per ticker.
+CREATE TABLE IF NOT EXISTS chart_layouts (
+  id SERIAL PRIMARY KEY,
+  ticker TEXT NOT NULL UNIQUE,
+  chart_style TEXT NOT NULL DEFAULT 'candles',
+  theme TEXT NOT NULL DEFAULT 'bloomberg',
+  indicators JSONB NOT NULL DEFAULT '[]'::jsonb,
+  drawings   JSONB NOT NULL DEFAULT '[]'::jsonb,
+  reflections JSONB NOT NULL DEFAULT '[]'::jsonb,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_chart_layouts_ticker ON chart_layouts(ticker);
 `);
 
   // Idempotent column additions (Postgres supports ADD COLUMN IF NOT EXISTS natively)

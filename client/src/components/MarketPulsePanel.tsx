@@ -151,7 +151,12 @@ function TickerRow({ ticker, active, onClick }: RowProps) {
   );
 }
 
-export default function MarketPulsePanel() {
+interface MarketPulsePanelProps {
+  /** Compact left-column variant — tighter padding, shorter hint. */
+  compact?: boolean;
+}
+
+export default function MarketPulsePanel({ compact = false }: MarketPulsePanelProps = {}) {
   const { chips, active, select } = useCockpitTicker();
   // Order: defaults (SMH, SPY, QQQ) first, then user-added.
   const ordered = [
@@ -161,17 +166,19 @@ export default function MarketPulsePanel() {
 
   return (
     <div
-      className="rounded-md border border-ink-line bg-ink-black p-4 space-y-3"
+      className={`rounded-md border border-ink-line bg-ink-black ${compact ? "p-3" : "p-4"} space-y-2.5`}
       data-testid="section-market-pulse"
     >
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Activity className="h-4 w-4 text-neon-blue" />
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Activity className="h-4 w-4 text-neon-blue flex-shrink-0" />
           <h3 className="text-[13px] font-bold text-soft-white uppercase tracking-wider">
             Market Pulse
           </h3>
         </div>
-        <span className="text-[10px] text-slate-gray">click a row to focus the chart</span>
+        {!compact && (
+          <span className="text-[10px] text-slate-gray">click a row to focus the chart</span>
+        )}
       </div>
       <div className="space-y-1.5">
         {ordered.map((t) => (

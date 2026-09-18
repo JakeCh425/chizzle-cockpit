@@ -15,11 +15,11 @@
 // (Market Pulse, scanner rows, etc.) can drive it. Legacy behavior preserved
 // as fallback via useCockpitTicker() so this component still works standalone.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { apiRequest } from "@/lib/queryClient";
-import { Plus, X, Maximize2, Minimize2, LayoutGrid, Focus } from "lucide-react";
+import { Plus, X, Maximize2, Minimize2, LayoutGrid, Focus, SlidersHorizontal, CandlestickChart as CandleIcon, LineChart as LineIcon, BarChart3 } from "lucide-react";
 import { rsi, rsiZone } from "@/lib/rsi";
 import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
 import { useLiveQuotes } from "@/lib/useLivePrices";
@@ -43,13 +43,15 @@ const TIMEFRAMES: { key: Timeframe; label: string; bars: number }[] = [
 ];
 
 type ViewMode = "focus" | "compare";
+type ChartStyle = "candles" | "hollow" | "line" | "volume";
 interface OverlayToggles {
   sma20: boolean;
   sma50: boolean;
   sma200: boolean;
   rsi: boolean;
+  volume: boolean;
 }
-const DEFAULT_TOGGLES: OverlayToggles = { sma20: true, sma50: true, sma200: true, rsi: true };
+const DEFAULT_TOGGLES: OverlayToggles = { sma20: true, sma50: true, sma200: true, rsi: true, volume: false };
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 function sma(vals: number[], period: number): (number | null)[] {
@@ -154,7 +156,7 @@ interface CandleProps {
   width: number;
   toggles: OverlayToggles;
 }
-function CandlestickChart({ bars, height, width, toggles }: CandleProps) {
+function CandlestickChart({ bars, height, width, toggles, style = "candles" }: CandleProps & { style?: ChartStyle }) {
   const rightAxisW = 46;
   const bottomAxisH = 18;
   const chartW = Math.max(60, width - rightAxisW);
@@ -206,7 +208,17 @@ function CandlestickChart({ bars, height, width, toggles }: CandleProps) {
           </g>
         );
       })}
-      {bars.map((b, i) => {
+      {style === "line" ? (
+        (() => {
+          let d = "";
+          for (let i = 0; i < bars.length; i++) {
+            const x = xCenter(i);
+            const y = yScale(bars[i].close);
+            d += (i === 0 ? "M" : " L") + ` ${x.toFixed(1)} ${y.toFixed(1)}`;
+          }
+          return <path d={d} fill="none" stroke="rgb(56 189 248)" strokeWidth={1.4} />;
+        })()
+      ) : bars.map((b, i) => {
         const isUp = b.close >= b.open;
         const color = isUp ? "rgb(34 197 94)" : "rgb(239 68 68)";
         const x = xCenter(i);
@@ -216,10 +228,20 @@ function CandlestickChart({ bars, height, width, toggles }: CandleProps) {
         const yC = yScale(b.close);
         const yBodyTop = Math.min(yO, yC);
         const bodyH = Math.max(1, Math.abs(yC - yO));
+        const hollow = style === "hollow" && isUp;
         return (
           <g key={i}>
             <line x1={x} x2={x} y1={yHigh} y2={yLow} stroke={color} strokeWidth={0.8} opacity={0.9} />
-            <rect x={x - bodyW / 2} y={yBodyTop} width={bodyW} height={bodyH} fill={color} opacity={isUp ? 0.85 : 0.9} />
+            <rect
+              x={x - bodyW / 2}
+              y={yBodyTop}
+              width={bodyW}
+              height={bodyH}
+              fill={hollow ? "none" : color}
+              stroke={hollow ? color : "none"}
+              strokeWidth={hollow ? 1 : 0}
+              opacity={hollow ? 1 : isUp ? 0.85 : 0.9}
+            />
           </g>
         );
       })}
@@ -296,6 +318,127 @@ function RsiPanel({ bars, width, height }: RsiProps) {
 }
 
 // ── Overlay toggle row ───────────────────────────────────────────────────────
+// Volume histogram mini-panel
+function VolumePanel({ bars, width, height }: { bars: OHLCBar[]; width: number; height: number }) {
+  const rightAxisW = 46;
+  const chartW = Math.max(40, width - rightAxisW);
+  const n = bars.length;
+  const barW = chartW / n;
+  const bodyW = Math.max(1.2, barW * 0.65);
+  const maxV = Math.max(1, ...bars.map((b) => b.volume || 0));
+  const yScale = (v: number) => height - (v / maxV) * (height - 4);
+  const fmtVol = (v: number) => v >= 1_000_000 ? `${(v / 1_000_000).toFixed(1)}M` : v >= 1_000 ? `${(v / 1_000).toFixed(0)}k` : String(v);
+  return (
+    <svg width={width} height={height} className="block" data-testid="chart-volume">
+      {bars.map((b, i) => {
+        const isUp = b.close >= b.open;
+        const color = isUp ? "rgb(34 197 94)" : "rgb(239 68 68)";
+        const x = i * barW + barW / 2;
+        const y = yScale(b.volume || 0);
+        return <rect key={i} x={x - bodyW / 2} y={y} width={bodyW} height={height - y} fill={color} opacity={0.55} />;
+      })}
+      <text x={chartW + 4} y={10} fontSize={9} fontFamily="ui-monospace, monospace" fill="rgb(148 163 184 / 0.7)">{fmtVol(maxV)}</text>
+      <g transform="translate(6, 10)">
+        <text fontSize={9} fontFamily="ui-monospace, monospace" fill="rgb(148 163 184 / 0.8)">Volume</text>
+      </g>
+    </svg>
+  );
+}
+
+// Chart-style selector (Candles / Hollow / Line / Volume)
+function ChartStyleSelector({ value, onChange }: { value: ChartStyle; onChange: (v: ChartStyle) => void }) {
+  const items: { key: ChartStyle; label: string; icon: JSX.Element }[] = [
+    { key: "candles", label: "Candles", icon: <CandleIcon className="w-3 h-3" /> },
+    { key: "hollow",  label: "Hollow",  icon: <CandleIcon className="w-3 h-3" /> },
+    { key: "line",    label: "Line",    icon: <LineIcon className="w-3 h-3" /> },
+    { key: "volume",  label: "Volume",  icon: <BarChart3 className="w-3 h-3" /> },
+  ];
+  return (
+    <div className="flex items-center rounded border border-ink-line overflow-hidden" role="group" aria-label="Chart style">
+      {items.map((it, i) => {
+        const on = value === it.key;
+        return (
+          <button
+            key={it.key}
+            onClick={() => onChange(it.key)}
+            data-testid={`chart-style-${it.key}`}
+            title={it.label}
+            className={`px-1.5 py-1 text-[10px] font-mono uppercase tracking-wider flex items-center gap-1 ${
+              on ? "bg-neon-blue/15 text-neon-blue" : "text-slate-gray hover:text-soft-white"
+            } ${i > 0 ? "border-l border-ink-line" : ""}`}
+          >
+            {it.icon}
+            <span className="hidden md:inline">{it.label}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// Indicators popover (grouped SMA/RSI/Volume toggles)
+function IndicatorsPopover({ toggles, onChange }: { toggles: OverlayToggles; onChange: (t: OverlayToggles) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    function onDoc(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  const items: { key: keyof OverlayToggles; label: string; color: string; desc: string }[] = [
+    { key: "sma20",  label: "SMA 20",  color: "text-sky-400",    desc: "Short-term trend" },
+    { key: "sma50",  label: "SMA 50",  color: "text-amber-400",  desc: "Medium-term trend" },
+    { key: "sma200", label: "SMA 200", color: "text-purple-400", desc: "Primary trend" },
+    { key: "rsi",    label: "RSI 14",  color: "text-indigo-400", desc: "Momentum oscillator" },
+    { key: "volume", label: "Volume",  color: "text-slate-300",  desc: "Daily volume" },
+  ];
+  const onCount = items.filter((it) => toggles[it.key]).length;
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        data-testid="button-indicators"
+        className={`px-1.5 py-1 text-[10px] font-mono uppercase tracking-wider rounded border flex items-center gap-1 ${
+          open ? "border-neon-blue text-neon-blue bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"
+        }`}
+        title="Indicators"
+      >
+        <SlidersHorizontal className="w-3 h-3" />
+        <span>Indicators</span>
+        <span className="text-[9px] opacity-80">({onCount})</span>
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-1 z-30 w-60 rounded-md border border-ink-line bg-ink-black shadow-lg p-2 space-y-1" data-testid="popover-indicators">
+          {items.map((it) => {
+            const on = toggles[it.key];
+            return (
+              <button
+                key={it.key}
+                onClick={() => onChange({ ...toggles, [it.key]: !on })}
+                data-testid={`toggle-${it.key}`}
+                className={`w-full flex items-center justify-between gap-2 px-2 py-1.5 rounded text-left hover:bg-ink-deep transition-colors ${on ? "bg-ink-deep" : ""}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full ${on ? "bg-current" : "border border-current opacity-50"} ${it.color}`} />
+                  <div className="min-w-0">
+                    <div className={`text-[11px] font-mono ${on ? "text-soft-white" : "text-slate-gray"}`}>{it.label}</div>
+                    <div className="text-[9px] text-slate-gray truncate">{it.desc}</div>
+                  </div>
+                </div>
+                <span className={`text-[9px] font-mono uppercase ${on ? "text-neon-blue" : "text-slate-gray/60"}`}>{on ? "On" : "Off"}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Legacy overlay row — kept for compatibility but no longer rendered.
 function OverlayToggleRow({ toggles, onChange }: { toggles: OverlayToggles; onChange: (t: OverlayToggles) => void }) {
   const items: { key: keyof OverlayToggles; label: string; color: string }[] = [
     { key: "sma20", label: "SMA20",  color: "text-sky-400" },
@@ -328,7 +471,7 @@ function OverlayToggleRow({ toggles, onChange }: { toggles: OverlayToggles; onCh
 
 // ── Technical snapshot (metrics + verdict) ───────────────────────────────────
 interface SnapProps { ticker: string; bars: OHLCBar[] | undefined }
-function TechnicalSnapshot({ ticker, bars }: SnapProps) {
+export function TechnicalSnapshot({ ticker, bars }: SnapProps) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/flex-scan", ticker],
     queryFn: async () => {
@@ -583,12 +726,38 @@ function CompareCard({ ticker, width, height, onSelect, active }: {
 }
 
 // ── Main component ───────────────────────────────────────────────────────────
-export default function TickerChartPanel() {
+interface TickerChartPanelProps {
+  /** When true, the panel is embedded in the 3-column workspace: no sticky, flex-fill width, no built-in TechnicalSnapshot. */
+  embedded?: boolean;
+  /** Show the built-in TechnicalSnapshot at the bottom (defaults to !embedded). */
+  showSnapshot?: boolean;
+}
+
+export default function TickerChartPanel({ embedded = false, showSnapshot }: TickerChartPanelProps = {}) {
   const { chips, active, select } = useCockpitTicker();
   const [timeframe, setTimeframe] = usePersistentState<Timeframe>("cockpit.tickerChart.timeframe", "3M");
   const [expanded, setExpanded] = useState(false);
   const [view, setView] = usePersistentState<ViewMode>("cockpit.tickerChart.view", "focus");
   const [toggles, setToggles] = usePersistentState<OverlayToggles>("cockpit.tickerChart.toggles", DEFAULT_TOGGLES);
+  const [chartStyle, setChartStyle] = usePersistentState<ChartStyle>("cockpit.tickerChart.chartType", "candles");
+
+  const showSnap = showSnapshot ?? !embedded;
+
+  // Responsive width via ResizeObserver on the panel container.
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [measuredW, setMeasuredW] = useState<number>(embedded ? 640 : 460);
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const el = containerRef.current;
+    const update = () => {
+      const w = el.getBoundingClientRect().width;
+      if (w > 0) setMeasuredW(Math.round(w));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const activeTicker = chips.includes(active) ? active : chips[0] || "SMH";
 
@@ -608,9 +777,11 @@ export default function TickerChartPanel() {
     return allBars.slice(-nBars);
   }, [allBars, timeframe]);
 
-  const chartWidth = 460 - 32; // panel px-4
-  const priceChartHeight = expanded ? 340 : 200;
-  const rsiChartHeight = expanded ? 90 : 66;
+  // Chart width flexes with the container (minus panel padding).
+  const chartWidth = Math.max(280, measuredW - 32); // panel px-4 = 16px each side
+  const priceChartHeight = expanded ? 420 : embedded ? 320 : 200;
+  const rsiChartHeight = expanded ? 110 : 72;
+  const volumeChartHeight = expanded ? 90 : 60;
 
   // Comparison view: SMH + SPY + QQQ + first user-added ticker (if any).
   const compareTickers = [
@@ -622,7 +793,8 @@ export default function TickerChartPanel() {
 
   return (
     <div
-      className="rounded-md border border-ink-line bg-ink-black p-4 space-y-3 sticky top-16"
+      ref={containerRef}
+      className={`rounded-md border border-ink-line bg-ink-black p-4 space-y-3 ${embedded ? "" : "sticky top-16"}`}
       data-testid="panel-ticker-chart"
     >
       {/* Header */}
@@ -694,8 +866,9 @@ export default function TickerChartPanel() {
               ))}
             </div>
             <span className="text-[9px] uppercase tracking-wider text-slate-gray/70">Daily</span>
-            <div className="ml-auto">
-              <OverlayToggleRow toggles={toggles} onChange={setToggles} />
+            <div className="ml-auto flex items-center gap-1.5">
+              <ChartStyleSelector value={chartStyle} onChange={setChartStyle} />
+              <IndicatorsPopover toggles={toggles} onChange={setToggles} />
             </div>
           </div>
 
@@ -711,10 +884,19 @@ export default function TickerChartPanel() {
               </div>
             ) : (
               <div className="p-2">
-                <CandlestickChart bars={visibleBars} width={chartWidth} height={priceChartHeight} toggles={toggles} />
+                <CandlestickChart bars={visibleBars} width={chartWidth} height={priceChartHeight} toggles={toggles} style={chartStyle} />
               </div>
             )}
           </div>
+
+          {/* Volume mini-panel (below price chart) */}
+          {(toggles.volume || chartStyle === "volume") && visibleBars.length > 0 && (
+            <div className="rounded border border-ink-line bg-ink-panel/30">
+              <div className="p-2">
+                <VolumePanel bars={visibleBars} width={chartWidth} height={volumeChartHeight} />
+              </div>
+            </div>
+          )}
 
           {/* RSI mini-panel */}
           {toggles.rsi && visibleBars.length > 15 && (
@@ -725,8 +907,8 @@ export default function TickerChartPanel() {
             </div>
           )}
 
-          {/* Technical snapshot */}
-          <TechnicalSnapshot ticker={activeTicker} bars={allBars} />
+          {/* Technical snapshot (hidden when embedded — rendered separately in the right column). */}
+          {showSnap && <TechnicalSnapshot ticker={activeTicker} bars={allBars} />}
         </>
       ) : (
         // ── Comparison view ────────────────────────────────────────────────
