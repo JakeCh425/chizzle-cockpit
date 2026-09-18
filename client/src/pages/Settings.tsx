@@ -202,6 +202,127 @@ function BrandingPanel() {
   );
 }
 
+// ─── Trading Vehicles styling ──────────────────────────────────────────────
+// Controls the pinned SMH/QQQ/SPY (and any user-pinned) cards in the Cockpit's
+// FLEX Scanner: how big the ticker symbol shows, and what color the body copy
+// (Px/chg/SMA row + trend/struct/trig block) picks up.
+function VehicleStylePanel() {
+  const { toast } = useToast();
+  const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
+  const [scale, setScale] = useState<"sm"|"md"|"lg"|"xl"|"2xl">("lg");
+  const [color, setColor] = useState("#94a3b8");
+
+  useEffect(() => {
+    if (settings) {
+      setScale((settings.vehicleTickerScale as any) || "lg");
+      setColor(settings.vehicleBodyColor || "#94a3b8");
+    }
+  }, [settings]);
+
+  const save = async () => {
+    try {
+      await apiRequest("PATCH", "/api/settings", {
+        vehicleTickerScale: scale,
+        vehicleBodyColor: color,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Vehicle style saved" });
+    } catch (e) {
+      toast({ title: "Save failed", description: errMsg(e) });
+    }
+  };
+
+  const scaleCls =
+    scale === "sm"   ? "text-sm"    :
+    scale === "md"   ? "text-base"  :
+    scale === "xl"   ? "text-xl"    :
+    scale === "2xl"  ? "text-2xl"   :
+                       "text-lg";
+
+  return (
+    <Panel title="Trading Vehicles" hint="How pinned SMH/QQQ/SPY cards look in the Cockpit">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Ticker symbol size">
+          <select
+            data-testid="select-vehicle-ticker-scale"
+            value={scale}
+            onChange={(e) => setScale(e.target.value as any)}
+            className="form-input"
+          >
+            <option value="sm">Small</option>
+            <option value="md">Medium</option>
+            <option value="lg">Large (default)</option>
+            <option value="xl">Extra large</option>
+            <option value="2xl">Huge</option>
+          </select>
+        </Field>
+
+        <Field label="Body text color">
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              data-testid="input-vehicle-body-color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="h-9 w-14 rounded border border-ink-line bg-ink-black cursor-pointer"
+            />
+            <input
+              type="text"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              placeholder="#94a3b8"
+              className="form-input flex-1 font-mono text-[11px]"
+            />
+            <button
+              type="button"
+              onClick={() => setColor("#94a3b8")}
+              className="text-[10px] px-2 py-1 border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue rounded"
+              title="Reset to default slate"
+            >
+              reset
+            </button>
+          </div>
+          <div className="text-[10px] text-slate-gray mt-1">
+            Recolors the Px/chg/SMA row and TREND/STRUCT/TRIG labels on pinned cards. Green/red day-change and support/resistance keep their signal colors.
+          </div>
+        </Field>
+      </div>
+
+      <div className="mt-4 border border-ink-line/60 rounded-sm p-3 bg-ink-black/40">
+        <div className="text-[10px] uppercase tracking-wider text-slate-gray mb-2">Live preview</div>
+        <div className="rounded border-2 border-signal-red bg-ink-black p-2 space-y-1">
+          <div className="flex items-center gap-1.5">
+            <span className={`font-mono ${scaleCls} font-bold text-signal-red`}>SMH</span>
+            <span className="text-[11px] px-1 py-0.5 rounded bg-signal-red/10 text-signal-red font-bold">STANDBY</span>
+          </div>
+          <div className="flex flex-wrap gap-x-2 text-[11px] font-mono border-t border-ink-line pt-1" style={{ color }}>
+            <span>Px <span className="text-soft-white">$564.41</span></span>
+            <span>chg <span className="text-signal-green">+0.68%</span></span>
+            <span>20 <span className="text-soft-white">$557.39</span> -1.07%</span>
+            <span>50 <span className="text-soft-white">$564.61</span> -1.87%</span>
+            <span>200 <span className="text-soft-white">$487.27</span> +4.52%</span>
+          </div>
+          <div className="text-[12px] leading-tight" style={{ color }}>
+            <div><span className="text-neon-blue font-bold">TREND:</span> Px 564.41 vs 20 557.39 / 50 564.61 / 200 487.27</div>
+            <div><span className="text-neon-blue font-bold">STRUCT:</span> Base near 537.73; HL not yet confirmed</div>
+            <div><span className="text-neon-blue font-bold">TRIG:</span> Blocked: Relative volume 0.44x below 0.8x floor</div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={save}
+          data-testid="button-save-vehicle-style"
+          className="px-4 py-2 border border-neon-blue/60 bg-neon-blue/20 text-neon-blue text-[11px] uppercase tracking-wider font-display rounded-sm"
+        >
+          Save Vehicle Style
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
@@ -379,6 +500,8 @@ export default function SettingsPage() {
       </Panel>
 
       <BrandingPanel />
+
+      <VehicleStylePanel />
 
       <ArchivedTradesPanel />
 

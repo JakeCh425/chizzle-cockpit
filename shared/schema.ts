@@ -31,6 +31,11 @@ export const settings = pgTable("settings", {
   brandName: text("brand_name").notNull().default("CHIZZLE WEALTH ENGINE"),
   brandFont: text("brand_font").notNull().default("display"), // display | mono | serif | sans
   brandIconSvg: text("brand_icon_svg"), // nullable — raw <svg> markup; falls back to default Logo
+  // Trading Vehicles card styling (SMH/QQQ/SPY + user-pinned tickers). Ticker
+  // symbol size lets the user make the core name pop; body color re-tints the
+  // Px/chg/SMA row + trend/struct/trig text so it can be personalized.
+  vehicleTickerScale: text("vehicle_ticker_scale").notNull().default("lg"), // sm | md | lg | xl | 2xl
+  vehicleBodyColor: text("vehicle_body_color").notNull().default("#94a3b8"), // hex
 });
 
 // ─── tickers ──────────────────────────────────────────────────────────────────

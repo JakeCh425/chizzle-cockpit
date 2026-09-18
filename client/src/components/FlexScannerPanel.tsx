@@ -14,8 +14,18 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
   FlexScanResult, FlexDeskCard, FlexState,
 } from "@shared/flexScanTypes";
+import type { Settings } from "@shared/schema";
 import { useAutoRescan } from "@/hooks/useAutoRescan";
 import AutoRescanPill from "@/components/AutoRescanPill";
+
+// Map the settings dropdown value → concrete Tailwind text-size class.
+const TICKER_SCALE_CLS: Record<string, string> = {
+  sm:   "text-sm",
+  md:   "text-base",
+  lg:   "text-lg",
+  xl:   "text-xl",
+  "2xl": "text-2xl",
+};
 
 const STATE_META: Record<FlexState, {
   label: string; border: string; bg: string; text: string; icon: JSX.Element;
@@ -96,6 +106,15 @@ function cardToActiveSetup(c: FlexDeskCard) {
 }
 
 export default function FlexScannerPanel() {
+  // Whole-panel collapse toggle — lets the cockpit reclaim vertical real estate
+  // when the user is done triaging setups.
+  const [collapsed, setCollapsed] = useState(false);
+  const settingsQ = useQuery<Settings>({
+    queryKey: ["/api/settings"],
+    staleTime: 60_000,
+  });
+  const tickerScaleCls = TICKER_SCALE_CLS[settingsQ.data?.vehicleTickerScale || "lg"] || TICKER_SCALE_CLS.lg;
+  const bodyColor = settingsQ.data?.vehicleBodyColor || "#94a3b8";
   const [expandedState, setExpandedState] = useState<Record<FlexState, boolean>>({
     STANDARD_READY: true,
     FLEX_READY: true,
@@ -169,6 +188,14 @@ export default function FlexScannerPanel() {
       <div className="space-y-2">
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setCollapsed((v) => !v)}
+              className="flex items-center gap-1 hover:text-neon-blue text-slate-gray flex-shrink-0"
+              title={collapsed ? "Expand scanner" : "Collapse scanner"}
+              data-testid="button-toggle-scanner"
+            >
+              {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+            </button>
             <Radar className="h-4 w-4 text-neon-blue" />
             <div className="text-xs font-bold text-soft-white tracking-wider">FLEX SWING SCANNER</div>
             {/* 1. State / day type — the market condition */}
@@ -222,6 +249,7 @@ export default function FlexScannerPanel() {
         )}
       </div>
 
+      {!collapsed && (<>
       {/* ── SMH + summary strip ── */}
       {result && (
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[13px]">
@@ -280,6 +308,8 @@ export default function FlexScannerPanel() {
                   : undefined}
                 saved={savedTickers.has(c.ticker)}
                 saving={saveMut.isPending && saveMut.variables?.ticker === c.ticker}
+                tickerScaleCls={tickerScaleCls}
+                bodyColor={bodyColor}
               />
             ))}
           </div>
@@ -312,6 +342,8 @@ export default function FlexScannerPanel() {
                       : undefined}
                     saved={savedTickers.has(c.ticker)}
                     saving={saveMut.isPending && saveMut.variables?.ticker === c.ticker}
+                    tickerScaleCls={c.pinned ? tickerScaleCls : undefined}
+                    bodyColor={c.pinned ? bodyColor : undefined}
                   />
                 ))}
               </div>
@@ -319,16 +351,21 @@ export default function FlexScannerPanel() {
           </div>
         );
       })}
+      </>)}
     </div>
   );
 }
 
 // ─── Single desk card ──────────────────────────────────────────────────
-function DeskCard({ card, onSave, saved, saving }: {
+// `tickerScaleCls` / `bodyColor` are only supplied for pinned (core) cards;
+// the rest inherit the default compact styling so this change stays contained.
+function DeskCard({ card, onSave, saved, saving, tickerScaleCls, bodyColor }: {
   card: FlexDeskCard;
   onSave?: () => void;
   saved: boolean;
   saving: boolean;
+  tickerScaleCls?: string;
+  bodyColor?: string;
 }) {
   const meta = STATE_META[card.state];
   const verdict = deriveVerdict(card);
@@ -364,7 +401,7 @@ function DeskCard({ card, onSave, saved, saving }: {
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
           {card.pinned && <Pin className="h-3 w-3 text-neon-blue flex-shrink-0" />}
-          <span className={`font-mono text-sm font-bold ${meta.text}`}>{card.ticker}</span>
+          <span className={`font-mono ${tickerScaleCls || "text-sm"} font-bold ${meta.text}`}>{card.ticker}</span>
           <span className={`text-[11px] px-1 py-0.5 rounded ${meta.bg} ${meta.text} font-bold`}>
             {meta.label}
           </span>
@@ -406,9 +443,12 @@ function DeskCard({ card, onSave, saved, saving }: {
         </div>
       </div>
 
-      {/* Compact metric row */}
+      {/* Compact metric row — label tone is user-configurable on pinned cards */}
       {card.metrics && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray border-t border-ink-line pt-1">
+        <div
+          className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray border-t border-ink-line pt-1"
+          style={bodyColor ? { color: bodyColor } : undefined}
+        >
           <span>Px <span className="text-soft-white">{fmt$(card.metrics.price)}</span></span>
           {card.metrics.day_change_pct != null && (
             <span>chg <span className={card.metrics.day_change_pct >= 0 ? "text-signal-green" : "text-signal-red"}>{fmtPct(card.metrics.day_change_pct, true)}</span></span>
@@ -427,7 +467,10 @@ function DeskCard({ card, onSave, saved, saving }: {
 
       {/* Support / Resistance / distance-to-trigger row */}
       {card.metrics && (card.metrics.nearest_support != null || card.metrics.nearest_resistance != null || card.metrics.dist_to_trigger_pct != null) && (
-        <div className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray">
+        <div
+          className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] font-mono text-slate-gray"
+          style={bodyColor ? { color: bodyColor } : undefined}
+        >
           {card.metrics.nearest_support != null && (
             <span>sup <span className="text-signal-green">{fmt$(card.metrics.nearest_support)}</span></span>
           )}
@@ -467,8 +510,11 @@ function DeskCard({ card, onSave, saved, saving }: {
         </div>
       )}
 
-      {/* Trend / structure / trigger */}
-      <div className="text-[12px] text-slate-gray leading-tight">
+      {/* Trend / structure / trigger — label tone follows the user's body color */}
+      <div
+        className="text-[12px] text-slate-gray leading-tight"
+        style={bodyColor ? { color: bodyColor } : undefined}
+      >
         <div><span className="text-neon-blue font-bold">TREND:</span> {card.trend}</div>
         <div><span className="text-neon-blue font-bold">STRUCT:</span> {card.structure}</div>
         <div><span className="text-neon-blue font-bold">TRIG:</span> {card.trigger}</div>

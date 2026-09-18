@@ -92,6 +92,31 @@ export async function fetchTiingoHistory(symbol: string): Promise<DailyBar[]> {
   }));
 }
 
+// Third-fallback: TwelveData daily. Free tier is ~800 credits/day (each 1D bar
+// call is 1 credit). Only fires when both Yahoo and Tiingo are exhausted so we
+// don't burn credits on the happy path.
+export async function fetchTwelveDataHistory(symbol: string): Promise<DailyBar[]> {
+  const key = process.env.TWELVE_DATA_API_KEY;
+  if (!key) throw new Error("TWELVE_DATA_API_KEY missing");
+  const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=300&apikey=${key}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`TwelveData ${symbol} HTTP ${res.status}`);
+  const j = (await res.json()) as {
+    status?: string; code?: number; message?: string;
+    values?: Array<{ datetime: string; open: string; high: string; low: string; close: string; volume: string }>;
+  };
+  if (j.status === "error" || !Array.isArray(j.values) || j.values.length === 0) {
+    throw new Error(`TwelveData ${symbol}: ${j.message || "empty"}`);
+  }
+  // TwelveData returns newest-first — reverse to oldest-first for consistency.
+  return j.values.slice().reverse().map((r) => ({
+    date: r.datetime.slice(0, 10),
+    ts: Math.floor(new Date(r.datetime).getTime() / 1000),
+    open: Number(r.open), high: Number(r.high), low: Number(r.low), close: Number(r.close),
+    volume: Number(r.volume ?? 0),
+  })).filter((b) => Number.isFinite(b.open) && Number.isFinite(b.close));
+}
+
 export async function getHistory(symbol: string, forceRefresh = false): Promise<DailyBar[]> {
   const sym = symbol.toUpperCase();
   const cached = histCache.get(sym);
@@ -99,13 +124,13 @@ export async function getHistory(symbol: string, forceRefresh = false): Promise<
   if (!forceRefresh && cached && cached.cacheDate === today && cached.bars.length) {
     return cached.bars;
   }
-  // Provider chain: Yahoo → Tiingo. Cache whichever succeeds.
+  // Provider chain: Yahoo → Tiingo → TwelveData. Cache whichever succeeds.
   let bars: DailyBar[] = [];
-  let yahooErr: any = null;
+  let firstErr: any = null;
   try {
     bars = await fetchYahooHistory(sym);
   } catch (e: any) {
-    yahooErr = e;
+    firstErr = e;
     console.warn(`[marketData] Yahoo ${sym} failed: ${e?.message || e}`);
   }
   if (!bars.length) {
@@ -114,8 +139,21 @@ export async function getHistory(symbol: string, forceRefresh = false): Promise<
       console.info(`[marketData] Tiingo fallback OK for ${sym} (${bars.length} bars)`);
     } catch (e: any) {
       console.warn(`[marketData] Tiingo ${sym} failed: ${e?.message || e}`);
-      if (cached) return cached.bars;
-      throw yahooErr || e;
+    }
+  }
+  if (!bars.length) {
+    try {
+      bars = await fetchTwelveDataHistory(sym);
+      console.info(`[marketData] TwelveData fallback OK for ${sym} (${bars.length} bars)`);
+    } catch (e: any) {
+      console.warn(`[marketData] TwelveData ${sym} failed: ${e?.message || e}`);
+      // All three providers exhausted. Serve any cached bars we still have
+      // (even stale ones from a prior ET day) rather than blanking the chart.
+      if (cached && cached.bars.length) {
+        console.info(`[marketData] Serving STALE cache for ${sym} (${cached.bars.length} bars from ${cached.cacheDate})`);
+        return cached.bars;
+      }
+      throw firstErr || e;
     }
   }
   histCache.set(sym, { bars, fetchedAt: Date.now(), cacheDate: today });
