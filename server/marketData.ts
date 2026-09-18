@@ -117,6 +117,43 @@ export async function fetchTwelveDataHistory(symbol: string): Promise<DailyBar[]
   })).filter((b) => Number.isFinite(b.open) && Number.isFinite(b.close));
 }
 
+// Fourth-fallback: Alpha Vantage TIME_SERIES_DAILY. Free tier is 25/day
+// (or 500/day with a signed-up key). Only fires when the other three
+// providers are all exhausted, so the daily quota stretches across many days.
+export async function fetchAlphaVantageHistory(symbol: string): Promise<DailyBar[]> {
+  const key = process.env.ALPHA_VANTAGE_API_KEY;
+  if (!key) throw new Error("ALPHA_VANTAGE_API_KEY missing");
+  const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY&symbol=${encodeURIComponent(symbol)}&outputsize=full&apikey=${key}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) throw new Error(`AlphaVantage ${symbol} HTTP ${res.status}`);
+  const j = (await res.json()) as {
+    "Meta Data"?: Record<string, string>;
+    "Time Series (Daily)"?: Record<string, { "1. open": string; "2. high": string; "3. low": string; "4. close": string; "5. volume": string }>;
+    Note?: string; Information?: string; "Error Message"?: string;
+  };
+  // AV surfaces rate limits + errors as free-form text fields; treat any of
+  // them as a hard failure so we drop through to stale cache instead of
+  // pretending we got data.
+  if (j.Note || j.Information || j["Error Message"] || !j["Time Series (Daily)"]) {
+    throw new Error(`AlphaVantage ${symbol}: ${j.Note || j.Information || j["Error Message"] || "empty"}`);
+  }
+  const series = j["Time Series (Daily)"];
+  // AV returns newest-first by date-string key order; sort ascending for consistency.
+  const dates = Object.keys(series).sort();
+  return dates.map((d) => {
+    const r = series[d];
+    return {
+      date: d,
+      ts: Math.floor(new Date(d).getTime() / 1000),
+      open: Number(r["1. open"]),
+      high: Number(r["2. high"]),
+      low: Number(r["3. low"]),
+      close: Number(r["4. close"]),
+      volume: Number(r["5. volume"] ?? 0),
+    };
+  }).filter((b) => Number.isFinite(b.open) && Number.isFinite(b.close));
+}
+
 export async function getHistory(symbol: string, forceRefresh = false): Promise<DailyBar[]> {
   const sym = symbol.toUpperCase();
   const cached = histCache.get(sym);
@@ -147,7 +184,15 @@ export async function getHistory(symbol: string, forceRefresh = false): Promise<
       console.info(`[marketData] TwelveData fallback OK for ${sym} (${bars.length} bars)`);
     } catch (e: any) {
       console.warn(`[marketData] TwelveData ${sym} failed: ${e?.message || e}`);
-      // All three providers exhausted. Serve any cached bars we still have
+    }
+  }
+  if (!bars.length) {
+    try {
+      bars = await fetchAlphaVantageHistory(sym);
+      console.info(`[marketData] AlphaVantage fallback OK for ${sym} (${bars.length} bars)`);
+    } catch (e: any) {
+      console.warn(`[marketData] AlphaVantage ${sym} failed: ${e?.message || e}`);
+      // All four providers exhausted. Serve any cached bars we still have
       // (even stale ones from a prior ET day) rather than blanking the chart.
       if (cached && cached.bars.length) {
         console.info(`[marketData] Serving STALE cache for ${sym} (${cached.bars.length} bars from ${cached.cacheDate})`);

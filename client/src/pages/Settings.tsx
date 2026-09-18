@@ -202,6 +202,88 @@ function BrandingPanel() {
   );
 }
 
+// ─── Sidebar labels editor ──────────────────────────────────────────────
+// Lets the user rename any sidebar nav item. Stored in settings.sidebarLabels
+// as JSON { href: label }. Blank input = use the default.
+const SIDEBAR_NAV_DEFAULTS: { href: string; label: string }[] = [
+  { href: "/",              label: "Cockpit" },
+  { href: "/watchlist",     label: "Watchlist" },
+  { href: "/trades",        label: "Trades" },
+  { href: "/trade-planner", label: "Trade Planner" },
+  { href: "/journal",       label: "Journal" },
+  { href: "/leap",          label: "LEAP Ladder" },
+  { href: "/analytics",     label: "Analytics" },
+  { href: "/signals",       label: "Signal History" },
+  { href: "/spec",          label: "Spec Review" },
+  { href: "/settings",      label: "Settings" },
+];
+
+function SidebarLabelsPanel() {
+  const { toast } = useToast();
+  const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
+  const [labels, setLabels] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (settings?.sidebarLabels) {
+      try { setLabels(JSON.parse(settings.sidebarLabels)); } catch { setLabels({}); }
+    }
+  }, [settings]);
+
+  const setOne = (href: string, value: string) =>
+    setLabels((prev) => {
+      const next = { ...prev };
+      if (value.trim()) next[href] = value; else delete next[href];
+      return next;
+    });
+
+  const save = async () => {
+    try {
+      await apiRequest("PATCH", "/api/settings", { sidebarLabels: JSON.stringify(labels) });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Sidebar labels saved" });
+    } catch (e) {
+      toast({ title: "Save failed", description: errMsg(e) });
+    }
+  };
+
+  const resetAll = () => setLabels({});
+
+  return (
+    <Panel title="Sidebar Labels" hint="Rename any nav item. Leave blank to use the default.">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {SIDEBAR_NAV_DEFAULTS.map((item) => (
+          <Field key={item.href} label={`${item.label} — ${item.href}`}>
+            <input
+              type="text"
+              data-testid={`input-sidebar-label-${item.href.replace(/\W/g, "-")}`}
+              value={labels[item.href] || ""}
+              onChange={(e) => setOne(item.href, e.target.value)}
+              placeholder={item.label}
+              className="form-input"
+            />
+          </Field>
+        ))}
+      </div>
+      <div className="mt-4 flex justify-end gap-2">
+        <button
+          onClick={resetAll}
+          data-testid="button-reset-sidebar-labels"
+          className="px-3 py-2 border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue text-[11px] uppercase tracking-wider font-display rounded-sm"
+        >
+          Reset all
+        </button>
+        <button
+          onClick={save}
+          data-testid="button-save-sidebar-labels"
+          className="px-4 py-2 border border-neon-blue/60 bg-neon-blue/20 text-neon-blue text-[11px] uppercase tracking-wider font-display rounded-sm"
+        >
+          Save Labels
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 // ─── Trading Vehicles styling ──────────────────────────────────────────────
 // Controls the pinned SMH/QQQ/SPY (and any user-pinned) cards in the Cockpit's
 // FLEX Scanner: how big the ticker symbol shows, and what color the body copy
@@ -502,6 +584,8 @@ export default function SettingsPage() {
       <BrandingPanel />
 
       <VehicleStylePanel />
+
+      <SidebarLabelsPanel />
 
       <ArchivedTradesPanel />
 

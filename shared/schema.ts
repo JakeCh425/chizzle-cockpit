@@ -36,6 +36,9 @@ export const settings = pgTable("settings", {
   // Px/chg/SMA row + trend/struct/trig text so it can be personalized.
   vehicleTickerScale: text("vehicle_ticker_scale").notNull().default("lg"), // sm | md | lg | xl | 2xl
   vehicleBodyColor: text("vehicle_body_color").notNull().default("#94a3b8"), // hex
+  // Sidebar nav overrides. JSON object mapping route href -> custom label
+  // (e.g. {"/": "Dashboard", "/leap": "Options"}). Missing key = default label.
+  sidebarLabels: text("sidebar_labels").notNull().default("{}"),
 });
 
 // ─── tickers ──────────────────────────────────────────────────────────────────

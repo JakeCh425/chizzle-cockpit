@@ -80,6 +80,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   const { data: settings } = useQuery<Settings>({ queryKey: ["/api/settings"] });
+  // User-customized sidebar labels: JSON blob mapping href -> label. Bad JSON
+  // silently falls back so a corrupted setting can't blank the whole nav.
+  const navLabelOverrides: Record<string, string> = (() => {
+    try { return JSON.parse(settings?.sidebarLabels || "{}"); } catch { return {}; }
+  })();
+  const labelFor = (href: string, fallback: string) => navLabelOverrides[href]?.trim() || fallback;
   const { data: scores } = useQuery<ChizzleScore[]>({ queryKey: ["/api/chizzle-scores"] });
   const { data: regimePayload } = useQuery<RegimePayload>({
     queryKey: ["/api/regime"],
@@ -194,7 +200,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       : "text-slate-gray hover:text-soft-white hover:bg-ink-line/50"}`}
                 >
                   <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
-                  {!collapsed && <span>{item.label}</span>}
+                  {!collapsed && <span>{labelFor(item.href, item.label)}</span>}
                 </Link>
               );
             })}

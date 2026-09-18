@@ -15,11 +15,22 @@
 // Data missing on any leg -> shown as a dash, no fake status.
 
 import { useQuery, useQueries } from "@tanstack/react-query";
+import { useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 import Sparkline from "@/components/charts/Sparkline";
 import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
-import { Activity } from "lucide-react";
+import { Activity, ChevronDown, ChevronRight } from "lucide-react";
+import type { Settings } from "@shared/schema";
+
+// Ticker symbol size, driven by settings.vehicleTickerScale.
+const TICKER_SCALE_CLS: Record<string, string> = {
+  sm:   "text-[11px]",
+  md:   "text-[13px]",
+  lg:   "text-[15px]",
+  xl:   "text-[17px]",
+  "2xl": "text-[20px]",
+};
 
 interface OHLCBar { time: number; open: number; high: number; low: number; close: number; volume: number }
 
@@ -83,8 +94,11 @@ interface RowProps {
   ticker: string;
   active: boolean;
   onClick: () => void;
+  tickerScaleCls: string;
+  bodyColor: string;
+  isCore: boolean;
 }
-function TickerRow({ ticker, active, onClick }: RowProps) {
+function TickerRow({ ticker, active, onClick, tickerScaleCls, bodyColor, isCore }: RowProps) {
   const quotes = useLiveQuotes();
   const q = quotes[ticker];
   const barsQ = useQuery<OHLCBar[]>({
@@ -120,16 +134,26 @@ function TickerRow({ ticker, active, onClick }: RowProps) {
           : "border-ink-line bg-ink-panel/30 hover:border-slate-gray hover:bg-ink-panel/60"
       }`}
     >
-      <div className="flex-shrink-0 w-14">
-        <div className={`text-[12px] font-mono font-bold ${active ? "text-neon-blue" : "text-soft-white"}`}>
+      <div className="flex-shrink-0 w-16">
+        <div
+          className={`${isCore ? tickerScaleCls : "text-[12px]"} font-mono font-bold ${active ? "text-neon-blue" : "text-soft-white"}`}
+        >
           {ticker}
         </div>
-        <div className="text-[9px] uppercase tracking-wider text-slate-gray">
+        <div
+          className="text-[9px] uppercase tracking-wider"
+          style={isCore ? { color: bodyColor } : undefined}
+        >
           {DEFAULT_CHIPS.includes(ticker) ? "core" : "watch"}
         </div>
       </div>
       <div className="flex-shrink-0 w-16 text-right font-mono">
-        <div className="text-[11px] text-soft-white">{fmt$(q?.price)}</div>
+        <div
+          className="text-[11px] text-soft-white"
+          style={isCore ? { color: bodyColor } : undefined}
+        >
+          {fmt$(q?.price)}
+        </div>
         <div className={`text-[10px] ${chgTone}`}>{fmtSignedPct(chgPct)}</div>
       </div>
       <div className="flex-shrink-0">
@@ -158,6 +182,11 @@ interface MarketPulsePanelProps {
 
 export default function MarketPulsePanel({ compact = false }: MarketPulsePanelProps = {}) {
   const { chips, active, select } = useCockpitTicker();
+  const [collapsed, setCollapsed] = useState(false);
+  const settingsQ = useQuery<Settings>({ queryKey: ["/api/settings"], staleTime: 60_000 });
+  const tickerScaleCls = TICKER_SCALE_CLS[settingsQ.data?.vehicleTickerScale || "lg"] || TICKER_SCALE_CLS.lg;
+  const bodyColor = settingsQ.data?.vehicleBodyColor || "#94a3b8";
+
   // Order: defaults (SMH, SPY, QQQ) first, then user-added.
   const ordered = [
     ...DEFAULT_CHIPS.filter((d) => chips.includes(d)),
@@ -171,20 +200,38 @@ export default function MarketPulsePanel({ compact = false }: MarketPulsePanelPr
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
+          <button
+            onClick={() => setCollapsed((v) => !v)}
+            className="text-slate-gray hover:text-neon-blue flex-shrink-0"
+            title={collapsed ? "Expand" : "Collapse"}
+            data-testid="button-toggle-market-pulse"
+          >
+            {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </button>
           <Activity className="h-4 w-4 text-neon-blue flex-shrink-0" />
           <h3 className="text-[13px] font-bold text-soft-white uppercase tracking-wider">
             Market Pulse
           </h3>
         </div>
-        {!compact && (
+        {!compact && !collapsed && (
           <span className="text-[10px] text-slate-gray">click a row to focus the chart</span>
         )}
       </div>
-      <div className="space-y-1.5">
-        {ordered.map((t) => (
-          <TickerRow key={t} ticker={t} active={t === active} onClick={() => select(t)} />
-        ))}
-      </div>
+      {!collapsed && (
+        <div className="space-y-1.5">
+          {ordered.map((t) => (
+            <TickerRow
+              key={t}
+              ticker={t}
+              active={t === active}
+              onClick={() => select(t)}
+              tickerScaleCls={tickerScaleCls}
+              bodyColor={bodyColor}
+              isCore={DEFAULT_CHIPS.includes(t)}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
