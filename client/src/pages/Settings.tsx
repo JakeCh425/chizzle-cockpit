@@ -68,6 +68,140 @@ function RiskSlider({
   );
 }
 
+// ── Branding ──────────────────────────────────────────────────────────────────────
+function BrandingPanel() {
+  const { toast } = useToast();
+  const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
+  const [name, setName] = useState("");
+  const [font, setFont] = useState<"display" | "mono" | "serif" | "sans">("display");
+  const [svg, setSvg]  = useState("");
+  const [svgError, setSvgError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (settings) {
+      setName(settings.brandName || "");
+      setFont(((settings.brandFont as any) || "display"));
+      setSvg(settings.brandIconSvg || "");
+    }
+  }, [settings]);
+
+  // Very small SVG sanity check — must start with <svg and contain a closing tag.
+  const validateSvg = (s: string): string | null => {
+    if (!s.trim()) return null; // empty = fall back to default logo
+    const trimmed = s.trim();
+    if (!trimmed.toLowerCase().startsWith("<svg")) return "Must start with <svg ...>";
+    if (!trimmed.toLowerCase().includes("</svg>")) return "Missing </svg> closing tag";
+    return null;
+  };
+
+  const save = async () => {
+    const err = validateSvg(svg);
+    if (err) { setSvgError(err); return; }
+    setSvgError(null);
+    try {
+      await apiRequest("PATCH", "/api/settings", {
+        brandName: name.trim() || "CHIZZLE WEALTH ENGINE",
+        brandFont: font,
+        brandIconSvg: svg.trim() || null,
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast({ title: "Branding saved" });
+    } catch (e) {
+      toast({ title: "Save failed", description: errMsg(e) });
+    }
+  };
+
+  const fontPreviewClass =
+    font === "mono"  ? "font-mono"
+    : font === "serif" ? "font-serif"
+    : font === "sans"  ? "font-sans"
+    :                    "font-display";
+
+  const [first, ...rest] = (name || "CHIZZLE WEALTH ENGINE").split(" ");
+  const tail = rest.join(" ");
+
+  return (
+    <Panel title="Branding" hint="Header logo, name, and font — saved to your account">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Field label="Brand name (header text)">
+          <input
+            type="text"
+            data-testid="input-brand-name"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="CHIZZLE WEALTH ENGINE"
+            className="form-input"
+          />
+          <div className="text-[10px] text-slate-gray mt-1">First word gets the neon accent; the rest stays blue.</div>
+        </Field>
+
+        <Field label="Font family">
+          <select
+            data-testid="select-brand-font"
+            value={font}
+            onChange={(e) => setFont(e.target.value as any)}
+            className="form-input"
+          >
+            <option value="display">Display (Space Grotesk) — default</option>
+            <option value="mono">Mono (JetBrains Mono)</option>
+            <option value="serif">Serif (system serif)</option>
+            <option value="sans">Sans (system sans-serif)</option>
+          </select>
+        </Field>
+      </div>
+
+      <div className="mt-4">
+        <Field label="Custom logo SVG (optional — paste raw <svg>…</svg> markup)">
+          <textarea
+            data-testid="input-brand-svg"
+            value={svg}
+            onChange={(e) => { setSvg(e.target.value); setSvgError(null); }}
+            placeholder='<svg viewBox="0 0 32 32" fill="none">…</svg>'
+            rows={5}
+            className="form-input"
+            style={{ fontFamily: "JetBrains Mono, monospace", fontSize: 11, lineHeight: 1.4 }}
+          />
+          {svgError && (
+            <div className="text-[10px] text-signal-red mt-1" data-testid="text-svg-error">{svgError}</div>
+          )}
+          <div className="text-[10px] text-slate-gray mt-1">
+            Uses <span className="font-mono">currentColor</span> so the icon inherits the header's neon-blue.
+            Leave blank to restore the default candlestick mark.
+          </div>
+        </Field>
+      </div>
+
+      <div className="mt-4 border border-ink-line/60 rounded-sm p-3 bg-ink-black/40">
+        <div className="text-[10px] uppercase tracking-wider text-slate-gray mb-2">Live preview</div>
+        <div className="flex items-center gap-3 text-neon-blue">
+          {svg.trim() && !validateSvg(svg) ? (
+            <span
+              className="inline-flex items-center justify-center"
+              style={{ width: 26, height: 26 }}
+              dangerouslySetInnerHTML={{ __html: svg }}
+            />
+          ) : (
+            <div className="w-[26px] h-[26px] border border-dashed border-ink-line rounded-sm flex items-center justify-center text-[9px] text-slate-gray">SVG</div>
+          )}
+          <span className={`${fontPreviewClass} font-semibold tracking-tight text-[16px] text-soft-white`}>
+            <span className="text-neon-blue">{first}</span>{tail && <> <span className="text-neon-blue">{tail}</span></>}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-4 flex justify-end">
+        <button
+          onClick={save}
+          data-testid="button-save-branding"
+          className="px-4 py-2 border border-neon-blue/60 bg-neon-blue/20 text-neon-blue text-[11px] uppercase tracking-wider font-display rounded-sm"
+        >
+          Save Branding
+        </button>
+      </div>
+    </Panel>
+  );
+}
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
@@ -243,6 +377,8 @@ export default function SettingsPage() {
           ))}
         </div>
       </Panel>
+
+      <BrandingPanel />
 
       <ArchivedTradesPanel />
 

@@ -31,7 +31,6 @@ import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
 import CockpitWorkspace from "@/components/CockpitWorkspace";
-import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 
 // Static lane definitions — kept outside the render body so array identity is
 // stable across renders (React can reconcile without remounting children).
@@ -195,13 +194,6 @@ export default function PipelineCockpit() {
       {/* 3. Cockpit Workspace — 3-column: Regime + Pulse (L) / TradingView chart (C) / Strength + Snapshot + Coach (R) */}
       <ErrorBoundary label="Cockpit Workspace">
         <CockpitWorkspace />
-      </ErrorBoundary>
-
-      {/* 4. Trade Plan Workspace — unified brief for the selected ticker.
-           Purely display-only; consumes existing active-setups, regime, bars,
-           and scanner data. No new APIs, no new state, no mutations. */}
-      <ErrorBoundary label="Trade Plan Workspace">
-        <TradePlanWorkspace />
       </ErrorBoundary>
 
       {/* 5. Active Setups — pinned at top per user spec */}

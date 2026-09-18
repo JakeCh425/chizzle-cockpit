@@ -18,6 +18,7 @@ import TickerStrengthGauge from "@/components/TickerStrengthGauge";
 import { TechnicalSnapshot } from "@/components/TickerChartPanel";
 import AITradeCoach from "@/components/AITradeCoach";
 import TradingViewChart from "@/components/TradingViewChart";
+import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
 
@@ -46,17 +47,19 @@ export default function CockpitWorkspace() {
 
   return (
     <div
-      className="grid grid-cols-1 lg:grid-cols-[minmax(0,23%)_minmax(0,1fr)_minmax(0,23%)] gap-3 xl:gap-4"
+      className="grid grid-cols-1 lg:grid-cols-[minmax(0,23%)_minmax(0,1fr)_minmax(0,23%)] gap-3 xl:gap-4 items-start"
       data-testid="cockpit-workspace"
     >
-      {/* LEFT COLUMN */}
+      {/* LEFT COLUMN — Regime + full Market Pulse (fills column height) */}
       <div className="space-y-3 min-w-0" data-testid="workspace-left">
         <RegimeV2Panel compact />
-        <MarketPulsePanel compact />
+        <MarketPulsePanel />
       </div>
 
-      {/* CENTER COLUMN — chart */}
-      <div className="min-w-0" data-testid="workspace-center">
+      {/* CENTER COLUMN — chart + Trade Plan Workspace stacked so the
+           middle column matches the right column's height with real content
+           instead of dead black space. */}
+      <div className="min-w-0 space-y-3 xl:space-y-4" data-testid="workspace-center">
         <TradingViewChart
           ticker={ticker}
           bars={bars}
@@ -64,6 +67,7 @@ export default function CockpitWorkspace() {
           regime={regime?.day_class}
           height={420}
         />
+        <TradePlanWorkspace />
       </div>
 
       {/* RIGHT COLUMN */}

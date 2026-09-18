@@ -27,6 +27,10 @@ export const settings = pgTable("settings", {
   scaleUpMinTrades: integer("scale_up_min_trades").notNull().default(20),
   scaleUpMinExpectancy: doublePrecision("scale_up_min_expectancy").notNull().default(0.3),
   scaleDownDrawdownPercent: doublePrecision("scale_down_drawdown_percent").notNull().default(8),
+  // ─ Branding (client-configurable, no functional impact) ─
+  brandName: text("brand_name").notNull().default("CHIZZLE WEALTH ENGINE"),
+  brandFont: text("brand_font").notNull().default("display"), // display | mono | serif | sans
+  brandIconSvg: text("brand_icon_svg"), // nullable — raw <svg> markup; falls back to default Logo
 });
 
 // ─── tickers ──────────────────────────────────────────────────────────────────

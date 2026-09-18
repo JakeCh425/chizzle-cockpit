@@ -31,6 +31,44 @@ const NAV = [
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
+// ── Configurable brand mark ────────────────────────────────────────────────
+// Renders the settings.brandName with the chosen font family and, when the
+// user has pasted a custom SVG, uses it in place of the default Logo. Falls
+// back to defaults silently when settings haven't loaded yet.
+function BrandMark({ settings }: { settings?: Settings }) {
+  const name = settings?.brandName || "CHIZZLE WEALTH ENGINE";
+  const font = settings?.brandFont || "display";
+  const svg = settings?.brandIconSvg || null;
+  const fontClass =
+    font === "mono"  ? "font-mono"
+    : font === "serif" ? "font-serif"
+    : font === "sans"  ? "font-sans"
+    :                    "font-display";
+  // Split into two visual halves on the first space so the neon-blue accent
+  // still applies to the trailing words (matches original two-tone treatment).
+  const [first, ...rest] = name.split(" ");
+  const tail = rest.join(" ");
+  return (
+    <div className="flex items-center gap-2 md:gap-3 text-neon-blue min-w-0">
+      {svg ? (
+        <span
+          className="inline-flex items-center justify-center text-neon-blue"
+          style={{ width: 26, height: 26 }}
+          // Trusted content: the user pastes their own SVG in Settings.
+          dangerouslySetInnerHTML={{ __html: svg }}
+          aria-label={name}
+        />
+      ) : (
+        <Logo size={26} />
+      )}
+      <span className={`${fontClass} font-semibold tracking-tight text-[15px] md:text-[16px] text-soft-white truncate`}>
+        <span className="brand-glow neon-flicker">{first}</span>
+        {tail && <> <span className="text-neon-blue">{tail}</span></>}
+      </span>
+    </div>
+  );
+}
+
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
   const [location] = useLocation();
@@ -77,13 +115,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Header strip */}
       <header className="border-b border-ink-line bg-ink-panel/60 backdrop-blur sticky top-0 z-30">
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
-          <div className="flex items-center gap-2 md:gap-3 text-neon-blue">
-            <Logo size={26} />
-            <span className="font-display font-semibold tracking-tight text-[15px] md:text-[16px] text-soft-white">
-              <span className="brand-glow neon-flicker">CHIZZLE</span>{' '}
-              <span className="text-neon-blue">WEALTH ENGINE</span>
-            </span>
-          </div>
+          <BrandMark settings={settings} />
 
           <div
             data-testid="text-regime-effective"
