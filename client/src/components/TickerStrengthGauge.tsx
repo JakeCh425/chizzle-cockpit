@@ -22,6 +22,9 @@ interface OHLCBar { date: string; open: number; high: number; low: number; close
 interface Props {
   ticker: string;
   bars: OHLCBar[] | undefined;
+  /** Active chart timeframe (e.g. "1H"). Purely a label — the score already
+   *  recalculates because `bars` swaps when the timeframe changes. */
+  timeframe?: string;
 }
 
 interface Zone {
@@ -87,7 +90,7 @@ function scoreRegime(dayClass: string | undefined): number {
   return NaN;
 }
 
-export default function TickerStrengthGauge({ ticker, bars }: Props) {
+export default function TickerStrengthGauge({ ticker, bars, timeframe }: Props) {
   // Flex-scan metrics (already used by TechnicalSnapshot — reuse queryKey so
   // React Query dedupes the network call).
   const { data: flex, isLoading: flexLoading } = useQuery<any>({
@@ -179,6 +182,9 @@ export default function TickerStrengthGauge({ ticker, bars }: Props) {
         <div className="flex items-center gap-2">
           <h3 className="text-[13px] font-bold uppercase tracking-wider text-soft-white">Ticker Strength</h3>
           <span className="text-[10px] font-mono text-slate-gray">{ticker}</span>
+          {timeframe && (
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{timeframe}</span>
+          )}
         </div>
         <span className="text-[9px] uppercase tracking-wider text-slate-gray/70">0–100</span>
       </div>

@@ -17,6 +17,9 @@ interface OHLCBar { date: string; open: number; high: number; low: number; close
 interface Props {
   ticker: string;
   bars: OHLCBar[] | undefined;
+  /** Active chart timeframe (e.g. "1H"). Displayed so the user knows
+   *  which chart lens this reflection is anchored to. */
+  timeframe?: string;
 }
 
 function sma(values: number[], period: number): number | null {
@@ -26,7 +29,7 @@ function sma(values: number[], period: number): number | null {
   return s / period;
 }
 
-export default function AITradeCoach({ ticker, bars }: Props) {
+export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
   const { data: regime } = useQuery<any>({
     queryKey: ["/api/regime-v2"],
     queryFn: async () => {
@@ -117,6 +120,9 @@ export default function AITradeCoach({ ticker, bars }: Props) {
       <div className="px-3 py-1.5 border-b border-ink-line flex items-center gap-1.5">
         <GraduationCap className="w-3 h-3 text-neon-blue" />
         <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white">AI Trade Coach</span>
+        {timeframe && (
+          <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{timeframe}</span>
+        )}
         <span className="text-[9px] text-slate-gray ml-auto italic">Deterministic · rule-based</span>
       </div>
       <div className="p-3 space-y-2">

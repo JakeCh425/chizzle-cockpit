@@ -18,6 +18,9 @@ import TickerStrengthGauge from "@/components/TickerStrengthGauge";
 import { TechnicalSnapshot } from "@/components/TickerChartPanel";
 import AITradeCoach from "@/components/AITradeCoach";
 import TradingViewChart from "@/components/TradingViewChart";
+import MultiTimeframeContext from "@/components/MultiTimeframeContext";
+import { useEffect, useState } from "react";
+import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
@@ -26,14 +29,33 @@ export default function CockpitWorkspace() {
   const { active } = useCockpitTicker();
   const ticker = active || "SPY";
 
+  // Chart timeframe is Cockpit-level state so the chart, technical
+  // snapshot, strength gauge, and AI coach all recalc from the same
+  // series when it changes. Sticky per ticker via localStorage — no
+  // schema change. Defaults to 1D on first load / new ticker.
+  const [timeframe, setTimeframeState] = useState<Timeframe>(() => readSavedTimeframe(ticker, "1D"));
+  // Re-read when ticker changes (each ticker keeps its own last TF).
+  useEffect(() => { setTimeframeState(readSavedTimeframe(ticker, "1D")); }, [ticker]);
+  const setTimeframe = (tf: Timeframe) => {
+    setTimeframeState(tf);
+    writeSavedTimeframe(ticker, tf);
+  };
+
+  const tfApi = TIMEFRAMES[timeframe].apiValue;
+
+  // Race protection is handled by TanStack Query: the ticker+timeframe
+  // pair is part of the queryKey, so a stale response for the previous
+  // combo can't overwrite the current one.
   const { data: bars, isLoading } = useQuery<OHLCBar[]>({
-    queryKey: ["/api/candles-ohlc", ticker, "1D"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=1D`);
+    queryKey: ["/api/candles-ohlc", ticker, tfApi],
+    queryFn: async ({ signal }) => {
+      const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${tfApi}`, undefined, signal);
       const json = await res.json();
       return Array.isArray(json) ? json : json?.bars || [];
     },
     staleTime: 60_000,
+    // Keep previous bars visible while a new TF loads — no full-panel blank.
+    placeholderData: (prev) => prev,
   });
 
   const { data: regime } = useQuery<any>({
@@ -66,15 +88,18 @@ export default function CockpitWorkspace() {
           isLoading={isLoading}
           regime={regime?.day_class}
           height={420}
+          timeframe={timeframe}
+          onTimeframeChange={setTimeframe}
+          mtfStrip={<MultiTimeframeContext ticker={ticker} activeTf={timeframe} />}
         />
         <TradePlanWorkspace />
       </div>
 
       {/* RIGHT COLUMN */}
       <div className="space-y-3 min-w-0" data-testid="workspace-right">
-        <TickerStrengthGauge ticker={ticker} bars={bars} />
-        <TechnicalSnapshot ticker={ticker} bars={bars} />
-        <AITradeCoach ticker={ticker} bars={bars} />
+        <TickerStrengthGauge ticker={ticker} bars={bars} timeframe={timeframe} />
+        <TechnicalSnapshot ticker={ticker} bars={bars} timeframe={timeframe} />
+        <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
       </div>
     </div>
   );

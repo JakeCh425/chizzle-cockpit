@@ -470,8 +470,15 @@ function OverlayToggleRow({ toggles, onChange }: { toggles: OverlayToggles; onCh
 }
 
 // ── Technical snapshot (metrics + verdict) ───────────────────────────────────
-interface SnapProps { ticker: string; bars: OHLCBar[] | undefined }
-export function TechnicalSnapshot({ ticker, bars }: SnapProps) {
+interface SnapProps {
+  ticker: string;
+  bars: OHLCBar[] | undefined;
+  /** Active chart timeframe (e.g. "1H"). Purely a label; snapshot metrics
+   *  come from the flex-scan endpoint which is daily-based. Shown so the
+   *  user knows the snapshot is broader context, not the intraday chart. */
+  timeframe?: string;
+}
+export function TechnicalSnapshot({ ticker, bars, timeframe }: SnapProps) {
   const { data, isLoading } = useQuery<any>({
     queryKey: ["/api/flex-scan", ticker],
     queryFn: async () => {
@@ -608,6 +615,16 @@ export function TechnicalSnapshot({ ticker, bars }: SnapProps) {
 
   return (
     <div className="space-y-2.5" data-testid={`tech-snapshot-${ticker}`}>
+      {timeframe && (
+        <div className="flex items-center gap-1.5 px-0.5">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-slate-gray">Snapshot</span>
+          <span className="text-[10px] font-mono text-slate-gray">{ticker}</span>
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30"
+            title="Snapshot uses daily-scan metrics; the chart itself is on this timeframe."
+          >{timeframe}</span>
+        </div>
+      )}
       <div className={`rounded border ${toneCls} p-2.5`}>
         <div className="flex items-center justify-between">
           <div className="font-mono text-[13px] font-bold flex items-center gap-1.5">

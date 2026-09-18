@@ -41,6 +41,8 @@ import {
   Lightbulb, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { rsi as rsiSeries } from "@/lib/rsi";
+import TimeframeSwitcher from "@/components/TimeframeSwitcher";
+import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 
 // The candles API returns `time` as unix seconds. We accept either `time`
 // (canonical, from /api/candles-ohlc) or `date` (YYYY-MM-DD) for callers that
@@ -313,9 +315,19 @@ interface Props {
   isLoading?: boolean;
   regime?: string;
   height?: number;
+  /** Cockpit-level chart timeframe. Optional so this component still works
+   *  in any legacy caller that doesn't pass it — defaults to "1D" label. */
+  timeframe?: Timeframe;
+  /** Called when the user picks a new timeframe from the switcher. If
+   *  omitted, the switcher is not rendered. */
+  onTimeframeChange?: (tf: Timeframe) => void;
+  /** Optional slot for the multi-timeframe context strip, rendered below
+   *  the toolbar. Passed in by the parent so this file stays free of
+   *  four extra candle fetches. */
+  mtfStrip?: React.ReactNode;
 }
 
-export default function TradingViewChart({ ticker, bars, isLoading, regime, height = 380 }: Props) {
+export default function TradingViewChart({ ticker, bars, isLoading, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
   // Persisted layout (per ticker, from Neon).
   const qc = useQueryClient();
   const { data: layout } = useQuery<any>({
@@ -821,12 +833,23 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
       <div className="flex items-center gap-2 px-3 py-2 border-b border-ink-line flex-wrap">
         <div className="flex items-center gap-1.5">
           <span className="text-[13px] font-bold text-soft-white uppercase tracking-wider">{ticker}</span>
+          {/* Active timeframe pill — makes it obvious what the chart is showing */}
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30"
+            data-testid="tf-active-pill"
+            title={TIMEFRAMES[timeframe]?.spoken}
+          >{TIMEFRAMES[timeframe]?.label ?? timeframe}</span>
           {crosshair.changePct != null && (
             <span className={`text-[10px] font-mono ${crosshair.changePct >= 0 ? "text-signal-green" : "text-signal-red"}`}>
               {crosshair.changePct >= 0 ? "+" : ""}{crosshair.changePct.toFixed(2)}%
             </span>
           )}
         </div>
+
+        {/* Timeframe switcher — only shown when the parent wired a handler */}
+        {onTimeframeChange && (
+          <TimeframeSwitcher value={timeframe} onChange={onTimeframeChange} />
+        )}
 
         {/* Chart style */}
         <div className="flex items-center rounded border border-ink-line overflow-hidden ml-2">
@@ -962,6 +985,13 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
           <span className="text-[9px] text-slate-gray/70 ml-2">
             Custom colors: change per-indicator in the Indicators panel. Bull/bear/grid follow the theme.
           </span>
+        </div>
+      )}
+
+      {/* Multi-timeframe context strip — display-only trend alignment */}
+      {mtfStrip && (
+        <div className="px-3 py-1.5 border-b border-ink-line/60 bg-ink-panel/20">
+          {mtfStrip}
         </div>
       )}
 
