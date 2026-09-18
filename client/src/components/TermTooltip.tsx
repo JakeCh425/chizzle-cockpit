@@ -144,6 +144,51 @@ export const GLOSSARY: Record<string, { label: string; definition: string }> = {
     definition:
       "Combined open-risk after adding this trade. Must stay under the 6% portfolio cap.",
   },
+  "Drawdown": {
+    label: "Drawdown",
+    definition:
+      "How far current equity is below its all-time peak. -5% is a caution; -10% is a hard stop and forces size reduction.",
+  },
+  "Open Risk": {
+    label: "Open Risk",
+    definition:
+      "Sum of planned dollar risk across all open + planned setups, as a percent of equity. Chizzle rules cap this at 6%.",
+  },
+  "VIX": {
+    label: "VIX",
+    definition:
+      "S&P 500 30-day implied volatility index. Under 15 = calm, 15–20 = normal, over 20 = risk-off, over 30 = fear.",
+  },
+  "Breadth": {
+    label: "Breadth",
+    definition:
+      "Percent of S&P 500 stocks trading above their 50-day moving average. Above 60% = healthy, below 40% = deteriorating.",
+  },
+  "Distribution": {
+    label: "Distribution",
+    definition:
+      "Count of institutional selling days (major indexes down on higher volume) over the last 25 sessions. 4+ = capital protection mode.",
+  },
+  "RSI": {
+    label: "RSI 14",
+    definition:
+      "Relative Strength Index. Under 30 oversold, 30–45 weak, 45–55 neutral, 55–70 healthy bullish, over 70 extended (don't chase).",
+  },
+  "Relative Volume": {
+    label: "Relative Volume",
+    definition:
+      "Today's volume vs. its 30-day average. Above 1.2× = buyers participating; under 0.8× = no fuel for the move.",
+  },
+  "SMA": {
+    label: "SMA (Simple Moving Average)",
+    definition:
+      "Average close over the last N sessions. 20 = short-term trend, 50 = medium-term, 200 = primary trend.",
+  },
+  "Portfolio Heat": {
+    label: "Portfolio Heat",
+    definition:
+      "Total open risk plus current drawdown. When heat is high, cut new-position size or step aside entirely.",
+  },
 };
 
 // ─── Component ───────────────────────────────────────────────────────────────

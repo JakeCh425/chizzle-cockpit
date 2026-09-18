@@ -27,6 +27,9 @@ import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import TickerChartPanel from "@/components/TickerChartPanel";
+import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
+import DoTodayCard from "@/components/DoTodayCard";
+import MarketPulsePanel from "@/components/MarketPulsePanel";
 
 // Static lane definitions — kept outside the render body so array identity is
 // stable across renders (React can reconcile without remounting children).
@@ -102,14 +105,22 @@ export default function PipelineCockpit() {
   }
 
   return (
+    <CockpitTickerProvider>
     <div className="max-w-[1440px] mx-auto p-3 sm:p-4 lg:p-5 space-y-4">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
 
-      {/* 2. Regime v2 gauge */}
+      {/* 2. "What should I do today?" — plain-English translation of
+           existing regime + scanner outputs. No new signals. */}
+      <DoTodayCard />
+
+      {/* 3. Regime v2 gauge */}
       <RegimeV2Panel />
 
-      {/* 3. Active Setups — pinned at top per user spec */}
+      {/* 4. Market Pulse — SMH/SPY/QQQ + user watchlist, clickable */}
+      <MarketPulsePanel />
+
+      {/* 5. Active Setups — pinned at top per user spec */}
       <ActiveSetupsPanel />
 
       {/* 4. Proximity Watch — hidden until at least one ticker is READY, per user
@@ -264,5 +275,6 @@ export default function PipelineCockpit() {
         </div>
       )}
     </div>
+    </CockpitTickerProvider>
   );
 }

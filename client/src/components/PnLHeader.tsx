@@ -5,6 +5,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 import type { Trade, EquityHistory, ActiveSetup } from "@shared/schema";
+import { TermTooltip } from "@/components/TermTooltip";
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -88,7 +89,9 @@ export default function PnLHeader() {
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-slate-gray uppercase tracking-wide">Open Risk</div>
+          <div className="text-[10px] text-slate-gray uppercase tracking-wide">
+            <TermTooltip term="Open Risk" className="decoration-dotted">Open Risk</TermTooltip>
+          </div>
           <div
             className={`text-sm font-mono font-bold ${
               openRiskPct >= 5 ? "text-signal-amber" : "text-soft-white"
@@ -99,7 +102,9 @@ export default function PnLHeader() {
           </div>
         </div>
         <div>
-          <div className="text-[10px] text-slate-gray uppercase tracking-wide">Drawdown</div>
+          <div className="text-[10px] text-slate-gray uppercase tracking-wide">
+            <TermTooltip term="Drawdown" className="decoration-dotted">Drawdown</TermTooltip>
+          </div>
           <div
             className={`text-sm font-mono font-bold ${
               drawdownPct == null ? "text-slate-gray" :

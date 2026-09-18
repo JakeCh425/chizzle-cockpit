@@ -4,6 +4,8 @@
 // Renders "Unknown" instead of hiding when data is missing (spec rule).
 
 import { useQuery } from "@tanstack/react-query";
+import { TermTooltip } from "@/components/TermTooltip";
+import { ShieldAlert, ShieldCheck, ShieldHalf, HelpCircle } from "lucide-react";
 
 type Band = "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
 
@@ -44,6 +46,12 @@ export default function RegimeV2Panel() {
   }
 
   const style = BAND_STYLES[snap.day_class];
+  const playbook: { icon: JSX.Element; text: string } = (() => {
+    if (snap.day_class === "GREEN") return { icon: <ShieldCheck className="h-3.5 w-3.5" />, text: "Today's playbook: trend-follow the strongest STANDARD READY setup. Full size. Trail with the 20-SMA." };
+    if (snap.day_class === "YELLOW") return { icon: <ShieldHalf className="h-3.5 w-3.5" />, text: "Today's playbook: half size only, highest-quality setup, tighter stop. Skip anything extended above the 20-SMA." };
+    if (snap.day_class === "RED") return { icon: <ShieldAlert className="h-3.5 w-3.5" />, text: "Today's playbook: capital protection. No new long risk. Manage or exit existing positions." };
+    return { icon: <HelpCircle className="h-3.5 w-3.5" />, text: "Today's playbook: regime unknown — wait for data to refresh before adding risk." };
+  })();
   return (
     <div className={`rounded-md border ${style.border} ${style.bg} p-3 space-y-2`} data-testid="section-regime-v2">
       <div className="flex items-center justify-between">
@@ -54,18 +62,29 @@ export default function RegimeV2Panel() {
           {new Date(snap.computed_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
         </span>
       </div>
-      <div className="text-xs text-soft-white leading-snug">{snap.reason}</div>
+      <div className="text-xs text-soft-white leading-snug">
+        <span className="text-[10px] uppercase tracking-wider text-slate-gray mr-1.5">What this means —</span>
+        {snap.reason}
+      </div>
+      <div className={`flex items-start gap-2 rounded border ${style.border} bg-ink-black/40 px-2 py-1.5`}>
+        <span className={`${style.text} mt-0.5`}>{playbook.icon}</span>
+        <div className="text-[11px] text-soft-white leading-snug">{playbook.text}</div>
+      </div>
 
       <div className="grid grid-cols-3 gap-2 text-xs">
         <div className={`rounded border ${BAND_STYLES[snap.vix.band].border} bg-ink-deep p-2`}>
-          <div className="text-slate-gray text-[10px] uppercase">VIX</div>
+          <div className="text-slate-gray text-[10px] uppercase">
+            <TermTooltip term="VIX">VIX</TermTooltip>
+          </div>
           <div className={`font-mono font-bold ${BAND_STYLES[snap.vix.band].text}`}>{fmt(snap.vix.last, 2)}</div>
           <div className="text-[10px] text-slate-gray mt-0.5">
             {snap.vix.band === "GREEN" ? "< 22" : snap.vix.band === "YELLOW" ? "22–26" : snap.vix.band === "RED" ? "> 26" : "Unknown"}
           </div>
         </div>
         <div className={`rounded border ${BAND_STYLES[snap.breadth.band].border} bg-ink-deep p-2`}>
-          <div className="text-slate-gray text-[10px] uppercase">Breadth</div>
+          <div className="text-slate-gray text-[10px] uppercase">
+            <TermTooltip term="Breadth">Breadth</TermTooltip>
+          </div>
           <div className={`font-mono font-bold ${BAND_STYLES[snap.breadth.band].text}`}>
             {fmt(snap.breadth.pct_above_20sma, 0)}%
           </div>
@@ -74,7 +93,9 @@ export default function RegimeV2Panel() {
           </div>
         </div>
         <div className={`rounded border ${BAND_STYLES[snap.distribution.band].border} bg-ink-deep p-2`}>
-          <div className="text-slate-gray text-[10px] uppercase">Distribution</div>
+          <div className="text-slate-gray text-[10px] uppercase">
+            <TermTooltip term="Distribution">Distribution</TermTooltip>
+          </div>
           <div className={`font-mono font-bold ${BAND_STYLES[snap.distribution.band].text}`}>
             {snap.distribution.days_last_25 ?? "Unknown"}
           </div>
