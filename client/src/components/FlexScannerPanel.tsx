@@ -151,35 +151,75 @@ export default function FlexScannerPanel() {
     STANDBY:        restCards.filter((c) => c.state === "STANDBY"),
   };
 
+  // Counts derived from existing cards — display-only.
+  const readyCount = cards.filter((c) => c.state === "STANDARD_READY").length;
+  const flexCount  = cards.filter((c) => c.state === "FLEX_READY").length;
+  const watchCount = cards.filter((c) => c.state === "FLEX_WATCH").length;
+  const standbyCount = cards.filter((c) => c.state === "STANDBY").length;
+  const totalCount = cards.length;
+
+  const fmtClock = (d: Date | null | undefined): string => {
+    if (!d) return "—";
+    return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  };
+
   return (
     <div className="bg-ink-black rounded-lg border border-ink-line p-3 space-y-3">
-      {/* ── Header ── */}
-      <div className="flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <Radar className="h-4 w-4 text-neon-blue" />
-          <div className="text-xs font-bold text-soft-white tracking-wider">FLEX SWING SCANNER</div>
-          {result && (
-            <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono ${
-              result.day_type === "PRACTICE_SWING_DAY" ? "bg-signal-green/20 text-signal-green" :
-              result.day_type === "ETF_EXPOSURE_DAY"   ? "bg-neon-blue/20 text-neon-blue" :
-                                                        "bg-signal-red/20 text-signal-red"
-            }`} data-testid="badge-day-type">
-              {result.day_type.replace(/_/g, " ")}
-            </span>
-          )}
+      {/* ── Header (visual reading order: state · last · next · rescan · counts) ── */}
+      <div className="space-y-2">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 flex-wrap">
+            <Radar className="h-4 w-4 text-neon-blue" />
+            <div className="text-xs font-bold text-soft-white tracking-wider">FLEX SWING SCANNER</div>
+            {/* 1. State / day type — the market condition */}
+            {result && (
+              <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono ${
+                result.day_type === "PRACTICE_SWING_DAY" ? "bg-signal-green/20 text-signal-green" :
+                result.day_type === "ETF_EXPOSURE_DAY"   ? "bg-neon-blue/20 text-neon-blue" :
+                                                          "bg-signal-red/20 text-signal-red"
+              }`} data-testid="badge-day-type">
+                {result.day_type.replace(/_/g, " ")}
+              </span>
+            )}
+          </div>
+          {/* 4. Rescan control on the right */}
+          <div className="flex items-center gap-2 flex-wrap">
+            <AutoRescanPill state={autoRescan} />
+            <button
+              onClick={() => scanQ.refetch()}
+              disabled={scanQ.isFetching}
+              className="text-[12px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
+              data-testid="button-rescan"
+            >
+              <RefreshCw className={`h-3 w-3 ${scanQ.isFetching ? "animate-spin" : ""}`} />
+              {scanQ.isFetching ? "Scanning…" : "Rescan"}
+            </button>
+          </div>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
-          <AutoRescanPill state={autoRescan} />
-          <button
-            onClick={() => scanQ.refetch()}
-            disabled={scanQ.isFetching}
-            className="text-[12px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-neon-blue hover:border-neon-blue disabled:opacity-40 flex items-center gap-1"
-            data-testid="button-rescan"
-          >
-            <RefreshCw className={`h-3 w-3 ${scanQ.isFetching ? "animate-spin" : ""}`} />
-            {scanQ.isFetching ? "Scanning…" : "Rescan"}
-          </button>
-        </div>
+
+        {/* Sub-row: 2. Last · 3. Next · 5. Counts (all derived from existing state) */}
+        {result && (
+          <div className="flex items-center justify-between gap-2 flex-wrap text-[11px] font-mono border border-ink-line/60 rounded bg-ink-deep/50 px-2 py-1">
+            <div className="flex items-center gap-3 flex-wrap">
+              <span className="text-slate-gray">
+                Last <span className="text-soft-white" data-testid="scanner-last-run">{fmtClock(autoRescan.lastRunAt)}</span>
+              </span>
+              <span className="text-slate-gray">
+                Next <span className="text-neon-blue" data-testid="scanner-next-run">{fmtClock(autoRescan.nextRunAt)}</span>
+              </span>
+              <span className="text-slate-gray">
+                Market <span className={autoRescan.marketOpen ? "text-signal-green" : "text-slate-gray"}>{autoRescan.marketOpen ? "OPEN" : "closed"}</span>
+              </span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap" data-testid="scanner-counts">
+              <span className="text-slate-gray">Candidates <span className="text-soft-white">{totalCount}</span></span>
+              <span className="text-signal-green" title="Standard-ready setups">Ready {readyCount}</span>
+              <span className="text-signal-amber" title="Flex half-size setups">Flex {flexCount}</span>
+              <span className="text-neon-blue" title="Watch / alert only">Watch {watchCount}</span>
+              <span className="text-slate-gray" title="Standby — not qualified">Standby {standbyCount}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* ── SMH + summary strip ── */}
@@ -480,8 +520,19 @@ function DeskCard({ card, onSave, saved, saving }: {
       </div>
 
       {/* Action + save + market confirmation */}
-      <div className="flex items-center justify-between gap-2 pt-1">
-        <span className={`text-[11px] font-bold ${meta.text}`}>{card.action}</span>
+      <div className="flex items-center justify-between gap-2 pt-1 border-t border-ink-line">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
+          {/* Direction pill — display-only translation of existing verdict/state */}
+          <span className={`text-[10px] font-mono px-1 py-0.5 rounded uppercase tracking-wider ${
+            card.state === "STANDARD_READY" ? "bg-signal-green/15 text-signal-green" :
+            card.state === "FLEX_READY"     ? "bg-signal-amber/15 text-signal-amber" :
+            card.state === "FLEX_WATCH"     ? "bg-neon-blue/15 text-neon-blue" :
+                                              "bg-ink-line text-slate-gray"
+          }`} title="Trade direction">
+            {card.state === "STANDBY" ? "No Trade" : "Long"}
+          </span>
+          <span className={`text-[11px] font-bold ${meta.text} truncate`}>{card.action}</span>
+        </div>
         <div className="flex items-center gap-1">
           <span className={`text-[10px] font-mono px-1 rounded ${
             card.market_confirmation === "CONFIRMED"   ? "bg-signal-green/20 text-signal-green" :

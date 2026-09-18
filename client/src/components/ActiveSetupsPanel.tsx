@@ -1,15 +1,21 @@
 // ─── ActiveSetupsPanel ─────────────────────────────────────────────────────
 // Persistent list of confirmed swing setups. Backed by Postgres via
 // /api/active-setups. Never auto-clears; only user archive removes an entry.
-// Renders in Chizzle operator style: hard section boundaries, no emojis,
-// no color noise, no repeated info.
+//
+// Cockpit v2 refinement: card layout is visually cleaner — a "next action"
+// header (derived from existing status + regime; NO new state), a compact
+// levels row, a display-only sparkline (reuses the /api/candles-ohlc cache),
+// and a nicer empty state. All mutations, form fields, event handlers, and
+// status rules are preserved exactly.
 
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Pin, PinOff, Archive, Pencil, Plus, X } from "lucide-react";
+import { Pin, PinOff, Archive, Plus, X, ArrowRight, ArrowUpRight, Play, Circle, ShieldAlert, TrendingUp, Eye, Search, ClipboardList } from "lucide-react";
 import type { ActiveSetup } from "@shared/schema";
+import Sparkline from "@/components/charts/Sparkline";
+import { useCockpitTicker } from "@/components/CockpitTickerContext";
 
 const REGIME_STYLES: Record<string, { bg: string; text: string; label: string }> = {
   GREEN: { bg: "bg-signal-green/10", text: "text-signal-green", label: "GREEN" },
@@ -64,10 +70,107 @@ const BLANK_DRAFT: NewSetupDraft = {
   notes: "",
 };
 
+// ── Next-action label — display-only derivation from existing status+regime ─
+// No new state, no schema change. Just translates status into a beginner
+// label that visually explains what the user should do next.
+interface NextAction {
+  label: string;
+  tone: "green" | "amber" | "red" | "blue" | "gray";
+  icon: JSX.Element;
+  hint: string;
+}
+function nextActionFor(s: ActiveSetup): NextAction {
+  const regime = (s.regime || "UNKNOWN") as string;
+  if (s.status === "planned") {
+    if (regime === "RED") {
+      return {
+        label: "Stand Down",
+        tone: "red",
+        icon: <ShieldAlert className="h-3 w-3" />,
+        hint: "Regime is RED — do not trigger. Wait for regime to repair.",
+      };
+    }
+    if (regime === "YELLOW") {
+      return {
+        label: "Wait for Trigger",
+        tone: "amber",
+        icon: <Circle className="h-3 w-3" />,
+        hint: "Half size only. Confirm the trigger bar closes before entering.",
+      };
+    }
+    return {
+      label: "Ready",
+      tone: "green",
+      icon: <Play className="h-3 w-3" />,
+      hint: "Trigger armed. Enter at listed entry; stop at listed invalidation.",
+    };
+  }
+  if (s.status === "active") {
+    return {
+      label: "Manage",
+      tone: "green",
+      icon: <TrendingUp className="h-3 w-3" />,
+      hint: "Trim half at T1, move stop to breakeven. Trail with 20-SMA to T2.",
+    };
+  }
+  if (s.status === "trimmed") {
+    return {
+      label: "Manage Runner",
+      tone: "amber",
+      icon: <TrendingUp className="h-3 w-3" />,
+      hint: "T1 hit. Let the runner work; trail or exit at T2.",
+    };
+  }
+  if (s.status === "closed") {
+    return {
+      label: "Log & Archive",
+      tone: "gray",
+      icon: <ArrowRight className="h-3 w-3" />,
+      hint: "Position closed. Log lessons in the Journal and archive when reviewed.",
+    };
+  }
+  return {
+    label: "Watch",
+    tone: "blue",
+    icon: <Eye className="h-3 w-3" />,
+    hint: "Setup on watch — set an alert; don't front-run.",
+  };
+}
+
+const TONE_STYLES: Record<NextAction["tone"], { border: string; bg: string; text: string; chip: string }> = {
+  green: { border: "border-signal-green/40", bg: "bg-signal-green/8",  text: "text-signal-green", chip: "bg-signal-green/15" },
+  amber: { border: "border-signal-amber/40", bg: "bg-signal-amber/8",  text: "text-signal-amber", chip: "bg-signal-amber/15" },
+  red:   { border: "border-signal-red/40",   bg: "bg-signal-red/8",    text: "text-signal-red",   chip: "bg-signal-red/15" },
+  blue:  { border: "border-neon-blue/40",    bg: "bg-neon-blue/8",     text: "text-neon-blue",    chip: "bg-neon-blue/15" },
+  gray:  { border: "border-ink-line",        bg: "bg-ink-panel/40",    text: "text-slate-gray",   chip: "bg-ink-line" },
+};
+
+// ── Display-only sparkline. Reuses the /api/candles-ohlc cache that other
+//    panels already populate. No new endpoint, no extra churn — TanStack
+//    Query dedupes per key, so this rides existing fetches.
+function SetupSparkline({ ticker }: { ticker: string }) {
+  const q = useQuery<{ time: number; open: number; high: number; low: number; close: number; volume: number }[]>({
+    queryKey: ["/api/candles-ohlc", ticker, "1D"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=1D`);
+      return await res.json();
+    },
+    staleTime: 5 * 60_000,
+  });
+  const bars = q.data ?? [];
+  if (bars.length < 5) {
+    return <Sparkline data={[]} width={72} height={22} />;
+  }
+  const closes = bars.slice(-30).map((b) => b.close);
+  const stroke = closes[closes.length - 1] >= closes[0] ? "rgb(34 197 94)" : "rgb(239 68 68)";
+  return <Sparkline data={closes} width={72} height={22} stroke={stroke} strokeWidth={1.2} showDot={false} />;
+}
+
 export default function ActiveSetupsPanel() {
   const { toast } = useToast();
   const [showAddForm, setShowAddForm] = useState(false);
   const [draft, setDraft] = useState<NewSetupDraft>(BLANK_DRAFT);
+  const { select } = useCockpitTicker();
 
   const setupsQ = useQuery<ActiveSetup[]>({
     queryKey: ["/api/active-setups"],
@@ -135,10 +238,24 @@ export default function ActiveSetupsPanel() {
   const setups = setupsQ.data ?? [];
   const activeSetups = setups.filter((s) => s.status !== "archived");
 
+  // Reveal the existing SCAN lane so the user can run the existing scanner.
+  // No new route, no new event handler on scanner state — just scroll to it.
+  function goToScanLane() {
+    const el = document.querySelector('[data-testid="step-scan"]');
+    el?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   return (
     <div className="rounded-md border border-ink-line bg-ink-black p-4 space-y-3" data-testid="section-active-setups">
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold text-soft-white uppercase tracking-wide">Active Setups</h3>
+        <div className="flex items-baseline gap-2">
+          <h3 className="text-sm font-bold text-soft-white uppercase tracking-wide">Active Setups</h3>
+          {activeSetups.length > 0 && (
+            <span className="text-[10px] font-mono text-slate-gray">
+              {activeSetups.length} {activeSetups.length === 1 ? "setup" : "setups"}
+            </span>
+          )}
+        </div>
         <button
           onClick={() => setShowAddForm((v) => !v)}
           className="text-xs px-2 py-1 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1"
@@ -274,35 +391,80 @@ export default function ActiveSetupsPanel() {
       {setupsQ.isLoading ? (
         <div className="text-xs text-slate-gray py-4 text-center">Loading...</div>
       ) : activeSetups.length === 0 ? (
-        <div className="text-xs text-slate-gray py-4 text-center" data-testid="text-empty-setups">
-          Active Setups: None
+        // ── Improved empty state ─────────────────────────────────────────
+        // Same as before functionally (existing routes/handlers only),
+        // just presented with clear next-step options.
+        <div className="rounded-md border border-dashed border-ink-line bg-ink-panel/30 p-5 flex flex-col items-center gap-3" data-testid="empty-setups">
+          <div className="rounded-full bg-ink-line/40 p-2.5">
+            <ClipboardList className="h-5 w-5 text-slate-gray" />
+          </div>
+          <div className="text-center space-y-0.5">
+            <div className="text-sm font-bold text-soft-white">No Active Setups</div>
+            <div className="text-[11px] text-slate-gray max-w-md">
+              Confirmed swing setups pinned to your Cockpit will appear here. Start by running a scan or adding a setup manually.
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2 justify-center pt-1">
+            <button
+              onClick={goToScanLane}
+              className="text-xs px-3 py-1.5 rounded border border-neon-blue text-neon-blue hover:bg-neon-blue/10 flex items-center gap-1.5"
+              data-testid="button-empty-run-scan"
+            >
+              <Search className="h-3 w-3" /> Run Scan
+            </button>
+            <button
+              onClick={() => setShowAddForm(true)}
+              className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:border-neon-blue hover:text-neon-blue flex items-center gap-1.5"
+              data-testid="button-empty-add-setup"
+            >
+              <Plus className="h-3 w-3" /> Add Setup
+            </button>
+            <a
+              href="/#/watchlist"
+              className="text-xs px-3 py-1.5 rounded border border-ink-line text-soft-white hover:border-neon-blue hover:text-neon-blue flex items-center gap-1.5"
+              data-testid="button-empty-open-watchlist"
+            >
+              <Eye className="h-3 w-3" /> Open Watchlist
+            </a>
+          </div>
         </div>
       ) : (
-        <div className="space-y-2">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2.5">
           {activeSetups.map((s) => {
             const regimeStyle = REGIME_STYLES[s.regime] ?? REGIME_STYLES.UNKNOWN;
             const statusStyle = STATUS_STYLES[s.status] ?? STATUS_STYLES.planned;
             const rr = s.rrRatio > 0 ? s.rrRatio.toFixed(2) : "Unknown";
+            const next = nextActionFor(s);
+            const tone = TONE_STYLES[next.tone];
             return (
               <div
                 key={s.id}
-                className={`rounded-md border ${s.pinned ? "border-neon-blue" : "border-ink-line"} bg-ink-deep p-3`}
+                className={`rounded-md border ${s.pinned ? "border-neon-blue" : "border-ink-line"} bg-ink-deep p-3.5 flex flex-col gap-2.5`}
                 data-testid={`setup-${s.ticker}`}
               >
-                <div className="flex items-start justify-between mb-1.5">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-soft-white font-mono">{s.ticker}</span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${regimeStyle.bg} ${regimeStyle.text} font-bold`}>
+                {/* Header row: ticker + chips + actions */}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
+                    <button
+                      onClick={() => select(s.ticker)}
+                      className="text-[15px] font-bold text-soft-white font-mono hover:text-neon-blue"
+                      title={`Focus chart on ${s.ticker}`}
+                      data-testid={`setup-ticker-${s.ticker}`}
+                    >
+                      {s.ticker}
+                    </button>
+                    <SetupSparkline ticker={s.ticker} />
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${regimeStyle.bg} ${regimeStyle.text} font-bold uppercase tracking-wide`}>
                       {regimeStyle.label}
                     </span>
-                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusStyle.bg} ${statusStyle.text} uppercase`}>
+                    <span className={`text-[10px] px-1.5 py-0.5 rounded ${statusStyle.bg} ${statusStyle.text} uppercase tracking-wide`}>
                       {s.status}
                     </span>
                     {s.pinned && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-blue/20 text-neon-blue">PINNED</span>
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-neon-blue/20 text-neon-blue uppercase tracking-wide">PINNED</span>
                     )}
                   </div>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1 flex-shrink-0">
                     <button
                       onClick={() => pinMut.mutate({ id: s.id, pinned: !s.pinned })}
                       className="p-1 rounded hover:bg-ink-line text-slate-gray hover:text-neon-blue"
@@ -326,38 +488,56 @@ export default function ActiveSetupsPanel() {
                   </div>
                 </div>
 
+                {/* Next-action strip — display-only translation of existing status */}
+                <div
+                  className={`rounded border ${tone.border} ${tone.bg} px-2.5 py-1.5 flex items-start gap-2`}
+                  data-testid={`next-action-${s.ticker}`}
+                >
+                  <div className={`rounded ${tone.chip} ${tone.text} p-1 flex-shrink-0 mt-0.5`}>{next.icon}</div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[9.5px] uppercase tracking-wider text-slate-gray">Next Action</span>
+                      <span className={`text-[12px] font-bold ${tone.text}`}>{next.label}</span>
+                    </div>
+                    <div className="text-[10.5px] text-soft-white/85 leading-snug mt-0.5">{next.hint}</div>
+                  </div>
+                </div>
+
+                {/* Thesis (optional) */}
                 {s.thesis && (
-                  <div className="text-xs text-soft-white mb-2 leading-snug" data-testid={`text-thesis-${s.ticker}`}>
+                  <div className="text-[11.5px] text-soft-white/90 leading-snug" data-testid={`text-thesis-${s.ticker}`}>
                     {s.thesis}
                   </div>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-xs">
+                {/* Levels row — compact & scannable */}
+                <div className="grid grid-cols-4 gap-2 rounded border border-ink-line bg-ink-black/40 p-2">
                   <div>
-                    <div className="text-slate-gray">Entry</div>
-                    <div className="font-mono text-soft-white">${s.entry.toFixed(2)}</div>
+                    <div className="text-[9px] uppercase tracking-wider text-slate-gray">Entry</div>
+                    <div className="font-mono text-[12px] text-soft-white tabular-nums">${s.entry.toFixed(2)}</div>
                   </div>
                   <div>
-                    <div className="text-slate-gray">Stop</div>
-                    <div className="font-mono text-signal-red">${s.stop.toFixed(2)}</div>
+                    <div className="text-[9px] uppercase tracking-wider text-slate-gray">Stop</div>
+                    <div className="font-mono text-[12px] text-signal-red tabular-nums">${s.stop.toFixed(2)}</div>
                   </div>
                   <div>
-                    <div className="text-slate-gray">T1 / T2</div>
-                    <div className="font-mono text-signal-green">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-gray">T1 / T2</div>
+                    <div className="font-mono text-[12px] text-signal-green tabular-nums truncate">
                       ${s.targetT1.toFixed(2)}
                       {s.targetT2 != null ? ` / $${s.targetT2.toFixed(2)}` : ""}
                     </div>
                   </div>
                   <div>
-                    <div className="text-slate-gray">R:R / Risk</div>
-                    <div className="font-mono text-soft-white">
+                    <div className="text-[9px] uppercase tracking-wider text-slate-gray">R:R / Risk</div>
+                    <div className="font-mono text-[12px] text-soft-white tabular-nums">
                       {rr} / {s.riskPercent.toFixed(2)}%
                     </div>
                   </div>
                 </div>
 
+                {/* Tags */}
                 {(s.structureVerdict || s.sector || s.theme) && (
-                  <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                  <div className="flex flex-wrap gap-1.5 text-[10px]">
                     {s.structureVerdict && (
                       <span className="px-1.5 py-0.5 rounded border border-ink-line text-slate-gray">
                         {s.structureVerdict}
@@ -376,26 +556,37 @@ export default function ActiveSetupsPanel() {
                   </div>
                 )}
 
-                <div className="mt-2 flex items-center justify-between text-[10px] text-slate-gray">
+                {/* Footer row: timestamp + status transition */}
+                <div className="flex items-center justify-between text-[10px] text-slate-gray pt-1 border-t border-ink-line">
                   <span>Saved {formatTimestamp(s.createdAt)}</span>
-                  {s.status === "planned" && (
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => patchMut.mutate({ id: s.id, patch: { status: "active" } })}
-                      className="px-2 py-0.5 rounded border border-signal-green text-signal-green hover:bg-signal-green/10"
-                      data-testid={`button-execute-${s.ticker}`}
+                      onClick={() => select(s.ticker)}
+                      className="text-[10px] text-slate-gray hover:text-neon-blue flex items-center gap-1"
+                      title="Focus chart"
+                      data-testid={`button-focus-chart-${s.ticker}`}
                     >
-                      Mark Active
+                      Chart <ArrowUpRight className="h-2.5 w-2.5" />
                     </button>
-                  )}
-                  {s.status === "active" && (
-                    <button
-                      onClick={() => patchMut.mutate({ id: s.id, patch: { status: "closed" } })}
-                      className="px-2 py-0.5 rounded border border-ink-line text-slate-gray hover:text-soft-white"
-                      data-testid={`button-close-${s.ticker}`}
-                    >
-                      Mark Closed
-                    </button>
-                  )}
+                    {s.status === "planned" && (
+                      <button
+                        onClick={() => patchMut.mutate({ id: s.id, patch: { status: "active" } })}
+                        className="px-2 py-0.5 rounded border border-signal-green text-signal-green hover:bg-signal-green/10"
+                        data-testid={`button-execute-${s.ticker}`}
+                      >
+                        Mark Active
+                      </button>
+                    )}
+                    {s.status === "active" && (
+                      <button
+                        onClick={() => patchMut.mutate({ id: s.id, patch: { status: "closed" } })}
+                        className="px-2 py-0.5 rounded border border-ink-line text-slate-gray hover:text-soft-white"
+                        data-testid={`button-close-${s.ticker}`}
+                      >
+                        Mark Closed
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
             );

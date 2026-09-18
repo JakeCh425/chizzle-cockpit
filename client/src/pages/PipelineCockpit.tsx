@@ -45,6 +45,82 @@ const LANE_META: Record<LaneKey, { index: number; purpose: string; Icon: typeof 
   REVIEW:  { index: 6, purpose: "Log notes, analytics, archive",         Icon: BookOpen },
 };
 
+// ── Display-only progress strip ────────────────────────────────────────────
+// Maps beginner-friendly labels to the existing lane keys. NEVER creates
+// new lane keys, workflow states, or routes. Clicking a step just triggers
+// the parent's onJump (which sets the existing expandedKey state).
+const PROGRESS_STEPS: { key: LaneKey; label: string; sub: string }[] = [
+  { key: "SCAN",    label: "Scan",              sub: "Find candidates" },
+  { key: "SELECT",  label: "Review Candidates", sub: "Filter shortlist" },
+  { key: "PLAN",    label: "Plan Trade",        sub: "Levels + risk" },
+  { key: "EXECUTE", label: "Execute",           sub: "Place order" },
+  { key: "MANAGE",  label: "Manage Position",   sub: "Trim & trail" },
+  { key: "REVIEW",  label: "Review / Journal",  sub: "Log lessons" },
+];
+
+function PipelineProgressStrip({ activeKey, onJump }: { activeKey: LaneKey | ""; onJump: (k: LaneKey) => void }) {
+  const activeIdx = PROGRESS_STEPS.findIndex((s) => s.key === activeKey);
+  return (
+    <div
+      className="rounded-md border border-ink-line bg-ink-black p-3"
+      data-testid="pipeline-progress-strip"
+      role="navigation"
+      aria-label="Pipeline progress"
+    >
+      <div className="flex items-stretch gap-1 overflow-x-auto">
+        {PROGRESS_STEPS.map((step, i) => {
+          const isActive = step.key === activeKey;
+          const isPast = activeIdx >= 0 && i < activeIdx;
+          const meta = LANE_META[step.key];
+          const Icon = meta.Icon;
+          return (
+            <div key={step.key} className="flex items-stretch gap-1 min-w-0 flex-1">
+              <button
+                onClick={() => onJump(step.key)}
+                className={`flex-1 min-w-[110px] rounded px-2.5 py-2 text-left border transition-colors ${
+                  isActive
+                    ? "border-neon-blue bg-neon-blue/10"
+                    : isPast
+                      ? "border-signal-green/30 bg-signal-green/5 hover:bg-signal-green/10"
+                      : "border-ink-line bg-ink-deep hover:border-neon-blue/40"
+                }`}
+                data-testid={`progress-step-${step.key.toLowerCase()}`}
+                title={`Step ${meta.index} — ${meta.purpose}`}
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className={`inline-flex items-center justify-center rounded-full text-[10px] font-mono font-bold w-4 h-4 flex-shrink-0 ${
+                    isActive
+                      ? "bg-neon-blue text-ink-black"
+                      : isPast
+                        ? "bg-signal-green/30 text-signal-green"
+                        : "bg-ink-line text-slate-gray"
+                  }`}>
+                    {meta.index}
+                  </span>
+                  <Icon className={`h-3 w-3 flex-shrink-0 ${
+                    isActive ? "text-neon-blue" : isPast ? "text-signal-green" : "text-slate-gray"
+                  }`} />
+                  <span className={`text-[11.5px] font-bold uppercase tracking-wide truncate ${
+                    isActive ? "text-neon-blue" : isPast ? "text-signal-green" : "text-soft-white/60"
+                  }`}>
+                    {step.label}
+                  </span>
+                </div>
+                <div className="text-[10px] text-slate-gray mt-0.5 truncate">{step.sub}</div>
+              </button>
+              {i < PROGRESS_STEPS.length - 1 && (
+                <div className="flex items-center flex-shrink-0">
+                  <ChevronRight className={`h-3 w-3 ${isPast ? "text-signal-green/60" : "text-ink-line"}`} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 interface LaneShellProps {
   laneKey: LaneKey;
   expanded: boolean;
@@ -138,6 +214,11 @@ export default function PipelineCockpit() {
           <Wrench className="h-3 w-3" /> Tools
         </button>
       </div>
+
+      {/* Compact progress strip — display-only. Maps beginner labels to the
+          existing lane keys (SCAN/SELECT/PLAN/EXECUTE/MANAGE/REVIEW). Clicking
+          a step just expands the corresponding lane below — no new state. */}
+      <PipelineProgressStrip activeKey={expandedKey} onJump={(k) => setExpandedKey(k)} />
 
       <div className="space-y-2">
         <LaneShell laneKey="SCAN" expanded={expandedKey === "SCAN"} onToggle={() => toggle("SCAN")}>
