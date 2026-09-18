@@ -6,6 +6,7 @@ import { initStorage, storage } from "./storage";
 import { _updateRegimeCache } from "./regimeService";
 import { startSMA20AlertEngine } from "./sma20Alerts";
 import { startConfirmationDetector } from "./confirmationDetector";
+import { startRegimeAlertEngine } from "./regimeAlerts";
 import { serveStatic } from "./static";
 import { createServer } from "node:http";
 
@@ -110,6 +111,7 @@ app.use((req, res, next) => {
   if (process.env.LOW_CREDIT_MODE !== "true") {
     try { startSMA20AlertEngine(); } catch (e) { console.warn("[boot] sma20 engine failed:", e); }
     try { startConfirmationDetector(); } catch (e) { console.warn("[boot] confirmation detector failed:", e); }
+    try { startRegimeAlertEngine(); } catch (e) { console.warn("[boot] regime alerts failed:", e); }
   }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

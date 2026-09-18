@@ -701,6 +701,13 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
       pivots, priorSwingHigh,
       support: sr.support, resistance: sr.resistance,
       distToTriggerPct,
+      // Bounce-off-low momentum: lowest low across the 3 bars prior to today.
+      // Positive off_low_pct means the current close is above that low.
+      threeDayLow: (() => {
+        if (bars.length < 4) return null;
+        const window = bars.slice(-4, -1); // last 3 completed bars before current
+        return Math.min(...window.map((b) => b.low));
+      })(),
     }),
   };
 }
@@ -727,6 +734,7 @@ function buildMetrics(a: {
   pivots: ReturnType<typeof findRecentPivotLows>; priorSwingHigh: number | null;
   support: number | null; resistance: number | null;
   distToTriggerPct: number | null;
+  threeDayLow: number | null;
 }): FlexMetrics {
   return {
     price: Number(a.price.toFixed(2)),
@@ -751,6 +759,10 @@ function buildMetrics(a: {
     nearest_support: a.support,
     nearest_resistance: a.resistance,
     dist_to_trigger_pct: a.distToTriggerPct != null ? Number(a.distToTriggerPct.toFixed(2)) : null,
+    three_day_low: a.threeDayLow != null ? Number(a.threeDayLow.toFixed(2)) : null,
+    off_low_pct: a.threeDayLow != null && a.threeDayLow > 0
+      ? Number((((a.price - a.threeDayLow) / a.threeDayLow) * 100).toFixed(2))
+      : null,
   };
 }
 

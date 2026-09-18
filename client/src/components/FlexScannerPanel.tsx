@@ -291,8 +291,35 @@ function DeskCard({ card, onSave, saved, saving }: {
   saving: boolean;
 }) {
   const meta = STATE_META[card.state];
+  const verdict = deriveVerdict(card);
   return (
     <div className={`rounded border-2 ${meta.border} bg-ink-black p-2 space-y-1 text-[12px]`} data-testid={`card-${card.ticker}`}>
+      {/* Verdict strip — the "is this move worth taking?" summary at the very
+          top so the eye lands on the answer before any of the diagnostics. */}
+      <div className={`rounded ${verdict.bg} border ${verdict.border} p-1.5 space-y-1`} data-testid={`verdict-${card.ticker}`}>
+        <div className="flex items-center justify-between gap-2">
+          <span className={`font-mono text-[13px] font-bold ${verdict.text}`}>
+            {verdict.label}
+          </span>
+          {verdict.badges.length > 0 && (
+            <div className="flex flex-wrap items-center gap-1 justify-end">
+              {verdict.badges.map((b, i) => (
+                <span
+                  key={i}
+                  className={`text-[10px] font-mono px-1 py-0.5 rounded border ${b.cls}`}
+                  title={b.tip}
+                >
+                  {b.text}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="text-[11px] text-soft-white leading-tight">
+          {verdict.rationale}
+        </div>
+      </div>
+
       {/* Row 1: pin + ticker + state + score */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -504,4 +531,118 @@ function PlanCell({ label, value, tone }: { label: string; value: string; tone?:
       <div className={`font-mono text-[13px] ${toneClass}`}>{value}</div>
     </div>
   );
+}
+
+// ─── Verdict strip helpers ─────────────────────────────────────────────────
+// Compact "should I take this trade right now?" summary the eye sees first.
+// Reads the same card state + metrics the diagnostics below expand on, so
+// no new server field is introduced — this is a pure presentational digest.
+interface VerdictBadge {
+  text: string;
+  cls: string;   // tailwind color classes for the pill
+  tip: string;   // native tooltip
+}
+interface Verdict {
+  label: string;         // big verb: STANDARD ENTER / FLEX HALF-SIZE / SET ALERT / STAND DOWN
+  rationale: string;     // one-line why-now / why-not
+  bg: string;
+  border: string;
+  text: string;
+  badges: VerdictBadge[];
+}
+function deriveVerdict(card: FlexDeskCard): Verdict {
+  const m = card.metrics;
+  const permBlocked = card.permission === "NO_LONG";
+  const hardBlocked = (card.hard_blocks?.length ?? 0) > 0;
+
+  // Verdict verb + palette by (state, permission, hard_blocks).
+  let label: string;
+  let bg: string;
+  let border: string;
+  let text: string;
+  let rationale: string;
+
+  if (hardBlocked || permBlocked || card.state === "STANDBY") {
+    label = "STAND DOWN";
+    bg = "bg-signal-red/10";
+    border = "border-signal-red/40";
+    text = "text-signal-red";
+    rationale = hardBlocked
+      ? `Blocked: ${card.hard_blocks[0]}`
+      : permBlocked
+        ? `SMH regime denies longs on this vehicle — capital protection only.`
+        : `No qualifying setup this bar. Wait for structure to repair.`;
+  } else if (card.state === "STANDARD_READY") {
+    label = "STANDARD ENTER";
+    bg = "bg-signal-green/10";
+    border = "border-signal-green/50";
+    text = "text-signal-green";
+    rationale = `${card.trigger}. Full-size entry inside the plan geometry below.`;
+  } else if (card.state === "FLEX_READY") {
+    label = "FLEX HALF-SIZE";
+    bg = "bg-signal-amber/10";
+    border = "border-signal-amber/50";
+    text = "text-signal-amber";
+    rationale = `${card.trigger}. Half-size — trigger is armed but structure has a caveat.`;
+  } else {
+    // FLEX_WATCH
+    label = "SET ALERT · WAIT";
+    bg = "bg-neon-blue/10";
+    border = "border-neon-blue/40";
+    text = "text-neon-blue";
+    rationale = card.distance_to_ready?.[0]?.next_action
+      ?? `Watch-only until the trigger arms. No entry yet.`;
+  }
+
+  // Momentum badges — high-signal, one glance. Only add if actually true.
+  const badges: VerdictBadge[] = [];
+  if (m?.off_low_pct != null && m.off_low_pct >= 3) {
+    badges.push({
+      text: `+${m.off_low_pct.toFixed(1)}% off 3d low`,
+      cls: "border-signal-green text-signal-green bg-signal-green/10",
+      tip: `Current close is ${m.off_low_pct.toFixed(2)}% above the 3-day low $${(m.three_day_low ?? 0).toFixed(2)}`,
+    });
+  }
+  if (m?.relative_volume != null && m.relative_volume >= 1.2) {
+    badges.push({
+      text: `Rel-vol ${m.relative_volume.toFixed(2)}x`,
+      cls: "border-signal-green text-signal-green bg-signal-green/10",
+      tip: `Today's volume is ${m.relative_volume.toFixed(2)}× the 20-day average`,
+    });
+  } else if (m?.relative_volume != null && m.relative_volume < 0.8) {
+    badges.push({
+      text: `Low vol ${m.relative_volume.toFixed(2)}x`,
+      cls: "border-signal-amber text-signal-amber bg-signal-amber/10",
+      tip: `Volume is only ${m.relative_volume.toFixed(2)}× the 20-day average — moves without volume are suspect`,
+    });
+  }
+  if (m?.reclaim_trigger) {
+    badges.push({
+      text: `Reclaimed 20-SMA`,
+      cls: "border-neon-blue text-neon-blue bg-neon-blue/10",
+      tip: `Price closed back above the 20-SMA this bar`,
+    });
+  }
+  if (m?.confirmed_higher_low) {
+    badges.push({
+      text: `HL confirmed`,
+      cls: "border-signal-green text-signal-green bg-signal-green/10",
+      tip: `A confirmed higher-low pivot printed — structure is improving`,
+    });
+  }
+  if (m?.sma50_slope_pct != null && m.sma50_slope_pct > 0 && m?.sma200_slope_pct != null && m.sma200_slope_pct > 0) {
+    badges.push({
+      text: `Trend up`,
+      cls: "border-signal-green text-signal-green bg-signal-green/10",
+      tip: `Both 50-SMA and 200-SMA are sloping up`,
+    });
+  } else if (m?.sma50_slope_pct != null && m.sma50_slope_pct < 0) {
+    badges.push({
+      text: `50-SMA falling`,
+      cls: "border-signal-red text-signal-red bg-signal-red/10",
+      tip: `50-SMA slope is ${m.sma50_slope_pct.toFixed(2)}% — near-term trend is not repaired`,
+    });
+  }
+
+  return { label, rationale, bg, border, text, badges };
 }

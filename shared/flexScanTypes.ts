@@ -82,6 +82,13 @@ export interface FlexMetrics {
   nearest_support?: number | null;
   nearest_resistance?: number | null;
   dist_to_trigger_pct?: number | null;
+  // Lowest low across the last 3 daily bars (excluding the current bar).
+  // Used to compute a "bounce off 3-day low" momentum badge and to feed the
+  // regime-alerts engine's move-based trigger.
+  three_day_low?: number | null;
+  // Percent move of the current bar's close above `three_day_low`.
+  // Positive when price is currently above the 3-day low.
+  off_low_pct?: number | null;
 }
 
 // Precise, actionable gap between the ticker's current state and READY.
