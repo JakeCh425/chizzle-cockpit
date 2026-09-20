@@ -20,7 +20,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 import Sparkline from "@/components/charts/Sparkline";
 import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
-import { Activity, ChevronDown, ChevronRight } from "lucide-react";
+import { Activity, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
 import type { Settings } from "@shared/schema";
 
 // Ticker symbol size, driven by settings.vehicleTickerScale.
@@ -94,11 +94,13 @@ interface RowProps {
   ticker: string;
   active: boolean;
   onClick: () => void;
+  /** When provided, renders a × that removes this row. Core (SMH/SPY/QQQ) omit this. */
+  onRemove?: () => void;
   tickerScaleCls: string;
   bodyColor: string;
   isCore: boolean;
 }
-function TickerRow({ ticker, active, onClick, tickerScaleCls, bodyColor, isCore }: RowProps) {
+function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColor, isCore }: RowProps) {
   const quotes = useLiveQuotes();
   const q = quotes[ticker];
   const barsQ = useQuery<OHLCBar[]>({
@@ -125,15 +127,16 @@ function TickerRow({ ticker, active, onClick, tickerScaleCls, bodyColor, isCore 
     chgPct >= 0 ? "rgb(34 197 94)" : "rgb(239 68 68)";
 
   return (
-    <button
-      onClick={onClick}
+    <div
       data-testid={`pulse-row-${ticker}`}
-      className={`w-full text-left rounded border px-2.5 py-2 flex items-center gap-3 transition-colors ${
+      className={`w-full rounded border px-2.5 py-2 flex items-center gap-3 transition-colors ${
         active
           ? "border-neon-blue bg-neon-blue/8"
           : "border-ink-line bg-ink-panel/30 hover:border-slate-gray hover:bg-ink-panel/60"
       }`}
     >
+      {/* Whole row (minus the trash) is a click target for focusing the chart. */}
+      <button onClick={onClick} className="flex-1 min-w-0 text-left flex items-center gap-3">
       <div className="flex-shrink-0 w-16">
         <div
           className={`${isCore ? tickerScaleCls : "text-[12px]"} font-mono font-bold ${active ? "text-neon-blue" : "text-soft-white"}`}
@@ -171,7 +174,19 @@ function TickerRow({ ticker, active, onClick, tickerScaleCls, bodyColor, isCore 
           <span className="text-[10px] text-slate-gray">—</span>
         )}
       </div>
-    </button>
+      </button>
+      {/* Remove control — core rows (SMH/SPY/QQQ) can't be removed; watch rows can. */}
+      {onRemove && !isCore && (
+        <button
+          onClick={(e) => { e.stopPropagation(); onRemove(); }}
+          data-testid={`pulse-remove-${ticker}`}
+          title={`Remove ${ticker} from Market Pulse`}
+          className="flex-shrink-0 text-slate-gray/60 hover:text-signal-red p-1 rounded hover:bg-signal-red/10"
+        >
+          <X className="h-3 w-3" />
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -181,8 +196,18 @@ interface MarketPulsePanelProps {
 }
 
 export default function MarketPulsePanel({ compact = false }: MarketPulsePanelProps = {}) {
-  const { chips, active, select } = useCockpitTicker();
+  const { chips, active, select, add, remove } = useCockpitTicker();
   const [collapsed, setCollapsed] = useState(false);
+  const [addValue, setAddValue] = useState("");
+
+  // Symbols: uppercase, letters/digits/. -/^, 1–10 chars. Covers stocks,
+  // ETFs, futures, and exchange-suffix tickers like BRK.B or ^GSPC.
+  const submitAdd = () => {
+    const raw = addValue.trim().toUpperCase();
+    if (!/^[A-Z0-9.\-^]{1,10}$/.test(raw)) return;
+    add(raw);
+    setAddValue("");
+  };
   const settingsQ = useQuery<Settings>({ queryKey: ["/api/settings"], staleTime: 60_000 });
   const tickerScaleCls = TICKER_SCALE_CLS[settingsQ.data?.vehicleTickerScale || "lg"] || TICKER_SCALE_CLS.lg;
   const bodyColor = settingsQ.data?.vehicleBodyColor || "#94a3b8";
@@ -218,19 +243,50 @@ export default function MarketPulsePanel({ compact = false }: MarketPulsePanelPr
         )}
       </div>
       {!collapsed && (
-        <div className="space-y-1.5">
-          {ordered.map((t) => (
-            <TickerRow
-              key={t}
-              ticker={t}
-              active={t === active}
-              onClick={() => select(t)}
-              tickerScaleCls={tickerScaleCls}
-              bodyColor={bodyColor}
-              isCore={DEFAULT_CHIPS.includes(t)}
+        <>
+          <div className="space-y-1.5">
+            {ordered.map((t) => (
+              <TickerRow
+                key={t}
+                ticker={t}
+                active={t === active}
+                onClick={() => select(t)}
+                onRemove={DEFAULT_CHIPS.includes(t) ? undefined : () => remove(t)}
+                tickerScaleCls={tickerScaleCls}
+                bodyColor={bodyColor}
+                isCore={DEFAULT_CHIPS.includes(t)}
+              />
+            ))}
+          </div>
+
+          {/* Add-ticker input. Core three (SMH/SPY/QQQ) stay pinned above.
+              Anything added lives below and can be removed via the row ×. */}
+          <form
+            onSubmit={(e) => { e.preventDefault(); submitAdd(); }}
+            className="flex items-center gap-1.5 pt-1"
+            data-testid="pulse-add-form"
+          >
+            <input
+              value={addValue}
+              onChange={(e) => setAddValue(e.target.value.toUpperCase())}
+              placeholder="Add ticker…"
+              maxLength={10}
+              spellCheck={false}
+              autoCapitalize="characters"
+              data-testid="pulse-add-input"
+              className="flex-1 min-w-0 bg-ink-panel/40 border border-ink-line rounded px-2 py-1 text-[11px] font-mono text-soft-white placeholder:text-slate-gray/60 focus:outline-none focus:border-neon-blue"
             />
-          ))}
-        </div>
+            <button
+              type="submit"
+              disabled={!/^[A-Z0-9.\-^]{1,10}$/.test(addValue.trim())}
+              data-testid="pulse-add-submit"
+              className="flex-shrink-0 border border-ink-line hover:border-neon-blue text-slate-gray hover:text-neon-blue rounded px-1.5 py-1 disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Add to Market Pulse"
+            >
+              <Plus className="h-3 w-3" />
+            </button>
+          </form>
+        </>
       )}
     </div>
   );
