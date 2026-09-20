@@ -202,7 +202,44 @@ export default function CoreTickerHoverCard({ ticker }: Props) {
           <div><span className="text-slate-gray/80">Div Yld</span> <span className="text-soft-white">{fmtPct(m["dividendYieldIndicatedAnnual"])}</span></div>
         </div>
         {(fundQ.isLoading || flexQ.isLoading) && (
-          <div className="text-[9px] text-slate-gray/60 mt-1 italic">Refreshing\u2026</div>
+          <div className="text-[9px] text-slate-gray/60 mt-1 italic">Refreshing…</div>
+        )}
+      </div>
+
+      {/* Push to Active Setup — per user contract: enabled whenever
+          hard_blocks is empty. Ignores fundamentals + regime by design.
+          Sends the scanner card AS-IS via the same shape FlexScannerPanel
+          uses, so identical to hitting Save on the FLEX Scanner card. */}
+      <div className="pt-1.5 border-t border-ink-line/60 pointer-events-auto">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); if (canPush) pushMut.mutate(); }}
+          disabled={!canPush}
+          data-testid={`core-hover-push-${ticker}`}
+          className={`w-full flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-[11px] font-semibold uppercase tracking-wider transition-colors ${
+            pushed
+              ? "bg-signal-green/15 text-signal-green border border-signal-green/40 cursor-default"
+              : hardBlocks.length > 0
+                ? "bg-signal-red/10 text-signal-red/70 border border-signal-red/30 cursor-not-allowed"
+                : pushMut.isPending
+                  ? "bg-neon-blue/10 text-neon-blue border border-neon-blue/40 cursor-wait"
+                  : "bg-neon-blue/15 text-neon-blue border border-neon-blue/50 hover:bg-neon-blue/25"
+          }`}
+          title={
+            hardBlocks.length > 0 ? `Blocked: ${hardBlocks.join("; ")}` :
+            pushed ? "Pushed to Active Setups" :
+            "Send this scanner card to Active Setups as-is"
+          }
+        >
+          {pushed ? (<><Check className="w-3 h-3" /> Pushed to Active Setup</>) :
+           pushMut.isPending ? (<><Loader2 className="w-3 h-3 animate-spin" /> Pushing…</>) :
+           hardBlocks.length > 0 ? (<><AlertTriangle className="w-3 h-3" /> Blocked — hard blocks</>) :
+                                    (<><Rocket className="w-3 h-3" /> Push to Active Setup</>)}
+        </button>
+        {pushMut.isError && (
+          <div className="text-[9.5px] text-signal-red mt-1 leading-tight">
+            Push failed: {(pushMut.error as any)?.message || "unknown error"}
+          </div>
         )}
       </div>
     </div>

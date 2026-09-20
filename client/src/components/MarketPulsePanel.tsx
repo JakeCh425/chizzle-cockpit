@@ -134,11 +134,16 @@ function TickerRow({ ticker, active, onClick, onRemove, onDemote, onPromote, tic
   const openHover = () => {
     if (!showHoverCard) return;
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
-    hoverTimer.current = setTimeout(() => setHovering(true), 250);
+    // If card is already open (user is moving across the gap from row to
+    // card), open immediately; otherwise wait 250ms so brief mouse travel
+    // doesn't spawn cards.
+    hoverTimer.current = setTimeout(() => setHovering(true), hovering ? 0 : 250);
   };
   const closeHover = () => {
     if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
-    setHovering(false);
+    // Small close delay so cursor can bridge the ml-2 gap from row to card
+    // without the card yanking shut mid-transit.
+    hoverTimer.current = setTimeout(() => setHovering(false), 120);
   };
   const chgTone =
     chgPct == null ? "text-slate-gray" :
@@ -238,7 +243,14 @@ function TickerRow({ ticker, active, onClick, onRemove, onDemote, onPromote, tic
       {/* Hover card — rich trade idea + fundamentals + readiness meter.
           Anchored to right side of the row; z-index above sibling rows. */}
       {showHoverCard && hovering && (
-        <div className="absolute z-50 left-full top-0 ml-2 pointer-events-none">
+        // pointer-events-auto so the Push button inside the card is clickable.
+        // Card has its own onMouseEnter/Leave to keep itself open while the
+        // cursor is on it (otherwise moving from row → card would close it).
+        <div
+          className="absolute z-50 left-full top-0 ml-2"
+          onMouseEnter={openHover}
+          onMouseLeave={closeHover}
+        >
           <CoreTickerHoverCard ticker={ticker} />
         </div>
       )}
