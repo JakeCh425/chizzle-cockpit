@@ -19,8 +19,8 @@ import { TechnicalSnapshot } from "@/components/TickerChartPanel";
 import AITradeCoach from "@/components/AITradeCoach";
 import TradingViewChart from "@/components/TradingViewChart";
 import MultiTimeframeContext from "@/components/MultiTimeframeContext";
-import { useEffect, useState } from "react";
-import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, type Timeframe } from "@/lib/timeframes";
+import { useEffect, useMemo, useState } from "react";
+import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
@@ -41,12 +41,14 @@ export default function CockpitWorkspace() {
     writeSavedTimeframe(ticker, tf);
   };
 
+  // For 1W/1M we fetch the 1D endpoint and aggregate on the client. The
+  // queryKey uses apiValue so the 1D cache is shared between all consumers.
   const tfApi = TIMEFRAMES[timeframe].apiValue;
 
   // Race protection is handled by TanStack Query: the ticker+timeframe
   // pair is part of the queryKey, so a stale response for the previous
   // combo can't overwrite the current one.
-  const { data: bars, isLoading } = useQuery<OHLCBar[]>({
+  const { data: rawBars, isLoading } = useQuery<OHLCBar[]>({
     queryKey: ["/api/candles-ohlc", ticker, tfApi],
     queryFn: async ({ signal }) => {
       const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${tfApi}`, undefined, signal);
@@ -57,6 +59,10 @@ export default function CockpitWorkspace() {
     // Keep previous bars visible while a new TF loads — no full-panel blank.
     placeholderData: (prev) => prev,
   });
+
+  // Client-side aggregation for 1W / 1M (no-op for other timeframes).
+  // Memoised so aggregation only runs when the underlying series or TF flips.
+  const bars = useMemo(() => maybeAggregate(rawBars, timeframe), [rawBars, timeframe]);
 
   const { data: regime } = useQuery<any>({
     queryKey: ["/api/regime-v2"],

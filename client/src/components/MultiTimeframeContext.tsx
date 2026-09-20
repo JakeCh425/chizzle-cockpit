@@ -10,11 +10,14 @@
 
 import { useQueries } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
+import { TIMEFRAMES, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 
 interface OHLCBar { time?: number; date?: string; open: number; high: number; low: number; close: number; volume?: number }
 
-const CONTEXT_TFS: Timeframe[] = ["30m", "1H", "4H", "1D"];
+// Swing-trader multi-timeframe alignment view. 30m/1H = intraday context,
+// 4H = swing timing, 1D = primary trend, 1W = swing trend, 1M = macro tape.
+// 1W and 1M reuse the 1D fetch and aggregate client-side (no extra network).
+const CONTEXT_TFS: Timeframe[] = ["30m", "1H", "4H", "1D", "1W", "1M"];
 
 // ── Trend classification ─────────────────────────────────────────────────
 // Uses only material already on the chart (20/50 SMAs + up/down bias).
@@ -61,8 +64,9 @@ interface Props {
 }
 
 export default function MultiTimeframeContext({ ticker, activeTf }: Props) {
-  // Parallel fetch, one per timeframe. Shares TanStack cache with the main
-  // chart query on 1D so we don't refetch what's already loaded.
+  // Parallel fetch, one per unique apiValue. 1W and 1M both map to 1D,
+  // and the main chart also fetches 1D — TanStack dedupes on queryKey so
+  // this whole strip issues at most 4 requests (30M/1H/4H/1D), not 6.
   const queries = useQueries({
     queries: CONTEXT_TFS.map((tf) => ({
       queryKey: ["/api/candles-ohlc", ticker, TIMEFRAMES[tf].apiValue],
@@ -86,14 +90,15 @@ export default function MultiTimeframeContext({ ticker, activeTf }: Props) {
       </span>
       {CONTEXT_TFS.map((tf, i) => {
         const q = queries[i];
-        // Loading state stays quiet; failed queries fall to "Not available"
-        // so the strip never blocks the header or shows a scary error.
-        const verdict: Verdict = q.isLoading ? "NA" : classify(q.data);
+        // For 1W/1M we aggregate the fetched 1D bars into weekly/monthly
+        // before classifying, so the verdict reflects the actual swing tape.
+        const bars = maybeAggregate(q.data as OHLCBar[] | undefined, tf);
+        const verdict: Verdict = q.isLoading ? "NA" : classify(bars);
         const style = VERDICT_STYLE[verdict];
         const isActive = tf === activeTf;
-        // 4H and 1D get slightly heavier emphasis — those are the primary
-        // swing-trade lenses per spec.
-        const emphasize = tf === "4H" || tf === "1D";
+        // 4H/1D/1W get heavier emphasis — those are the primary swing
+        // decision timeframes (1M is macro context only).
+        const emphasize = tf === "4H" || tf === "1D" || tf === "1W";
         return (
           <div
             key={tf}

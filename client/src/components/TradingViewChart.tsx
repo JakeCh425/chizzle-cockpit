@@ -52,7 +52,10 @@ interface OHLCBar { time?: number; date?: string; open: number; high: number; lo
 // ── Types ────────────────────────────────────────────────────────────────────
 type ChartStyle = "candles" | "hollow" | "line" | "area" | "volume";
 
-type OverlayKind = "SMA" | "EMA" | "BB" | "VWAP";
+// ATR_TRAIL = Chandelier-style ATR trailing stop (long side, k*ATR below rolling high).
+// WEEKLY_PIVOTS = classic pivot bands (PP + R1/S1/R2/S2) computed from the
+// prior calendar week's H/L/C — the standard swing-trader S/R lattice.
+type OverlayKind = "SMA" | "EMA" | "BB" | "VWAP" | "ATR_TRAIL" | "WEEKLY_PIVOTS";
 type PaneKind = "VOLUME" | "RSI" | "MACD";
 type IndicatorKind = OverlayKind | PaneKind;
 
@@ -136,6 +139,11 @@ function defaultIndicators(): IndicatorConfig[] {
     { id: "ema20",  kind: "EMA",  enabled: false, period: 20,  color: "#f472b6" },
     { id: "bb20",   kind: "BB",   enabled: false, period: 20,  mult: 2, color: "#93c5fd", color2: "#93c5fd", color3: "#60a5fa" },
     { id: "vwap",   kind: "VWAP", enabled: false, color: "#fb923c" },
+    // Swing-trader additions: ATR trailing stop + classic weekly pivots. Both
+    // ship disabled so the default chart isn't cluttered — user opts in from
+    // the Indicators popover. mult=3 is the standard Chandelier k factor.
+    { id: "atrTrail",     kind: "ATR_TRAIL",     enabled: false, period: 22, mult: 3, color: "#f97316" },
+    { id: "weeklyPivots", kind: "WEEKLY_PIVOTS", enabled: false, color: "#22d3ee", color2: "#a78bfa", color3: "#f472b6" },
     { id: "vol",    kind: "VOLUME", enabled: true, color: "#22d3ee" },
     { id: "rsi14",  kind: "RSI",  enabled: true,  period: 14, color: "#a78bfa" },
     { id: "macd",   kind: "MACD", enabled: false, fast: 12, slow: 26, signal: 9, color: "#22d3ee", color2: "#f97316" },
@@ -197,6 +205,101 @@ function bollinger(values: number[], period: number, mult: number): { upper: (nu
     lower[i] = (middle[i] as number) - mult * sd;
   }
   return { upper, middle, lower };
+}
+
+// ── ATR & Weekly Pivots ────────────────────────────────────────────────────
+// True range = max(H-L, |H-prevC|, |L-prevC|). ATR = Wilder-smoothed TR.
+function atr(bars: OHLCBar[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(bars.length).fill(null);
+  if (bars.length < 2 || period <= 0) return out;
+  const trs: number[] = [0];
+  for (let i = 1; i < bars.length; i++) {
+    const c = bars[i], p = bars[i - 1];
+    trs.push(Math.max(c.high - c.low, Math.abs(c.high - p.close), Math.abs(c.low - p.close)));
+  }
+  let prev = 0;
+  for (let i = 1; i <= period && i < bars.length; i++) prev += trs[i];
+  prev = prev / Math.min(period, bars.length - 1);
+  if (period < bars.length) out[period] = prev;
+  for (let i = period + 1; i < bars.length; i++) {
+    prev = ((prev * (period - 1)) + trs[i]) / period;
+    out[i] = prev;
+  }
+  return out;
+}
+
+// Chandelier long trailing stop: highest high over N bars − k × ATR(N).
+// Never ratchets down — stop only moves up. This is the trader's ejection
+// seat for a live swing trade; it also doubles as an objective trend gate.
+function chandelierLong(bars: OHLCBar[], period: number, mult: number): (number | null)[] {
+  const out: (number | null)[] = new Array(bars.length).fill(null);
+  const a = atr(bars, period);
+  let stop: number | null = null;
+  for (let i = period; i < bars.length; i++) {
+    let hh = -Infinity;
+    for (let j = Math.max(0, i - period + 1); j <= i; j++) if (bars[j].high > hh) hh = bars[j].high;
+    const raw = hh - mult * (a[i] as number);
+    // Reset when close breaks below prior stop — otherwise ratchet only up.
+    if (stop == null || bars[i].close < stop) stop = raw;
+    else stop = Math.max(stop, raw);
+    out[i] = stop;
+  }
+  return out;
+}
+
+// Weekly pivots: computed from the PRIOR ISO week's H/L/C. We forward-fill
+// each level across every bar in the current week so the chart shows five
+// stable horizontal segments per week. Works for intraday and daily bars.
+function weeklyPivots(bars: OHLCBar[]): {
+  pp: (number|null)[]; r1: (number|null)[]; s1: (number|null)[]; r2: (number|null)[]; s2: (number|null)[];
+} {
+  const n = bars.length;
+  const pp: (number|null)[] = new Array(n).fill(null);
+  const r1: (number|null)[] = new Array(n).fill(null);
+  const s1: (number|null)[] = new Array(n).fill(null);
+  const r2: (number|null)[] = new Array(n).fill(null);
+  const s2: (number|null)[] = new Array(n).fill(null);
+  if (n === 0) return { pp, r1, s1, r2, s2 };
+
+  // Bucket bars by ISO-week key so we can look up the previous week's OHLC.
+  const keyOf = (t: number): string => {
+    const d = new Date(t * 1000);
+    const u = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+    const day = u.getUTCDay() || 7;
+    u.setUTCDate(u.getUTCDate() + 4 - day);
+    const ys = new Date(Date.UTC(u.getUTCFullYear(), 0, 1));
+    const w = Math.ceil((((u.getTime() - ys.getTime()) / 86_400_000) + 1) / 7);
+    return `${u.getUTCFullYear()}-W${String(w).padStart(2, "0")}`;
+  };
+
+  const weekAgg = new Map<string, { high: number; low: number; close: number }>();
+  const weekOrder: string[] = [];
+  const barWeeks: string[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = (bars[i].time as number) || 0;
+    const k = keyOf(t);
+    barWeeks.push(k);
+    let cur = weekAgg.get(k);
+    if (!cur) { cur = { high: bars[i].high, low: bars[i].low, close: bars[i].close }; weekAgg.set(k, cur); weekOrder.push(k); }
+    else { if (bars[i].high > cur.high) cur.high = bars[i].high; if (bars[i].low < cur.low) cur.low = bars[i].low; cur.close = bars[i].close; }
+  }
+
+  const prevOf = new Map<string, string>();
+  for (let i = 1; i < weekOrder.length; i++) prevOf.set(weekOrder[i], weekOrder[i - 1]);
+
+  for (let i = 0; i < n; i++) {
+    const prevKey = prevOf.get(barWeeks[i]);
+    if (!prevKey) continue;
+    const w = weekAgg.get(prevKey);
+    if (!w) continue;
+    const p = (w.high + w.low + w.close) / 3;
+    pp[i] = p;
+    r1[i] = 2 * p - w.low;
+    s1[i] = 2 * p - w.high;
+    r2[i] = p + (w.high - w.low);
+    s2[i] = p - (w.high - w.low);
+  }
+  return { pp, r1, s1, r2, s2 };
 }
 
 function vwap(bars: OHLCBar[]): (number | null)[] {
@@ -573,6 +676,27 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
         const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
         s.setData(arr.map((v, i) => (v == null ? null : { time: times[i] as UTCTimestamp, value: v })).filter(Boolean) as any);
         overlaySeriesRef.current.set(ind.id, s);
+      } else if (ind.kind === "ATR_TRAIL") {
+        // Chandelier long stop — stepped line so the ratchet is visible.
+        const arr = chandelierLong(bars, ind.period || 22, ind.mult || 3);
+        const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 2, lineStyle: LineStyle.Dashed, priceLineVisible: false, lastValueVisible: false });
+        s.setData(arr.map((v, i) => (v == null ? null : { time: times[i] as UTCTimestamp, value: v })).filter(Boolean) as any);
+        overlaySeriesRef.current.set(ind.id, s);
+      } else if (ind.kind === "WEEKLY_PIVOTS") {
+        const wp = weeklyPivots(bars);
+        const mkCfg = (color: string, style: LineStyle = LineStyle.Solid) => ({ color, lineWidth: 1 as const, lineStyle: style, priceLineVisible: false, lastValueVisible: false });
+        const pp = chart.addSeries(LineSeries, mkCfg(ind.color, LineStyle.Solid));
+        const r1 = chart.addSeries(LineSeries, mkCfg(ind.color2 || ind.color, LineStyle.Dotted));
+        const s1 = chart.addSeries(LineSeries, mkCfg(ind.color2 || ind.color, LineStyle.Dotted));
+        const r2 = chart.addSeries(LineSeries, mkCfg(ind.color3 || ind.color, LineStyle.Dashed));
+        const s2 = chart.addSeries(LineSeries, mkCfg(ind.color3 || ind.color, LineStyle.Dashed));
+        const toData = (arr: (number|null)[]) => arr.map((v, i) => (v == null ? null : { time: times[i] as UTCTimestamp, value: v })).filter(Boolean) as any;
+        pp.setData(toData(wp.pp)); r1.setData(toData(wp.r1)); s1.setData(toData(wp.s1)); r2.setData(toData(wp.r2)); s2.setData(toData(wp.s2));
+        overlaySeriesRef.current.set(`${ind.id}-pp`, pp);
+        overlaySeriesRef.current.set(`${ind.id}-r1`, r1);
+        overlaySeriesRef.current.set(`${ind.id}-s1`, s1);
+        overlaySeriesRef.current.set(`${ind.id}-r2`, r2);
+        overlaySeriesRef.current.set(`${ind.id}-s2`, s2);
       }
     }
 
@@ -665,6 +789,14 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
         } else if (cfg.kind === "VWAP") {
           const v = vwap(bars)[idx];
           if (v != null) ind["VWAP"] = v;
+        } else if (cfg.kind === "ATR_TRAIL") {
+          const v = chandelierLong(bars, cfg.period || 22, cfg.mult || 3)[idx];
+          if (v != null) ind["ATR trail"] = v;
+        } else if (cfg.kind === "WEEKLY_PIVOTS") {
+          const wp = weeklyPivots(bars);
+          if (wp.pp[idx] != null) ind["PP"] = wp.pp[idx] as number;
+          if (wp.r1[idx] != null) ind["R1"] = wp.r1[idx] as number;
+          if (wp.s1[idx] != null) ind["S1"] = wp.s1[idx] as number;
         } else if (cfg.kind === "RSI") {
           const v = rsiSeries(closes, cfg.period || 14)[idx];
           if (v != null) ind["RSI"] = v;

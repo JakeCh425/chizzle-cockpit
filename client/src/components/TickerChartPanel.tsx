@@ -21,6 +21,7 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { apiRequest } from "@/lib/queryClient";
 import { Plus, X, Maximize2, Minimize2, LayoutGrid, Focus, SlidersHorizontal, CandlestickChart as CandleIcon, LineChart as LineIcon, BarChart3 } from "lucide-react";
 import { rsi, rsiZone } from "@/lib/rsi";
+import { aggregateBars } from "@/lib/timeframes";
 import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 
@@ -606,6 +607,93 @@ export function TechnicalSnapshot({ ticker, bars, timeframe }: SnapProps) {
     });
   }
 
+  // ── Weekly Swing Section ───────────────────────────────────────────────
+  // Aggregates the daily bars into weekly OHLC so the swing trader can see
+  // trend + volatility + reward-vs-risk-to-52W-high at a glance without
+  // switching charts. Uses the same bars prop — no extra fetch, no server
+  // change. Only computed when we actually have enough daily history.
+  interface WeeklyRow { label: string; value: string; meaning: string; tone: "green" | "red" | "amber" | "gray" | "blue" }
+  const weeklyRows: WeeklyRow[] = [];
+  if (Array.isArray(bars) && bars.length >= 60) {
+    const weekly = aggregateBars(bars as any, "week");
+    if (weekly.length >= 25) {
+      const wCloses = weekly.map((b: any) => b.close);
+      const wHighs = weekly.map((b: any) => b.high);
+      const wLows = weekly.map((b: any) => b.low);
+      const lastW = wCloses[wCloses.length - 1];
+      const w20 = sma(wCloses, 20).slice(-1)[0];
+      const w50 = wCloses.length >= 50 ? sma(wCloses, 50).slice(-1)[0] : null;
+
+      // Weekly trend: same structure test the daily uses, one degree slower.
+      let wTrendLabel = "Neutral", wTrendMean = "Weekly structure mixed.", wTrendTone: WeeklyRow["tone"] = "gray";
+      if (w20 != null) {
+        if (w50 != null && lastW > w20 && w20 > w50) { wTrendLabel = "Bullish"; wTrendTone = "green"; wTrendMean = "Above rising 20W over 50W — primary weekly uptrend."; }
+        else if (lastW > w20) { wTrendLabel = "Improving"; wTrendTone = "green"; wTrendMean = "Reclaimed the 20W — weekly bias turning up."; }
+        else if (w50 != null && lastW < w20 && w20 < w50) { wTrendLabel = "Bearish"; wTrendTone = "red"; wTrendMean = "Below 20W under 50W — primary weekly downtrend."; }
+        else if (w50 != null && lastW < w20 && lastW > w50) { wTrendLabel = "Weakening"; wTrendTone = "amber"; wTrendMean = "Below 20W but still on 50W — defense line."; }
+      }
+      weeklyRows.push({ label: "Weekly trend", value: wTrendLabel, meaning: wTrendMean, tone: wTrendTone });
+
+      // Weekly ATR(14) — the true weekly volatility, useful for stop sizing.
+      if (weekly.length >= 15) {
+        const trs: number[] = [];
+        for (let i = 1; i < weekly.length; i++) {
+          const cur: any = weekly[i]; const prev: any = weekly[i - 1];
+          trs.push(Math.max(cur.high - cur.low, Math.abs(cur.high - prev.close), Math.abs(cur.low - prev.close)));
+        }
+        const atr14 = trs.slice(-14).reduce((a, b) => a + b, 0) / 14;
+        const atrPct = (atr14 / lastW) * 100;
+        const atrTone: WeeklyRow["tone"] = atrPct > 8 ? "amber" : atrPct < 2 ? "blue" : "green";
+        weeklyRows.push({
+          label: "Weekly ATR(14)",
+          value: `$${fmt2(atr14)} (${fmtPct(atrPct, false)})`,
+          meaning: atrPct > 8 ? "Elevated volatility — use wider stops or smaller size."
+                 : atrPct < 2 ? "Compressed — breakout expansion setup possible."
+                              : "Normal weekly range — standard stop sizing works.",
+          tone: atrTone,
+        });
+      }
+
+      // 52-week high distance — classic swing progress meter.
+      const hi52 = Math.max(...wHighs.slice(-52));
+      const lo52 = Math.min(...wLows.slice(-52));
+      const distHi = ((lastW - hi52) / hi52) * 100; // negative when below high
+      const distHiTone: WeeklyRow["tone"] = distHi >= -1 ? "green" : distHi >= -8 ? "blue" : distHi >= -20 ? "amber" : "red";
+      weeklyRows.push({
+        label: "52W high dist",
+        value: `${fmtPct(distHi)}  ·  hi $${fmt2(hi52)}`,
+        meaning: distHi >= -1 ? "At or near 52-week high — leadership tape."
+               : distHi >= -8 ? "Base near highs — constructive pullback."
+               : distHi >= -20 ? "Corrective — wait for reclaim before size."
+                               : "Deep drawdown — relief bounce only, no trend trade.",
+        tone: distHiTone,
+      });
+
+      // 52-week low distance — fast read on capital-preservation risk.
+      const distLo = ((lastW - lo52) / lo52) * 100;
+      weeklyRows.push({
+        label: "52W low dist",
+        value: `${fmtPct(distLo)}  ·  lo $${fmt2(lo52)}`,
+        meaning: distLo <= 5 ? "Sitting on 52-week low — no bull setup here." : "Cushion above the yearly low.",
+        tone: distLo <= 5 ? "red" : "gray",
+      });
+
+      // Weekly RSI(14) — slower swing momentum than daily RSI.
+      const wRsiSeries = rsi(wCloses, 14);
+      const wRsi = wRsiSeries[wRsiSeries.length - 1];
+      if (wRsi != null) {
+        const wri = rsiZone(Number(wRsi));
+        const toneMap: Record<string, WeeklyRow["tone"]> = { green: "green", amber: "amber", red: "red", blue: "blue", gray: "gray" };
+        weeklyRows.push({
+          label: "Weekly RSI 14",
+          value: `${Number(wRsi).toFixed(1)} · ${wri.label}`,
+          meaning: wri.meaning,
+          tone: toneMap[wri.tone] ?? "gray",
+        });
+      }
+    }
+  }
+
   const action: string = card.action || "STAND DOWN";
   const suggestedAction =
     action === "ENTER — SMALL" ? "Enter standard size on the trigger. Stop at listed invalidation level."
@@ -656,6 +744,37 @@ export function TechnicalSnapshot({ ticker, bars, timeframe }: SnapProps) {
           );
         })}
       </div>
+
+      {/* Weekly Swing section — aggregated from the same daily bars. Only
+          renders when we have enough history to be meaningful. */}
+      {weeklyRows.length > 0 && (
+        <div className="space-y-1.5" data-testid="weekly-swing-section">
+          <div className="flex items-center gap-1.5 px-0.5 pt-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-gray">Weekly Swing</span>
+            <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-signal-amber/10 text-signal-amber border border-signal-amber/30">1W</span>
+            <span className="text-[9px] text-slate-gray/70">aggregated from daily bars</span>
+          </div>
+          {weeklyRows.map((r, i) => {
+            const dot =
+              r.tone === "green" ? "bg-signal-green" :
+              r.tone === "red"   ? "bg-signal-red" :
+              r.tone === "amber" ? "bg-signal-amber" :
+              r.tone === "blue"  ? "bg-neon-blue" : "bg-slate-gray/60";
+            return (
+              <div key={`w-${i}`} className="rounded border border-ink-line bg-ink-panel/40 p-2" data-testid={`weekly-row-${r.label}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className={`inline-block w-1.5 h-1.5 rounded-full ${dot}`} />
+                    <span className="text-[10px] uppercase tracking-wider text-slate-gray truncate">{r.label}</span>
+                  </div>
+                  <span className="font-mono text-[11px] text-soft-white tabular-nums truncate">{r.value}</span>
+                </div>
+                <div className="text-[10px] text-slate-gray leading-snug mt-0.5">{r.meaning}</div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       <div className="rounded border border-ink-line bg-ink-black/60 p-2">
         <div className="text-[9px] uppercase tracking-wider text-slate-gray mb-0.5">Next Step</div>
