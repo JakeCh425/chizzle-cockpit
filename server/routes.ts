@@ -2755,5 +2755,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ─── Finnhub company profile + basic metrics (for MarketPulse hover) ────
+  // Thin passthrough that reuses the same FINNHUB_API_KEY already in env.
+  // Never 4xx/5xx to the client — always returns { profile, metric } with
+  // nulls on failure so the hover card degrades gracefully instead of
+  // erroring. Cached in-memory 10 minutes since profiles rarely change.
+  const finnhubProfileCache = new Map<string, { t: number; data: any }>();
+  const FINNHUB_PROFILE_TTL = 10 * 60_000;
+  app.get("/api/finnhub-profile/:symbol", async (req, res) => {
+    const symbol = String(req.params.symbol || "").toUpperCase().trim();
+    if (!symbol) return res.json({ profile: null, metric: null });
+    const cached = finnhubProfileCache.get(symbol);
+    if (cached && Date.now() - cached.t < FINNHUB_PROFILE_TTL) {
+      return res.json(cached.data);
+    }
+    const token = process.env.FINNHUB_API_KEY || process.env.FINNHUB_TOKEN || "";
+    if (!token) return res.json({ profile: null, metric: null, warning: "FINNHUB_API_KEY not set" });
+    try {
+      const [profRes, metRes] = await Promise.all([
+        fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${encodeURIComponent(symbol)}`, { headers: { "X-Finnhub-Token": token } }),
+        fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${encodeURIComponent(symbol)}&metric=all`, { headers: { "X-Finnhub-Token": token } }),
+      ]);
+      const profile = profRes.ok ? await profRes.json() : null;
+      const metricJson = metRes.ok ? await metRes.json() : null;
+      const metric = metricJson?.metric || null;
+      const out = { profile, metric };
+      finnhubProfileCache.set(symbol, { t: Date.now(), data: out });
+      res.json(out);
+    } catch (e: any) {
+      // Log but don't fail — the hover card must stay resilient.
+      console.warn(`[finnhub-profile] ${symbol} failed:`, e?.message || e);
+      res.json({ profile: null, metric: null, error: e?.message || String(e) });
+    }
+  });
+
   return httpServer;
 }

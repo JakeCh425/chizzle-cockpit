@@ -15,12 +15,13 @@
 // Data missing on any leg -> shown as a dash, no fake status.
 
 import { useQuery, useQueries } from "@tanstack/react-query";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { apiRequest } from "@/lib/queryClient";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 import Sparkline from "@/components/charts/Sparkline";
-import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
-import { Activity, ChevronDown, ChevronRight, Plus, X } from "lucide-react";
+import { useCockpitTicker } from "@/components/CockpitTickerContext";
+import { Activity, ChevronDown, ChevronRight, Plus, X, ArrowUp, ArrowDown } from "lucide-react";
+import CoreTickerHoverCard from "@/components/CoreTickerHoverCard";
 import type { Settings } from "@shared/schema";
 
 // Ticker symbol size, driven by settings.vehicleTickerScale.
@@ -94,13 +95,19 @@ interface RowProps {
   ticker: string;
   active: boolean;
   onClick: () => void;
-  /** When provided, renders a × that removes this row. Core (SMH/SPY/QQQ) omit this. */
+  /** × button on watch rows removes the ticker entirely. */
   onRemove?: () => void;
+  /** Down-arrow on Core rows demotes to Watch (stays in list, unpinned). */
+  onDemote?: () => void;
+  /** Up-arrow on Watch rows promotes to Core (may bump the last Core out). */
+  onPromote?: () => void;
   tickerScaleCls: string;
   bodyColor: string;
   isCore: boolean;
+  /** When true (Core rows), a rich hover card is rendered. */
+  showHoverCard: boolean;
 }
-function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColor, isCore }: RowProps) {
+function TickerRow({ ticker, active, onClick, onRemove, onDemote, onPromote, tickerScaleCls, bodyColor, isCore, showHoverCard }: RowProps) {
   const quotes = useLiveQuotes();
   const q = quotes[ticker];
   const barsQ = useQuery<OHLCBar[]>({
@@ -118,6 +125,21 @@ function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColo
   // Last 20 closes for the sparkline. Falls back to empty (Sparkline handles it).
   const spark = bars ? bars.slice(-20).map((b) => b.close) : [];
   const chgPct = q?.changePct ?? null;
+
+  // Hover card: opens on mouseenter with a 250ms delay so brief mouse
+  // travel through the row doesn't spawn cards. Closes immediately on leave.
+  const [hovering, setHovering] = useState(false);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => { if (hoverTimer.current) clearTimeout(hoverTimer.current); }, []);
+  const openHover = () => {
+    if (!showHoverCard) return;
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHovering(true), 250);
+  };
+  const closeHover = () => {
+    if (hoverTimer.current) { clearTimeout(hoverTimer.current); hoverTimer.current = null; }
+    setHovering(false);
+  };
   const chgTone =
     chgPct == null ? "text-slate-gray" :
     chgPct > 0 ? "text-signal-green" :
@@ -129,13 +151,15 @@ function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColo
   return (
     <div
       data-testid={`pulse-row-${ticker}`}
-      className={`w-full rounded border px-2.5 py-2 flex items-center gap-3 transition-colors ${
+      onMouseEnter={openHover}
+      onMouseLeave={closeHover}
+      className={`relative w-full rounded border px-2.5 py-2 flex items-center gap-3 transition-colors ${
         active
           ? "border-neon-blue bg-neon-blue/8"
           : "border-ink-line bg-ink-panel/30 hover:border-slate-gray hover:bg-ink-panel/60"
       }`}
     >
-      {/* Whole row (minus the trash) is a click target for focusing the chart. */}
+      {/* Whole row (minus the action buttons) is a click target for focusing the chart. */}
       <button onClick={onClick} className="flex-1 min-w-0 text-left flex items-center gap-3">
       <div className="flex-shrink-0 w-16">
         <div
@@ -147,7 +171,7 @@ function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColo
           className="text-[9px] uppercase tracking-wider"
           style={isCore ? { color: bodyColor } : undefined}
         >
-          {DEFAULT_CHIPS.includes(ticker) ? "core" : "watch"}
+          {isCore ? "core" : "watch"}
         </div>
       </div>
       <div className="flex-shrink-0 w-16 text-right font-mono">
@@ -175,16 +199,48 @@ function TickerRow({ ticker, active, onClick, onRemove, tickerScaleCls, bodyColo
         )}
       </div>
       </button>
-      {/* Remove control — core rows (SMH/SPY/QQQ) can't be removed; watch rows can. */}
-      {onRemove && !isCore && (
-        <button
-          onClick={(e) => { e.stopPropagation(); onRemove(); }}
-          data-testid={`pulse-remove-${ticker}`}
-          title={`Remove ${ticker} from Market Pulse`}
-          className="flex-shrink-0 text-slate-gray/60 hover:text-signal-red p-1 rounded hover:bg-signal-red/10"
-        >
-          <X className="h-3 w-3" />
-        </button>
+      {/* Row action buttons — Core gets ↓ (demote), Watch gets ↑ (promote) + × (remove).
+          Demoting Core just unpins it; the ticker stays in the list as Watch.
+          Promoting Watch bumps the last Core row down if Core is at cap. */}
+      <div className="flex-shrink-0 flex items-center gap-0.5">
+        {isCore && onDemote && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDemote(); }}
+            data-testid={`pulse-demote-${ticker}`}
+            title={`Move ${ticker} out of Core (keeps it in Watch)`}
+            className="text-slate-gray/60 hover:text-signal-amber p-1 rounded hover:bg-signal-amber/10"
+          >
+            <ArrowDown className="h-3 w-3" />
+          </button>
+        )}
+        {!isCore && onPromote && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onPromote(); }}
+            data-testid={`pulse-promote-${ticker}`}
+            title={`Pin ${ticker} to Core (bumps the last Core out)`}
+            className="text-slate-gray/60 hover:text-neon-blue p-1 rounded hover:bg-neon-blue/10"
+          >
+            <ArrowUp className="h-3 w-3" />
+          </button>
+        )}
+        {!isCore && onRemove && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onRemove(); }}
+            data-testid={`pulse-remove-${ticker}`}
+            title={`Remove ${ticker} from Market Pulse`}
+            className="text-slate-gray/60 hover:text-signal-red p-1 rounded hover:bg-signal-red/10"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        )}
+      </div>
+
+      {/* Hover card — rich trade idea + fundamentals + readiness meter.
+          Anchored to right side of the row; z-index above sibling rows. */}
+      {showHoverCard && hovering && (
+        <div className="absolute z-50 left-full top-0 ml-2 pointer-events-none">
+          <CoreTickerHoverCard ticker={ticker} />
+        </div>
       )}
     </div>
   );
@@ -196,7 +252,7 @@ interface MarketPulsePanelProps {
 }
 
 export default function MarketPulsePanel({ compact = false }: MarketPulsePanelProps = {}) {
-  const { chips, active, select, add, remove } = useCockpitTicker();
+  const { chips, coreChips, active, select, add, remove, isCore, promoteToCore, demoteFromCore } = useCockpitTicker();
   const [collapsed, setCollapsed] = useState(false);
   const [addValue, setAddValue] = useState("");
 
@@ -212,10 +268,11 @@ export default function MarketPulsePanel({ compact = false }: MarketPulsePanelPr
   const tickerScaleCls = TICKER_SCALE_CLS[settingsQ.data?.vehicleTickerScale || "lg"] || TICKER_SCALE_CLS.lg;
   const bodyColor = settingsQ.data?.vehicleBodyColor || "#94a3b8";
 
-  // Order: defaults (SMH, SPY, QQQ) first, then user-added.
+  // Order: Core rows first (in Core order), then everything else in
+  // insertion order. Core is editable now — no more DEFAULT_CHIPS pinning.
   const ordered = [
-    ...DEFAULT_CHIPS.filter((d) => chips.includes(d)),
-    ...chips.filter((c) => !DEFAULT_CHIPS.includes(c)),
+    ...coreChips.filter((c) => chips.includes(c)),
+    ...chips.filter((c) => !coreChips.includes(c)),
   ];
 
   return (
@@ -245,22 +302,29 @@ export default function MarketPulsePanel({ compact = false }: MarketPulsePanelPr
       {!collapsed && (
         <>
           <div className="space-y-1.5">
-            {ordered.map((t) => (
-              <TickerRow
-                key={t}
-                ticker={t}
-                active={t === active}
-                onClick={() => select(t)}
-                onRemove={DEFAULT_CHIPS.includes(t) ? undefined : () => remove(t)}
-                tickerScaleCls={tickerScaleCls}
-                bodyColor={bodyColor}
-                isCore={DEFAULT_CHIPS.includes(t)}
-              />
-            ))}
+            {ordered.map((t) => {
+              const core = isCore(t);
+              return (
+                <TickerRow
+                  key={t}
+                  ticker={t}
+                  active={t === active}
+                  onClick={() => select(t)}
+                  onRemove={core ? undefined : () => remove(t)}
+                  onDemote={core ? () => demoteFromCore(t) : undefined}
+                  onPromote={core ? undefined : () => promoteToCore(t)}
+                  tickerScaleCls={tickerScaleCls}
+                  bodyColor={bodyColor}
+                  isCore={core}
+                  showHoverCard={core}
+                />
+              );
+            })}
           </div>
 
-          {/* Add-ticker input. Core three (SMH/SPY/QQQ) stay pinned above.
-              Anything added lives below and can be removed via the row ×. */}
+          {/* Add-ticker input. New tickers land in Watch; use the ↑ to
+              promote into Core (capped at 3). Removing from Core with the
+              ↓ leaves the ticker in Watch so nothing is lost. */}
           <form
             onSubmit={(e) => { e.preventDefault(); submitAdd(); }}
             className="flex items-center gap-1.5 pt-1"
