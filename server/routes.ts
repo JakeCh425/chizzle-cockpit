@@ -2789,5 +2789,128 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── MTF Signal Engine ──────────────────────────────────────────────────
+  // Multi-timeframe swing signal system. Cards live in mtf_signals; the
+  // TradingView webhook is authoritative for 4H/1H closed bars; regimes
+  // are recomputed server-side from the daily feed.
+  const { handleWebhook, recomputeUniverseRegimes } = await import("./mtfSignalEngine");
+  const { db } = await import("./storage");
+  const { mtfSignals, mtfUniverse, mtfWebhookEvents, insertMtfUniverseSchema } = await import("@shared/schema");
+  const { and, desc, eq } = await import("drizzle-orm");
+
+  // Seed default universe on first boot so the panel isn't blank.
+  try {
+    const exists = await db.select().from(mtfUniverse).limit(1);
+    if (exists.length === 0) {
+      const seed = [
+        { symbol: "SMH",  exchange: "NASDAQ", sortOrder: 10 },
+        { symbol: "SPY",  exchange: "AMEX",   sortOrder: 20 },
+        { symbol: "QQQ",  exchange: "NASDAQ", sortOrder: 30 },
+        { symbol: "IWM",  exchange: "AMEX",   sortOrder: 40 },
+        { symbol: "NVDA", exchange: "NASDAQ", sortOrder: 50 },
+      ];
+      for (const s of seed) await db.insert(mtfUniverse).values(s as any).onConflictDoNothing();
+    }
+  } catch (err) {
+    console.warn("[mtf] universe seed skipped:", (err as any)?.message || err);
+  }
+
+  // List every active card (WATCH → READY_TO_TRADE), newest first.
+  app.get("/api/mtf/signals", async (_req, res) => {
+    try {
+      const rows = await db.select().from(mtfSignals)
+        .where(eq(mtfSignals.archived, false))
+        .orderBy(desc(mtfSignals.updatedAt));
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
+  // Universe CRUD — the panel's ticker manager writes here.
+  app.get("/api/mtf/universe", async (_req, res) => {
+    try {
+      const rows = await db.select().from(mtfUniverse).orderBy(mtfUniverse.sortOrder);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+  app.post("/api/mtf/universe", async (req, res) => {
+    try {
+      const data = insertMtfUniverseSchema.parse(req.body || {});
+      const [row] = await db.insert(mtfUniverse).values(data as any).returning();
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ error: e?.message || String(e) }); }
+  });
+  app.patch("/api/mtf/universe/:id", async (req, res) => {
+    try {
+      const [row] = await db.update(mtfUniverse)
+        .set({ ...req.body, updatedAt: new Date() } as any)
+        .where(eq(mtfUniverse.id, req.params.id))
+        .returning();
+      res.json(row);
+    } catch (e: any) { res.status(400).json({ error: e?.message || String(e) }); }
+  });
+  app.delete("/api/mtf/universe/:id", async (req, res) => {
+    try {
+      await db.delete(mtfUniverse).where(eq(mtfUniverse.id, req.params.id));
+      res.json({ ok: true });
+    } catch (e: any) { res.status(400).json({ error: e?.message || String(e) }); }
+  });
+
+  // Manual recompute — the UI's Refresh button hits this. Cheap (regime only).
+  app.post("/api/mtf/recompute", async (_req, res) => {
+    try {
+      const out = await recomputeUniverseRegimes();
+      res.json(out);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
+  // TradingView webhook. Alerts should be set to "Once Per Bar Close" only.
+  // Validates shared secret + universe membership; every event is logged
+  // to mtf_webhook_events for audit regardless of accept/reject.
+  app.post("/api/tradingview-alert", async (req, res) => {
+    const payload = req.body || {};
+    const secret = process.env.TRADINGVIEW_WEBHOOK_SECRET || "";
+    try {
+      const result = await handleWebhook(payload, secret);
+      // Always audit the event (with raw payload) — makes mismatch investigation possible.
+      try {
+        await db.insert(mtfWebhookEvents).values({
+          symbol: String(payload?.symbol || "").split(":").pop()?.toUpperCase() || "",
+          exchange: String(payload?.symbol || "").includes(":") ? String(payload.symbol).split(":")[0].toUpperCase() : "",
+          interval: String(payload?.interval || ""),
+          barCloseTime: payload?.bar_close_time ? new Date(isNaN(Number(payload.bar_close_time)) ? payload.bar_close_time : Number(payload.bar_close_time) * 1000) : new Date(),
+          open: Number(payload?.open) || 0,
+          high: Number(payload?.high) || 0,
+          low: Number(payload?.low) || 0,
+          close: Number(payload?.close) || 0,
+          volume: payload?.volume != null ? Number(payload.volume) : null,
+          setup: payload?.setup || null,
+          status: payload?.status || null,
+          accepted: result.accepted,
+          rejectReason: result.accepted ? null : (result.reason || "rejected"),
+          signalId: result.signalId || null,
+          rawPayload: payload,
+        } as any);
+      } catch (auditErr) {
+        console.warn("[tradingview-alert] audit write failed:", (auditErr as any)?.message || auditErr);
+      }
+      if (!result.accepted) return res.status(400).json({ ok: false, reason: result.reason });
+      res.json({ ok: true, signalId: result.signalId, card: result.card, note: result.reason });
+    } catch (e: any) {
+      console.error("[tradingview-alert] error:", e);
+      res.status(500).json({ ok: false, reason: e?.message || String(e) });
+    }
+  });
+
+  // Last N webhook events — for the panel's audit strip.
+  app.get("/api/mtf/webhook-events", async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 25, 200);
+      const rows = await db.select().from(mtfWebhookEvents)
+        .orderBy(desc(mtfWebhookEvents.receivedAt))
+        .limit(limit);
+      res.json(rows);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
   return httpServer;
 }

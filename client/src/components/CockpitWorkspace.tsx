@@ -22,6 +22,7 @@ import MultiTimeframeContext from "@/components/MultiTimeframeContext";
 import { useEffect, useMemo, useState } from "react";
 import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
+import MTFSignalsPanel from "@/components/MTFSignalsPanel";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
 
@@ -99,6 +100,7 @@ export default function CockpitWorkspace() {
           mtfStrip={<MultiTimeframeContext ticker={ticker} activeTf={timeframe} />}
         />
         <TradePlanWorkspace />
+        <MTFSignalsPanel />
       </div>
 
       {/* RIGHT COLUMN */}

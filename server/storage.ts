@@ -437,6 +437,91 @@ CREATE TABLE IF NOT EXISTS chart_layouts (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_chart_layouts_ticker ON chart_layouts(ticker);
+
+-- ── MTF Signal Engine (Chizzle Wealth Engine) ──────────────────────────
+-- Multi-timeframe swing signal cards. One active row per (symbol, archived=false).
+CREATE TABLE IF NOT EXISTS mtf_signals (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  symbol TEXT NOT NULL,
+  exchange TEXT NOT NULL,
+  grade TEXT NOT NULL DEFAULT 'WATCH',
+  status TEXT NOT NULL DEFAULT 'FORMING',
+  setup_type TEXT,
+  trade_label TEXT NOT NULL DEFAULT 'DAY',
+  weekly_regime TEXT NOT NULL DEFAULT 'NEUTRAL',
+  weekly_sma20 DOUBLE PRECISION,
+  weekly_dist_pct DOUBLE PRECISION,
+  weekly_reclaim_forming BOOLEAN NOT NULL DEFAULT false,
+  daily_regime TEXT NOT NULL DEFAULT 'NEUTRAL',
+  daily_sma20 DOUBLE PRECISION,
+  daily_dist_pct DOUBLE PRECISION,
+  setup_high DOUBLE PRECISION,
+  setup_low DOUBLE PRECISION,
+  setup_bar_close_time TIMESTAMPTZ,
+  setup_expires_at TIMESTAMPTZ,
+  h1_confirmed_at TIMESTAMPTZ,
+  h1_close_above_trigger DOUBLE PRECISION,
+  entry_price DOUBLE PRECISION,
+  stop_price DOUBLE PRECISION,
+  target1 DOUBLE PRECISION,
+  target2 DOUBLE PRECISION,
+  target1_rr DOUBLE PRECISION,
+  target2_rr DOUBLE PRECISION,
+  risk_per_share DOUBLE PRECISION,
+  suggested_shares DOUBLE PRECISION,
+  max_dollar_risk DOUBLE PRECISION NOT NULL DEFAULT 100,
+  data_vendor TEXT NOT NULL DEFAULT 'unknown',
+  session_type TEXT NOT NULL DEFAULT 'RTH',
+  last_completed_bar_time TIMESTAMPTZ,
+  current_price DOUBLE PRECISION,
+  quote_timestamp TIMESTAMPTZ,
+  tv_source_close DOUBLE PRECISION,
+  tv_source_time TIMESTAMPTZ,
+  data_mismatch_pct DOUBLE PRECISION,
+  diagnostics JSONB NOT NULL DEFAULT '{}'::jsonb,
+  archived BOOLEAN NOT NULL DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_mtf_signals_symbol ON mtf_signals(symbol);
+CREATE INDEX IF NOT EXISTS idx_mtf_signals_archived ON mtf_signals(archived);
+CREATE INDEX IF NOT EXISTS idx_mtf_signals_updated ON mtf_signals(updated_at DESC);
+
+-- Every TradingView webhook is logged here (accepted or rejected).
+CREATE TABLE IF NOT EXISTS mtf_webhook_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  symbol TEXT NOT NULL,
+  exchange TEXT NOT NULL,
+  interval TEXT NOT NULL,
+  bar_close_time TIMESTAMPTZ NOT NULL,
+  open DOUBLE PRECISION NOT NULL,
+  high DOUBLE PRECISION NOT NULL,
+  low DOUBLE PRECISION NOT NULL,
+  close DOUBLE PRECISION NOT NULL,
+  volume DOUBLE PRECISION,
+  setup TEXT,
+  status TEXT,
+  accepted BOOLEAN NOT NULL,
+  reject_reason TEXT,
+  signal_id UUID,
+  raw_payload JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_mtf_webhook_events_received ON mtf_webhook_events(received_at DESC);
+CREATE INDEX IF NOT EXISTS idx_mtf_webhook_events_symbol ON mtf_webhook_events(symbol);
+
+-- User-editable universe of tracked tickers for the MTF engine.
+CREATE TABLE IF NOT EXISTS mtf_universe (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  symbol TEXT NOT NULL,
+  exchange TEXT NOT NULL,
+  enabled BOOLEAN NOT NULL DEFAULT true,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_mtf_universe_symbol_exchange ON mtf_universe(symbol, exchange);
 `);
 
   // Idempotent column additions (Postgres supports ADD COLUMN IF NOT EXISTS natively)

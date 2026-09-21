@@ -679,3 +679,138 @@ export const insertProximityUniverseSchema = createInsertSchema(proximityUnivers
 
 export type ProximityUniverseRow = typeof proximityUniverse.$inferSelect;
 export type InsertProximityUniverse = z.infer<typeof insertProximityUniverseSchema>;
+
+// ─── MTF Signal Engine ───────────────────────────────────────────────────────
+// Multi-timeframe swing signal system per Chizzle Wealth Engine spec.
+// Weekly = regime filter, Daily = eligibility, 4H = setup detection,
+// 1H = entry confirmation. Long-only. Analysis cards only — never orders.
+
+export const MTF_CARD_GRADES = ["A4", "A3", "A2", "WATCH", "NO_TRADE"] as const;
+export const MTF_CARD_STATUSES = [
+  "FORMING",         // intrabar informational only
+  "CONFIRMED",       // 4H setup closed and passing
+  "READY_TO_TRADE",  // 1H confirmation printed, full trade plan valid
+  "EARLY_TRIGGER",   // fast 1H confirmation (higher risk)
+  "EXPIRED",         // 2 4H bars passed without 1H confirmation
+  "DATA_MISMATCH",   // app vs TradingView close disagrees
+] as const;
+export const MTF_SETUP_TYPES = [
+  "HAMMER",
+  "BULLISH_ENGULFING",
+  "STRONG_BULL_BAR_CLUSTER",
+  "AGGRESSIVE_BOUNCE",
+  "BREAKOUT_RETEST",
+] as const;
+export const MTF_TRADE_LABELS = ["INTRADAY", "SWING", "COUNTERTREND_PRACTICE"] as const;
+
+// One row = one active or archived multi-timeframe card. Cards move through
+// FORMING → CONFIRMED → READY_TO_TRADE → EXPIRED. Recomputed on each webhook
+// event or engine tick; the row's updatedAt tracks the most recent evaluation.
+export const mtfSignals = pgTable("mtf_signals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  symbol: text("symbol").notNull(),                    // e.g. "SMH"
+  exchange: text("exchange").notNull().default("NASDAQ"), // e.g. "NASDAQ" — spec requires exchange-qualified
+  grade: text("grade").notNull().default("WATCH"),     // A4 | A3 | A2 | WATCH | NO_TRADE
+  status: text("status").notNull().default("FORMING"),
+  setupType: text("setup_type"),                       // one of MTF_SETUP_TYPES or null
+  tradeLabel: text("trade_label").notNull().default("SWING"),
+  // Regime context (captured at last engine run)
+  weeklyRegime: text("weekly_regime").notNull().default("NEUTRAL"), // GREEN | NEUTRAL | RED
+  weeklySma20: doublePrecision("weekly_sma20"),
+  weeklyDistPct: doublePrecision("weekly_dist_pct"),
+  weeklyReclaimForming: boolean("weekly_reclaim_forming").notNull().default(false),
+  dailyRegime: text("daily_regime").notNull().default("NEUTRAL"),   // RECLAIMED | PULLBACK_VALID | NEUTRAL | RED
+  dailySma20: doublePrecision("daily_sma20"),
+  dailyDistPct: doublePrecision("daily_dist_pct"),
+  // 4H setup snapshot (captured on confirmation)
+  setupHigh: doublePrecision("setup_high"),            // trigger level
+  setupLow: doublePrecision("setup_low"),              // structural stop reference
+  setupBarCloseTime: timestamp("setup_bar_close_time", { withTimezone: true }),
+  setupConfirmedAt: timestamp("setup_confirmed_at", { withTimezone: true }),
+  setupExpiresAt: timestamp("setup_expires_at", { withTimezone: true }),
+  // 1H confirmation
+  h1ConfirmedAt: timestamp("h1_confirmed_at", { withTimezone: true }),
+  h1CloseAboveTrigger: doublePrecision("h1_close_above_trigger"),
+  // Trade plan (computed on READY_TO_TRADE)
+  entryPrice: doublePrecision("entry_price"),
+  stopPrice: doublePrecision("stop_price"),
+  stopBufferPct: doublePrecision("stop_buffer_pct").notNull().default(0.5),
+  target1: doublePrecision("target1"),
+  target2: doublePrecision("target2"),
+  target1Rr: doublePrecision("target1_rr"),
+  target2Rr: doublePrecision("target2_rr"),
+  riskPerShare: doublePrecision("risk_per_share"),
+  suggestedShares: integer("suggested_shares"),
+  maxDollarRisk: doublePrecision("max_dollar_risk").notNull().default(100),
+  // Data feed metadata (per spec §1 — must be displayed on every card)
+  dataVendor: text("data_vendor").notNull().default("app-internal"),
+  sessionType: text("session_type").notNull().default("RTH"),
+  lastCompletedBarTime: timestamp("last_completed_bar_time", { withTimezone: true }),
+  currentPrice: doublePrecision("current_price"),
+  quoteTimestamp: timestamp("quote_timestamp", { withTimezone: true }),
+  tvSourceClose: doublePrecision("tv_source_close"),
+  tvSourceTime: timestamp("tv_source_time", { withTimezone: true }),
+  dataMismatchPct: doublePrecision("data_mismatch_pct"),
+  // Diagnostics blob (why passed / why failed, support/resistance, volume)
+  diagnostics: jsonb("diagnostics").notNull().default({}),
+  // Housekeeping
+  archived: boolean("archived").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertMtfSignalSchema = createInsertSchema(mtfSignals)
+  .omit({ id: true, createdAt: true, updatedAt: true });
+
+export type MtfSignal = typeof mtfSignals.$inferSelect;
+export type InsertMtfSignal = z.infer<typeof insertMtfSignalSchema>;
+
+// Every TradingView webhook POST — kept for audit and mismatch investigation.
+export const mtfWebhookEvents = pgTable("mtf_webhook_events", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").notNull().default(""),
+  interval: text("interval").notNull(),                // "60"=1H "240"=4H "1D"=daily "1W"=weekly
+  barCloseTime: timestamp("bar_close_time", { withTimezone: true }).notNull(),
+  open: doublePrecision("open").notNull(),
+  high: doublePrecision("high").notNull(),
+  low: doublePrecision("low").notNull(),
+  close: doublePrecision("close").notNull(),
+  volume: doublePrecision("volume"),
+  setup: text("setup"),
+  status: text("status"),
+  accepted: boolean("accepted").notNull().default(false),
+  rejectReason: text("reject_reason"),
+  signalId: uuid("signal_id"),                          // resulting mtf_signals.id if any
+  rawPayload: jsonb("raw_payload").notNull(),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertMtfWebhookEventSchema = createInsertSchema(mtfWebhookEvents)
+  .omit({ id: true, receivedAt: true });
+
+export type MtfWebhookEvent = typeof mtfWebhookEvents.$inferSelect;
+export type InsertMtfWebhookEvent = z.infer<typeof insertMtfWebhookEventSchema>;
+
+// User-editable universe of symbols the engine tracks. Separate from
+// proximity_universe/tickers so the MTF scope stays intentional.
+export const mtfUniverse = pgTable("mtf_universe", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  symbol: text("symbol").notNull().unique(),
+  exchange: text("exchange").notNull().default("NASDAQ"),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(100),
+  notes: text("notes").default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertMtfUniverseSchema = createInsertSchema(mtfUniverse)
+  .omit({ id: true, createdAt: true, updatedAt: true })
+  .extend({
+    symbol: z.string().min(1).max(12).transform((s) => s.trim().toUpperCase()),
+    exchange: z.string().min(1).max(12).transform((s) => s.trim().toUpperCase()),
+  });
+
+export type MtfUniverseRow = typeof mtfUniverse.$inferSelect;
+export type InsertMtfUniverse = z.infer<typeof insertMtfUniverseSchema>;
