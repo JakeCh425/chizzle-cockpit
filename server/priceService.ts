@@ -989,25 +989,48 @@ export async function fetchTwelveDataDailyOHLC(
 ): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
   const apiKey = process.env.TWELVE_DATA_API_KEY;
   if (!apiKey) return null;
-  try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=400&apikey=${apiKey}&format=JSON`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    if (j?.status === "error" || !Array.isArray(j?.values)) return null;
-    const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
-    for (const v of [...j.values].reverse()) {
-      const t = Math.floor(new Date(v.datetime + "T00:00:00Z").getTime() / 1000);
-      const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
-      if ([t, o, h, l, c].every(Number.isFinite)) {
-        out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+
+  const cacheKey = `${symbol}:1day`;
+  const hit = twelveDataDailyOHLCCache.get(cacheKey);
+  if (hit && Date.now() - hit.t < twelveDataDailyOHLCTTL) return hit.data;
+  if (twelveDataShouldSkip()) return null;
+
+  return coalesce(`daily-ohlc:${cacheKey}`, async () => {
+    const hit2 = twelveDataDailyOHLCCache.get(cacheKey);
+    if (hit2 && Date.now() - hit2.t < twelveDataDailyOHLCTTL) return hit2.data;
+    if (twelveDataShouldSkip()) return null;
+
+    try {
+      const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=1day&outputsize=400&apikey=${apiKey}&format=JSON`;
+      twelveDataMarkCall();
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) { twelveDataMarkFailure(r.status, r.statusText); return null; }
+      const j: any = await r.json();
+      if (j?.status === "error" || !Array.isArray(j?.values)) {
+        twelveDataMarkFailure(typeof j?.code === "number" ? j.code : null, j?.message || null);
+        return null;
       }
+      const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
+      for (const v of [...j.values].reverse()) {
+        const t = Math.floor(new Date(v.datetime + "T00:00:00Z").getTime() / 1000);
+        const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
+        if ([t, o, h, l, c].every(Number.isFinite)) {
+          out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+        }
+      }
+      if (out.length === 0) return null;
+      twelveDataDailyOHLCCache.set(cacheKey, { data: out, t: Date.now() });
+      return out;
+    } catch {
+      return null;
     }
-    return out.length > 0 ? out : null;
-  } catch {
-    return null;
-  }
+  });
 }
+// Daily bars only advance once per session close — a longer TTL is safe and
+// cuts a big chunk of the credit budget when monitors ask for the same symbol
+// over and over during the day.
+const twelveDataDailyOHLCCache = new Map<string, { data: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>; t: number }>();
+const twelveDataDailyOHLCTTL = 60 * 60_000; // 60 min
 
 // ─── Yahoo OHLC bars (1d / 1h) — same chart endpoint as fetchYahooBars,
 // but returns the full open/high/low/close/volume tuple needed by candlestick
@@ -1075,6 +1098,81 @@ export async function fetchYahooBarsOHLC(
 const TWELVE_DATA_CACHE = new Map<string, { data: { time: number; close: number; volume?: number }[]; t: number }>();
 const TWELVE_DATA_TTL_MS = 10 * 60_000; // 10 min — 4H bars only update every 4h
 
+// ─── Twelve Data credit guard ───────────────────────────────────────────────
+// Free tier: 8 credits/min, 800 credits/day. Each time_series call = 1 credit.
+// Once we bump into a 429 or the 800/day cap, stop calling Twelve Data for the
+// rest of the UTC day and fall through to Yahoo / tick synthesis silently.
+// This prevents burning the daily budget on background monitors and turning
+// every chart request into a wasted round-trip.
+const TWELVE_DATA_DAILY_LIMIT = 700; // stay under the 800 hard cap so ad-hoc calls still work
+let twelveDataDayKey: string = "";
+let twelveDataDailyCount: number = 0;
+let twelveDataDisabledUntil: number = 0; // epoch ms; when >now we skip calls
+
+function utcDayKey(now = Date.now()): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+function twelveDataMaybeReset(): void {
+  const k = utcDayKey();
+  if (k !== twelveDataDayKey) {
+    twelveDataDayKey = k;
+    twelveDataDailyCount = 0;
+    // Reset the daily disable at the day rollover so we probe again.
+    if (twelveDataDisabledUntil && twelveDataDisabledUntil < Date.now() + 24 * 60 * 60_000) {
+      twelveDataDisabledUntil = 0;
+    }
+  }
+}
+function twelveDataShouldSkip(): boolean {
+  twelveDataMaybeReset();
+  if (Date.now() < twelveDataDisabledUntil) return true;
+  if (twelveDataDailyCount >= TWELVE_DATA_DAILY_LIMIT) return true;
+  return false;
+}
+function twelveDataMarkCall(): void {
+  twelveDataMaybeReset();
+  twelveDataDailyCount += 1;
+}
+function twelveDataMarkFailure(status: number | null, message: string | null): void {
+  // 429 = out of credits or per-minute rate limit. Back off until the next UTC day.
+  // Any "run out of API credits" message also parks us for the day.
+  const msg = (message || "").toLowerCase();
+  if (status === 429 || msg.includes("run out of api credits") || msg.includes("api credits")) {
+    // Park until next UTC midnight.
+    const now = new Date();
+    const nextMidnight = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1, 0, 0, 0);
+    twelveDataDisabledUntil = nextMidnight;
+    console.warn(`[twelvedata] daily budget exhausted (${message || status}) — skipping until UTC midnight`);
+  }
+}
+export function getTwelveDataStatus(): { dayKey: string; used: number; limit: number; disabledUntil: number } {
+  twelveDataMaybeReset();
+  return {
+    dayKey: twelveDataDayKey,
+    used: twelveDataDailyCount,
+    limit: TWELVE_DATA_DAILY_LIMIT,
+    disabledUntil: twelveDataDisabledUntil,
+  };
+}
+
+// Coalesce concurrent fetches for the same (symbol, interval) so the five
+// monitors that hit fetchTwelveDataOHLCBars in the same tick only spend one
+// credit instead of five.
+const TWELVE_DATA_INFLIGHT = new Map<string, Promise<any>>();
+function coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const existing = TWELVE_DATA_INFLIGHT.get(key);
+  if (existing) return existing as Promise<T>;
+  const p = fn().finally(() => TWELVE_DATA_INFLIGHT.delete(key));
+  TWELVE_DATA_INFLIGHT.set(key, p);
+  return p;
+}
+
+// OHLC cache — same 10 min TTL as the close-only cache. Keyed by symbol+interval
+// so 1h / 4h / 1day never collide.
+type OHLCBar = { time: number; open: number; high: number; low: number; close: number; volume: number };
+const TWELVE_DATA_OHLC_CACHE = new Map<string, { data: OHLCBar[]; t: number }>();
+const TWELVE_DATA_OHLC_TTL_MS = 10 * 60_000;
+
 export async function fetchTwelveDataBars(
   symbol: string,
   interval: "4h" | "1h" | "2h" | "1day" = "4h"
@@ -1085,65 +1183,103 @@ export async function fetchTwelveDataBars(
   const cacheKey = `${symbol}:${interval}`;
   const hit = TWELVE_DATA_CACHE.get(cacheKey);
   if (hit && Date.now() - hit.t < TWELVE_DATA_TTL_MS) return hit.data;
+  if (twelveDataShouldSkip()) return null;
 
-  try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) {
-      console.warn(`[twelvedata] HTTP ${r.status} ${r.statusText} for ${symbol} ${interval}`);
-      return null;
-    }
-    const j: any = await r.json();
-    // Error envelope: { code, message, status: "error" }
-    if (j?.status === "error" || !Array.isArray(j?.values)) {
-      console.warn(`[twelvedata] error for ${symbol} ${interval}: ${j?.message || JSON.stringify(j).slice(0, 200)}`);
-      return null;
-    }
-    // values come newest-first; reverse to oldest-first to match other fetchers.
-    const out: { time: number; close: number; volume?: number }[] = [];
-    for (const v of [...j.values].reverse()) {
-      const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
-      const c = Number(v.close);
-      const vol = Number(v.volume);
-      if (Number.isFinite(t) && Number.isFinite(c)) {
-        out.push({ time: t, close: c, volume: Number.isFinite(vol) ? vol : undefined });
+  return coalesce(`close:${cacheKey}`, async () => {
+    // Second-check the cache in case another coalesced caller populated it
+    // while we were queued (belt-and-braces — saves a credit either way).
+    const hit2 = TWELVE_DATA_CACHE.get(cacheKey);
+    if (hit2 && Date.now() - hit2.t < TWELVE_DATA_TTL_MS) return hit2.data;
+    if (twelveDataShouldSkip()) return null;
+
+    try {
+      const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
+      twelveDataMarkCall();
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) {
+        twelveDataMarkFailure(r.status, r.statusText);
+        console.warn(`[twelvedata] HTTP ${r.status} ${r.statusText} for ${symbol} ${interval}`);
+        return null;
       }
-    }
-    if (out.length === 0) {
-      console.warn(`[twelvedata] ${symbol} ${interval} parsed 0 bars`);
+      const j: any = await r.json();
+      // Error envelope: { code, message, status: "error" }
+      if (j?.status === "error" || !Array.isArray(j?.values)) {
+        twelveDataMarkFailure(typeof j?.code === "number" ? j.code : null, j?.message || null);
+        console.warn(`[twelvedata] error for ${symbol} ${interval}: ${j?.message || JSON.stringify(j).slice(0, 200)}`);
+        return null;
+      }
+      // values come newest-first; reverse to oldest-first to match other fetchers.
+      const out: { time: number; close: number; volume?: number }[] = [];
+      for (const v of [...j.values].reverse()) {
+        const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
+        const c = Number(v.close);
+        const vol = Number(v.volume);
+        if (Number.isFinite(t) && Number.isFinite(c)) {
+          out.push({ time: t, close: c, volume: Number.isFinite(vol) ? vol : undefined });
+        }
+      }
+      if (out.length === 0) {
+        console.warn(`[twelvedata] ${symbol} ${interval} parsed 0 bars`);
+        return null;
+      }
+      TWELVE_DATA_CACHE.set(cacheKey, { data: out, t: Date.now() });
+      return out;
+    } catch (e) {
+      console.warn(`[twelvedata] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
       return null;
     }
-    TWELVE_DATA_CACHE.set(cacheKey, { data: out, t: Date.now() });
-    return out;
-  } catch (e) {
-    console.warn(`[twelvedata] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
-    return null;
-  }
+  });
 }
 
-// Fetcher returning full OHLC bars (not just close) — used by the 4H pattern detector.
+// Fetcher returning full OHLC bars (not just close) — used by the 4H pattern detector
+// and the chart OHLC endpoint. Guarded, cached, and coalesced so background monitors
+// share credits with the interactive chart.
 export async function fetchTwelveDataOHLCBars(
   symbol: string,
   interval: "4h" | "1h" | "2h" = "4h"
 ): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
   const apiKey = process.env.TWELVE_DATA_API_KEY;
   if (!apiKey) return null;
-  try {
-    const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) return null;
-    const j: any = await r.json();
-    if (j?.status === "error" || !Array.isArray(j?.values)) return null;
-    const out: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> = [];
-    for (const v of [...j.values].reverse()) {
-      const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
-      const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
-      if ([t, o, h, l, c].every(Number.isFinite)) {
-        out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+
+  const cacheKey = `${symbol}:${interval}`;
+  const hit = TWELVE_DATA_OHLC_CACHE.get(cacheKey);
+  if (hit && Date.now() - hit.t < TWELVE_DATA_OHLC_TTL_MS) return hit.data;
+  if (twelveDataShouldSkip()) return null;
+
+  return coalesce(`ohlc:${cacheKey}`, async () => {
+    const hit2 = TWELVE_DATA_OHLC_CACHE.get(cacheKey);
+    if (hit2 && Date.now() - hit2.t < TWELVE_DATA_OHLC_TTL_MS) return hit2.data;
+    if (twelveDataShouldSkip()) return null;
+
+    try {
+      const url = `https://api.twelvedata.com/time_series?symbol=${encodeURIComponent(symbol)}&interval=${interval}&outputsize=400&apikey=${apiKey}&format=JSON`;
+      twelveDataMarkCall();
+      const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+      if (!r.ok) {
+        twelveDataMarkFailure(r.status, r.statusText);
+        console.warn(`[twelvedata-ohlc] HTTP ${r.status} ${r.statusText} for ${symbol} ${interval}`);
+        return null;
       }
+      const j: any = await r.json();
+      if (j?.status === "error" || !Array.isArray(j?.values)) {
+        twelveDataMarkFailure(typeof j?.code === "number" ? j.code : null, j?.message || null);
+        console.warn(`[twelvedata-ohlc] error for ${symbol} ${interval}: ${j?.message || JSON.stringify(j).slice(0, 200)}`);
+        return null;
+      }
+      const out: OHLCBar[] = [];
+      for (const v of [...j.values].reverse()) {
+        const t = Math.floor(new Date(v.datetime + "Z").getTime() / 1000);
+        const o = Number(v.open), h = Number(v.high), l = Number(v.low), c = Number(v.close), vol = Number(v.volume);
+        if ([t, o, h, l, c].every(Number.isFinite)) {
+          out.push({ time: t, open: o, high: h, low: l, close: c, volume: Number.isFinite(vol) ? vol : 0 });
+        }
+      }
+      if (out.length === 0) return null;
+      TWELVE_DATA_OHLC_CACHE.set(cacheKey, { data: out, t: Date.now() });
+      return out;
+    } catch (e) {
+      console.warn(`[twelvedata-ohlc] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
+      return null;
     }
-    return out.length > 0 ? out : null;
-  } catch {
-    return null;
-  }
+  });
 }
