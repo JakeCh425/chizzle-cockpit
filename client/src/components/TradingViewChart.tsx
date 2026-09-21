@@ -87,15 +87,19 @@ interface Theme {
 }
 
 const THEMES: Record<ThemeKey, Theme> = {
+  // Bloomberg neon — futuristic dark navy/black chart with crisp emerald/coral
+  // candles (Phase 2 refresh). Wicks are slightly lighter than the body so they
+  // stay visible at every zoom, and the grid stays a subtle blue-gray so it
+  // never competes with price action.
   bloomberg: {
-    background: "#0a0a0a",
+    background: "#050a13",
     text: "#e2e8f0",
-    grid: "rgba(148, 163, 184, 0.08)",
-    bull: "#22d3ee",  // neon-blue-ish
-    bear: "#f472b6",  // neon-pink
-    crosshair: "#94a3b8",
-    volumeUp: "rgba(34, 211, 238, 0.4)",
-    volumeDown: "rgba(244, 114, 182, 0.4)",
+    grid: "rgba(96, 130, 175, 0.10)",
+    bull: "#22e29b",  // bright emerald
+    bear: "#ff4d6d",  // bright coral
+    crosshair: "#7dd3fc",
+    volumeUp: "rgba(34, 226, 155, 0.35)",
+    volumeDown: "rgba(255, 77, 109, 0.35)",
   },
   "tv-dark": {
     background: "#131722",
@@ -129,11 +133,44 @@ const THEMES: Record<ThemeKey, Theme> = {
   },
 };
 
+// Nudge a hex color toward white by mix ratio (0–1). Used to tint wicks
+// slightly brighter than the candle body so they stay visible at low zoom.
+function lightenHex(hex: string, amount: number): string {
+  const h = hex.replace("#", "");
+  if (h.length !== 6) return hex;
+  const r = parseInt(h.slice(0, 2), 16);
+  const g = parseInt(h.slice(2, 4), 16);
+  const b = parseInt(h.slice(4, 6), 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * amount);
+  const toHex = (n: number) => n.toString(16).padStart(2, "0");
+  return `#${toHex(mix(r))}${toHex(mix(g))}${toHex(mix(b))}`;
+}
+
+// SMA hover copy — short, educational, neutral. Never phrases a moving
+// average touch as a guaranteed signal.
+const SMA_DESCRIPTIONS: Record<number, string> = {
+  20: "Short-term swing trend and nearby dynamic support.",
+  50: "Intermediate trend reference used to judge trend health.",
+  200: "Long-term trend reference and major institutional level.",
+};
+
+// Educational relationship label — no signal wording. Computed per candle.
+function smaRelationship(close: number, sma: number, prevSma: number | null): string {
+  const dist = ((close - sma) / sma) * 100;
+  const absDist = Math.abs(dist);
+  if (absDist < 0.25) return "Testing this SMA";
+  if (dist > 0 && absDist >= 5) return "Extended above this SMA";
+  if (dist > 0) return "Price above this SMA";
+  if (prevSma != null && close > prevSma && close < sma) return "Reclaiming attempt";
+  return "Price below this SMA";
+}
+
 // Default indicator preset — TradingView-like, but Bloomberg-toned.
+// SMA colors per Phase 4 spec: electric cyan / bright amber-gold / violet.
 function defaultIndicators(): IndicatorConfig[] {
   return [
-    { id: "sma20",  kind: "SMA",  enabled: true,  period: 20,  color: "#38bdf8" },
-    { id: "sma50",  kind: "SMA",  enabled: true,  period: 50,  color: "#facc15" },
+    { id: "sma20",  kind: "SMA",  enabled: true,  period: 20,  color: "#22d3ee" },
+    { id: "sma50",  kind: "SMA",  enabled: true,  period: 50,  color: "#fbbf24" },
     { id: "sma200", kind: "SMA",  enabled: true,  period: 200, color: "#c084fc" },
     { id: "ema10",  kind: "EMA",  enabled: false, period: 10,  color: "#34d399" },
     { id: "ema20",  kind: "EMA",  enabled: false, period: 20,  color: "#f472b6" },
@@ -445,6 +482,10 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
   const [chartStyle, setChartStyle] = useState<ChartStyle>("candles");
   const [theme, setTheme] = useState<ThemeKey>("bloomberg");
   const [indicators, setIndicators] = useState<IndicatorConfig[]>(defaultIndicators);
+  // Phase 4: hovered SMA id — drives brighten/dim in the overlay series and
+  // the popover next to the SMA legend. `null` means no hover; every SMA line
+  // renders at its normal weight.
+  const [hoveredSmaId, setHoveredSmaId] = useState<string | null>(null);
   const [drawings, setDrawings] = useState<Drawing[]>([]);
   const [reflections, setReflections] = useState<Reflection[]>([]);
   const [drawTool, setDrawTool] = useState<Drawing["kind"] | null>(null);
@@ -594,16 +635,20 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
       series.setData(bars.map((b) => ({ time: barTime(b) as UTCTimestamp, value: b.close })));
     } else {
       const hollow = style === "hollow";
-      // Hollow candles: transparent body for up bars (only border shows).
-      // Filled body only for down bars. All wicks and borders use theme colors.
+      // Standard candles: crisp emerald/coral bodies with sharply-drawn borders
+      // in the same hue so narrow candles stay readable when zoomed out. Wicks
+      // are one step lighter than the body so they don't disappear into the
+      // fill on wide candles.
+      // Hollow candles: transparent body when close > open (border-only), filled
+      // body when close < open. Bullish/bearish coloring is preserved.
       series = chart.addSeries(CandlestickSeries, {
         upColor: hollow ? "rgba(0,0,0,0)" : t.bull,
         downColor: hollow ? t.bear : t.bear,
         borderVisible: true,
         borderUpColor: t.bull,
         borderDownColor: t.bear,
-        wickUpColor: t.bull,
-        wickDownColor: t.bear,
+        wickUpColor: lightenHex(t.bull, 0.25),
+        wickDownColor: lightenHex(t.bear, 0.25),
       });
       series.setData(bars.map((b) => ({
         time: barTime(b) as UTCTimestamp,
@@ -654,6 +699,20 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
         const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
         s.setData(arr.map((v, i) => (v == null ? null : { time: times[i] as UTCTimestamp, value: v })).filter(Boolean) as any);
         overlaySeriesRef.current.set(ind.id, s);
+        // Phase 4: emphasize on hover — thicken hovered SMA to 3px, dim others
+        // to ~40% alpha. Only the SMA that matches `hoveredSmaId` becomes bold.
+        if (hoveredSmaId) {
+          const isHovered = ind.id === hoveredSmaId;
+          if (isHovered) {
+            s.applyOptions({ color: ind.color, lineWidth: 3 });
+          } else {
+            // Convert hex to rgba with 0.35 alpha for dimming.
+            const dim = ind.color.startsWith("#") && ind.color.length === 7
+              ? `rgba(${parseInt(ind.color.slice(1,3),16)},${parseInt(ind.color.slice(3,5),16)},${parseInt(ind.color.slice(5,7),16)},0.35)`
+              : ind.color;
+            s.applyOptions({ color: dim, lineWidth: 1 });
+          }
+        }
       } else if (ind.kind === "EMA") {
         const arr = ema(closes, ind.period || 20);
         const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, lineStyle: LineStyle.Dotted, priceLineVisible: false, lastValueVisible: false });
@@ -701,7 +760,7 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     }
 
     chart.timeScale().fitContent();
-  }, [bars, indicators, chartStyle, t.volumeUp, t.volumeDown]);
+  }, [bars, indicators, chartStyle, t.volumeUp, t.volumeDown, hoveredSmaId]);
 
   // Sub-panes for RSI / MACD (rendered as separate mini-charts, time-synced).
   useEffect(() => {
@@ -1130,6 +1189,103 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
       {/* Chart + overlay canvas */}
       <div className="relative">
         <div ref={containerRef} style={{ height }} className="w-full" data-testid="tv-chart-container" />
+
+        {/* Phase 4: SMA legend — compact top-right chip strip. One chip per
+            SMA (20/50/200 by default). Click the swatch to toggle the line;
+            hover the chip to brighten that line and dim the others, plus
+            reveal an educational popover with the current value, price
+            relationship, timeframe, and a short description. */}
+        {(() => {
+          const smas = indicators.filter((i) => i.kind === "SMA");
+          if (smas.length === 0 || !bars || bars.length === 0) return null;
+          const closes = bars.map((b) => b.close);
+          const lastIdx = bars.length - 1;
+          const lastClose = bars[lastIdx]?.close;
+          const hovered = smas.find((s) => s.id === hoveredSmaId);
+          const hoveredArr = hovered ? sma(closes, hovered.period || 20) : null;
+          const hoveredVal = hoveredArr ? hoveredArr[lastIdx] : null;
+          const hoveredPrev = hoveredArr && lastIdx > 0 ? hoveredArr[lastIdx - 1] : null;
+          const insufficient = hovered && bars.length < (hovered.period || 20);
+          return (
+            <>
+              <div
+                className="absolute top-2 right-2 flex flex-col items-end gap-1 pointer-events-auto"
+                data-testid="sma-legend"
+              >
+                <div className="flex items-center gap-1">
+                  {smas.map((ind) => {
+                    const arr = sma(closes, ind.period || 20);
+                    const val = arr[lastIdx];
+                    const isHovered = ind.id === hoveredSmaId;
+                    const isDim = hoveredSmaId != null && !isHovered;
+                    return (
+                      <div
+                        key={ind.id}
+                        onMouseEnter={() => setHoveredSmaId(ind.id)}
+                        onMouseLeave={() => setHoveredSmaId(null)}
+                        className={`flex items-center gap-1 rounded border border-ink-line bg-ink-black/85 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono cursor-pointer transition-opacity ${
+                          isDim ? "opacity-50" : "opacity-100"
+                        } ${!ind.enabled ? "line-through opacity-40" : ""}`}
+                        data-testid={`sma-legend-${ind.id}`}
+                      >
+                        <button
+                          onClick={() => setIndicators((prev) => prev.map((x) => x.id === ind.id ? { ...x, enabled: !x.enabled } : x))}
+                          className="w-2.5 h-2.5 rounded-sm"
+                          style={{ backgroundColor: ind.color, boxShadow: isHovered ? `0 0 6px ${ind.color}` : "none" }}
+                          data-testid={`sma-toggle-${ind.id}`}
+                          title={`Toggle SMA ${ind.period}`}
+                        />
+                        <span className="text-slate-gray">SMA</span>
+                        <span className="text-soft-white">{ind.period}</span>
+                        {ind.enabled && val != null && (
+                          <span className="text-soft-white/80 tabular-nums">{val.toFixed(2)}</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                {hovered && (
+                  <div
+                    className="rounded-md border border-ink-line bg-ink-black/95 backdrop-blur px-2.5 py-2 text-[10px] font-mono text-soft-white shadow-lg"
+                    style={{ maxWidth: 260 }}
+                    data-testid="sma-hover-popover"
+                  >
+                    <div className="flex items-center justify-between gap-2 pb-1 border-b border-ink-line/60">
+                      <span className="font-bold" style={{ color: hovered.color }}>SMA {hovered.period}</span>
+                      <span className="text-[9px] text-slate-gray uppercase tracking-wider">{TIMEFRAMES[timeframe]?.label ?? timeframe}</span>
+                    </div>
+                    {insufficient ? (
+                      <div className="pt-1 text-slate-gray italic">Insufficient history — need {hovered.period} bars, have {bars.length}.</div>
+                    ) : (
+                      <div className="pt-1 space-y-0.5">
+                        {hoveredVal != null && (
+                          <div className="flex justify-between tabular-nums">
+                            <span className="text-slate-gray">Value</span>
+                            <span>{hoveredVal.toFixed(2)}</span>
+                          </div>
+                        )}
+                        {hoveredVal != null && lastClose != null && (
+                          <div className="flex justify-between tabular-nums">
+                            <span className="text-slate-gray">Dist</span>
+                            <span>{(((lastClose - hoveredVal) / hoveredVal) * 100).toFixed(2)}%</span>
+                          </div>
+                        )}
+                        {hoveredVal != null && lastClose != null && (
+                          <div className="pt-1 text-neon-blue">
+                            {smaRelationship(lastClose, hoveredVal, hoveredPrev ?? null)}
+                          </div>
+                        )}
+                        <div className="pt-1 text-slate-gray/90 leading-snug">
+                          {SMA_DESCRIPTIONS[hovered.period || 0] ?? "Moving average of closing prices."}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </>
+          );
+        })()}
         <canvas
           ref={overlayCanvasRef}
           onClick={onOverlayClick}
@@ -1138,32 +1294,78 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
           data-testid="overlay-canvas"
         />
 
-        {/* Live tooltip */}
-        {crosshair.time != null && crosshair.o != null && (
-          <div className="absolute top-2 left-2 rounded border border-ink-line bg-ink-black/85 backdrop-blur px-2 py-1.5 text-[10px] font-mono text-soft-white space-y-0.5 pointer-events-none" data-testid="chart-tooltip">
-            <div className="flex items-center gap-2">
-              <span className="text-slate-gray">O</span><span>{crosshair.o?.toFixed(2)}</span>
-              <span className="text-slate-gray">H</span><span className="text-signal-green">{crosshair.h?.toFixed(2)}</span>
-              <span className="text-slate-gray">L</span><span className="text-signal-red">{crosshair.l?.toFixed(2)}</span>
-              <span className="text-slate-gray">C</span><span>{crosshair.c?.toFixed(2)}</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-slate-gray">Vol</span>
-              <span>{crosshair.v ? (crosshair.v >= 1_000_000 ? `${(crosshair.v/1_000_000).toFixed(1)}M` : `${(crosshair.v/1_000).toFixed(0)}k`) : "-"}</span>
-              {crosshair.changePct != null && (
-                <span className={crosshair.changePct >= 0 ? "text-signal-green" : "text-signal-red"}>
-                  {crosshair.changePct >= 0 ? "+" : ""}{crosshair.changePct.toFixed(2)}%
+        {/* Live tooltip — Phase 3. Fields: ticker, timeframe, date/time,
+            OHLC, price change vs prior close, % change, volume, bull/bear
+            body label, H-L range, body size. Uses tabular-nums so digits
+            never jitter as the crosshair moves. Fixed at top-left so it
+            never covers the hovered candle. */}
+        {crosshair.time != null && crosshair.o != null && (() => {
+          const isBull = (crosshair.c ?? 0) >= (crosshair.o ?? 0);
+          const tfInfo = TIMEFRAMES[timeframe];
+          const tfLabel = tfInfo?.label ?? timeframe;
+          const isIntraday = tfInfo?.group === "MINUTES" || tfInfo?.group === "HOURS";
+          const d = new Date((crosshair.time as number) * 1000);
+          const dateStr = isIntraday
+            ? d.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+            : d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+          const priceChange = crosshair.o != null && crosshair.c != null ? crosshair.c - crosshair.o : 0;
+          const range = (crosshair.h ?? 0) - (crosshair.l ?? 0);
+          const body = Math.abs((crosshair.c ?? 0) - (crosshair.o ?? 0));
+          const volFmt = (v?: number) => v == null ? "—"
+            : v >= 1_000_000 ? `${(v/1_000_000).toFixed(2)}M`
+            : v >= 1_000 ? `${(v/1_000).toFixed(1)}K` : `${v}`;
+          return (
+            <div
+              className="absolute top-2 left-2 rounded-md border border-ink-line bg-ink-black/90 backdrop-blur px-2.5 py-2 text-[10px] font-mono text-soft-white space-y-1 pointer-events-none shadow-lg tabular-nums"
+              data-testid="chart-tooltip"
+              style={{ minWidth: 220 }}
+            >
+              <div className="flex items-center justify-between gap-3 pb-1 border-b border-ink-line/60">
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-bold text-soft-white">{ticker}</span>
+                  <span className="text-[9px] px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{tfLabel}</span>
+                </div>
+                <span className={`text-[9px] font-bold uppercase tracking-wider ${isBull ? "text-signal-green" : "text-signal-red"}`}>
+                  {isBull ? "Bullish" : "Bearish"}
                 </span>
+              </div>
+              <div className="text-[9px] text-slate-gray">{dateStr}</div>
+              <div className="grid grid-cols-4 gap-x-2 gap-y-0.5">
+                <span className="text-slate-gray">O</span><span className="col-span-3 text-right">{crosshair.o?.toFixed(2)}</span>
+                <span className="text-slate-gray">H</span><span className="col-span-3 text-right text-signal-green">{crosshair.h?.toFixed(2)}</span>
+                <span className="text-slate-gray">L</span><span className="col-span-3 text-right text-signal-red">{crosshair.l?.toFixed(2)}</span>
+                <span className="text-slate-gray">C</span><span className="col-span-3 text-right">{crosshair.c?.toFixed(2)}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-x-2 pt-1 border-t border-ink-line/60">
+                <div className="flex justify-between"><span className="text-slate-gray">Chg</span>
+                  <span className={priceChange >= 0 ? "text-signal-green" : "text-signal-red"}>
+                    {priceChange >= 0 ? "+" : ""}{priceChange.toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex justify-between"><span className="text-slate-gray">%</span>
+                  {crosshair.changePct != null ? (
+                    <span className={crosshair.changePct >= 0 ? "text-signal-green" : "text-signal-red"}>
+                      {crosshair.changePct >= 0 ? "+" : ""}{crosshair.changePct.toFixed(2)}%
+                    </span>
+                  ) : <span className="text-slate-gray">—</span>}
+                </div>
+                <div className="flex justify-between"><span className="text-slate-gray">Rng</span><span>{range.toFixed(2)}</span></div>
+                <div className="flex justify-between"><span className="text-slate-gray">Body</span><span>{body.toFixed(2)}</span></div>
+                <div className="flex justify-between col-span-2"><span className="text-slate-gray">Vol</span><span>{volFmt(crosshair.v)}</span></div>
+              </div>
+              {Object.keys(crosshair.indicators).length > 0 && (
+                <div className="pt-1 border-t border-ink-line/60 space-y-0.5">
+                  {Object.entries(crosshair.indicators).map(([k, v]) => (
+                    <div key={k} className="flex justify-between">
+                      <span className="text-slate-gray">{k}</span>
+                      <span>{Number(v).toFixed(2)}</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            {Object.entries(crosshair.indicators).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2">
-                <span className="text-slate-gray">{k}</span>
-                <span>{Number(v).toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        )}
+          );
+        })()}
 
         {(!bars || bars.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-gray pointer-events-none">
