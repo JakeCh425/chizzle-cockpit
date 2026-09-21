@@ -11,9 +11,41 @@
 // This is display-only; the user can promote to a real trade plan via the
 // existing Setup / Trade Planner buttons on other panels.
 
-import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { Target, TrendingUp, AlertTriangle, Zap } from "lucide-react";
+import { useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { Target, TrendingUp, AlertTriangle, Zap, Rocket, Check, Loader2 } from "lucide-react";
+
+// Map the flex-scan card verbatim into the /api/active-setups shape — same
+// contract FlexScannerPanel uses, so hitting "Push to Active Setup" here is
+// identical to hitting Save on the FLEX Scanner card. If the card is missing
+// levels the mapper falls back to 0 (existing API behaviour).
+function cardToActiveSetup(c: any) {
+  const state = String(c?.state || "STANDBY");
+  return {
+    ticker: c?.ticker,
+    sector: state === "STANDARD_READY" ? "trend" : "flex-recovery",
+    theme: `${state.replace("_", " ")} \u00b7 ${c?.risk_grade || ""}`.slice(0, 60),
+    thesis: [
+      `${state.replace("_", " ")}: ${c?.setup || ""} on ${c?.ticker || ""}.`,
+      c?.trend ? `Trend: ${c.trend}` : "",
+      c?.structure ? `Structure: ${c.structure}` : "",
+      c?.trigger ? `Trigger: ${c.trigger}` : "",
+      c?.smh_market_context || "",
+    ].filter(Boolean).join(" ").slice(0, 2000),
+    entry: c?.entry_zone?.low ?? c?.plan?.entry ?? 0,
+    stop: c?.stop?.price ?? c?.plan?.stop ?? 0,
+    targetT1: c?.target_1?.price ?? c?.plan?.target1 ?? 0,
+    targetT2: c?.target_2?.price ?? c?.plan?.target2 ?? undefined,
+    riskPercent: c?.risk_grade === "STANDARD SMALL" ? 0.75 : 0.5,
+    regime: "GREEN" as const,
+    structureVerdict: String(c?.structure || "").slice(0, 200),
+    rrRatio: c?.target_1?.r_multiple ?? 0,
+    status: "planned" as const,
+    pinned: false,
+    notes: `Auto-saved from Core hover card on ${new Date().toISOString().slice(0, 10)}.`,
+  };
+}
 
 interface FlexScanResp {
   cards?: any[];
@@ -76,9 +108,31 @@ export default function CoreTickerHoverCard({ ticker }: Props) {
 
   const cards = flexQ.data?.cards || [];
   const card = cards.find((c: any) => c?.ticker === ticker) || cards[0];
+
+  // Local "pushed" flag so the button flips to a confirmed state after a
+  // successful POST without waiting for the query refetch to arrive.
+  const [pushed, setPushed] = useState(false);
+  const pushMut = useMutation<any, Error, void>({
+    mutationFn: async () => {
+      if (!card) throw new Error("No scanner card available for this ticker");
+      const r = await apiRequest("POST", "/api/active-setups", cardToActiveSetup(card));
+      return r.json();
+    },
+    onSuccess: () => {
+      setPushed(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/active-setups"] });
+    },
+    onError: (err) => {
+      if (import.meta.env.DEV) console.warn(`[CoreTickerHoverCard] push failed for ${ticker}:`, err);
+    },
+  });
   const readiness: number | null = card?.readiness_score ?? null;
   const state: string = card?.state ?? "STANDBY";
   const hardBlocks: string[] = Array.isArray(card?.hard_blocks) ? card.hard_blocks : [];
+  // Per spec (comment above the button): enabled whenever hard_blocks is
+  // empty AND we actually have a scanner card to send. Ignores fundamentals
+  // and regime by design — that's the FlexScanner "Save as-is" contract.
+  const canPush = !!card && hardBlocks.length === 0 && !pushMut.isPending && !pushed;
   const distance: Array<{ name: string; current?: string; needed?: string; next_action?: string }> =
     Array.isArray(card?.distance_to_ready) ? card.distance_to_ready : [];
   const plan = card?.plan || card?.trade_plan || {};
