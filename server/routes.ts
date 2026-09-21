@@ -1689,47 +1689,99 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: OHLC[] = [];
+      let source: "tiingo" | "yahoo" | "twelvedata" | "ticks" | "yahoo-4h-synth" | "none" = "none";
+      let warning: string | undefined;
       if (interval === "1D") {
         // Tiingo first (cheapest, supports full OHLC on the daily endpoint).
         const tg = await fetchTiingoDailyOHLC(symbol);
         if (aborted) return;
-        if (tg && tg.length > 0) data = tg;
+        if (tg && tg.length > 0) { data = tg; source = "tiingo"; }
         // Yahoo OHLC next (free, no key).
         if (data.length === 0) {
           const yh = await fetchYahooBarsOHLC(symbol, "1d");
           if (aborted) return;
-          if (yh && yh.length > 0) data = yh;
+          if (yh && yh.length > 0) { data = yh; source = "yahoo"; }
         }
         // Twelve Data 1day as last resort (counts against TD daily quota).
         if (data.length === 0) {
           const td = await fetchTwelveDataDailyOHLC(symbol);
           if (aborted) return;
-          if (td && td.length > 0) data = td;
+          if (td && td.length > 0) { data = td; source = "twelvedata"; }
         }
       } else if (interval === "1H" || interval === "4H") {
+        // Twelve Data first — the only free provider with true 4H bars.
         const td = await fetchTwelveDataOHLCBars(symbol, interval === "1H" ? "1h" : "4h");
         if (aborted) return;
-        if (td && td.length > 0) data = td;
+        if (td && td.length > 0) { data = td; source = "twelvedata"; }
+        // Yahoo hourly fallback for 1H (Yahoo doesn't expose 4H).
         if (data.length === 0 && interval === "1H") {
           const yh = await fetchYahooBarsOHLC(symbol, "1h");
           if (aborted) return;
-          if (yh && yh.length > 0) data = yh;
+          if (yh && yh.length > 0) { data = yh; source = "yahoo"; }
+        }
+        // Yahoo 4H synthesis from 1H bars — Yahoo doesn't expose 4H directly,
+        // but the pattern detector and readiness engine need continuous 4H
+        // coverage even when Twelve Data quota is gone. Bucket 1H OHLC into
+        // 4H OHLC (open = first, high = max, low = min, close = last, vol = sum).
+        if (data.length === 0 && interval === "4H") {
+          const yh = await fetchYahooBarsOHLC(symbol, "1h");
+          if (aborted) return;
+          if (yh && yh.length > 0) {
+            const bucketed = new Map<number, { o: number; h: number; l: number; c: number; v: number }>();
+            const order: number[] = [];
+            for (const b of yh) {
+              const bk = Math.floor(b.time / 14400) * 14400; // 4h = 14400s
+              const cur = bucketed.get(bk);
+              if (!cur) { bucketed.set(bk, { o: b.open, h: b.high, l: b.low, c: b.close, v: b.volume || 0 }); order.push(bk); }
+              else {
+                if (b.high > cur.h) cur.h = b.high;
+                if (b.low < cur.l) cur.l = b.low;
+                cur.c = b.close;
+                cur.v += b.volume || 0;
+              }
+            }
+            data = order.map((bk) => { const v = bucketed.get(bk)!; return { time: bk, open: v.o, high: v.h, low: v.l, close: v.c, volume: v.v }; });
+            source = "yahoo-4h-synth";
+            warning = "4H bars synthesized from Yahoo 1H (Twelve Data unavailable).";
+          }
+        }
+        // Final fallback for 1H/4H: bucket recorded live ticks. This gives
+        // at least intraday coverage when both Twelve Data and Yahoo fail.
+        if (data.length === 0) {
+          const ticks = await storage.listPriceTicks(symbol, 2000);
+          if (aborted) return;
+          const secs = interval === "1H" ? 3600 : 14400;
+          const synth = bucketTicksOHLC(ticks as any, secs).slice(-400);
+          if (synth.length > 0) {
+            data = synth;
+            source = "ticks";
+            warning = `${interval} bars synthesized from live ticks (free ${interval} bars are paywalled).`;
+          }
         }
       } else if (interval === "30M" || interval === "5M") {
         const ticks = await storage.listPriceTicks(symbol, 1000);
         if (aborted) return;
         const secs = interval === "30M" ? 1800 : 300;
         data = bucketTicksOHLC(ticks as any, secs).slice(-400);
+        if (data.length > 0) source = "ticks";
       }
 
       // SWR fallback for OHLC.
+      let usedStale = false;
       if (data.length === 0 && hit && hit.data.length > 0) {
-        return res.json(hit.data);
+        data = hit.data;
+        usedStale = true;
+        const ageMin = Math.round((now - hit.t) / 60_000);
+        warning = (warning ? warning + " " : "") + `(showing cached bars from ${ageMin}m ago)`;
       }
-      if (data.length > 0) {
+      if (data.length > 0 && !usedStale) {
         ohlcCache.set(key, { t: now, data });
       }
-      res.json(data);
+      if (String(req.query.meta || "") === "1") {
+        res.json({ bars: data, source, warning, interval, symbol });
+      } else {
+        res.json(data);
+      }
     } catch (e: any) {
       if (aborted) return;
       res.status(500).json({ error: e?.message || String(e) });

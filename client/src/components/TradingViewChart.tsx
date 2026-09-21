@@ -454,6 +454,10 @@ interface Props {
   ticker: string;
   bars: OHLCBar[] | undefined;
   isLoading?: boolean;
+  /** Non-fatal warning from the candles endpoint (e.g. "synthesized from live
+   *  ticks", "showing cached bars from 12m ago"). Rendered as a subtle amber
+   *  banner above the chart when set. */
+  barsWarning?: string;
   regime?: string;
   height?: number;
   /** Cockpit-level chart timeframe. Optional so this component still works
@@ -511,7 +515,7 @@ function PatternPill({ label, state, details, level, unavailable }: {
   );
 }
 
-export default function TradingViewChart({ ticker, bars, isLoading, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
+export default function TradingViewChart({ ticker, bars, isLoading, barsWarning, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
   // Persisted layout (per ticker, from Neon).
   const qc = useQueryClient();
   const { data: layout } = useQuery<any>({
@@ -1689,7 +1693,17 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
 
         {(!bars || bars.length === 0) && (
           <div className="absolute inset-0 flex items-center justify-center text-[11px] text-slate-gray pointer-events-none">
-            {isLoading ? "Loading chart data\u2026" : `No chart data for ${ticker}.`}
+            {isLoading
+              ? "Loading chart data\u2026"
+              : `No chart data for ${ticker} \u00b7 ${timeframe}\u00a0\u2014 try 1D or 30M.`}
+          </div>
+        )}
+        {barsWarning && bars && bars.length > 0 && (
+          <div
+            className="absolute top-2 left-2 right-2 z-10 rounded-md border border-signal-amber/50 bg-ink-panel/95 px-2 py-1 text-[10px] uppercase tracking-wide text-signal-amber pointer-events-none"
+            data-testid="chart-bars-warning"
+          >
+            {barsWarning}
           </div>
         )}
       </div>

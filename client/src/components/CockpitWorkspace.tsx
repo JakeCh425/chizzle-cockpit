@@ -49,17 +49,22 @@ export default function CockpitWorkspace() {
   // Race protection is handled by TanStack Query: the ticker+timeframe
   // pair is part of the queryKey, so a stale response for the previous
   // combo can't overwrite the current one.
-  const { data: rawBars, isLoading } = useQuery<OHLCBar[]>({
+  // Fetch with ?meta=1 so we can surface source/warning banners in the chart.
+  // The endpoint still returns bars in both shapes (array or {bars, warning}).
+  const { data: barsResp, isLoading } = useQuery<{ bars: OHLCBar[]; warning?: string; source?: string }>({
     queryKey: ["/api/candles-ohlc", ticker, tfApi],
     queryFn: async ({ signal }) => {
-      const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${tfApi}`, undefined, signal);
+      const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${tfApi}&meta=1`, undefined, signal);
       const json = await res.json();
-      return Array.isArray(json) ? json : json?.bars || [];
+      if (Array.isArray(json)) return { bars: json };
+      return { bars: json?.bars || [], warning: json?.warning, source: json?.source };
     },
     staleTime: 60_000,
     // Keep previous bars visible while a new TF loads — no full-panel blank.
     placeholderData: (prev) => prev,
   });
+  const rawBars = barsResp?.bars;
+  const barsWarning = barsResp?.warning;
 
   // Client-side aggregation for 1W / 1M (no-op for other timeframes).
   // Memoised so aggregation only runs when the underlying series or TF flips.
@@ -93,6 +98,7 @@ export default function CockpitWorkspace() {
           ticker={ticker}
           bars={bars}
           isLoading={isLoading}
+          barsWarning={barsWarning}
           regime={regime?.day_class}
           height={420}
           timeframe={timeframe}
