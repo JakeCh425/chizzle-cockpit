@@ -809,6 +809,65 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     chart.timeScale().fitContent();
   }, [bars, indicators, chartStyle, t.volumeUp, t.volumeDown, hoveredSmaId]);
 
+  // Phase 6: render the top-pattern breakout level as a dashed price line on
+  // the main series. Uses createPriceLine so it lives inside lightweight-
+  // charts and auto-scrolls with the chart. Cleaned up on every re-render so
+  // the label reflects the current pattern state.
+  const patternPriceLineRef = useRef<any>(null);
+  useEffect(() => {
+    const series = priceSeriesRef.current;
+    if (!series) return;
+    if (patternPriceLineRef.current) {
+      try { series.removePriceLine(patternPriceLineRef.current); } catch {}
+      patternPriceLineRef.current = null;
+    }
+    if (topPattern && topPattern.res.level != null) {
+      const color = topPattern.res.state === "Confirmed" ? t.bull
+        : topPattern.res.state === "Near Confirmation" ? "#22d3ee"
+        : "#fbbf24";
+      try {
+        patternPriceLineRef.current = series.createPriceLine({
+          price: topPattern.res.level,
+          color,
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${topPattern.name} · ${topPattern.res.state}`,
+        });
+      } catch {}
+    }
+  }, [topPattern, t.bull, bars, chartStyle]);
+
+  // Phase 8: overlay the active setup levels (entry / stop / T1 / T2) as
+  // dashed price lines on the main series. Colors per spec: entry cyan,
+  // stop red, T1 green, T2 teal. Read-only — clicking does nothing; the
+  // Active Setups panel owns all mutation.
+  const setupLinesRef = useRef<any[]>([]);
+  useEffect(() => {
+    const series = priceSeriesRef.current;
+    if (!series) return;
+    // Clear previous lines.
+    for (const ln of setupLinesRef.current) {
+      try { series.removePriceLine(ln); } catch {}
+    }
+    setupLinesRef.current = [];
+    if (!showActiveSetup || !activeSetup) return;
+    const mk = (price: number | null | undefined, color: string, title: string) => {
+      if (price == null || !Number.isFinite(price)) return;
+      try {
+        const ln = series.createPriceLine({
+          price, color, lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title,
+        });
+        setupLinesRef.current.push(ln);
+      } catch {}
+    };
+    mk(activeSetup.entry, "#22d3ee", "Entry");
+    mk(activeSetup.stop, "#ff4d6d", "Stop");
+    mk(activeSetup.targetT1 ?? activeSetup.target_t1, "#22e29b", "T1");
+    mk(activeSetup.targetT2 ?? activeSetup.target_t2, "#5eead4", "T2");
+  }, [activeSetup, showActiveSetup, bars, chartStyle]);
+
   // Sub-panes for RSI / MACD (rendered as separate mini-charts, time-synced).
   useEffect(() => {
     // RSI mini-chart.
@@ -1076,6 +1135,80 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     return mpResp.symbols.find((s: any) => s.symbol === ticker) || null;
   }, [mpResp, ticker]);
 
+  // Phase 9: memoize SMA arrays used by the legend + hover popover so hovering
+  // between chips doesn't retrigger a full recompute for every SMA on every
+  // mouse event.
+  const smaArrays = useMemo(() => {
+    if (!bars || bars.length === 0) return new Map<string, (number|null)[]>();
+    const closes = bars.map((b) => b.close);
+    const m = new Map<string, (number|null)[]>();
+    for (const ind of indicators) {
+      if (ind.kind === "SMA" && ind.enabled) {
+        m.set(ind.id, sma(closes, ind.period || 20));
+      }
+    }
+    return m;
+  }, [bars, indicators]);
+
+  // Phase 7: Near Setup Card readiness. We read from the FlexScanner query
+  // cache (populated by FlexScannerPanel) so this chart adds ZERO extra
+  // network cost. Falls back to no display when the scanner hasn't been run
+  // yet or this ticker isn't in the current scanner universe.
+  const flexData = qc.getQueryData<any>(["/api/flex-scan"]);
+  const flexCard = useMemo(() => {
+    const cards = flexData?.cards || flexData?.scanner_cards || flexData;
+    if (!Array.isArray(cards)) return null;
+    return cards.find((c: any) => c?.ticker === ticker || c?.symbol === ticker) || null;
+  }, [flexData, ticker]);
+  // Map FLEX card state → the readiness label the user's Phase 7 spec expects.
+  const readinessLabel: { label: string; tone: "gray"|"amber"|"blue"|"green"|"red" } = useMemo(() => {
+    if (activeSetup) return { label: "Active", tone: "green" };
+    if (!flexCard) return { label: "Watching", tone: "gray" };
+    const state = String(flexCard.state || "").toUpperCase();
+    // topPattern context can enrich the label when the scanner is neutral.
+    if (state === "READY") return { label: "Ready for Existing Card Logic", tone: "green" };
+    if (state === "NEAR_READY" || state === "NEAR READY") return { label: "Near Trigger", tone: "blue" };
+    if (state === "INVALIDATED" || state === "BLOCKED") return { label: "Invalidated", tone: "red" };
+    if (topPattern?.res.state === "Near Confirmation") return { label: "Awaiting Confirmation", tone: "blue" };
+    if (topPattern?.res.state === "Developing") return { label: "Pattern Developing", tone: "amber" };
+    return { label: "Watching", tone: "gray" };
+  }, [flexCard, activeSetup, topPattern]);
+
+  // Phase 8: fetch active setups for this ticker so entry/stop/T1/T2 can be
+  // overlaid as dashed price lines. Read-only — the chart never mutates the
+  // setup. If no non-archived setup exists for this ticker, no overlay draws.
+  const [showActiveSetup, setShowActiveSetup] = useState(true);
+  const { data: activeSetups } = useQuery<any[]>({
+    queryKey: ["/api/active-setups"],
+    staleTime: 60_000,
+    refetchOnWindowFocus: false,
+  });
+  const activeSetup = useMemo(() => {
+    if (!Array.isArray(activeSetups)) return null;
+    return activeSetups.find((s: any) => s?.ticker === ticker && !s?.archivedAt) || null;
+  }, [activeSetups, ticker]);
+
+  // Phase 6: pick the single most relevant "top" pattern to highlight on the
+  // chart. Priority: Confirmed > Near Confirmation > Developing. Only real
+  // detections qualify — never a visual-reference-only pattern.
+  const topPattern = useMemo(() => {
+    if (!continuationDetections) return null;
+    const candidates: Array<{ name: string; res: PatternResult }> = [
+      { name: "Bull Flag",     res: continuationDetections.bullFlag },
+      { name: "Flat Base",     res: continuationDetections.flatBase },
+      { name: "Double Bottom", res: continuationDetections.doubleBottom },
+    ];
+    const priority: Record<PatternState, number> = {
+      "Confirmed": 4, "Near Confirmation": 3, "Developing": 2,
+      "Failed": 0, "Not Detected": 0, "Not Enough Data": 0,
+    };
+    let best = candidates[0];
+    for (const c of candidates) {
+      if (priority[c.res.state] > priority[best.res.state]) best = c;
+    }
+    return priority[best.res.state] > 0 ? best : null;
+  }, [continuationDetections]);
+
   // ── Insights + reflections ─────────────────────────────────────────────────
   const insights = useMemo(() => (bars ? computeInsights(bars, indicators, regime) : []), [bars, indicators, regime]);
   const [reflectionText, setReflectionText] = useState("");
@@ -1112,6 +1245,23 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
               {crosshair.changePct >= 0 ? "+" : ""}{crosshair.changePct.toFixed(2)}%
             </span>
           )}
+          {/* Phase 7: readiness pill — reads FLEX scanner cache + top pattern.
+              No new thresholds; label follows existing scanner state. */}
+          {(() => {
+            const tone = readinessLabel.tone;
+            const cls = tone === "green" ? "text-signal-green border-signal-green/40 bg-signal-green/10"
+              : tone === "blue" ? "text-neon-blue border-neon-blue/40 bg-neon-blue/10"
+              : tone === "amber" ? "text-signal-amber border-signal-amber/40 bg-signal-amber/10"
+              : tone === "red" ? "text-signal-red border-signal-red/40 bg-signal-red/10"
+              : "text-slate-gray border-ink-line bg-ink-black/60";
+            return (
+              <span
+                className={`text-[9px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded border ${cls}`}
+                data-testid="pill-readiness"
+                title={flexCard ? `Scanner state: ${flexCard.state}` : "No scanner data cached"}
+              >{readinessLabel.label}</span>
+            );
+          })()}
         </div>
 
         {/* Timeframe switcher — only shown when the parent wired a handler */}
@@ -1155,6 +1305,20 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
         >
           <Activity className="w-3 h-3" /> Patterns
         </button>
+
+        {/* Active setup overlay toggle — Phase 8 (only shown when a setup exists) */}
+        {activeSetup && (
+          <button
+            onClick={() => setShowActiveSetup((v) => !v)}
+            data-testid="button-active-setup-overlay"
+            title={`${activeSetup.ticker} · entry ${activeSetup.entry}, stop ${activeSetup.stop}`}
+            className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded border flex items-center gap-1 ${
+              showActiveSetup ? "border-signal-green text-signal-green bg-signal-green/10" : "border-ink-line text-slate-gray hover:text-soft-white"
+            }`}
+          >
+            {showActiveSetup ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} Setup
+          </button>
+        )}
 
         {/* Theme */}
         <button
@@ -1363,7 +1527,7 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
           const lastIdx = bars.length - 1;
           const lastClose = bars[lastIdx]?.close;
           const hovered = smas.find((s) => s.id === hoveredSmaId);
-          const hoveredArr = hovered ? sma(closes, hovered.period || 20) : null;
+          const hoveredArr = hovered ? (smaArrays.get(hovered.id) ?? sma(closes, hovered.period || 20)) : null;
           const hoveredVal = hoveredArr ? hoveredArr[lastIdx] : null;
           const hoveredPrev = hoveredArr && lastIdx > 0 ? hoveredArr[lastIdx - 1] : null;
           const insufficient = hovered && bars.length < (hovered.period || 20);
@@ -1375,7 +1539,7 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
               >
                 <div className="flex items-center gap-1">
                   {smas.map((ind) => {
-                    const arr = sma(closes, ind.period || 20);
+                    const arr = smaArrays.get(ind.id) ?? sma(closes, ind.period || 20);
                     const val = arr[lastIdx];
                     const isHovered = ind.id === hoveredSmaId;
                     const isDim = hoveredSmaId != null && !isHovered;
