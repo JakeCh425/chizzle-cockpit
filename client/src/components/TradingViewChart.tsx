@@ -809,64 +809,11 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     chart.timeScale().fitContent();
   }, [bars, indicators, chartStyle, t.volumeUp, t.volumeDown, hoveredSmaId]);
 
-  // Phase 6: render the top-pattern breakout level as a dashed price line on
-  // the main series. Uses createPriceLine so it lives inside lightweight-
-  // charts and auto-scrolls with the chart. Cleaned up on every re-render so
-  // the label reflects the current pattern state.
+  // Phase 6 & 8 price-line refs (effects that actually create the lines are
+  // registered further down, AFTER topPattern / activeSetup are declared, to
+  // avoid the temporal-dead-zone crash the minified build hit).
   const patternPriceLineRef = useRef<any>(null);
-  useEffect(() => {
-    const series = priceSeriesRef.current;
-    if (!series) return;
-    if (patternPriceLineRef.current) {
-      try { series.removePriceLine(patternPriceLineRef.current); } catch {}
-      patternPriceLineRef.current = null;
-    }
-    if (topPattern && topPattern.res.level != null) {
-      const color = topPattern.res.state === "Confirmed" ? t.bull
-        : topPattern.res.state === "Near Confirmation" ? "#22d3ee"
-        : "#fbbf24";
-      try {
-        patternPriceLineRef.current = series.createPriceLine({
-          price: topPattern.res.level,
-          color,
-          lineWidth: 1,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `${topPattern.name} · ${topPattern.res.state}`,
-        });
-      } catch {}
-    }
-  }, [topPattern, t.bull, bars, chartStyle]);
-
-  // Phase 8: overlay the active setup levels (entry / stop / T1 / T2) as
-  // dashed price lines on the main series. Colors per spec: entry cyan,
-  // stop red, T1 green, T2 teal. Read-only — clicking does nothing; the
-  // Active Setups panel owns all mutation.
   const setupLinesRef = useRef<any[]>([]);
-  useEffect(() => {
-    const series = priceSeriesRef.current;
-    if (!series) return;
-    // Clear previous lines.
-    for (const ln of setupLinesRef.current) {
-      try { series.removePriceLine(ln); } catch {}
-    }
-    setupLinesRef.current = [];
-    if (!showActiveSetup || !activeSetup) return;
-    const mk = (price: number | null | undefined, color: string, title: string) => {
-      if (price == null || !Number.isFinite(price)) return;
-      try {
-        const ln = series.createPriceLine({
-          price, color, lineWidth: 1, lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true, title,
-        });
-        setupLinesRef.current.push(ln);
-      } catch {}
-    };
-    mk(activeSetup.entry, "#22d3ee", "Entry");
-    mk(activeSetup.stop, "#ff4d6d", "Stop");
-    mk(activeSetup.targetT1 ?? activeSetup.target_t1, "#22e29b", "T1");
-    mk(activeSetup.targetT2 ?? activeSetup.target_t2, "#5eead4", "T2");
-  }, [activeSetup, showActiveSetup, bars, chartStyle]);
 
   // Sub-panes for RSI / MACD (rendered as separate mini-charts, time-synced).
   useEffect(() => {
@@ -1150,30 +1097,6 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     return m;
   }, [bars, indicators]);
 
-  // Phase 7: Near Setup Card readiness. We read from the FlexScanner query
-  // cache (populated by FlexScannerPanel) so this chart adds ZERO extra
-  // network cost. Falls back to no display when the scanner hasn't been run
-  // yet or this ticker isn't in the current scanner universe.
-  const flexData = qc.getQueryData<any>(["/api/flex-scan"]);
-  const flexCard = useMemo(() => {
-    const cards = flexData?.cards || flexData?.scanner_cards || flexData;
-    if (!Array.isArray(cards)) return null;
-    return cards.find((c: any) => c?.ticker === ticker || c?.symbol === ticker) || null;
-  }, [flexData, ticker]);
-  // Map FLEX card state → the readiness label the user's Phase 7 spec expects.
-  const readinessLabel: { label: string; tone: "gray"|"amber"|"blue"|"green"|"red" } = useMemo(() => {
-    if (activeSetup) return { label: "Active", tone: "green" };
-    if (!flexCard) return { label: "Watching", tone: "gray" };
-    const state = String(flexCard.state || "").toUpperCase();
-    // topPattern context can enrich the label when the scanner is neutral.
-    if (state === "READY") return { label: "Ready for Existing Card Logic", tone: "green" };
-    if (state === "NEAR_READY" || state === "NEAR READY") return { label: "Near Trigger", tone: "blue" };
-    if (state === "INVALIDATED" || state === "BLOCKED") return { label: "Invalidated", tone: "red" };
-    if (topPattern?.res.state === "Near Confirmation") return { label: "Awaiting Confirmation", tone: "blue" };
-    if (topPattern?.res.state === "Developing") return { label: "Pattern Developing", tone: "amber" };
-    return { label: "Watching", tone: "gray" };
-  }, [flexCard, activeSetup, topPattern]);
-
   // Phase 8: fetch active setups for this ticker so entry/stop/T1/T2 can be
   // overlaid as dashed price lines. Read-only — the chart never mutates the
   // setup. If no non-archived setup exists for this ticker, no overlay draws.
@@ -1208,6 +1131,78 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     }
     return priority[best.res.state] > 0 ? best : null;
   }, [continuationDetections]);
+
+  // Phase 7: Near Setup Card readiness. We read from the FlexScanner query
+  // cache (populated by FlexScannerPanel) so this chart adds ZERO extra
+  // network cost. Falls back to no display when the scanner hasn't been run
+  // yet or this ticker isn't in the current scanner universe.
+  const flexData = qc.getQueryData<any>(["/api/flex-scan"]);
+  const flexCard = useMemo(() => {
+    const cards = flexData?.cards || flexData?.scanner_cards || flexData;
+    if (!Array.isArray(cards)) return null;
+    return cards.find((c: any) => c?.ticker === ticker || c?.symbol === ticker) || null;
+  }, [flexData, ticker]);
+  // Map FLEX card state → the readiness label the user's Phase 7 spec expects.
+  const readinessLabel: { label: string; tone: "gray"|"amber"|"blue"|"green"|"red" } = useMemo(() => {
+    if (activeSetup) return { label: "Active", tone: "green" };
+    if (!flexCard) return { label: "Watching", tone: "gray" };
+    const state = String(flexCard.state || "").toUpperCase();
+    // topPattern context can enrich the label when the scanner is neutral.
+    if (state === "READY") return { label: "Ready for Existing Card Logic", tone: "green" };
+    if (state === "NEAR_READY" || state === "NEAR READY") return { label: "Near Trigger", tone: "blue" };
+    if (state === "INVALIDATED" || state === "BLOCKED") return { label: "Invalidated", tone: "red" };
+    if (topPattern?.res.state === "Near Confirmation") return { label: "Awaiting Confirmation", tone: "blue" };
+    if (topPattern?.res.state === "Developing") return { label: "Pattern Developing", tone: "amber" };
+    return { label: "Watching", tone: "gray" };
+  }, [flexCard, activeSetup, topPattern]);
+
+  // Phase 6: draw the top pattern's breakout level as a dashed price line.
+  useEffect(() => {
+    const series = priceSeriesRef.current;
+    if (!series) return;
+    if (patternPriceLineRef.current) {
+      try { series.removePriceLine(patternPriceLineRef.current); } catch {}
+      patternPriceLineRef.current = null;
+    }
+    if (topPattern && topPattern.res.level != null) {
+      const color = topPattern.res.state === "Confirmed" ? t.bull
+        : topPattern.res.state === "Near Confirmation" ? "#22d3ee"
+        : "#fbbf24";
+      try {
+        patternPriceLineRef.current = series.createPriceLine({
+          price: topPattern.res.level,
+          color, lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${topPattern.name} · ${topPattern.res.state}`,
+        });
+      } catch {}
+    }
+  }, [topPattern, t.bull, bars, chartStyle]);
+
+  // Phase 8: overlay active setup entry/stop/T1/T2 as dashed price lines.
+  useEffect(() => {
+    const series = priceSeriesRef.current;
+    if (!series) return;
+    for (const ln of setupLinesRef.current) {
+      try { series.removePriceLine(ln); } catch {}
+    }
+    setupLinesRef.current = [];
+    if (!showActiveSetup || !activeSetup) return;
+    const mk = (price: number | null | undefined, color: string, title: string) => {
+      if (price == null || !Number.isFinite(price)) return;
+      try {
+        const ln = series.createPriceLine({
+          price, color, lineWidth: 1, lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true, title,
+        });
+        setupLinesRef.current.push(ln);
+      } catch {}
+    };
+    mk(activeSetup.entry, "#22d3ee", "Entry");
+    mk(activeSetup.stop, "#ff4d6d", "Stop");
+    mk(activeSetup.targetT1 ?? activeSetup.target_t1, "#22e29b", "T1");
+    mk(activeSetup.targetT2 ?? activeSetup.target_t2, "#5eead4", "T2");
+  }, [activeSetup, showActiveSetup, bars, chartStyle]);
 
   // ── Insights + reflections ─────────────────────────────────────────────────
   const insights = useMemo(() => (bars ? computeInsights(bars, indicators, regime) : []), [bars, indicators, regime]);
