@@ -38,10 +38,9 @@ import {
 import {
   SlidersHorizontal, Palette, Pencil, Trash2, Plus, Save, Check,
   TrendingUp, Minus, Play, Ruler, X, Eye, EyeOff, RefreshCw, MessageSquare,
-  Lightbulb, ChevronDown, ChevronRight, Activity,
+  Lightbulb, ChevronDown, ChevronRight,
 } from "lucide-react";
 import { rsi as rsiSeries } from "@/lib/rsi";
-import { detectContinuationPatterns, type PatternResult, type PatternState } from "@/lib/continuationPatterns";
 import TimeframeSwitcher from "@/components/TimeframeSwitcher";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
 
@@ -468,49 +467,6 @@ interface Props {
   mtfStrip?: React.ReactNode;
 }
 
-// Phase 5: color mapping for pattern state. Kept as a plain object so the
-// pill component below has no hidden logic — each state maps to one border
-// tint + one text tint.
-const PATTERN_STATE_STYLE: Record<PatternState, { border: string; text: string; dot: string }> = {
-  "Not Detected":      { border: "border-ink-line",       text: "text-slate-gray",    dot: "bg-slate-gray/40" },
-  "Developing":        { border: "border-signal-amber/50", text: "text-signal-amber",  dot: "bg-signal-amber" },
-  "Near Confirmation": { border: "border-neon-blue/60",   text: "text-neon-blue",     dot: "bg-neon-blue" },
-  "Confirmed":         { border: "border-signal-green/70", text: "text-signal-green",  dot: "bg-signal-green" },
-  "Failed":            { border: "border-signal-red/60",  text: "text-signal-red",    dot: "bg-signal-red" },
-  "Not Enough Data":   { border: "border-ink-line",       text: "text-slate-gray/70", dot: "bg-slate-gray/30" },
-};
-
-function PatternPill({ label, state, details, level, unavailable }: {
-  label: string;
-  state: PatternState;
-  details?: string;
-  level?: number;
-  unavailable?: boolean;
-}) {
-  const s = PATTERN_STATE_STYLE[state];
-  return (
-    <div
-      className={`rounded border ${s.border} bg-ink-black/60 px-2 py-1 flex flex-col gap-0.5 ${unavailable ? "opacity-60" : ""}`}
-      data-testid={`pattern-${label.toLowerCase().replace(/\s+/g, "-")}`}
-      title={details}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[10px] font-mono text-soft-white truncate">{label}</span>
-        <span className={`flex items-center gap-1 text-[9px] font-mono uppercase tracking-wider ${s.text}`}>
-          <span className={`w-1.5 h-1.5 rounded-full ${s.dot}`} />
-          {state}
-        </span>
-      </div>
-      {(details || level != null) && (
-        <div className="text-[9px] text-slate-gray truncate">
-          {level != null && <span className="tabular-nums text-slate-gray/90">Level {level.toFixed(2)} </span>}
-          {details}
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function TradingViewChart({ ticker, bars, isLoading, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
   // Persisted layout (per ticker, from Neon).
   const qc = useQueryClient();
@@ -537,9 +493,6 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
   const [showThemePicker, setShowThemePicker] = useState(false);
   const [showInsights, setShowInsights] = useState(true);
   const [showReflections, setShowReflections] = useState(false);
-  // Phase 5: Patterns Key toggle. Panel is collapsed by default so the chart
-  // stays uncluttered until the user asks for pattern context.
-  const [showPatterns, setShowPatterns] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [pendingDraw, setPendingDraw] = useState<Drawing | null>(null);
 
@@ -1046,36 +999,6 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
     }
   };
 
-  // ── Patterns (Phase 5) ─────────────────────────────────────────────────────
-  // Client-side detection for the three approved continuation patterns —
-  // memoized against `bars` so it only recomputes when the input series
-  // changes (e.g. new bar, ticker switch, timeframe switch).
-  const continuationDetections = useMemo(
-    () => bars ? detectContinuationPatterns(bars as any) : null,
-    [bars],
-  );
-
-  // Server-side candle-pattern eval (Hammer, Bullish Engulfing, Strong Bull
-  // Bar, Aggressive Bounce). Only 1H/4H timeframes are supported by the
-  // multi-pattern-monitor endpoint; other timeframes report "unavailable".
-  const mpTimeframe: "1h" | "4h" | null = timeframe === "1H" ? "1h" : timeframe === "4H" ? "4h" : null;
-  const { data: mpResp } = useQuery<any>({
-    queryKey: ["/api/multi-pattern-monitor", ticker, mpTimeframe],
-    queryFn: async () => {
-      const r = await apiRequest("GET", `/api/multi-pattern-monitor?timeframe=${mpTimeframe}&symbols=${ticker}`);
-      return r.json();
-    },
-    enabled: showPatterns && mpTimeframe !== null && !!ticker,
-    staleTime: 30_000,
-    refetchOnWindowFocus: false,
-  });
-
-  // Extract the current symbol's server-side pattern eval, if any.
-  const serverPattern = useMemo(() => {
-    if (!mpResp?.symbols) return null;
-    return mpResp.symbols.find((s: any) => s.symbol === ticker) || null;
-  }, [mpResp, ticker]);
-
   // ── Insights + reflections ─────────────────────────────────────────────────
   const insights = useMemo(() => (bars ? computeInsights(bars, indicators, regime) : []), [bars, indicators, regime]);
   const [reflectionText, setReflectionText] = useState("");
@@ -1143,17 +1066,6 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
         >
           <SlidersHorizontal className="w-3 h-3" /> Indicators
           <span className="text-[9px] opacity-80">({indicators.filter((i) => i.enabled).length})</span>
-        </button>
-
-        {/* Patterns — Phase 5 */}
-        <button
-          onClick={() => setShowPatterns((v) => !v)}
-          data-testid="button-patterns"
-          className={`px-2 py-1 text-[10px] font-mono uppercase tracking-wider rounded border flex items-center gap-1 ${
-            showPatterns ? "border-neon-blue text-neon-blue bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"
-          }`}
-        >
-          <Activity className="w-3 h-3" /> Patterns
         </button>
 
         {/* Theme */}
@@ -1264,79 +1176,6 @@ export default function TradingViewChart({ ticker, bars, isLoading, regime, heig
           <span className="text-[9px] text-slate-gray/70 ml-2">
             Custom colors: change per-indicator in the Indicators panel. Bull/bear/grid follow the theme.
           </span>
-        </div>
-      )}
-
-      {/* Patterns Key — Phase 5. Two groups: Continuation/Base (three real
-          client-side detectors) and Candle Context (four server-side
-          detections via /api/multi-pattern-monitor when TF is 1H/4H).
-          Patterns without deterministic detection are marked as visual
-          reference only — they are never inferred, never promoted to a
-          setup card, and never invent price levels. */}
-      {showPatterns && (
-        <div className="border-b border-ink-line bg-ink-deep/40 p-2 space-y-2" data-testid="panel-patterns">
-          {/* CONTINUATION / BASE PATTERNS */}
-          <div>
-            <div className="text-[9px] font-mono uppercase tracking-widest text-slate-gray mb-1">
-              Continuation / Base Patterns
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
-              {continuationDetections ? ([
-                { key: "bullFlag",     label: "Bull Flag",     res: continuationDetections.bullFlag },
-                { key: "flatBase",     label: "Flat Base",     res: continuationDetections.flatBase },
-                { key: "doubleBottom", label: "Double Bottom", res: continuationDetections.doubleBottom },
-              ].map((p) => (
-                <PatternPill key={p.key} label={p.label} state={p.res.state} details={p.res.details} level={p.res.level} />
-              ))) : (
-                <div className="col-span-3 text-[10px] text-slate-gray italic px-1">Loading bars…</div>
-              )}
-              {[
-                "Cup with Handle", "Ascending Triangle", "Tight Consolidation", "Pullback Continuation",
-              ].map((name) => (
-                <PatternPill key={name} label={name} state="Not Detected" details="Auto-detection unavailable — visual reference only." unavailable />
-              ))}
-            </div>
-          </div>
-
-          {/* CANDLE CONTEXT */}
-          <div>
-            <div className="text-[9px] font-mono uppercase tracking-widest text-slate-gray mb-1">
-              Candle Context {mpTimeframe ? `(${mpTimeframe.toUpperCase()})` : "(1H / 4H only)"}
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-1.5">
-              {(() => {
-                const canonical = ["Hammer", "Bullish Engulfing", "Strong Bull Bar", "Aggressive Bounce"] as const;
-                if (!mpTimeframe) {
-                  return canonical.map((name) => (
-                    <PatternPill key={name} label={name} state="Not Detected" details="Switch to 1H or 4H timeframe to enable detection." unavailable />
-                  ));
-                }
-                const p = serverPattern?.pattern as string | null | undefined;
-                const ps = serverPattern?.pattern_status as string | undefined;
-                return canonical.map((name) => {
-                  let state: PatternState = "Not Detected";
-                  let details: string | undefined;
-                  if (p === name) {
-                    if (ps?.startsWith("Confirmed") || ps === "Ready to Trade") state = "Confirmed";
-                    else if (ps?.includes("Forming")) state = "Developing";
-                    else if (ps === "Signal Expired") state = "Failed";
-                    details = ps;
-                  }
-                  return <PatternPill key={name} label={name} state={state} details={details} />;
-                });
-              })()}
-              {[
-                "Morning Star", "Evening Star", "Shooting Star", "Piercing Line",
-                "Dark Cloud Cover", "Tweezer Bottom", "Bearish Engulfing",
-              ].map((name) => (
-                <PatternPill key={name} label={name} state="Not Detected" details="Auto-detection unavailable — visual reference only." unavailable />
-              ))}
-            </div>
-          </div>
-
-          <div className="text-[9px] text-slate-gray/70 italic pt-1 border-t border-ink-line/60">
-            Detection uses closed bars only. States never repaint. Confirmed detections do not create setup cards or price levels.
-          </div>
         </div>
       )}
 
