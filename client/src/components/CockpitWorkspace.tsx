@@ -23,6 +23,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 import MTFSignalsPanel from "@/components/MTFSignalsPanel";
+import MTFSettingsPanel from "@/components/MTFSettingsPanel";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
 
@@ -139,6 +140,9 @@ export default function CockpitWorkspace() {
         </ErrorBoundary>
         <ErrorBoundary label="mtf-signals">
           <MTFSignalsPanel />
+        </ErrorBoundary>
+        <ErrorBoundary label="mtf-settings">
+          <MTFSettingsPanel />
         </ErrorBoundary>
       </div>
 
