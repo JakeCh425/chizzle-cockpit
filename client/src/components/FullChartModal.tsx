@@ -16,6 +16,7 @@ import {
 import { X } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, getAScore, type SignalColor } from "@/lib/sma";
+import { SMA_COLORS, SMA_TEXT_CLASSES } from "@/lib/smaColors";
 import { formatShares } from "@/lib/engine";
 import { sharesForPlan, useSharesContext } from "@/lib/useShares";
 
@@ -439,9 +440,9 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
               className={`flex items-center gap-1.5 transition-opacity ${visible.sma20 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma20`}
             >
-              <i className="w-2 h-px bg-neon-blue inline-block" aria-hidden="true" />
+              <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma20 }} aria-hidden="true" />
               <span>20</span>
-              <span className="text-neon-blue">{sma20Last != null ? sma20Last.toFixed(2) : "—"}</span>
+              <span className={SMA_TEXT_CLASSES.sma20}>{sma20Last != null ? sma20Last.toFixed(2) : "—"}</span>
             </button>
             <button
               type="button"
@@ -451,9 +452,9 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
               className={`flex items-center gap-1.5 transition-opacity ${visible.sma50 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma50`}
             >
-              <i className="w-2 h-px bg-signal-amber inline-block" aria-hidden="true" />
+              <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma50 }} aria-hidden="true" />
               <span>50</span>
-              <span className="text-signal-amber">{sma50Last != null ? sma50Last.toFixed(2) : "—"}</span>
+              <span className={SMA_TEXT_CLASSES.sma50}>{sma50Last != null ? sma50Last.toFixed(2) : "—"}</span>
             </button>
             <button
               type="button"
@@ -463,9 +464,9 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
               className={`flex items-center gap-1.5 transition-opacity ${visible.sma200 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
               data-testid={`button-modal-legend-sma200`}
             >
-              <i className="w-2 h-px bg-signal-red inline-block" aria-hidden="true" />
+              <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma200 }} aria-hidden="true" />
               <span>200</span>
-              <span className="text-signal-red">{sma200Last != null ? sma200Last.toFixed(2) : "—"}</span>
+              <span className={SMA_TEXT_CLASSES.sma200}>{sma200Last != null ? sma200Last.toFixed(2) : "—"}</span>
             </button>
           </div>
         </div>
@@ -541,13 +542,13 @@ export default function FullChartModal({ open, symbol, defaultInterval = "1D", o
                       formatter={fmtTooltip}
                     />
                     {visible.sma200 && (
-                      <Line yAxisId="price" type="monotone" dataKey="sma200" name="SMA200" stroke="hsl(var(--signal-red))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+                      <Line yAxisId="price" type="monotone" dataKey="sma200" name="SMA200" stroke={SMA_COLORS.sma200} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
                     )}
                     {visible.sma50 && (
-                      <Line yAxisId="price" type="monotone" dataKey="sma50"  name="SMA50"  stroke="hsl(var(--signal-amber))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+                      <Line yAxisId="price" type="monotone" dataKey="sma50"  name="SMA50"  stroke={SMA_COLORS.sma50} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
                     )}
                     {visible.sma20 && (
-                      <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke="hsl(var(--neon-blue))"   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
+                      <Line yAxisId="price" type="monotone" dataKey="sma20"  name="SMA20"  stroke={SMA_COLORS.sma20}   strokeWidth={1.25} dot={false} isAnimationActive={false} connectNulls />
                     )}
                     {/* Faint price line — guarantees ResponsiveContainer mounts
                         a series, gives the tooltip a hit target, and provides a

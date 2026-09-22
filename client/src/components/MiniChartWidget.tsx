@@ -49,12 +49,16 @@ const DEFAULT_REFRESH: Record<Interval, number> = {
 // SMA chip text colors. Use the SAME CSS tokens as the line strokes so the
 // chip color always matches its corresponding line (across light/dark themes):
 //   sma20  -> --neon-blue
-//   sma50  -> --signal-amber
-//   sma200 -> --signal-red
+//   sma50  -> amber/gold
+//   sma200 -> violet
+// Unified via @/lib/smaColors so mini, full, and main charts all agree.
+// Previously sma200 rendered RED here — which conflicts with signal-red
+// meaning "actionable risk" everywhere else in the Cockpit.
+import { SMA_COLORS } from "@/lib/smaColors";
 const SMA_LABEL_COLOR = {
-  sma20: "hsl(var(--neon-blue))",
-  sma50: "hsl(var(--signal-amber))",
-  sma200: "hsl(var(--signal-red))",
+  sma20: SMA_COLORS.sma20,
+  sma50: SMA_COLORS.sma50,
+  sma200: SMA_COLORS.sma200,
 } as const;
 
 // ─── Data fetcher ────────────────────────────────────────────────────────────
@@ -122,13 +126,13 @@ const ChartView = memo(function ChartView({
           formatter={fmtTooltip}
         />
         {visible.sma200 && (
-          <Line type="monotone" dataKey="sma200" stroke="hsl(var(--signal-red))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey="sma200" stroke={SMA_COLORS.sma200} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
         )}
         {visible.sma50 && (
-          <Line type="monotone" dataKey="sma50" stroke="hsl(var(--signal-amber))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey="sma50" stroke={SMA_COLORS.sma50} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
         )}
         {visible.sma20 && (
-          <Line type="monotone" dataKey="sma20" stroke="hsl(var(--neon-blue))" strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
+          <Line type="monotone" dataKey="sma20" stroke={SMA_COLORS.sma20} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
         )}
         <Line type="monotone" dataKey="price" stroke="hsl(var(--soft-white))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
       </LineChart>
@@ -506,7 +510,7 @@ export default function MiniChartWidget({
             className={`flex items-center gap-1 transition-opacity ${visible.sma20 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
             data-testid={`button-legend-sma20-${symbol}`}
           >
-            <i className="w-2 h-px bg-neon-blue inline-block" aria-hidden="true" />20
+            <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma20 }} aria-hidden="true" />20
           </button>
           <button
             type="button"
@@ -516,7 +520,7 @@ export default function MiniChartWidget({
             className={`flex items-center gap-1 transition-opacity ${visible.sma50 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
             data-testid={`button-legend-sma50-${symbol}`}
           >
-            <i className="w-2 h-px bg-signal-amber inline-block" aria-hidden="true" />50
+            <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma50 }} aria-hidden="true" />50
           </button>
           <button
             type="button"
@@ -526,7 +530,7 @@ export default function MiniChartWidget({
             className={`flex items-center gap-1 transition-opacity ${visible.sma200 ? "opacity-100" : "opacity-40"} hover:text-soft-white`}
             data-testid={`button-legend-sma200-${symbol}`}
           >
-            <i className="w-2 h-px bg-signal-red inline-block" aria-hidden="true" />200
+            <i className="w-2 h-px inline-block" style={{ backgroundColor: SMA_COLORS.sma200 }} aria-hidden="true" />200
           </button>
         </div>
         <span className="text-soft-white/70" title={`Score ${signal.score}`}>{signal.note}</span>

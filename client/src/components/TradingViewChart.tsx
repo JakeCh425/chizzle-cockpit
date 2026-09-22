@@ -44,6 +44,7 @@ import { rsi as rsiSeries } from "@/lib/rsi";
 import { detectContinuationPatterns, type PatternResult, type PatternState } from "@/lib/continuationPatterns";
 import TimeframeSwitcher from "@/components/TimeframeSwitcher";
 import { TIMEFRAMES, type Timeframe } from "@/lib/timeframes";
+import { SMA_COLORS } from "@/lib/smaColors";
 
 // The candles API returns `time` as unix seconds. We accept either `time`
 // (canonical, from /api/candles-ohlc) or `date` (YYYY-MM-DD) for callers that
@@ -170,9 +171,9 @@ function smaRelationship(close: number, sma: number, prevSma: number | null): st
 // SMA colors per Phase 4 spec: electric cyan / bright amber-gold / violet.
 function defaultIndicators(): IndicatorConfig[] {
   return [
-    { id: "sma20",  kind: "SMA",  enabled: true,  period: 20,  color: "#22d3ee" },
-    { id: "sma50",  kind: "SMA",  enabled: true,  period: 50,  color: "#fbbf24" },
-    { id: "sma200", kind: "SMA",  enabled: true,  period: 200, color: "#c084fc" },
+    { id: "sma20",  kind: "SMA",  enabled: true,  period: 20,  color: SMA_COLORS.sma20 },
+    { id: "sma50",  kind: "SMA",  enabled: true,  period: 50,  color: SMA_COLORS.sma50 },
+    { id: "sma200", kind: "SMA",  enabled: true,  period: 200, color: SMA_COLORS.sma200 },
     { id: "ema10",  kind: "EMA",  enabled: false, period: 10,  color: "#34d399" },
     { id: "ema20",  kind: "EMA",  enabled: false, period: 20,  color: "#f472b6" },
     { id: "bb20",   kind: "BB",   enabled: false, period: 20,  mult: 2, color: "#93c5fd", color2: "#93c5fd", color3: "#60a5fa" },

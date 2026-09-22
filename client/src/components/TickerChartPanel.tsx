@@ -23,6 +23,7 @@ import { Plus, X, Maximize2, Minimize2, LayoutGrid, Focus, SlidersHorizontal, Ca
 import { rsi, rsiZone } from "@/lib/rsi";
 import { aggregateBars } from "@/lib/timeframes";
 import { useCockpitTicker, DEFAULT_CHIPS } from "@/components/CockpitTickerContext";
+import { SMA_TEXT_CLASSES } from "@/lib/smaColors";
 import { useLiveQuotes } from "@/lib/useLivePrices";
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -390,9 +391,12 @@ function IndicatorsPopover({ toggles, onChange }: { toggles: OverlayToggles; onC
     return () => document.removeEventListener("mousedown", onDoc);
   }, [open]);
   const items: { key: keyof OverlayToggles; label: string; color: string; desc: string }[] = [
-    { key: "sma20",  label: "SMA 20",  color: "text-sky-400",    desc: "Short-term trend" },
-    { key: "sma50",  label: "SMA 50",  color: "text-amber-400",  desc: "Medium-term trend" },
-    { key: "sma200", label: "SMA 200", color: "text-purple-400", desc: "Primary trend" },
+    // SMA colors unified via @/lib/smaColors so the mini-chart legend, main
+    // chart, and hover popovers always agree. Do NOT hardcode Tailwind SMA
+    // colors elsewhere.
+    { key: "sma20",  label: "SMA 20",  color: SMA_TEXT_CLASSES.sma20,  desc: "Short-term trend" },
+    { key: "sma50",  label: "SMA 50",  color: SMA_TEXT_CLASSES.sma50,  desc: "Medium-term trend" },
+    { key: "sma200", label: "SMA 200", color: SMA_TEXT_CLASSES.sma200, desc: "Primary trend" },
     { key: "rsi",    label: "RSI 14",  color: "text-indigo-400", desc: "Momentum oscillator" },
     { key: "volume", label: "Volume",  color: "text-slate-300",  desc: "Daily volume" },
   ];

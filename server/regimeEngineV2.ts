@@ -17,12 +17,42 @@ import { safeHistory, type DailyBar } from "./marketData";
 
 export type RegimeV2Class = "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
 
+// Volatility Climate (Phase 4) — display-only fields describing how the VIX
+// is BEHAVING today, independent of the regime-combine band. These do NOT
+// participate in the regime traffic light; the existing `band` field still
+// drives day_class. New fields, not replacements.
+export type VixLevel = "calm" | "normal" | "caution" | "high" | "stress" | "unknown";
+export type VixTrend = "falling" | "stable" | "rising" | "rising_fast" | "unknown";
+export type VixRiskEffect =
+  | "supportive"
+  | "monitor"
+  | "reduce_risk"
+  | "defensive"
+  | "unknown";
+
 export interface RegimeV2Snapshot {
   day_class: RegimeV2Class;
   reason: string;
   vix: {
     last: number | null;
+    /**
+     * Regime-combine band. UNCHANGED behavior — still drives day_class.
+     * Do NOT color the volatility tile with this field; use `level` + `trend`.
+     */
     band: "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
+    // Phase 4 display fields — all optional, never affect day_class.
+    change?: number | null;
+    changePct?: number | null;
+    prevClose?: number | null;
+    trend5d?: VixTrend;
+    /** 5-tier volatility state per spec; display-only. */
+    level?: VixLevel;
+    /** Risk-posture hint derived from level + trend; display-only. */
+    riskEffect?: VixRiskEffect;
+    /** 20-day simple average of ^VIX close when history allows. */
+    avg20d?: number | null;
+    /** ISO timestamp of the daily bar `last` was read from. */
+    ts?: string | null;
   };
   breadth: {
     pct_above_20sma: number | null;
@@ -82,14 +112,87 @@ function classifyDistribution(days: number | null): "GREEN" | "YELLOW" | "RED" |
   return "RED"; // >= 8 or in the 7 grey zone leans YELLOW; strict spec: >=8 RED
 }
 
+// ── Volatility Climate helpers (Phase 4 — display-only) ──────────────────
+// These classifications live ALONGSIDE the regime-combine `band`. They are
+// consumed only by the VIX tile in the UI. Do not read them from the regime
+// combine math — the traffic light is intentionally unchanged in PR 1.
+export function classifyVixLevel(v: number | null): VixLevel {
+  if (v == null || !Number.isFinite(v)) return "unknown";
+  if (v < 15) return "calm";
+  if (v <= 20) return "normal";
+  if (v <= 25) return "caution";
+  if (v <= 30) return "high";
+  return "stress";
+}
+
+/** Classify 5-day direction from a slice of daily closes ending today.
+ * `closes` should be ordered oldest→newest and include at least 2 points. */
+export function classifyVixTrend(closes: number[]): VixTrend {
+  if (!closes || closes.length < 2) return "unknown";
+  const last = closes[closes.length - 1];
+  const first = closes[closes.length - Math.min(closes.length, 5)];
+  if (!Number.isFinite(last) || !Number.isFinite(first) || first === 0) return "unknown";
+  const chgPct = ((last - first) / first) * 100;
+  // Same-day pop check for "rising_fast": >15% single-day jump on top of
+  // an overall 5-day rise is a stress signal even at moderate absolute levels.
+  const prev = closes[closes.length - 2];
+  const dayPct = prev && prev !== 0 ? ((last - prev) / prev) * 100 : 0;
+  if (chgPct >= 15 || dayPct >= 15) return "rising_fast";
+  if (chgPct >= 5) return "rising";
+  if (chgPct <= -5) return "falling";
+  return "stable";
+}
+
+/** Combine level + trend into a risk-posture hint. Display-only. */
+export function deriveVixRiskEffect(level: VixLevel, trend: VixTrend): VixRiskEffect {
+  if (level === "unknown") return "unknown";
+  if (level === "stress") return "defensive";
+  if (level === "high") return trend === "falling" ? "reduce_risk" : "defensive";
+  if (level === "caution") return trend === "rising_fast" ? "reduce_risk" : "monitor";
+  if (level === "normal") return trend === "rising_fast" ? "monitor" : "supportive";
+  // calm
+  return trend === "rising_fast" ? "monitor" : "supportive";
+}
+
 export async function computeRegimeV2(
   universe: string[] = DEFAULT_UNIVERSE,
 ): Promise<RegimeV2Snapshot> {
   // ── VIX ──
   let vixLast: number | null = null;
+  // Phase 4 additions — display-only. All optional; no fallback fabrication.
+  let vixPrev: number | null = null;
+  let vixChange: number | null = null;
+  let vixChangePct: number | null = null;
+  let vixTrend: VixTrend = "unknown";
+  let vixLevel: VixLevel = "unknown";
+  let vixRiskEffect: VixRiskEffect = "unknown";
+  let vixAvg20: number | null = null;
+  let vixTs: string | null = null;
   try {
     const vixBars = await safeHistory("^VIX").catch(() => [] as DailyBar[]);
-    if (vixBars.length > 0) vixLast = vixBars[vixBars.length - 1].close;
+    if (vixBars.length > 0) {
+      const lastBar = vixBars[vixBars.length - 1];
+      vixLast = lastBar.close;
+      // DailyBar `date` is expected to be YYYY-MM-DD or ISO; keep whatever we get.
+      vixTs = (lastBar as any).date ?? (lastBar as any).time ?? null;
+    }
+    if (vixBars.length >= 2) {
+      vixPrev = vixBars[vixBars.length - 2].close;
+      if (vixLast != null && vixPrev != null && vixPrev !== 0) {
+        vixChange = vixLast - vixPrev;
+        vixChangePct = (vixChange / vixPrev) * 100;
+      }
+    }
+    if (vixBars.length >= 2) {
+      const closes = vixBars.map((b) => b.close);
+      vixTrend = classifyVixTrend(closes.slice(-6)); // last 5 sessions + today
+    }
+    if (vixBars.length >= 20) {
+      const slice = vixBars.slice(-20).map((b) => b.close);
+      vixAvg20 = slice.reduce((a, b) => a + b, 0) / slice.length;
+    }
+    vixLevel = classifyVixLevel(vixLast);
+    vixRiskEffect = deriveVixRiskEffect(vixLevel, vixTrend);
   } catch {
     vixLast = null;
   }
@@ -150,7 +253,19 @@ export async function computeRegimeV2(
   return {
     day_class,
     reason,
-    vix: { last: vixLast, band: vixBand },
+    vix: {
+      last: vixLast,
+      band: vixBand,
+      // Phase 4 display fields — do NOT feed into the regime combine.
+      change: vixChange != null ? Number(vixChange.toFixed(2)) : null,
+      changePct: vixChangePct != null ? Number(vixChangePct.toFixed(2)) : null,
+      prevClose: vixPrev != null ? Number(vixPrev.toFixed(2)) : null,
+      trend5d: vixTrend,
+      level: vixLevel,
+      riskEffect: vixRiskEffect,
+      avg20d: vixAvg20 != null ? Number(vixAvg20.toFixed(2)) : null,
+      ts: vixTs,
+    },
     breadth: {
       pct_above_20sma: breadthPct != null ? Number(breadthPct.toFixed(1)) : null,
       universe_size: detail.length,

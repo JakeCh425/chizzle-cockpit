@@ -183,8 +183,20 @@ export default function TickerStrengthGauge({ ticker, bars, timeframe }: Props) 
           <h3 className="text-[13px] font-bold uppercase tracking-wider text-soft-white">Entry Readiness</h3>
           <span className="text-[10px] font-mono text-slate-gray">{ticker}</span>
           {timeframe && (
-            <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{timeframe}</span>
+            <span
+              className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30"
+              title="Chart timeframe currently displayed"
+            >
+              Chart: {timeframe}
+            </span>
           )}
+          <span
+            className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-signal-amber/10 text-signal-amber border border-signal-amber/30"
+            title="Strength score qualifies on DAILY bars regardless of the chart timeframe"
+            data-testid="chip-strategy-tf"
+          >
+            Strategy: Daily
+          </span>
         </div>
         <span className="text-[9px] uppercase tracking-wider text-slate-gray/70">0–100</span>
       </div>

@@ -91,34 +91,68 @@ export default function CockpitWorkspace() {
     >
       {/* LEFT COLUMN — Regime + full Market Pulse (fills column height) */}
       <div className="space-y-3 min-w-0" data-testid="workspace-left">
-        <RegimeV2Panel compact />
-        <MarketPulsePanel />
+        <ErrorBoundary label="regime">
+          <RegimeV2Panel compact />
+        </ErrorBoundary>
+        <ErrorBoundary label="market-pulse">
+          <MarketPulsePanel />
+        </ErrorBoundary>
       </div>
 
       {/* CENTER COLUMN — chart + Trade Plan Workspace stacked so the
            middle column matches the right column's height with real content
            instead of dead black space. */}
       <div className="min-w-0 space-y-3 xl:space-y-4" data-testid="workspace-center">
-        <TradingViewChart
-          ticker={ticker}
-          bars={bars}
-          isLoading={isLoading}
-          barsWarning={barsWarning}
-          regime={regime?.day_class}
-          height={420}
-          timeframe={timeframe}
-          onTimeframeChange={setTimeframe}
-          mtfStrip={<MultiTimeframeContext ticker={ticker} activeTf={timeframe} />}
-        />
-        <TradePlanWorkspace />
-        <MTFSignalsPanel />
+        <ErrorBoundary label="chart">
+          <TradingViewChart
+            ticker={ticker}
+            bars={bars}
+            isLoading={isLoading}
+            barsWarning={barsWarning}
+            regime={regime?.day_class}
+            height={420}
+            timeframe={timeframe}
+            onTimeframeChange={setTimeframe}
+            mtfStrip={
+              <ErrorBoundary label="mtf">
+                <MultiTimeframeContext ticker={ticker} activeTf={timeframe} />
+              </ErrorBoundary>
+            }
+          />
+        </ErrorBoundary>
+        {/* Strategy timeframe reminder — scanner, setup grades, and extension
+            tier all qualify on DAILY bars. When the chart is not Daily, remind
+            the trader the qualification metrics below are not derived from the
+            currently displayed candles. Phase 6 spec. */}
+        {timeframe !== "1D" && (
+          <div
+            className="rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] text-signal-amber font-mono"
+            data-testid="strategy-tf-reminder"
+            role="note"
+          >
+            Displayed chart is <span className="font-bold">{timeframe}</span>. Scanner, setup grades, and
+            extension checks continue to use the <span className="font-bold">Daily</span> strategy timeframe.
+          </div>
+        )}
+        <ErrorBoundary label="trade-plan">
+          <TradePlanWorkspace />
+        </ErrorBoundary>
+        <ErrorBoundary label="mtf-signals">
+          <MTFSignalsPanel />
+        </ErrorBoundary>
       </div>
 
       {/* RIGHT COLUMN */}
       <div className="space-y-3 min-w-0" data-testid="workspace-right">
-        <TickerStrengthGauge ticker={ticker} bars={bars} timeframe={timeframe} />
-        <TechnicalSnapshot ticker={ticker} bars={bars} timeframe={timeframe} />
-        <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
+        <ErrorBoundary label="ticker-strength">
+          <TickerStrengthGauge ticker={ticker} bars={bars} timeframe={timeframe} />
+        </ErrorBoundary>
+        <ErrorBoundary label="technical-snapshot">
+          <TechnicalSnapshot ticker={ticker} bars={bars} timeframe={timeframe} />
+        </ErrorBoundary>
+        <ErrorBoundary label="ai-coach">
+          <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
+        </ErrorBoundary>
       </div>
     </div>
   );

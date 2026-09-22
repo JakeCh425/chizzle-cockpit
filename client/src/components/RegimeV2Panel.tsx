@@ -9,15 +9,90 @@ import { TermTooltip } from "@/components/TermTooltip";
 import { ShieldAlert, ShieldCheck, ShieldHalf, HelpCircle, ChevronDown, ChevronRight } from "lucide-react";
 
 type Band = "GREEN" | "YELLOW" | "RED" | "UNKNOWN";
+type VixLevel = "calm" | "normal" | "caution" | "high" | "stress" | "unknown";
+type VixTrend = "falling" | "stable" | "rising" | "rising_fast" | "unknown";
+type VixRiskEffect = "supportive" | "monitor" | "reduce_risk" | "defensive" | "unknown";
 
 interface RegimeV2Snapshot {
   day_class: Band;
   reason: string;
-  vix: { last: number | null; band: Band };
+  vix: {
+    last: number | null;
+    band: Band;
+    // Phase 4 display fields — all optional. Never color the VIX tile from
+    // `band`; use `level` + `trend5d` so the volatility tile can be amber
+    // while the parent regime is green, and vice versa.
+    change?: number | null;
+    changePct?: number | null;
+    prevClose?: number | null;
+    trend5d?: VixTrend;
+    level?: VixLevel;
+    riskEffect?: VixRiskEffect;
+    avg20d?: number | null;
+    ts?: string | null;
+  };
   breadth: { pct_above_20sma: number | null; universe_size: number; band: Band };
   distribution: { days_last_25: number | null; band: Band };
   detail: Array<{ ticker: string; last: number; sma20: number; above: boolean }>;
   computed_at: string;
+}
+
+// Volatility Climate palette. Green/amber/red are semantic here — supportive
+// vs monitor vs defensive — and are chosen from level+trend, NOT from the
+// regime combine band. Neutral gray is the "insufficient/ambiguous" state.
+const VIX_STYLES: Record<"green" | "amber" | "red" | "neutral", { text: string; border: string; bg: string }> = {
+  green:   { text: "text-signal-green", border: "border-signal-green", bg: "bg-signal-green/10" },
+  amber:   { text: "text-signal-amber", border: "border-signal-amber", bg: "bg-signal-amber/10" },
+  red:     { text: "text-signal-red",   border: "border-signal-red",   bg: "bg-signal-red/10" },
+  neutral: { text: "text-slate-gray",   border: "border-ink-line",     bg: "bg-ink-line/40" },
+};
+
+function vixTileTone(level: VixLevel | undefined, trend: VixTrend | undefined): keyof typeof VIX_STYLES {
+  if (!level || level === "unknown") return "neutral";
+  if (level === "stress") return "red";
+  if (level === "high") return trend === "falling" ? "amber" : "red";
+  if (level === "caution") return trend === "rising_fast" ? "red" : "amber";
+  if (level === "normal") return trend === "rising_fast" ? "amber" : "green";
+  // calm
+  return trend === "rising_fast" ? "amber" : "green";
+}
+
+function levelLabel(l: VixLevel | undefined): string {
+  switch (l) {
+    case "calm": return "CALM";
+    case "normal": return "NORMAL";
+    case "caution": return "CAUTION";
+    case "high": return "HIGH";
+    case "stress": return "STRESS";
+    default: return "—";
+  }
+}
+function trendLabel(t: VixTrend | undefined): string {
+  switch (t) {
+    case "falling": return "FALLING";
+    case "stable": return "STABLE";
+    case "rising": return "RISING";
+    case "rising_fast": return "RISING FAST";
+    default: return "—";
+  }
+}
+function trendArrow(t: VixTrend | undefined): string {
+  switch (t) {
+    case "falling": return "↓";
+    case "rising": return "↑";
+    case "rising_fast": return "↑↑";
+    case "stable": return "→";
+    default: return "–";
+  }
+}
+function riskEffectLabel(r: VixRiskEffect | undefined): string {
+  switch (r) {
+    case "supportive": return "Supportive";
+    case "monitor": return "Monitor";
+    case "reduce_risk": return "Reduce risk";
+    case "defensive": return "Defensive";
+    default: return "—";
+  }
 }
 
 const BAND_STYLES: Record<Band, { bg: string; text: string; border: string }> = {
@@ -86,12 +161,60 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
           {playbook.text}
         </div>
 
-        {/* 2×2 metric grid */}
-        <div className="grid grid-cols-2 gap-1.5 text-xs">
-          <div className={`rounded border ${BAND_STYLES[snap.vix.band].border} bg-ink-deep px-2 py-1.5`}>
-            <div className="text-slate-gray text-[9px] uppercase tracking-wider">VIX</div>
-            <div className={`font-mono font-bold text-[13px] ${BAND_STYLES[snap.vix.band].text}`}>{fmt(snap.vix.last, 1)}</div>
-          </div>
+        {/* Volatility Climate strip — spans full width. Colored by VIX
+            level+trend, NOT by the parent regime band. Phase 4 spec. */}
+        {(() => {
+          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d);
+          const s = VIX_STYLES[tone];
+          const chg = snap.vix.change;
+          const chgPct = snap.vix.changePct;
+          const chgSign = chg != null && chg > 0 ? "+" : "";
+          const chgText = chg != null && chgPct != null
+            ? `${chgSign}${chg.toFixed(2)} (${chgSign}${chgPct.toFixed(2)}%)`
+            : "—";
+          return (
+            <div
+              className={`rounded border ${s.border} ${s.bg} px-2 py-1.5 text-xs`}
+              data-testid="section-volatility-climate"
+              title={snap.vix.ts ? `VIX close from ${snap.vix.ts}` : undefined}
+            >
+              <div className="flex items-center justify-between">
+                <div className="text-slate-gray text-[9px] uppercase tracking-wider">
+                  Volatility Climate
+                </div>
+                <div className={`text-[9px] font-mono ${s.text}`}>
+                  {trendArrow(snap.vix.trend5d)} {trendLabel(snap.vix.trend5d)}
+                </div>
+              </div>
+              <div className="mt-0.5 flex items-baseline gap-2">
+                <span className={`font-mono font-bold text-[15px] tabular-nums ${s.text}`}>
+                  VIX {fmt(snap.vix.last, 2)}
+                </span>
+                <span className="font-mono text-[10px] text-soft-white/70 tabular-nums">
+                  {chgText}
+                </span>
+              </div>
+              <div className="mt-0.5 flex items-center justify-between text-[10px]">
+                <span className={`font-mono ${s.text}`}>{levelLabel(snap.vix.level)}</span>
+                <span className="text-slate-gray">
+                  Risk effect: <span className={s.text}>{riskEffectLabel(snap.vix.riskEffect)}</span>
+                </span>
+              </div>
+              {snap.vix.avg20d != null && (
+                <div className="mt-0.5 text-[9px] text-slate-gray">
+                  20-day avg: <span className="font-mono text-soft-white/80">{snap.vix.avg20d.toFixed(2)}</span>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Breadth / Distribution / Trend-align grid. Each tile is colored
+            by its own band (Breadth by breadth, Distribution by dist). The
+            trend-align tile intentionally uses NEUTRAL styling instead of
+            the parent regime style, so the card no longer looks uniformly
+            green when the regime is green (Phase 5 spec). */}
+        <div className="grid grid-cols-3 gap-1.5 text-xs">
           <div className={`rounded border ${BAND_STYLES[snap.breadth.band].border} bg-ink-deep px-2 py-1.5`}>
             <div className="text-slate-gray text-[9px] uppercase tracking-wider">Breadth</div>
             <div className={`font-mono font-bold text-[13px] ${BAND_STYLES[snap.breadth.band].text}`}>
@@ -104,9 +227,9 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
               {snap.distribution.days_last_25 ?? "—"}
             </div>
           </div>
-          <div className={`rounded border ${style.border} bg-ink-deep px-2 py-1.5`}>
+          <div className="rounded border border-ink-line bg-ink-deep px-2 py-1.5">
             <div className="text-slate-gray text-[9px] uppercase tracking-wider">Trend align</div>
-            <div className={`font-mono font-bold text-[13px] ${style.text}`}>
+            <div className="font-mono font-bold text-[13px] text-soft-white">
               {snap.detail.length > 0
                 ? `${snap.detail.filter((d) => d.above).length}/${snap.detail.length}`
                 : "—"}
@@ -144,9 +267,14 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
 
         {showDetails && (
           <div className="space-y-1 pt-1 border-t border-ink-line/60">
-            <div className="text-[9px] uppercase tracking-wider text-slate-gray">VIX band</div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-gray">VIX band (regime input)</div>
             <div className="text-[10.5px] text-soft-white">
-              {snap.vix.band === "GREEN" ? "Below 22 — calm" : snap.vix.band === "YELLOW" ? "22–26 — elevated" : snap.vix.band === "RED" ? "Above 26 — stressed" : "Unknown"}
+              {snap.vix.band === "GREEN" ? "Below 22 — regime GREEN input" : snap.vix.band === "YELLOW" ? "22–26 — regime YELLOW input" : snap.vix.band === "RED" ? "Above 26 — regime RED input" : "Unknown"}
+            </div>
+            <div className="text-[9px] uppercase tracking-wider text-slate-gray mt-1">Volatility level (display)</div>
+            <div className="text-[10.5px] text-soft-white">
+              {levelLabel(snap.vix.level)} · {trendLabel(snap.vix.trend5d)}
+              {snap.vix.changePct != null ? ` · ${snap.vix.changePct >= 0 ? "+" : ""}${snap.vix.changePct.toFixed(2)}% today` : ""}
             </div>
             <div className="text-[9px] uppercase tracking-wider text-slate-gray mt-1">Breadth</div>
             <div className="text-[10.5px] text-soft-white">
@@ -182,15 +310,24 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-xs">
-        <div className={`rounded border ${BAND_STYLES[snap.vix.band].border} bg-ink-deep p-2`}>
-          <div className="text-slate-gray text-[10px] uppercase">
-            <TermTooltip term="VIX">VIX</TermTooltip>
-          </div>
-          <div className={`font-mono font-bold ${BAND_STYLES[snap.vix.band].text}`}>{fmt(snap.vix.last, 2)}</div>
-          <div className="text-[10px] text-slate-gray mt-0.5">
-            {snap.vix.band === "GREEN" ? "< 22" : snap.vix.band === "YELLOW" ? "22–26" : snap.vix.band === "RED" ? "> 26" : "Unknown"}
-          </div>
-        </div>
+        {(() => {
+          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d);
+          const s = VIX_STYLES[tone];
+          return (
+            <div className={`rounded border ${s.border} ${s.bg} p-2`} data-testid="section-volatility-climate-legacy">
+              <div className="text-slate-gray text-[10px] uppercase">
+                <TermTooltip term="VIX">Volatility</TermTooltip>
+              </div>
+              <div className={`font-mono font-bold ${s.text}`}>{fmt(snap.vix.last, 2)}</div>
+              <div className={`text-[10px] mt-0.5 ${s.text}`}>
+                {levelLabel(snap.vix.level)} · {trendArrow(snap.vix.trend5d)} {trendLabel(snap.vix.trend5d)}
+              </div>
+              <div className="text-[10px] text-slate-gray mt-0.5">
+                Risk: {riskEffectLabel(snap.vix.riskEffect)}
+              </div>
+            </div>
+          );
+        })()}
         <div className={`rounded border ${BAND_STYLES[snap.breadth.band].border} bg-ink-deep p-2`}>
           <div className="text-slate-gray text-[10px] uppercase">
             <TermTooltip term="Breadth">Breadth</TermTooltip>
