@@ -756,19 +756,35 @@ export interface WebhookResult {
   reason?: string;
   signalId?: string;
   card?: MtfSignal;
+  // PR 2g: allow the route to translate rejections into precise HTTP codes.
+  unauthorized?: boolean;
+  misconfigured?: boolean;
 }
 
 export async function handleWebhook(
   payload: WebhookPayload,
   configuredSecret: string,
+  headerSecret?: string | null,
 ): Promise<WebhookResult> {
-  // 1) Secret validation (constant-time compare to defeat trivial timing)
-  if (!configuredSecret) return { accepted: false, reason: "Webhook secret not configured on server." };
-  const a = Buffer.from(payload.secret || "", "utf8");
+  // 1) Secret validation (spec §10, PR 2g).
+  // Accept the secret from either:
+  //   (a) the request body field `secret` (legacy — preserved for PR 1 alerts), or
+  //   (b) a header supplied via `headerSecret` (X-Webhook-Secret or Bearer),
+  //       which keeps the secret out of the audit log's rawPayload.
+  // Compared with a constant-time XOR to defeat trivial timing oracles.
+  // A 401-style response is returned via `unauthorized: true` so the route
+  // can pick the correct HTTP status without leaking timing information.
+  if (!configuredSecret) {
+    return { accepted: false, reason: "Webhook secret not configured on server.", misconfigured: true };
+  }
+  const providedSecret = (headerSecret && headerSecret.length > 0)
+    ? headerSecret
+    : (payload.secret || "");
+  const a = Buffer.from(providedSecret, "utf8");
   const b = Buffer.from(configuredSecret, "utf8");
-  if (a.length !== b.length) return { accepted: false, reason: "Invalid webhook secret." };
+  if (a.length !== b.length) return { accepted: false, reason: "Invalid webhook secret.", unauthorized: true };
   let diff = 0; for (let i = 0; i < a.length; i++) diff |= a[i] ^ b[i];
-  if (diff !== 0) return { accepted: false, reason: "Invalid webhook secret." };
+  if (diff !== 0) return { accepted: false, reason: "Invalid webhook secret.", unauthorized: true };
 
   // 2) Parse and validate the payload shape
   const symbolFull = String(payload.symbol || "").toUpperCase();

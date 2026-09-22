@@ -2921,9 +2921,22 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/tradingview-alert", async (req, res) => {
     const payload = req.body || {};
     const secret = process.env.TRADINGVIEW_WEBHOOK_SECRET || "";
+    // PR 2g: also accept the secret from a header, so it never lands in the
+    // audit log's rawPayload. Supports X-Webhook-Secret or `Authorization: Bearer…`.
+    const authHeader = String(req.header("authorization") || "");
+    const bearerMatch = authHeader.match(/^Bearer\s+(.+)$/i);
+    const headerSecret =
+      (req.header("x-webhook-secret") as string | undefined) ||
+      (bearerMatch ? bearerMatch[1] : null);
     try {
-      const result = await handleWebhook(payload, secret);
+      const result = await handleWebhook(payload, secret, headerSecret);
       // Always audit the event (with raw payload) — makes mismatch investigation possible.
+      // PR 2g: redact `secret` from rawPayload before persistence so a stolen
+      // DB backup can't leak the shared secret.
+      const redactedPayload = { ...payload };
+      if (redactedPayload && typeof redactedPayload === "object" && "secret" in redactedPayload) {
+        redactedPayload.secret = "[redacted]";
+      }
       try {
         await db.insert(mtfWebhookEvents).values({
           symbol: String(payload?.symbol || "").split(":").pop()?.toUpperCase() || "",
@@ -2940,17 +2953,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           accepted: result.accepted,
           rejectReason: result.accepted ? null : (result.reason || "rejected"),
           signalId: result.signalId || null,
-          rawPayload: payload,
+          rawPayload: redactedPayload,
         } as any);
       } catch (auditErr) {
         console.warn("[tradingview-alert] audit write failed:", (auditErr as any)?.message || auditErr);
       }
-      if (!result.accepted) return res.status(400).json({ ok: false, reason: result.reason });
+      if (!result.accepted) {
+        // PR 2g: precise HTTP codes so integrators can debug without an oracle.
+        if (result.misconfigured) return res.status(503).json({ ok: false, reason: "Server misconfigured" });
+        if (result.unauthorized) return res.status(401).json({ ok: false, reason: "Unauthorized" });
+        return res.status(400).json({ ok: false, reason: result.reason });
+      }
       res.json({ ok: true, signalId: result.signalId, card: result.card, note: result.reason });
     } catch (e: any) {
       console.error("[tradingview-alert] error:", e);
       res.status(500).json({ ok: false, reason: e?.message || String(e) });
     }
+  });
+
+  // PR 2g: webhook health probe. Reports whether the server sees a configured
+  // secret and how many valid events have been ingested. NEVER returns the
+  // secret itself — just presence + length so misconfiguration is obvious.
+  app.get("/api/mtf/webhook-health", async (_req, res) => {
+    const secret = process.env.TRADINGVIEW_WEBHOOK_SECRET || "";
+    try {
+      const { desc } = await import("drizzle-orm");
+      const recent = await db.select().from(mtfWebhookEvents)
+        .orderBy(desc(mtfWebhookEvents.receivedAt)).limit(5);
+      const lastAccepted = recent.find((r: any) => r.accepted) || null;
+      const lastRejected = recent.find((r: any) => !r.accepted) || null;
+      res.json({
+        secretConfigured: secret.length > 0,
+        secretLength: secret.length,
+        acceptsHeader: true,
+        acceptsBearer: true,
+        acceptsBody: true,
+        recentCount: recent.length,
+        lastAcceptedAt: lastAccepted?.receivedAt ?? null,
+        lastRejectedAt: lastRejected?.receivedAt ?? null,
+        lastRejectReason: lastRejected?.rejectReason ?? null,
+      });
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
   });
 
   // Last N webhook events — for the panel's audit strip.
