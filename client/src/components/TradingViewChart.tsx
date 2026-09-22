@@ -515,7 +515,13 @@ function PatternPill({ label, state, details, level, unavailable }: {
   );
 }
 
-export default function TradingViewChart({ ticker, bars, isLoading, barsWarning, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
+export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, barsWarning, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
+  // Defensive: never let a non-array `bars` reach the chart or its
+  // indicators/insights. Any upstream shape mismatch would otherwise
+  // crash the entire workspace with "t.map is not a function".
+  const bars: OHLCBar[] = Array.isArray(barsRaw)
+    ? barsRaw
+    : (barsRaw && Array.isArray((barsRaw as any).bars) ? (barsRaw as any).bars : []);
   // Persisted layout (per ticker, from Neon).
   const qc = useQueryClient();
   const { data: layout } = useQuery<any>({

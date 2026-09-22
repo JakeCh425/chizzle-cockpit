@@ -68,14 +68,21 @@ export default function MultiTimeframeContext({ ticker, activeTf }: Props) {
   // and the main chart also fetches 1D — TanStack dedupes on queryKey so
   // this whole strip issues at most 4 requests (30M/1H/4H/1D), not 6.
   const queries = useQueries({
+    // NOTE: this queryKey is intentionally NOT shared with CockpitWorkspace
+    // (which uses a "withMeta" suffix) — sharing the key caused shape
+    // collisions that crashed the workspace with "t.map is not a function".
     queries: CONTEXT_TFS.map((tf) => ({
       queryKey: ["/api/candles-ohlc", ticker, TIMEFRAMES[tf].apiValue],
       queryFn: async () => {
         const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${TIMEFRAMES[tf].apiValue}`);
         const json = await res.json();
+        // Defensive normalizer — always return an array so downstream .map()
+        // / .slice() cannot throw regardless of endpoint response shape.
         return (Array.isArray(json) ? json : json?.bars || []) as OHLCBar[];
       },
       staleTime: 60_000,
+      // Keep previous MTF cells visible while a new fetch resolves.
+      placeholderData: (prev: OHLCBar[] | undefined) => prev,
     })),
   });
 

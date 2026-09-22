@@ -51,8 +51,13 @@ export default function CockpitWorkspace() {
   // combo can't overwrite the current one.
   // Fetch with ?meta=1 so we can surface source/warning banners in the chart.
   // The endpoint still returns bars in both shapes (array or {bars, warning}).
+  // NOTE: distinct queryKey suffix ("withMeta") so this cache entry does NOT
+  // collide with MultiTimeframeContext, which caches OHLCBar[] under
+  // ["/api/candles-ohlc", ticker, tf]. Sharing the key across components
+  // that store different shapes caused "t.map is not a function" crashes
+  // and blank charts on TF switches.
   const { data: barsResp, isLoading } = useQuery<{ bars: OHLCBar[]; warning?: string; source?: string }>({
-    queryKey: ["/api/candles-ohlc", ticker, tfApi],
+    queryKey: ["/api/candles-ohlc", ticker, tfApi, "withMeta"],
     queryFn: async ({ signal }) => {
       const res = await apiRequest("GET", `/api/candles-ohlc/${ticker}?interval=${tfApi}&meta=1`, undefined, signal);
       const json = await res.json();
