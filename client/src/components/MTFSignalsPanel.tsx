@@ -98,7 +98,6 @@ function fmtTimeCT(iso: string | null | undefined): string {
 export default function MTFSignalsPanel() {
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [showUniverse, setShowUniverse] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
 
   const signalsQ = useQuery<MtfSignal[]>({
     queryKey: ["/api/mtf/signals"],
@@ -120,32 +119,22 @@ export default function MTFSignalsPanel() {
   return (
     <div className="rounded-lg border border-ink-line bg-ink-panel/30" data-testid="mtf-signals-panel">
       {/* Header */}
-      <div className={`flex items-center justify-between gap-2 px-3 py-2 ${collapsed ? "" : "border-b border-ink-line"}`}>
-        <button
-          type="button"
-          onClick={() => setCollapsed((v) => !v)}
-          className="flex items-center gap-2 min-w-0 hover:opacity-90"
-          data-testid="button-mtf-collapse"
-          aria-expanded={!collapsed}
-          title={collapsed ? "Expand MTF Swing Engine" : "Collapse MTF Swing Engine"}
-        >
-          {collapsed
-            ? <ChevronDown className="w-3.5 h-3.5 text-slate-gray" />
-            : <ChevronUp className="w-3.5 h-3.5 text-slate-gray" />}
+      <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-ink-line">
+        <div className="flex items-center gap-2 min-w-0">
           <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white">MTF Swing Engine</span>
           <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-signal-amber/10 text-signal-amber border border-signal-amber/30">
             Analysis Only
           </span>
-          {collapsed && signals.length > 0 && (
+          {signals.length > 0 && (
             <span className="text-[9px] font-mono uppercase tracking-wider text-slate-gray">
               {signals.length} card{signals.length === 1 ? "" : "s"}
             </span>
           )}
-        </button>
+        </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => recompute.mutate()}
-            disabled={recompute.isPending || collapsed}
+            disabled={recompute.isPending}
             className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-soft-white hover:bg-ink-panel disabled:opacity-40 flex items-center gap-1"
             data-testid="button-mtf-recompute"
           >
@@ -154,8 +143,7 @@ export default function MTFSignalsPanel() {
           </button>
           <button
             onClick={() => setShowUniverse((v) => !v)}
-            disabled={collapsed}
-            className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-soft-white hover:bg-ink-panel disabled:opacity-40 flex items-center gap-1"
+            className="text-[10px] font-mono uppercase tracking-wider px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-soft-white hover:bg-ink-panel flex items-center gap-1"
             data-testid="button-mtf-universe"
           >
             <Settings className="w-3 h-3" />
@@ -165,10 +153,9 @@ export default function MTFSignalsPanel() {
       </div>
 
       {/* Universe editor */}
-      {!collapsed && showUniverse && <UniverseEditor rows={universeQ.data ?? []} />}
+      {showUniverse && <UniverseEditor rows={universeQ.data ?? []} />}
 
       {/* Cards */}
-      {!collapsed && (
       <div className="p-2 space-y-2 max-h-[720px] overflow-y-auto">
         {signalsQ.isLoading && (
           <div className="text-[11px] text-slate-gray font-mono px-2 py-4">Loading MTF signals…</div>
@@ -193,7 +180,6 @@ export default function MTFSignalsPanel() {
           />
         ))}
       </div>
-      )}
     </div>
   );
 }

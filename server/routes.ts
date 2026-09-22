@@ -3074,5 +3074,50 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     });
   }
 
+  // ─── UI Preferences (collapsible panel state, etc.) ────────────────────────
+  // Persist per-session UI settings server-side because localStorage is
+  // blocked inside the deployed sandbox iframe. Single-user app → single row.
+  app.get("/api/ui-prefs", async (_req, res) => {
+    try {
+      const { uiPrefs } = await import("@shared/schema");
+      const [row] = await db.select().from(uiPrefs).limit(1);
+      if (!row) {
+        const [created] = await db.insert(uiPrefs).values({ id: 1, data: {} } as any).returning();
+        return res.json(created);
+      }
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
+  app.patch("/api/ui-prefs", async (req, res) => {
+    try {
+      const { uiPrefs } = await import("@shared/schema");
+      const { eq } = await import("drizzle-orm");
+      const body = req.body || {};
+      // Shallow merge: caller sends { data: { collapse: { panelId: true } } }
+      // and we merge into the existing row so unrelated keys survive.
+      const [existing] = await db.select().from(uiPrefs).limit(1);
+      const base = (existing?.data as Record<string, any>) || {};
+      const incoming = (body.data as Record<string, any>) || {};
+      const merged: Record<string, any> = { ...base };
+      for (const [k, v] of Object.entries(incoming)) {
+        if (v && typeof v === "object" && !Array.isArray(v)) {
+          merged[k] = { ...(base[k] || {}), ...v };
+        } else {
+          merged[k] = v;
+        }
+      }
+      if (!existing) {
+        const [created] = await db.insert(uiPrefs).values({ id: 1, data: merged } as any).returning();
+        return res.json(created);
+      }
+      const [row] = await db.update(uiPrefs)
+        .set({ data: merged as any, updatedAt: new Date() as any })
+        .where(eq(uiPrefs.id, 1))
+        .returning();
+      res.json(row);
+    } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+  });
+
   return httpServer;
 }

@@ -24,6 +24,7 @@ import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, ty
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 import MTFSignalsPanel from "@/components/MTFSignalsPanel";
 import MTFSettingsPanel from "@/components/MTFSettingsPanel";
+import CollapsibleSection from "@/components/CollapsibleSection";
 
 interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
 
@@ -92,12 +93,24 @@ export default function CockpitWorkspace() {
     >
       {/* LEFT COLUMN — Regime + full Market Pulse (fills column height) */}
       <div className="space-y-3 min-w-0" data-testid="workspace-left">
-        <ErrorBoundary label="regime">
-          <RegimeV2Panel compact />
-        </ErrorBoundary>
-        <ErrorBoundary label="market-pulse">
-          <MarketPulsePanel />
-        </ErrorBoundary>
+        <CollapsibleSection
+          id="regime"
+          title="Regime Engine"
+          containerClassName=""
+        >
+          <ErrorBoundary label="regime">
+            <RegimeV2Panel compact />
+          </ErrorBoundary>
+        </CollapsibleSection>
+        <CollapsibleSection
+          id="market-pulse"
+          title="Market Pulse"
+          defaultCollapsed
+        >
+          <ErrorBoundary label="market-pulse">
+            <MarketPulsePanel />
+          </ErrorBoundary>
+        </CollapsibleSection>
       </div>
 
       {/* CENTER COLUMN — chart + Trade Plan Workspace stacked so the
@@ -135,28 +148,67 @@ export default function CockpitWorkspace() {
             extension checks continue to use the <span className="font-bold">Daily</span> strategy timeframe.
           </div>
         )}
-        <ErrorBoundary label="trade-plan">
-          <TradePlanWorkspace />
-        </ErrorBoundary>
-        <ErrorBoundary label="mtf-signals">
-          <MTFSignalsPanel />
-        </ErrorBoundary>
-        <ErrorBoundary label="mtf-settings">
-          <MTFSettingsPanel />
-        </ErrorBoundary>
+        <CollapsibleSection
+          id="trade-plan"
+          title="Trade Plan Workspace"
+          defaultCollapsed
+        >
+          <ErrorBoundary label="trade-plan">
+            <TradePlanWorkspace />
+          </ErrorBoundary>
+        </CollapsibleSection>
+        <CollapsibleSection
+          id="mtf-signals"
+          title="MTF Swing Engine"
+          containerClassName=""
+        >
+          <ErrorBoundary label="mtf-signals">
+            <MTFSignalsPanel />
+          </ErrorBoundary>
+        </CollapsibleSection>
+        <CollapsibleSection
+          id="mtf-settings"
+          title="Signal Sensitivity"
+          defaultCollapsed
+        >
+          <ErrorBoundary label="mtf-settings">
+            <MTFSettingsPanel />
+          </ErrorBoundary>
+        </CollapsibleSection>
       </div>
 
       {/* RIGHT COLUMN */}
       <div className="space-y-3 min-w-0" data-testid="workspace-right">
-        <ErrorBoundary label="ticker-strength">
-          <TickerStrengthGauge ticker={ticker} bars={bars} timeframe={timeframe} />
-        </ErrorBoundary>
-        <ErrorBoundary label="technical-snapshot">
-          <TechnicalSnapshot ticker={ticker} bars={bars} timeframe={timeframe} />
-        </ErrorBoundary>
-        <ErrorBoundary label="ai-coach">
-          <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
-        </ErrorBoundary>
+        <CollapsibleSection
+          id="ticker-strength"
+          title="Ticker Strength"
+          hint={ticker}
+          defaultCollapsed
+        >
+          <ErrorBoundary label="ticker-strength">
+            <TickerStrengthGauge ticker={ticker} bars={bars} timeframe={timeframe} />
+          </ErrorBoundary>
+        </CollapsibleSection>
+        <CollapsibleSection
+          id="technical-snapshot"
+          title="Technical Snapshot"
+          hint={ticker}
+          defaultCollapsed
+        >
+          <ErrorBoundary label="technical-snapshot">
+            <TechnicalSnapshot ticker={ticker} bars={bars} timeframe={timeframe} />
+          </ErrorBoundary>
+        </CollapsibleSection>
+        <CollapsibleSection
+          id="ai-coach"
+          title="AI Trade Coach"
+          hint={ticker}
+          defaultCollapsed
+        >
+          <ErrorBoundary label="ai-coach">
+            <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
+          </ErrorBoundary>
+        </CollapsibleSection>
       </div>
     </div>
   );

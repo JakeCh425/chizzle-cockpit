@@ -880,3 +880,16 @@ export const insertMtfScanRejectionSchema = createInsertSchema(mtfScanRejections
 
 export type MtfScanRejection = typeof mtfScanRejections.$inferSelect;
 export type InsertMtfScanRejection = z.infer<typeof insertMtfScanRejectionSchema>;
+
+// ─── UI Preferences (kv store) ───────────────────────────────────────────────
+// PR: persistent collapse/expand state for the cockpit panels. localStorage
+// is blocked inside the deployed sandbox iframe, so we persist a small JSON
+// blob server-side. Single-user app → single row. Table is intentionally
+// tiny + flexible so we can add other UI prefs without another migration.
+export const uiPrefs = pgTable("ui_prefs", {
+  id: integer("id").primaryKey().default(1),                // always 1 row
+  data: jsonb("data").notNull().default({} as any),         // { collapse: { panelId: bool, ... }, ... }
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type UiPrefs = typeof uiPrefs.$inferSelect;
