@@ -34,6 +34,7 @@ import {
   type InsertMtfSignal,
 } from "@shared/schema";
 import { safeHistory, type DailyBar } from "./marketData";
+import { isMtfV2Enabled } from "./featureFlags";
 
 // ─── Constants (spec-tunable) ────────────────────────────────────────────────
 // Data-match tolerance from spec §1: > 0.15% blocks READY_TO_TRADE.
@@ -60,7 +61,8 @@ export type SetupType =
   | "BULLISH_ENGULFING"
   | "STRONG_BULL_BAR_CLUSTER"
   | "AGGRESSIVE_BOUNCE"
-  | "BREAKOUT_RETEST";
+  | "BREAKOUT_RETEST"
+  | "RECLAIM_MOMENTUM_CONTINUATION";
 export type CardGrade = "A4" | "A3" | "A2" | "WATCH" | "NO_TRADE";
 export type CardStatus =
   | "FORMING"
@@ -399,6 +401,55 @@ export function detectFourHourSetup(bars4h: OhlcBar[]): SetupDetection {
     }
   }
 
+  // ── Setup F: Reclaim + Momentum Continuation (Wealth Engine spec) ─────────
+  // Catches 4H closes back above 4H SMA20 after price spent ≥3 of the prior 6
+  // 4H bars at/below/near that reclaim level. Complements Setup A–E, which
+  // require textbook candlestick shapes; this fires on structural reclaim
+  // even when the candle isn't a hammer or engulfing.
+  //
+  // Gated behind ENABLE_MTF_ENGINE_V2. If the flag is OFF, the detector
+  // still runs but its result is discarded by the caller (see engine loop).
+  //
+  // SMA20 basis is computed from the 4H closes themselves — no external
+  // dependency, no vendor call.
+  if (bars4h.length >= 25) {
+    const closes20 = bars4h.slice(-20).map((b) => b.close);
+    const sma20_4h = closes20.reduce((a, b) => a + b, 0) / closes20.length;
+    const prev4hClose = prev.close;
+    // (a) closed 4H bar closes ABOVE 4H SMA20
+    const reclaimed = cur.close > sma20_4h && prev4hClose <= sma20_4h * 1.001;
+    if (reclaimed) {
+      // (b) prior price spent ≥3 of prior 6 4H bars at/below/near SMA20 basis
+      const prior6 = bars4h.slice(-7, -1);
+      const nearOrBelow = prior6.filter((b) => b.close <= sma20_4h * 1.005).length;
+      // Support/decline context: base built below reclaim level
+      const belowBasis = prior6.filter((b) => b.close < sma20_4h).length;
+      if (nearOrBelow >= 3 && belowBasis >= 2 && isGreen && bodyRatio >= 0.45) {
+        // trigger reference = current bar high (breakout of reclaim bar)
+        // stop reference = lower of current 4H low OR SMA20 basis * 0.995
+        const stopRef = Math.min(cur.low, sma20_4h * 0.995);
+        passed.push(
+          `RECLAIM_MOMENTUM_CONTINUATION: closed above 4H SMA20 ${sma20_4h.toFixed(2)} after ${nearOrBelow}/6 prior bars at/below basis`
+        );
+        return {
+          setup: "RECLAIM_MOMENTUM_CONTINUATION",
+          setupHigh: cur.high,
+          setupLow: stopRef,
+          bodyRatio,
+          closePosition,
+          volumeMult,
+          passed,
+          failed,
+          supportContext: true,
+        };
+      } else {
+        failed.push(
+          `RECLAIM_MOMENTUM_CONTINUATION: reclaim closed above SMA20 but base too thin (near/below=${nearOrBelow}, below=${belowBasis}, bodyRatio=${bodyRatio.toFixed(2)})`
+        );
+      }
+    }
+  }
+
   failed.push("no valid 4H setup on closed bar");
   return empty();
 }
@@ -643,7 +694,18 @@ export async function handleWebhook(
   if (interval === "240") {
     pushBar(bar4hCache, symbol, bar, CACHE_4H_LEN);
     const bars = bar4hCache.get(symbol)!;
-    const det = detectFourHourSetup(bars);
+    const detRaw = detectFourHourSetup(bars);
+    // PR 2b: Setup F is a Wealth Engine v2 addition. When the flag is OFF,
+    // discard the RECLAIM_MOMENTUM_CONTINUATION detection so PR 1 behavior
+    // is byte-for-byte preserved. When ON, it flows through as a normal setup.
+    const det = (!isMtfV2Enabled() && detRaw.setup === "RECLAIM_MOMENTUM_CONTINUATION")
+      ? {
+          ...detRaw,
+          setup: null,
+          passed: detRaw.passed,
+          failed: [...detRaw.failed, "RECLAIM_MOMENTUM_CONTINUATION detected but ENABLE_MTF_ENGINE_V2 flag is OFF"],
+        }
+      : detRaw;
 
     // Data-match check against app's daily close.
     const existing = await db.select().from(mtfSignals)
