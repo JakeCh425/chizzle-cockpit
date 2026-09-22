@@ -28,8 +28,12 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { db } from "./storage";
 import {
   mtfSignals,
+  mtfScanRejections,
+  mtfSettings,
   mtfUniverse,
   mtfWebhookEvents,
+  type MtfMode,
+  type MtfSettings,
   type MtfSignal,
   type InsertMtfSignal,
 } from "@shared/schema";
@@ -601,6 +605,57 @@ async function logRejection(row: {
   }
 }
 
+// ─── Effective settings resolver (PR 2e, spec §1) ───────────────────────────
+// Loads mtf_settings row 1 and returns the effective rule set for this scan.
+// When ENABLE_MTF_ENGINE_V2 is OFF, returns hardcoded PR 1 defaults so
+// existing behavior is preserved byte-for-byte.
+export interface EffectiveSettings {
+  mode: MtfMode;
+  minRr: number;
+  expiryBars: number;
+  allowEarlyTrigger: boolean;
+  requireVolume: boolean;
+  requireDailyAlignment: boolean;
+  requireWeeklyAlignment: boolean;
+  showForming: boolean;
+  flagOn: boolean;
+}
+
+function defaultSettings(): EffectiveSettings {
+  return {
+    mode: "STANDARD",
+    minRr: MIN_RR,
+    expiryBars: SETUP_EXPIRY_4H_BARS,
+    allowEarlyTrigger: false,
+    requireVolume: false,
+    requireDailyAlignment: true,
+    requireWeeklyAlignment: true,
+    showForming: true,
+    flagOn: false,
+  };
+}
+
+async function getEffectiveSettings(): Promise<EffectiveSettings> {
+  if (!isMtfV2Enabled()) return defaultSettings();
+  try {
+    const [row] = await db.select().from(mtfSettings).limit(1);
+    if (!row) return { ...defaultSettings(), flagOn: true };
+    return {
+      mode: (row.mode as MtfMode) || "STANDARD",
+      minRr: Number(row.minRr) || MIN_RR,
+      expiryBars: row.expiryBars || SETUP_EXPIRY_4H_BARS,
+      allowEarlyTrigger: !!row.allowEarlyTrigger,
+      requireVolume: !!row.requireVolume,
+      requireDailyAlignment: !!row.requireDailyAlignment,
+      requireWeeklyAlignment: !!row.requireWeeklyAlignment,
+      showForming: !!row.showForming,
+      flagOn: true,
+    };
+  } catch {
+    return { ...defaultSettings(), flagOn: true };
+  }
+}
+
 // ─── Storage helpers ─────────────────────────────────────────────────────────
 async function upsertSignal(symbol: string, patch: Partial<InsertMtfSignal>): Promise<MtfSignal> {
   const existing = await db.select().from(mtfSignals)
@@ -744,6 +799,10 @@ export async function handleWebhook(
 
   // 4) 4H bar → try to detect a setup on the closed candle.
   if (interval === "240") {
+    // PR 2e: load user-controlled sensitivity settings (spec §1). When the
+    // v2 flag is OFF, `settings.flagOn` is false and all fields carry PR 1
+    // defaults so behavior is byte-for-byte identical.
+    const settings = await getEffectiveSettings();
     pushBar(bar4hCache, symbol, bar, CACHE_4H_LEN);
     const bars = bar4hCache.get(symbol)!;
     const detRaw = detectFourHourSetup(bars);
@@ -772,6 +831,21 @@ export async function handleWebhook(
       : ["HAMMER","BULLISH_ENGULFING","STRONG_BULL_BAR_CLUSTER","AGGRESSIVE_BOUNCE","BREAKOUT_RETEST"];
 
     if (!det.setup) {
+      // PR 2e: honor "Show Setup Forming Cards" toggle. When flag ON and
+      // showForming = false, skip creating the FORMING card but still log
+      // the rejection so §12 diagnostics remain complete.
+      if (settings.flagOn && !settings.showForming) {
+        await logRejection({
+          symbol, exchange, timeframe: "240",
+          barCloseTime: new Date(bar.time * 1000),
+          outcome: "NO_SETUP",
+          setupsEvaluated: setups4hEvaluated,
+          passed: det.passed, failed: [...det.failed, "Forming cards suppressed by user setting"],
+          volumeMult: det.volumeMult, dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
+          meta: { mode: settings.mode, showForming: false, bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
+        });
+        return { accepted: true, reason: "4H closed — no valid setup; forming cards suppressed" };
+      }
       const card = await upsertSignal(symbol, {
         status: "FORMING",
         tvSourceClose: bar.close,
@@ -786,19 +860,48 @@ export async function handleWebhook(
         setupsEvaluated: setups4hEvaluated,
         passed: det.passed, failed: det.failed,
         volumeMult: det.volumeMult, dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
-        meta: { bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
+        meta: { mode: settings.mode, bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
       });
       return { accepted: true, signalId: card.id, card, reason: "4H closed — no valid setup" };
     }
 
-    const expiresAt = new Date((bar.time + SETUP_EXPIRY_4H_BARS * 4 * 3600) * 1000);
+    // PR 2e: setup detected. Apply mode-driven gates before promoting to
+    // CONFIRMED. These only trip when the v2 flag is ON.
+    const setupGateFails: string[] = [];
+    if (settings.flagOn) {
+      // Volume requirement (STRICT default, user-overrideable).
+      if (settings.requireVolume && det.volumeMult < AGG_VOL_MULT) {
+        setupGateFails.push(`requireVolume: ${det.volumeMult.toFixed(2)}× avg below ${AGG_VOL_MULT}× minimum`);
+      }
+      // Weekly alignment: existing card carries weeklyRegime from prior scan.
+      const priorWeekly = (existing[0]?.weeklyRegime as WeeklyRegime | null) || null;
+      if (settings.requireWeeklyAlignment && priorWeekly === "RED") {
+        setupGateFails.push("requireWeeklyAlignment: weekly regime is RED");
+      }
+      if (settings.mode === "STRICT" && settings.requireWeeklyAlignment && priorWeekly && priorWeekly !== "GREEN") {
+        setupGateFails.push("STRICT mode: weekly regime must be GREEN");
+      }
+      const priorDaily = (existing[0]?.dailyRegime as DailyRegime | null) || null;
+      if (settings.requireDailyAlignment && priorDaily === "RED") {
+        setupGateFails.push("requireDailyAlignment: daily regime is RED");
+      }
+      if (settings.mode === "STRICT" && settings.requireDailyAlignment && priorDaily && priorDaily !== "RECLAIMED" && priorDaily !== "PULLBACK_VALID") {
+        setupGateFails.push("STRICT mode: daily must be RECLAIMED or PULLBACK_VALID");
+      }
+    }
+
+    const expiryBars = settings.flagOn ? settings.expiryBars : SETUP_EXPIRY_4H_BARS;
+    const expiresAt = new Date((bar.time + expiryBars * 4 * 3600) * 1000);
+    const promotable = setupGateFails.length === 0;
     const card = await upsertSignal(symbol, {
-      status: mismatch.mismatch ? "DATA_MISMATCH" : "CONFIRMED",
+      // Setup is retained either way — gate failures downgrade card to WATCH
+      // (via diagnostics) so the user still sees the developing pattern.
+      status: mismatch.mismatch ? "DATA_MISMATCH" : (promotable ? "CONFIRMED" : "FORMING"),
       setupType: det.setup,
       setupHigh: det.setupHigh,
       setupLow: det.setupLow,
       setupBarCloseTime: new Date(bar.time * 1000),
-      setupConfirmedAt: new Date(),
+      setupConfirmedAt: promotable ? new Date() : null,
       setupExpiresAt: expiresAt,
       tvSourceClose: bar.close,
       tvSourceTime: new Date(bar.time * 1000),
@@ -809,23 +912,39 @@ export async function handleWebhook(
         closePosition: det.closePosition,
         volumeMult: det.volumeMult,
         supportContext: det.supportContext,
+        // PR 2e diagnostics — only present when flag ON.
+        ...(settings.flagOn ? {
+          mode: settings.mode,
+          modeGateFailed: setupGateFails,
+          expiryBars,
+        } : {}),
       } as any,
     });
     await logRejection({
       symbol, exchange, timeframe: "240",
       barCloseTime: new Date(bar.time * 1000),
-      outcome: mismatch.mismatch ? "DATA_MISMATCH" : "CONFIRMED",
+      outcome: mismatch.mismatch ? "DATA_MISMATCH" : (promotable ? "CONFIRMED" : "NOT_PROMOTED"),
       setupsEvaluated: setups4hEvaluated,
-      passed: det.passed, failed: det.failed,
+      passed: det.passed, failed: [...det.failed, ...setupGateFails],
       trigger: det.setupHigh, stop: det.setupLow,
       volumeMult: det.volumeMult, dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
-      meta: { setupType: det.setup, bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
+      meta: {
+        mode: settings.mode,
+        expiryBars,
+        setupType: det.setup,
+        bodyRatio: det.bodyRatio,
+        closePosition: det.closePosition,
+        supportContext: det.supportContext,
+        modeGated: !promotable,
+      },
     });
     return { accepted: true, signalId: card.id, card };
   }
 
   // 5) 1H bar → check for confirmation on an active CONFIRMED card.
   if (interval === "60") {
+    // PR 2e: load user settings (spec §1). PR 1 defaults when flag OFF.
+    const settings = await getEffectiveSettings();
     const active = await db.select().from(mtfSignals)
       .where(and(eq(mtfSignals.symbol, symbol), eq(mtfSignals.archived, false)))
       .orderBy(desc(mtfSignals.updatedAt)).limit(1);
@@ -918,7 +1037,7 @@ export async function handleWebhook(
       const mismatch = card.currentPrice != null ? checkDataMismatch(card.currentPrice, bar.close) : { mismatch: false, pct: null };
 
       // Grade selection
-      const grade = mismatch.mismatch
+      let grade: CardGrade = mismatch.mismatch
         ? "WATCH"
         : selectGrade(
             (card.weeklyRegime as WeeklyRegime) || "NEUTRAL",
@@ -928,10 +1047,47 @@ export async function handleWebhook(
             plan.target1Rr,
           );
 
+      // PR 2e: apply mode-driven promotion gates (spec §1).
+      const modeGateFails: string[] = [];
+      let promotable = true;
+      if (settings.flagOn) {
+        // User-selectable minimum R:R (1.5 / 2.0 / 2.5).
+        if (plan.target1Rr < settings.minRr) {
+          modeGateFails.push(`T1 R:R ${plan.target1Rr.toFixed(2)} below user minimum ${settings.minRr.toFixed(1)}R`);
+          promotable = false;
+        }
+        // STRICT: no countertrend full-risk cards. A2 grade gets demoted to WATCH.
+        if (settings.mode === "STRICT" && grade === "A2") {
+          modeGateFails.push("STRICT mode: countertrend A2 cards not permitted");
+          grade = "WATCH";
+          promotable = false;
+        }
+        // STRICT: require volume confirmation on 1H if requested.
+        // Volume is measured on the 4H detection bar; we honor requireVolume
+        // as a promotion gate by re-reading the setup's own volumeMult.
+        const setupVol = (card.diagnostics as any)?.volumeMult ?? null;
+        if (settings.requireVolume && setupVol != null && setupVol < AGG_VOL_MULT) {
+          modeGateFails.push(`requireVolume: setup volume ${Number(setupVol).toFixed(2)}× below ${AGG_VOL_MULT}×`);
+          promotable = false;
+        }
+      }
+
+      // PR 2e: FLEXIBLE mode adds a clear practice/reduced-risk label prefix
+      // on non-A-grade or A2 cards. Spec §1: "Clearly label all lower-confidence
+      // cards as FLEXIBLE / PRACTICE — REDUCED RISK."
+      const baseLabel = tradeLabelForGrade(grade);
+      const flexibleLabel = (settings.flagOn && settings.mode === "FLEXIBLE" && (grade === "A2" || grade === "WATCH"))
+        ? "COUNTERTREND_PRACTICE" as const
+        : baseLabel;
+
+      const finalStatus = mismatch.mismatch
+        ? "DATA_MISMATCH"
+        : (promotable ? "READY_TO_TRADE" : "CONFIRMED");
+
       const updated = await upsertSignal(symbol, {
-        status: mismatch.mismatch ? "DATA_MISMATCH" : "READY_TO_TRADE",
+        status: finalStatus,
         grade,
-        tradeLabel: tradeLabelForGrade(grade),
+        tradeLabel: flexibleLabel,
         h1ConfirmedAt: new Date(),
         h1CloseAboveTrigger: bar.close,
         entryPrice: plan.entry,
@@ -950,19 +1106,26 @@ export async function handleWebhook(
           h1Confirm: { close: bar.close, trigger, warnings: plan.warnings },
           // PR 2c: record retest state on promotion so history is preserved.
           ...(flagOn ? { retestSeen, extendedPct: Number(extendedPct.toFixed(3)), extendedAwaitRetest: false } : {}),
+          // PR 2e: record mode application outcome so UI can explain demotions.
+          ...(settings.flagOn ? {
+            mode: settings.mode,
+            minRrRequired: settings.minRr,
+            modeGateFailed: modeGateFails,
+            flexibleLabelApplied: settings.mode === "FLEXIBLE" && (grade === "A2" || grade === "WATCH"),
+          } : {}),
         } as any,
       });
       await logRejection({
         symbol, exchange, timeframe: "60",
         barCloseTime: new Date(bar.time * 1000),
-        outcome: mismatch.mismatch ? "DATA_MISMATCH" : "PROMOTED",
+        outcome: mismatch.mismatch ? "DATA_MISMATCH" : (promotable ? "PROMOTED" : "NOT_PROMOTED"),
         setupsEvaluated: card.setupType ? [String(card.setupType)] : [],
         passed: [`1H close ${bar.close} above trigger ${trigger}`],
-        failed: plan.warnings,
+        failed: [...plan.warnings, ...modeGateFails],
         trigger, stop: plan.stop, rr: plan.target1Rr,
         extendedPct: flagOn ? Number(extendedPct.toFixed(3)) : null,
         dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
-        meta: { grade, setupType: card.setupType, suggestedShares: plan.suggestedShares, retestSeen: flagOn ? retestSeen : undefined },
+        meta: { grade, setupType: card.setupType, suggestedShares: plan.suggestedShares, retestSeen: flagOn ? retestSeen : undefined, mode: settings.mode, minRr: settings.minRr },
       });
       return { accepted: true, signalId: updated.id, card: updated };
     }
