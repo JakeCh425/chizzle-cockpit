@@ -48,6 +48,10 @@ export const DEFAULT_STOP_BUFFER_PCT = 0.5;
 export const DEFAULT_MAX_DOLLAR_RISK = 100;
 // R:R minimum for A-grade eligibility.
 export const MIN_RR = 2.0;
+// PR 2c: max % above trigger before entry is blocked without a retest (spec §6/§8).
+export const EXTENDED_MAX_PCT = 1.0;
+// PR 2c: retest tolerance — bar low within this % of trigger counts as a retest touch.
+export const RETEST_TOLERANCE_PCT = 0.3;
 // Cluster-of-lows tolerance for STRONG_BULL_BAR_CLUSTER (0.5% band).
 export const CLUSTER_TOL_PCT = 0.5;
 // Volume floor for AGGRESSIVE_BOUNCE — 1.2× 10-bar avg.
@@ -769,6 +773,45 @@ export async function handleWebhook(
     const trigger = card.setupHigh ?? 0;
     if (trigger <= 0) return { accepted: true, reason: "Card missing setup_high — cannot confirm" };
 
+    // ── PR 2c: EXTENDED / AWAIT_RETEST gate (spec §6, §8) ────────────────────
+    // Track whether ANY 1H bar since confirmation has retested the trigger
+    // (bar low within RETEST_TOLERANCE_PCT of trigger). Persisted in
+    // diagnostics.retestSeen. Sticky once true.
+    // Feature-flagged: when ENABLE_MTF_ENGINE_V2 is OFF, behavior is identical
+    // to PR 1 (no gating, no diagnostics writes for this feature).
+    const priorDiag = (card.diagnostics as any) || {};
+    const priorRetestSeen: boolean = !!priorDiag.retestSeen;
+    const thisBarRetests = bar.low <= trigger * (1 + RETEST_TOLERANCE_PCT / 100);
+    const retestSeen = priorRetestSeen || thisBarRetests;
+    const extendedPct = ((bar.close - trigger) / trigger) * 100;
+    const isExtended = extendedPct > EXTENDED_MAX_PCT;
+    const flagOn = isMtfV2Enabled();
+
+    if (flagOn && bar.close > trigger && isExtended && !retestSeen) {
+      // Do NOT promote to READY_TO_TRADE. Keep status at CONFIRMED, mark the
+      // card as WATCH-grade EXTENDED so the UI can surface the await-retest
+      // state. This matches spec §6 "WATCH — EXTENDED / AWAIT RETEST".
+      const held = await upsertSignal(symbol, {
+        grade: "WATCH",
+        tradeLabel: tradeLabelForGrade("WATCH"),
+        tvSourceClose: bar.close,
+        tvSourceTime: new Date(bar.time * 1000),
+        diagnostics: {
+          ...priorDiag,
+          retestSeen,
+          extendedAwaitRetest: true,
+          extendedPct: Number(extendedPct.toFixed(3)),
+          gateAppliedAt: new Date().toISOString(),
+        } as any,
+      });
+      return {
+        accepted: true,
+        signalId: held.id,
+        card: held,
+        reason: `WATCH — EXTENDED / AWAIT RETEST (${extendedPct.toFixed(2)}% above trigger, no retest yet)`,
+      };
+    }
+
     // Conservative confirmation: 1H CLOSE above setup_high.
     if (bar.close > trigger) {
       const structuralStop = card.setupLow ?? bar.low;
@@ -813,6 +856,8 @@ export async function handleWebhook(
         diagnostics: {
           ...(card.diagnostics as any || {}),
           h1Confirm: { close: bar.close, trigger, warnings: plan.warnings },
+          // PR 2c: record retest state on promotion so history is preserved.
+          ...(flagOn ? { retestSeen, extendedPct: Number(extendedPct.toFixed(3)), extendedAwaitRetest: false } : {}),
         } as any,
       });
       return { accepted: true, signalId: updated.id, card: updated };
