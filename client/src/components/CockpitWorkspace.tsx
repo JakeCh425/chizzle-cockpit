@@ -8,7 +8,7 @@
 // Active Setups stays in ActiveSetupsPanel (unchanged) — the workspace only
 // hosts the three visual columns.
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useCockpitTicker } from "@/components/CockpitTickerContext";
@@ -19,7 +19,7 @@ import { TechnicalSnapshot } from "@/components/TickerChartPanel";
 import AITradeCoach from "@/components/AITradeCoach";
 import TradingViewChart from "@/components/TradingViewChart";
 import MultiTimeframeContext from "@/components/MultiTimeframeContext";
-import { useEffect, useMemo, useState } from "react";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
 import MTFSignalsPanel from "@/components/MTFSignalsPanel";
