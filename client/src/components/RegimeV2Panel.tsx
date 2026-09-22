@@ -44,21 +44,46 @@ interface RegimeV2Snapshot {
 // at a glance. Doubled the fill tint and thickened the border on colored
 // tones so "falling VIX + market up" reads as a solid green block and
 // "rising VIX" as a solid red block.
+// Bold tints so falling/rising is unambiguous at a glance.
 const VIX_STYLES: Record<"green" | "amber" | "red" | "neutral", { text: string; border: string; bg: string }> = {
-  green:   { text: "text-signal-green", border: "border-2 border-signal-green", bg: "bg-signal-green/20" },
+  green:   { text: "text-signal-green", border: "border-2 border-signal-green", bg: "bg-signal-green/30" },
   amber:   { text: "text-signal-amber", border: "border border-signal-amber",   bg: "bg-signal-amber/15" },
-  red:     { text: "text-signal-red",   border: "border-2 border-signal-red",   bg: "bg-signal-red/20" },
+  red:     { text: "text-signal-red",   border: "border-2 border-signal-red",   bg: "bg-signal-red/30" },
   neutral: { text: "text-slate-gray",   border: "border border-ink-line",       bg: "bg-ink-line/40" },
 };
 
-// Tile color reflects the DIRECTION of VIX, not the risk climate. Falling
-// VIX → volatility contracting → green. Rising VIX → volatility expanding
-// → red. Stable → amber. Level (CALM/NORMAL/…) and Risk effect stay as
-// separate chips so nuance is preserved.
-function vixTileTone(_level: VixLevel | undefined, trend: VixTrend | undefined): keyof typeof VIX_STYLES {
-  if (!trend || trend === "unknown") return "neutral";
+// Tile color reflects the DIRECTION of VIX, not the absolute risk level.
+//   Falling VIX  → volatility contracting → GREEN (stocks likely to rise)
+//   Rising VIX   → volatility expanding   → RED   (risk off)
+//   Stable       → AMBER
+// User-requested rule (2026-09-22): react to intraday moves too, so a
+// single risk-off pop paints the tile red immediately even before the
+// 5-day trend has flipped. Same for a sharp drop.
+function vixTileTone(
+  _level: VixLevel | undefined,
+  trend: VixTrend | undefined,
+  changePct: number | null | undefined,
+): keyof typeof VIX_STYLES {
+  // Intraday override — a hard 1-day move outranks the 5-day trend so the
+  // tile matches what a trader would see on the tape today.
+  if (changePct != null && Number.isFinite(changePct)) {
+    if (changePct >= 2)  return "red";      // sharp risk-off pop
+    if (changePct <= -2) return "green";    // sharp risk-on drop
+  }
+  // Fall back to the 5-day trend classification for calmer days.
+  if (!trend || trend === "unknown") {
+    // No trend but we do have today's tick — still color it.
+    if (changePct != null && changePct > 0.5) return "red";
+    if (changePct != null && changePct < -0.5) return "green";
+    return "neutral";
+  }
   if (trend === "falling") return "green";
-  if (trend === "stable") return "amber";
+  if (trend === "stable") {
+    // On "stable" days, still lean on today's change if it's non-trivial.
+    if (changePct != null && changePct > 0.5) return "red";
+    if (changePct != null && changePct < -0.5) return "green";
+    return "amber";
+  }
   // rising or rising_fast → volatility expanding
   return "red";
 }
@@ -170,7 +195,7 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
         {/* Volatility Climate strip — spans full width. Colored by VIX
             level+trend, NOT by the parent regime band. Phase 4 spec. */}
         {(() => {
-          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d);
+          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d, snap.vix.changePct);
           const s = VIX_STYLES[tone];
           const chg = snap.vix.change;
           const chgPct = snap.vix.changePct;
@@ -317,7 +342,7 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
 
       <div className="grid grid-cols-3 gap-2 text-xs">
         {(() => {
-          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d);
+          const tone = vixTileTone(snap.vix.level, snap.vix.trend5d, snap.vix.changePct);
           const s = VIX_STYLES[tone];
           return (
             <div className={`rounded border ${s.border} ${s.bg} p-2`} data-testid="section-volatility-climate-legacy">
