@@ -814,3 +814,36 @@ export const insertMtfUniverseSchema = createInsertSchema(mtfUniverse)
 
 export type MtfUniverseRow = typeof mtfUniverse.$inferSelect;
 export type InsertMtfUniverse = z.infer<typeof insertMtfUniverseSchema>;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MTF Signal Engine v2 — user-facing settings (PR 2a)
+// Additive. Single-row table (id=1). Read/write only when
+// ENABLE_MTF_ENGINE_V2 feature flag is true. The engine reads these values
+// per scan to select rule strictness. Defaults preserve current behavior.
+// ─────────────────────────────────────────────────────────────────────────────
+export const MTF_MODES = ["STRICT", "STANDARD", "FLEXIBLE"] as const;
+export type MtfMode = (typeof MTF_MODES)[number];
+
+export const mtfSettings = pgTable("mtf_settings", {
+  id: integer("id").primaryKey().default(1),
+  mode: text("mode").notNull().default("STANDARD"),                    // STRICT | STANDARD | FLEXIBLE
+  minRr: doublePrecision("min_rr").notNull().default(2.0),             // 1.5 | 2.0 | 2.5
+  expiryBars: integer("expiry_bars").notNull().default(2),             // 1 | 2 | 3 completed 4H bars
+  allowEarlyTrigger: boolean("allow_early_trigger").notNull().default(false),
+  requireVolume: boolean("require_volume").notNull().default(false),
+  requireDailyAlignment: boolean("require_daily_alignment").notNull().default(true),
+  requireWeeklyAlignment: boolean("require_weekly_alignment").notNull().default(true),
+  showForming: boolean("show_forming").notNull().default(true),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const insertMtfSettingsSchema = createInsertSchema(mtfSettings)
+  .omit({ updatedAt: true })
+  .extend({
+    mode: z.enum(MTF_MODES).optional(),
+    minRr: z.number().min(1.0).max(5.0).optional(),
+    expiryBars: z.number().int().min(1).max(6).optional(),
+  });
+
+export type MtfSettings = typeof mtfSettings.$inferSelect;
+export type InsertMtfSettings = z.infer<typeof insertMtfSettingsSchema>;

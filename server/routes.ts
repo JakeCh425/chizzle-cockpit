@@ -2964,5 +2964,48 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
   });
 
+  // ─── MTF Engine v2 settings (PR 2a) ───
+  // Reads always allowed; writes require ENABLE_MTF_ENGINE_V2 = true.
+  // Row 1 is the single settings row (see mtf_settings_single_row constraint).
+  {
+    const { mtfSettings, insertMtfSettingsSchema, MTF_MODES } = await import("@shared/schema");
+    const { isMtfV2Enabled, allFlags } = await import("./featureFlags");
+
+    app.get("/api/feature-flags", (_req, res) => {
+      res.json(allFlags());
+    });
+
+    app.get("/api/mtf/settings", async (_req, res) => {
+      try {
+        const [row] = await db.select().from(mtfSettings).limit(1);
+        if (!row) {
+          // Row 1 is seeded by migration, but tolerate a missing row on cold DBs.
+          const [created] = await db.insert(mtfSettings).values({ id: 1 } as any).returning();
+          return res.json({ settings: created, modes: MTF_MODES, flagEnabled: isMtfV2Enabled() });
+        }
+        res.json({ settings: row, modes: MTF_MODES, flagEnabled: isMtfV2Enabled() });
+      } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+    });
+
+    app.patch("/api/mtf/settings", async (req, res) => {
+      if (!isMtfV2Enabled()) {
+        return res.status(403).json({ error: "MTF Engine v2 feature flag is OFF. Set ENABLE_MTF_ENGINE_V2=true to enable." });
+      }
+      try {
+        const parsed = insertMtfSettingsSchema.partial().safeParse(req.body);
+        if (!parsed.success) {
+          return res.status(400).json({ error: fromZodError(parsed.error).toString() });
+        }
+        const patch = parsed.data;
+        delete (patch as any).id;
+        const [row] = await db.update(mtfSettings)
+          .set({ ...patch, updatedAt: new Date() as any })
+          .where(eq(mtfSettings.id, 1))
+          .returning();
+        res.json({ settings: row });
+      } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+    });
+  }
+
   return httpServer;
 }
