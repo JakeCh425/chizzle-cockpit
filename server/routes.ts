@@ -2987,6 +2987,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
     });
 
+    // ─── MTF rejection log (PR 2d, spec §12) ──────────────────────────
+    // Read-only inspection of the diagnostic log. Row writes happen inside
+    // handleWebhook and are feature-flag gated. This route is always readable;
+    // when the flag is OFF, no rows exist so results are simply [].
+    const { mtfScanRejections } = await import("@shared/schema");
+    const { desc: descOrder } = await import("drizzle-orm");
+    app.get("/api/mtf/rejections", async (req, res) => {
+      try {
+        const symbol = typeof req.query.symbol === "string" ? req.query.symbol.toUpperCase() : null;
+        const limit = Math.max(1, Math.min(500, Number(req.query.limit) || 100));
+        const timeframe = typeof req.query.timeframe === "string" ? req.query.timeframe : null;
+        const q = db.select().from(mtfScanRejections);
+        const rows = await q.orderBy(descOrder(mtfScanRejections.evaluatedAt)).limit(limit);
+        let filtered = rows;
+        if (symbol) filtered = filtered.filter((r: any) => r.symbol === symbol);
+        if (timeframe) filtered = filtered.filter((r: any) => r.timeframe === timeframe);
+        res.json({
+          flagEnabled: isMtfV2Enabled(),
+          count: filtered.length,
+          rejections: filtered,
+        });
+      } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
+    });
+
     app.patch("/api/mtf/settings", async (req, res) => {
       if (!isMtfV2Enabled()) {
         return res.status(403).json({ error: "MTF Engine v2 feature flag is OFF. Set ENABLE_MTF_ENGINE_V2=true to enable." });

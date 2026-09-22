@@ -848,3 +848,35 @@ export const insertMtfSettingsSchema = createInsertSchema(mtfSettings)
 
 export type MtfSettings = typeof mtfSettings.$inferSelect;
 export type InsertMtfSettings = z.infer<typeof insertMtfSettingsSchema>;
+
+// ─── MTF scan rejection log (PR 2d) ───────────────────────────────────
+// Spec §12 "never silently show no card": for every evaluated 1H/4H bar,
+// persist a diagnostics record so the user can see WHY a setup wasn't
+// promoted. Additive only. Writes are feature-flag gated — rows only
+// created when ENABLE_MTF_ENGINE_V2 is ON.
+export const mtfScanRejections = pgTable("mtf_scan_rejections", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange"),
+  timeframe: text("timeframe").notNull(),       // "60" | "240" | "1D" | "1W"
+  barCloseTime: timestamp("bar_close_time", { withTimezone: true }).notNull(),
+  evaluatedAt: timestamp("evaluated_at", { withTimezone: true }).notNull().defaultNow(),
+  outcome: text("outcome").notNull(),           // "NO_SETUP" | "NOT_PROMOTED" | "EXTENDED_AWAIT_RETEST" | "CONFIRMED" | "PROMOTED" | "EXPIRED" | "DATA_MISMATCH"
+  setupsEvaluated: jsonb("setups_evaluated").notNull().default([] as any),  // string[] of setup types considered
+  passed: jsonb("passed").notNull().default([] as any),                     // string[] of conditions that passed
+  failed: jsonb("failed").notNull().default([] as any),                     // string[] of conditions that failed
+  trigger: doublePrecision("trigger"),
+  stop: doublePrecision("stop"),
+  rr: doublePrecision("rr"),
+  extendedPct: doublePrecision("extended_pct"),
+  volumeMult: doublePrecision("volume_mult"),
+  dataMismatchPct: doublePrecision("data_mismatch_pct"),
+  dataVendor: text("data_vendor"),
+  meta: jsonb("meta").notNull().default({} as any),  // free-form extra context
+});
+
+export const insertMtfScanRejectionSchema = createInsertSchema(mtfScanRejections)
+  .omit({ id: true, evaluatedAt: true });
+
+export type MtfScanRejection = typeof mtfScanRejections.$inferSelect;
+export type InsertMtfScanRejection = z.infer<typeof insertMtfScanRejectionSchema>;

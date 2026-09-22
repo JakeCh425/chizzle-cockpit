@@ -553,6 +553,54 @@ export function checkDataMismatch(appClose: number, refClose: number | null): { 
   return { mismatch: pct > DATA_MISMATCH_PCT, pct: Number(pct.toFixed(4)) };
 }
 
+// ─── Rejection log helper (PR 2d, spec §12) ─────────────────────────────────
+// Persists one row per evaluated 1H/4H bar so the user can see WHY a
+// setup did/didn't promote. Feature-flag gated — no-op when the engine
+// v2 flag is OFF. Failures are swallowed so a logging bug can never
+// break the primary webhook path.
+async function logRejection(row: {
+  symbol: string;
+  exchange?: string | null;
+  timeframe: string;
+  barCloseTime: Date;
+  outcome: string;
+  setupsEvaluated?: string[];
+  passed?: string[];
+  failed?: string[];
+  trigger?: number | null;
+  stop?: number | null;
+  rr?: number | null;
+  extendedPct?: number | null;
+  volumeMult?: number | null;
+  dataMismatchPct?: number | null;
+  dataVendor?: string | null;
+  meta?: Record<string, any>;
+}): Promise<void> {
+  if (!isMtfV2Enabled()) return;
+  try {
+    await db.insert(mtfScanRejections).values({
+      symbol: row.symbol,
+      exchange: row.exchange ?? null,
+      timeframe: row.timeframe,
+      barCloseTime: row.barCloseTime,
+      outcome: row.outcome,
+      setupsEvaluated: (row.setupsEvaluated || []) as any,
+      passed: (row.passed || []) as any,
+      failed: (row.failed || []) as any,
+      trigger: row.trigger ?? null,
+      stop: row.stop ?? null,
+      rr: row.rr ?? null,
+      extendedPct: row.extendedPct ?? null,
+      volumeMult: row.volumeMult ?? null,
+      dataMismatchPct: row.dataMismatchPct ?? null,
+      dataVendor: row.dataVendor ?? null,
+      meta: (row.meta || {}) as any,
+    } as any);
+  } catch {
+    // Never let logging break the webhook path.
+  }
+}
+
 // ─── Storage helpers ─────────────────────────────────────────────────────────
 async function upsertSignal(symbol: string, patch: Partial<InsertMtfSignal>): Promise<MtfSignal> {
   const existing = await db.select().from(mtfSignals)
@@ -718,6 +766,11 @@ export async function handleWebhook(
     const appClose = existing[0]?.currentPrice ?? null;
     const mismatch = appClose != null ? checkDataMismatch(appClose, bar.close) : { mismatch: false, pct: null };
 
+    // PR 2d: setups evaluated on this 4H bar (used by rejection log).
+    const setups4hEvaluated = isMtfV2Enabled()
+      ? ["HAMMER","BULLISH_ENGULFING","STRONG_BULL_BAR_CLUSTER","AGGRESSIVE_BOUNCE","BREAKOUT_RETEST","RECLAIM_MOMENTUM_CONTINUATION"]
+      : ["HAMMER","BULLISH_ENGULFING","STRONG_BULL_BAR_CLUSTER","AGGRESSIVE_BOUNCE","BREAKOUT_RETEST"];
+
     if (!det.setup) {
       const card = await upsertSignal(symbol, {
         status: "FORMING",
@@ -725,6 +778,15 @@ export async function handleWebhook(
         tvSourceTime: new Date(bar.time * 1000),
         dataMismatchPct: mismatch.pct,
         diagnostics: { last4hReject: det.failed, volumeMult: det.volumeMult } as any,
+      });
+      await logRejection({
+        symbol, exchange, timeframe: "240",
+        barCloseTime: new Date(bar.time * 1000),
+        outcome: "NO_SETUP",
+        setupsEvaluated: setups4hEvaluated,
+        passed: det.passed, failed: det.failed,
+        volumeMult: det.volumeMult, dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
+        meta: { bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
       });
       return { accepted: true, signalId: card.id, card, reason: "4H closed — no valid setup" };
     }
@@ -749,6 +811,16 @@ export async function handleWebhook(
         supportContext: det.supportContext,
       } as any,
     });
+    await logRejection({
+      symbol, exchange, timeframe: "240",
+      barCloseTime: new Date(bar.time * 1000),
+      outcome: mismatch.mismatch ? "DATA_MISMATCH" : "CONFIRMED",
+      setupsEvaluated: setups4hEvaluated,
+      passed: det.passed, failed: det.failed,
+      trigger: det.setupHigh, stop: det.setupLow,
+      volumeMult: det.volumeMult, dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
+      meta: { setupType: det.setup, bodyRatio: det.bodyRatio, closePosition: det.closePosition, supportContext: det.supportContext },
+    });
     return { accepted: true, signalId: card.id, card };
   }
 
@@ -763,6 +835,16 @@ export async function handleWebhook(
     // Expiry check
     if (card.setupExpiresAt && new Date(bar.time * 1000) > new Date(card.setupExpiresAt)) {
       const expired = await upsertSignal(symbol, { status: "EXPIRED" });
+      await logRejection({
+        symbol, exchange, timeframe: "60",
+        barCloseTime: new Date(bar.time * 1000),
+        outcome: "EXPIRED",
+        setupsEvaluated: card.setupType ? [String(card.setupType)] : [],
+        failed: ["Setup expired before 1H confirmation window closed"],
+        trigger: card.setupHigh ?? null, stop: card.setupLow ?? null,
+        dataVendor: "tv-webhook",
+        meta: { previousSetup: card.setupType, expiresAt: card.setupExpiresAt },
+      });
       return { accepted: true, signalId: expired.id, card: expired, reason: "Setup expired before 1H confirmation" };
     }
 
@@ -803,6 +885,16 @@ export async function handleWebhook(
           extendedPct: Number(extendedPct.toFixed(3)),
           gateAppliedAt: new Date().toISOString(),
         } as any,
+      });
+      await logRejection({
+        symbol, exchange, timeframe: "60",
+        barCloseTime: new Date(bar.time * 1000),
+        outcome: "EXTENDED_AWAIT_RETEST",
+        setupsEvaluated: card.setupType ? [String(card.setupType)] : [],
+        failed: [`Price ${extendedPct.toFixed(2)}% above trigger without a retest — entry blocked`],
+        trigger, extendedPct: Number(extendedPct.toFixed(3)),
+        dataVendor: "tv-webhook",
+        meta: { retestSeen, retestToleranceBaseline: trigger * (1 + RETEST_TOLERANCE_PCT / 100) },
       });
       return {
         accepted: true,
@@ -860,10 +952,31 @@ export async function handleWebhook(
           ...(flagOn ? { retestSeen, extendedPct: Number(extendedPct.toFixed(3)), extendedAwaitRetest: false } : {}),
         } as any,
       });
+      await logRejection({
+        symbol, exchange, timeframe: "60",
+        barCloseTime: new Date(bar.time * 1000),
+        outcome: mismatch.mismatch ? "DATA_MISMATCH" : "PROMOTED",
+        setupsEvaluated: card.setupType ? [String(card.setupType)] : [],
+        passed: [`1H close ${bar.close} above trigger ${trigger}`],
+        failed: plan.warnings,
+        trigger, stop: plan.stop, rr: plan.target1Rr,
+        extendedPct: flagOn ? Number(extendedPct.toFixed(3)) : null,
+        dataMismatchPct: mismatch.pct, dataVendor: "tv-webhook",
+        meta: { grade, setupType: card.setupType, suggestedShares: plan.suggestedShares, retestSeen: flagOn ? retestSeen : undefined },
+      });
       return { accepted: true, signalId: updated.id, card: updated };
     }
 
     // No confirmation — record forming state on the card
+    await logRejection({
+      symbol, exchange, timeframe: "60",
+      barCloseTime: new Date(bar.time * 1000),
+      outcome: "NOT_PROMOTED",
+      setupsEvaluated: card.setupType ? [String(card.setupType)] : [],
+      failed: [`1H close ${bar.close} at/below trigger ${trigger}`],
+      trigger, dataVendor: "tv-webhook",
+      meta: { setupType: card.setupType, retestSeen: flagOn ? retestSeen : undefined, extendedPct: flagOn ? Number(extendedPct.toFixed(3)) : null },
+    });
     return { accepted: true, signalId: card.id, card, reason: "1H closed below trigger — no confirmation" };
   }
 
