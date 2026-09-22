@@ -47,14 +47,16 @@ const VIX_STYLES: Record<"green" | "amber" | "red" | "neutral", { text: string; 
   neutral: { text: "text-slate-gray",   border: "border-ink-line",     bg: "bg-ink-line/40" },
 };
 
-function vixTileTone(level: VixLevel | undefined, trend: VixTrend | undefined): keyof typeof VIX_STYLES {
-  if (!level || level === "unknown") return "neutral";
-  if (level === "stress") return "red";
-  if (level === "high") return trend === "falling" ? "amber" : "red";
-  if (level === "caution") return trend === "rising_fast" ? "red" : "amber";
-  if (level === "normal") return trend === "rising_fast" ? "amber" : "green";
-  // calm
-  return trend === "rising_fast" ? "amber" : "green";
+// Tile color reflects the DIRECTION of VIX, not the risk climate. Falling
+// VIX → volatility contracting → green. Rising VIX → volatility expanding
+// → red. Stable → amber. Level (CALM/NORMAL/…) and Risk effect stay as
+// separate chips so nuance is preserved.
+function vixTileTone(_level: VixLevel | undefined, trend: VixTrend | undefined): keyof typeof VIX_STYLES {
+  if (!trend || trend === "unknown") return "neutral";
+  if (trend === "falling") return "green";
+  if (trend === "stable") return "amber";
+  // rising or rising_fast → volatility expanding
+  return "red";
 }
 
 function levelLabel(l: VixLevel | undefined): string {
