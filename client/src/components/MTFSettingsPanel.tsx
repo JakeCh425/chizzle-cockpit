@@ -114,9 +114,21 @@ export default function MTFSettingsPanel() {
         </div>
       }
     >
-      {readOnly && (
-        <div className="mb-3 p-2 border border-ink-line rounded-sm bg-ink-line/20 text-[11px] text-slate-gray">
-          MTF Engine v2 is disabled. Set <span className="font-mono text-soft-white">ENABLE_MTF_ENGINE_V2=true</span> to activate custom sensitivity. Current values displayed are baseline defaults.
+      {readOnly ? (
+        <div className="mb-3 p-2 border border-signal-amber/40 rounded-sm bg-signal-amber/10 text-[11px] text-soft-white leading-relaxed">
+          <div className="font-display uppercase tracking-wider text-[10px] text-signal-amber mb-1">Controls locked</div>
+          Signal Sensitivity is read-only until the v2 engine is switched on. To enable:
+          <ol className="mt-1 ml-4 list-decimal space-y-0.5 text-slate-gray">
+            <li>Open Render → chizzle-cockpit → Environment.</li>
+            <li>Set <span className="font-mono text-soft-white">ENABLE_MTF_ENGINE_V2</span> to <span className="font-mono text-signal-green">true</span> and save.</li>
+            <li>Wait for the redeploy (~2 min), then reload this page.</li>
+          </ol>
+          Values shown below are the baseline defaults the engine uses today.
+        </div>
+      ) : (
+        <div className="mb-3 p-2 border border-neon-blue/40 rounded-sm bg-neon-blue/5 text-[11px] text-soft-white leading-relaxed">
+          <div className="font-display uppercase tracking-wider text-[10px] text-neon-blue mb-1">How to adjust</div>
+          Pick a mode for the overall stance, then fine-tune with the toggles below. Changes stay pending until you press <span className="font-mono text-soft-white">Save</span>. New alerts are evaluated against your saved settings immediately — existing cards keep their current grade until they expire or a new bar closes.
         </div>
       )}
       {saveError && (

@@ -40,11 +40,15 @@ interface RegimeV2Snapshot {
 // Volatility Climate palette. Green/amber/red are semantic here — supportive
 // vs monitor vs defensive — and are chosen from level+trend, NOT from the
 // regime combine band. Neutral gray is the "insufficient/ambiguous" state.
+// PR-hotfix (user request 2026-09-22): make the falling/rising signal obvious
+// at a glance. Doubled the fill tint and thickened the border on colored
+// tones so "falling VIX + market up" reads as a solid green block and
+// "rising VIX" as a solid red block.
 const VIX_STYLES: Record<"green" | "amber" | "red" | "neutral", { text: string; border: string; bg: string }> = {
-  green:   { text: "text-signal-green", border: "border-signal-green", bg: "bg-signal-green/10" },
-  amber:   { text: "text-signal-amber", border: "border-signal-amber", bg: "bg-signal-amber/10" },
-  red:     { text: "text-signal-red",   border: "border-signal-red",   bg: "bg-signal-red/10" },
-  neutral: { text: "text-slate-gray",   border: "border-ink-line",     bg: "bg-ink-line/40" },
+  green:   { text: "text-signal-green", border: "border-2 border-signal-green", bg: "bg-signal-green/20" },
+  amber:   { text: "text-signal-amber", border: "border border-signal-amber",   bg: "bg-signal-amber/15" },
+  red:     { text: "text-signal-red",   border: "border-2 border-signal-red",   bg: "bg-signal-red/20" },
+  neutral: { text: "text-slate-gray",   border: "border border-ink-line",       bg: "bg-ink-line/40" },
 };
 
 // Tile color reflects the DIRECTION of VIX, not the risk climate. Falling
@@ -176,7 +180,7 @@ export default function RegimeV2Panel({ compact = false }: RegimeV2PanelProps = 
             : "—";
           return (
             <div
-              className={`rounded border ${s.border} ${s.bg} px-2 py-1.5 text-xs`}
+              className={`rounded ${s.border} ${s.bg} px-2 py-1.5 text-xs`}
               data-testid="section-volatility-climate"
               title={snap.vix.ts ? `VIX close from ${snap.vix.ts}` : undefined}
             >
