@@ -129,6 +129,12 @@ export default function CoreTickerHoverCard({ ticker }: Props) {
   const readiness: number | null = card?.readiness_score ?? null;
   const state: string = card?.state ?? "STANDBY";
   const hardBlocks: string[] = Array.isArray(card?.hard_blocks) ? card.hard_blocks : [];
+  // Extension tier (additive from server; may be missing on older payloads).
+  const extension: null | { tier: string; headline: string; detail: string; next_action: string; pct_distance: number; atr_distance: number; score_penalty: number } = card?.extension ?? null;
+  const trendStrength: number | null = typeof card?.trend_strength === "number" ? card.trend_strength : null;
+  const setupQuality: number | null = typeof card?.setup_quality === "number" ? card.setup_quality : null;
+  const entryQuality: number | null = typeof card?.entry_quality === "number" ? card.entry_quality : null;
+  const riskPermission: string | null = typeof card?.risk_permission === "string" ? card.risk_permission : null;
   // Per spec (comment above the button): enabled whenever hard_blocks is
   // empty AND we actually have a scanner card to send. Ignores fundamentals
   // and regime by design — that's the FlexScanner "Save as-is" contract.
@@ -139,8 +145,11 @@ export default function CoreTickerHoverCard({ ticker }: Props) {
   const metrics = card?.metrics || {};
 
   // Verdict tone maps to Snapshot tones — same visual grammar as elsewhere.
+  // Tier tone: extension "extended" is a soft block — amber, not red.
+  const extensionSoftBlock = extension?.tier === "extended" && hardBlocks.length === 0;
   const stateTone =
     hardBlocks.length > 0 ? { label: "STAND DOWN",     bg: "bg-signal-red/10",   text: "text-signal-red",   border: "border-signal-red/40" } :
+    extensionSoftBlock ? { label: "EXTENDED", bg: "bg-signal-amber/10", text: "text-signal-amber", border: "border-signal-amber/40" } :
     state === "STANDARD_READY" ?  { label: "READY \u00b7 STANDARD", bg: "bg-signal-green/10", text: "text-signal-green", border: "border-signal-green/40" } :
     state === "FLEX_READY" ?      { label: "READY \u00b7 FLEX",     bg: "bg-signal-green/10", text: "text-signal-green", border: "border-signal-green/30" } :
     state === "FLEX_WATCH" ?      { label: "WATCH \u00b7 FLEX",     bg: "bg-signal-amber/10", text: "text-signal-amber", border: "border-signal-amber/40" } :
@@ -210,6 +219,61 @@ export default function CoreTickerHoverCard({ ticker }: Props) {
               {metrics.rr_t1 != null && <span>R:R {metrics.rr_t1.toFixed(2)}</span>}
               {metrics.rel_vol != null && <span>Rel Vol {metrics.rel_vol.toFixed(2)}x</span>}
               {metrics.rsi != null && <span>RSI {metrics.rsi.toFixed(0)}</span>}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Extension tier banner — setup-aware, replaces old universal STAND DOWN */}
+      {extension && extension.tier !== "normal" && (
+        <div
+          className={`rounded border px-2 py-1.5 text-[10px] leading-tight ${
+            extension.tier === "severely_extended"
+              ? "border-signal-red/40 bg-signal-red/10 text-signal-red"
+              : extension.tier === "extended"
+              ? "border-signal-amber/40 bg-signal-amber/10 text-signal-amber"
+              : "border-neon-blue/30 bg-neon-blue/5 text-neon-blue"
+          }`}
+          data-testid={`extension-tier-${extension.tier}`}
+        >
+          <div className="font-bold uppercase tracking-wider text-[9px]">{extension.headline}</div>
+          <div className="text-soft-white/80 mt-0.5">
+            +{extension.pct_distance.toFixed(1)}% ({extension.atr_distance.toFixed(2)} ATR) above 20-SMA
+          </div>
+          <div className="text-soft-white/70 mt-0.5">{extension.next_action}</div>
+        </div>
+      )}
+
+      {/* Score sub-facets: Trend / Setup / Entry / Risk */}
+      {(trendStrength != null || setupQuality != null || entryQuality != null || riskPermission != null) && (
+        <div className="grid grid-cols-4 gap-1 text-[9px]">
+          {trendStrength != null && (
+            <div className="rounded border border-ink-line bg-ink-panel/40 px-1.5 py-1 text-center">
+              <div className="uppercase tracking-wider text-slate-gray">Trend</div>
+              <div className="font-mono font-bold text-soft-white">{trendStrength}</div>
+            </div>
+          )}
+          {setupQuality != null && (
+            <div className="rounded border border-ink-line bg-ink-panel/40 px-1.5 py-1 text-center">
+              <div className="uppercase tracking-wider text-slate-gray">Setup</div>
+              <div className="font-mono font-bold text-soft-white">{setupQuality}</div>
+            </div>
+          )}
+          {entryQuality != null && (
+            <div className="rounded border border-ink-line bg-ink-panel/40 px-1.5 py-1 text-center">
+              <div className="uppercase tracking-wider text-slate-gray">Entry</div>
+              <div className="font-mono font-bold text-soft-white">{entryQuality}</div>
+            </div>
+          )}
+          {riskPermission != null && (
+            <div className={`rounded border px-1.5 py-1 text-center ${
+              riskPermission === "BLOCKED" ? "border-signal-red/40 text-signal-red" :
+              riskPermission === "WATCH" ? "border-signal-amber/40 text-signal-amber" :
+              riskPermission === "REDUCED" ? "border-neon-blue/30 text-neon-blue" :
+              "border-signal-green/40 text-signal-green"
+            }`}>
+              <div className="uppercase tracking-wider text-slate-gray">Risk</div>
+              <div className="font-mono font-bold">{riskPermission}</div>
             </div>
           )}
         </div>

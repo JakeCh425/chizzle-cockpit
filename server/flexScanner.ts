@@ -22,6 +22,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { safeHistory, type DailyBar } from "./marketData";
 import { computeSmhRegime } from "./smhRegime";
+import { summarizeExtension, mapSetupFamily, type SetupFamily } from "./extensionTier";
 import type {
   FlexScanRequest,
   FlexScanResult,
@@ -364,8 +365,21 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   const rrT2 = risk > 0 ? (t2Price - projectedEntry) / risk : 0;
   const hasClearResistanceRoom = rrT1 >= 1.5;
 
-  // Anti-fakeout: chasing gate (>1.25 ATR above last close's reclaim level).
-  const chasingBad = atr14 != null && s20 && price > s20 + atr14 * 1.25;
+  // ─── Extension tier (replaces the old universal 1.25-ATR STAND-DOWN gate) ─
+  // Compute the tier from Daily SMA20 + Daily ATR14 (this scanner runs on
+  // a daily bar series — no timeframe mixing). setupFamily is filled in
+  // once we know which state the ticker lands in, so we compute a
+  // "provisional" extension summary here for hard-block detection and
+  // recompute the summary later with the resolved setup name for the copy.
+  const extensionProvisional = (atr14 != null && s20)
+    ? summarizeExtension(price, s20, atr14, "unknown")
+    : null;
+  const extensionTier = extensionProvisional?.tier ?? null;
+  // Legacy alias — kept for the fakeout-reasons list only. The old rule
+  // hard-blocked at 1.25 ATR; the new rule reserves hard-block for
+  // severely_extended (>= 2.0 ATR) and treats 1.25–2.0 as a soft block.
+  const chasingBad = extensionTier === "extended" || extensionTier === "severely_extended";
+  const severelyExtended = extensionTier === "severely_extended";
 
   // "Directly below resistance" — only a hard block if we're being visibly
   // rejected: within 0.75% of the pivot high AND today's bar wicked into it
@@ -392,7 +406,13 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
   if (price < s200 && slope200 < 0) hard_blocks.push(`Below declining 200-SMA (${fmt2(s200)}, slope ${fmtPct(slope200)})`);
   if (sr.support != null && price < sr.support * 0.995) hard_blocks.push(`Below prior confirmed support ${fmt2(sr.support)}`);
   if (wickOnlyBreakout) hard_blocks.push(`Wick-only breakout — no close above ${fmt2(priorSwingHigh!)}`);
-  if (chasingBad) hard_blocks.push(`Extended: price ${fmt2(price)} > 1.25 ATR above 20-SMA (${fmt2(s20)})`);
+  // Extension: only severely_extended (>= 2.0 ATR above SMA20) hard-blocks
+  // a new entry, because at that distance no nearby invalidation gives an
+  // acceptable stop. 1.25–2.0 ATR is now a SOFT block handled below via
+  // state/action downgrade — the ticker stays visible for monitoring.
+  if (severelyExtended && extensionProvisional) {
+    hard_blocks.push(`Severely extended: +${extensionProvisional.pct_distance.toFixed(1)}% (${extensionProvisional.atr_distance.toFixed(2)} ATR) above 20-SMA (${fmt2(s20)}) — no acceptable stop`);
+  }
   // Resistance block only if the room to T1 is < 1.5R (spec rule #4).
   if (directlyBelowResistance && rrT1 < 1.5) {
     hard_blocks.push(`Directly below resistance ${fmt2(sr.resistance!)} with only ${rrT1.toFixed(2)}R to T1`);
@@ -529,11 +549,31 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     action = "STAND DOWN";
   }
 
+  // Extension soft-block: 1.25-2.0 ATR (Extended tier).
+  // Not a hard block -- ticker stays visible for monitoring -- but a new
+  // entry is discouraged. Downgrade READY states to a setup-aware WATCH.
+  const setupFamily: SetupFamily = mapSetupFamily(setup);
+  const extension = (atr14 != null && s20)
+    ? summarizeExtension(price, s20, atr14, setupFamily)
+    : null;
+  if (extension && extension.tier === "extended" && hard_blocks.length === 0) {
+    state = "FLEX_WATCH";
+    risk_grade = "NO TRADE";
+    action = mapExtensionAction(setupFamily);
+    if (!fakeoutReasons.some(r => r.startsWith("Extended:"))) {
+      fakeoutReasons.push(`Extended: +${extension.pct_distance.toFixed(1)}% (${extension.atr_distance.toFixed(2)} ATR) above 20-SMA`);
+    }
+  }
+
   // ─── Readiness score + distance-to-ready ────────────────────────────────────
   // Spec 7-bucket 100-point framework (see computeReadinessScore below).
   // Build the human-readable distance-to-ready alongside.
   const distance_to_ready: DistanceToReadyItem[] = [];
-  const rawScore = hard_blocks.length > 0 ? 0 : provisionalScore;
+  // Extension no longer zeroes the score -- apply tier penalty instead.
+  const extensionPenalty = extension?.score_penalty ?? 0;
+  const rawScore = hard_blocks.length > 0
+    ? 0
+    : Math.max(0, provisionalScore - extensionPenalty);
 
   // Primary trend.
   if (!(price > s200 && slope200 >= 0)) {
@@ -723,6 +763,10 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
     hard_blocks,
     vehicle_class: vehicleClass,
     permission,
+    // Additive: extension tier + score sub-facets (all optional in the type).
+    extension,
+    entry_quality: computeEntryQuality(extension, rrT1),
+    risk_permission: computeRiskPermission(hard_blocks, extension),
     metrics: buildMetrics({
       price, prevClose, dayChangePct, s20, s50, s200,
       slope20, slope50, slope200,
@@ -736,6 +780,37 @@ function classifyTicker(bars: DailyBar[], ctx: TickerContext): FlexDeskCard {
       bounceReclaimTrigger,
     }),
   };
+}
+
+function mapExtensionAction(fam: SetupFamily): FlexAction {
+  // FlexAction is a narrow union; we can only pick values it already permits.
+  // "SET ALERT" is the closest existing verb for a soft-blocked new entry
+  // that stays on the desk for monitoring. UI copy uses extension.headline
+  // and extension.next_action for the fuller "WAIT FOR PULLBACK / DO NOT
+  // CHASE" language so we do not have to widen the FlexAction union.
+  return "SET ALERT" as FlexAction;
+}
+
+function computeEntryQuality(
+  extension: { tier: string; score_penalty: number } | null | undefined,
+  rrT1: number,
+): number {
+  // 0-100 heuristic: perfect R:R with no extension penalty => 100.
+  const rrScore = Math.max(0, Math.min(60, (rrT1 / 3) * 60)); // 0..60 for R:R 0..3
+  const extScore = extension
+    ? Math.max(0, 40 - extension.score_penalty * 0.4) // caution=-4, ext=-10, sev=-40
+    : 40;
+  return Math.round(rrScore + extScore);
+}
+
+function computeRiskPermission(
+  hard_blocks: string[],
+  extension: { tier: string } | null | undefined,
+): "ALLOWED" | "REDUCED" | "WATCH" | "BLOCKED" {
+  if (hard_blocks.length > 0) return "BLOCKED";
+  if (extension?.tier === "extended") return "WATCH";
+  if (extension?.tier === "caution") return "REDUCED";
+  return "ALLOWED";
 }
 
 function buildTriggerDescription(

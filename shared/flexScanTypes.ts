@@ -131,7 +131,47 @@ export interface FlexDeskCard {
   action: FlexAction;
   hard_blocks: string[];         // e.g. ["Below declining 200-SMA", "No defined invalidation"]
   metrics?: FlexMetrics;
+  // ─── Extension tier (optional, additive) ────────────────────────────────
+  // Present when SMA20 + ATR14 are available. Lets the UI render a
+  // Normal / Caution / Extended / Severely Extended pill and a
+  // setup-aware next-action instead of the old universal STAND DOWN.
+  extension?: ExtensionSummary | null;
+  // ─── Score sub-facets (optional, additive) ──────────────────────────────
+  // readiness_score stays as the primary 0-100 number; these break it apart
+  // so the UI can show "strong trend, poor entry" without dropping the
+  // ticker off the card.
+  trend_strength?: number;       // 0-100 — pure trend structure quality
+  setup_quality?: number;        // 0-100 — pattern / trigger validity
+  entry_quality?: number;        // 0-100 — how good this instant's price is as an entry
+  risk_permission?: RiskPermission; // ALLOWED | REDUCED | WATCH | BLOCKED
 }
+
+export type RiskPermission = "ALLOWED" | "REDUCED" | "WATCH" | "BLOCKED";
+
+export type ExtensionTier = "normal" | "caution" | "extended" | "severely_extended";
+
+export interface ExtensionSummary {
+  tier: ExtensionTier;
+  atr_distance: number;           // (price − SMA20) / ATR14 — can be negative below SMA
+  pct_distance: number;           // ((price − SMA20) / SMA20) * 100
+  dollar_distance: number;        // price − SMA20
+  sma20: number;
+  atr14: number;
+  price: number;
+  score_penalty: number;          // subtracted from readiness_score
+  headline: string;               // one-line UI headline
+  detail: string;                 // longer explanation
+  next_action: string;            // what would improve the entry
+}
+
+// Configurable tiers. Keep in ONE place so backtesting / adjustment is
+// centralized. All boundaries are (price − SMA20) / ATR14.
+export const EXTENSION_TIERS: Record<ExtensionTier, { min: number; max: number; penalty: number }> = {
+  normal:            { min: -Infinity, max: 0.75,  penalty: 0 },
+  caution:           { min: 0.75,      max: 1.25,  penalty: 10 },
+  extended:          { min: 1.25,      max: 2.0,   penalty: 25 },
+  severely_extended: { min: 2.0,       max: Infinity, penalty: 100 },
+};
 
 export interface FlexScanResult {
   computed_at: string;

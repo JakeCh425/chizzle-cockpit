@@ -180,7 +180,7 @@ export default function TickerStrengthGauge({ ticker, bars, timeframe }: Props) 
     <div className="rounded-md border border-ink-line bg-ink-black p-4 space-y-3" data-testid="panel-ticker-strength">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <h3 className="text-[13px] font-bold uppercase tracking-wider text-soft-white">Ticker Strength</h3>
+          <h3 className="text-[13px] font-bold uppercase tracking-wider text-soft-white">Entry Readiness</h3>
           <span className="text-[10px] font-mono text-slate-gray">{ticker}</span>
           {timeframe && (
             <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{timeframe}</span>
