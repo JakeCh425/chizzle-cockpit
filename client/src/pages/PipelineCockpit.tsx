@@ -26,9 +26,12 @@ import FlexScannerPanel from "@/components/FlexScannerPanel";
 import FidelityCheatSheet from "@/components/FidelityCheatSheet";
 import MiniChartGrid from "@/components/MiniChartGrid";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import CollapsibleSection from "@/components/CollapsibleSection";
 import TickerChartPanel from "@/components/TickerChartPanel";
 import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
+import SwingWorkspace from "@/components/swing/SwingWorkspace";
+import { SwingDoToday, UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
 import CockpitWorkspace from "@/components/CockpitWorkspace";
 
@@ -190,6 +193,20 @@ export default function PipelineCockpit() {
       {/* 2. "What should I do today?" — plain-English translation of
            existing regime + scanner outputs. No new signals. */}
       <DoTodayCard />
+
+      {/* PR 3e — Unified Swing Engine (§Q). Renders nothing unless ENABLE_UNIFIED_SWING_ENGINE is on. */}
+      <UnifiedSwingMount>
+        {() => (
+          <>
+            <SwingDoToday />
+            <CollapsibleSection id="unified-swing" title="Unified Swing Engine" hint="SMH · QQQ · SPY + custom">
+              <ErrorBoundary label="Unified Swing Engine">
+                <SwingWorkspace />
+              </ErrorBoundary>
+            </CollapsibleSection>
+          </>
+        )}
+      </UnifiedSwingMount>
 
       {/* 3. Cockpit Workspace — 3-column: Regime + Pulse (L) / TradingView chart (C) / Strength + Snapshot + Coach (R) */}
       <ErrorBoundary label="Cockpit Workspace">

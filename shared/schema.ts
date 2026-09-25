@@ -893,3 +893,78 @@ export const uiPrefs = pgTable("ui_prefs", {
 });
 
 export type UiPrefs = typeof uiPrefs.$inferSelect;
+
+// ─── PR 3 — Unified Swing Decision Engine (additive) ────────────────────────
+// Rollback: DROP TABLE swing_journal, swing_decision_log, swing_settings;
+// Nothing else references these tables.
+
+// Single-row settings (spec §D). Stored as JSON so new toggles need no migration;
+// server merges with DEFAULT_SWING_SETTINGS from shared/swingDecision.ts.
+export const swingSettings = pgTable("swing_settings", {
+  id: integer("id").primaryKey().default(1),
+  data: jsonb("data").notNull().default({} as any),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SwingSettingsRow = typeof swingSettings.$inferSelect;
+
+// One row per symbol × evaluated completed bar (spec §N). 30-day retention.
+export const swingDecisionLog = pgTable("swing_decision_log", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").notNull(),
+  timeframe: text("timeframe").notNull(),          // "1H" | "4H"
+  barTime: timestamp("bar_time", { withTimezone: true }).notNull(),
+  evaluatedAt: timestamp("evaluated_at", { withTimezone: true }).notNull().defaultNow(),
+  dataSource: text("data_source"),
+  session: text("session"),
+  timezone: text("timezone"),
+  weeklyRegime: text("weekly_regime"),
+  dailyRegime: text("daily_regime"),
+  setupsEvaluated: jsonb("setups_evaluated").notNull().default([] as any),
+  passed: jsonb("passed").notNull().default([] as any),
+  failed: jsonb("failed").notNull().default([] as any),
+  formation: text("formation"),                    // NONE | FORMING | CONFIRMED
+  confirm4h: text("confirm_4h"),
+  confirm1h: text("confirm_1h"),
+  originalTrigger: doublePrecision("original_trigger"),
+  distanceFromTriggerPct: doublePrecision("distance_from_trigger_pct"),
+  structuralStop: doublePrecision("structural_stop"),
+  target1: doublePrecision("target1"),
+  target2: doublePrecision("target2"),
+  rrAtSignal: doublePrecision("rr_at_signal"),
+  rrAtCurrent: doublePrecision("rr_at_current"),
+  volumeCondition: text("volume_condition"),
+  extensionPct: doublePrecision("extension_pct"),
+  extensionAtr: doublePrecision("extension_atr"),
+  dataMismatch: text("data_mismatch"),
+  finalStatus: text("final_status").notNull(),
+  reason: text("reason").notNull(),
+  decision: jsonb("decision").notNull().default({} as any),  // full SwingDecision snapshot
+});
+export type SwingDecisionLogRow = typeof swingDecisionLog.$inferSelect;
+
+// Practice journal (spec §L). Optional link to existing trades table.
+export const swingJournal = pgTable("swing_journal", {
+  id: serial("id").primaryKey(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  action: text("action").notNull(),                // PRACTICE_TRADE | OBSERVED | MISSED | EXPIRED | NOTE
+  symbol: text("symbol").notNull(),
+  setupType: text("setup_type"),
+  grade: text("grade"),
+  timeframes: text("timeframes"),
+  entry: doublePrecision("entry"),
+  stop: doublePrecision("stop"),
+  target1: doublePrecision("target1"),
+  target2: doublePrecision("target2"),
+  plannedRisk: doublePrecision("planned_risk"),
+  outcome: text("outcome"),
+  screenshotUrl: text("screenshot_url"),
+  lesson: text("lesson"),
+  followedPlan: boolean("followed_plan"),
+  notes: text("notes"),
+  tradeId: integer("trade_id"),
+  decision: jsonb("decision").notNull().default({} as any),
+});
+export const insertSwingJournalSchema = createInsertSchema(swingJournal).omit({ id: true, createdAt: true });
+export type SwingJournalRow = typeof swingJournal.$inferSelect;
+export type InsertSwingJournal = z.infer<typeof insertSwingJournalSchema>;

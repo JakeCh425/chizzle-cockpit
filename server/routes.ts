@@ -3007,6 +3007,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     } catch (e: any) { res.status(500).json({ error: e?.message || String(e) }); }
   });
 
+  // ─── PR 3d — Unified Swing Engine (/api/swing/*). Additive; every route is
+  // gated by ENABLE_UNIFIED_SWING_ENGINE (or ?unified=1 QA preview).
+  {
+    const { registerSwingRoutes } = await import("./swing/routes");
+    registerSwingRoutes(app);
+  }
+
   // ─── MTF Engine v2 settings (PR 2a) ───
   // Reads always allowed; writes require ENABLE_MTF_ENGINE_V2 = true.
   // Row 1 is the single settings row (see mtf_settings_single_row constraint).
