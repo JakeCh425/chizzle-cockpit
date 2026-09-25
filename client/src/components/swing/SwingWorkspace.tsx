@@ -16,7 +16,7 @@ import {
   DATA_TONE, STATUS_TONE, fmt$, fmtCT, swingGet, swingSend, useSwingDecision,
   type ScanResp, type WatchlistResp, type WatchRow,
 } from "@/lib/swing";
-import SwingChart, { type Tf } from "./SwingChart";
+import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
 
@@ -37,7 +37,7 @@ function invalidateSwing() {
 }
 
 export function StatusPill({ s }: { s: SwingDecision["setupStatus"] }) {
-  return <span className={`px-1.5 py-0.5 rounded border text-[10.5px] font-mono whitespace-nowrap ${STATUS_TONE[s] ?? ""}`} data-testid="status-setup">{STATUS_LABEL[s]}</span>;
+  return <span className={`px-1.5 py-0.5 rounded border text-[10.5px] font-mono whitespace-nowrap ${STATUS_TONE[s] ?? ""}`} data-testid="status-setup" title={s === "SIGNAL_EXPIRED" ? "Expired: no closed 1H above the trigger in time, the setup was invalidated, or the risk never fit. Not tradeable. Resets automatically when a fresh setup forms (re-checked every closed 1H bar). Select the ticker for the exact reason." : undefined}>{STATUS_LABEL[s]}</span>;
 }
 function DataPill({ s }: { s: string }) {
   return <span className={`px-1 rounded border text-[9.5px] font-mono ${DATA_TONE[s] ?? "text-slate-gray border-ink-line"}`} data-testid="status-data">{s}</span>;
@@ -222,6 +222,7 @@ export function PracticeCard({ d, v }: { d: SwingDecision; v: PracticeVerdict })
       <div className="text-[10px] font-mono uppercase tracking-wide text-slate-gray">Can I practice this setup?</div>
       <div className="text-sm font-bold text-soft-white" data-testid="text-verdict-headline">{v.headline}</div>
       <ul className="list-disc pl-4 text-[11.5px] text-soft-white/90 space-y-0.5">{v.lines.map((x, i) => <li key={i}>{x}</li>)}</ul>
+      {d.setupStatus === "SIGNAL_EXPIRED" && <ExpiredExplainer d={d} />}
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
         {rows.map(([k, val]) => (
           <div key={k} className="rounded border border-ink-line px-2 py-1"><div className="text-[9.5px] uppercase text-slate-gray font-mono">{k}</div><div className="text-[12px] font-mono text-soft-white">{val}</div></div>

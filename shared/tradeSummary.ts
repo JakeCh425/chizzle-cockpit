@@ -128,3 +128,41 @@ export function buildTradeSummary(d: SwingDecision, coachRaw?: CoachInput | null
 
   return { symbol: d.symbol, status: d.setupStatus, headline, printed, brokerStep, sections, warnings, text };
 }
+
+// ── Signal Expired explainer ────────────────────────────────────────────────
+// Plain-English "why did this expire / when does it reset". Expiry is event-driven,
+// not a timer: the engine re-checks every closed 1H bar and prints a new card as
+// soon as a fresh setup forms.
+const H1_CLOSES_CT = ["09:30", "10:30", "11:30", "12:30", "13:30", "14:30", "15:00"];
+function ctParts(ms: number) {
+  const f = new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  const p = Object.fromEntries(f.formatToParts(new Date(ms)).map((x) => [x.type, x.value]));
+  return { wd: p.weekday as string, hm: `${p.hour === "24" ? "00" : p.hour}:${p.minute}` };
+}
+/** Next regular-session 1H bar close (CT), Mon–Fri. Exchange holidays not modeled. */
+export function nextClosed1H(nowMs: number): number {
+  let t = Math.floor(nowMs / 1_800_000) * 1_800_000 + 1_800_000; // next :00/:30
+  for (let i = 0; i < 7 * 48; i++, t += 1_800_000) {
+    const { wd, hm } = ctParts(t);
+    if (wd !== "Sat" && wd !== "Sun" && H1_CLOSES_CT.includes(hm)) return t;
+  }
+  return t;
+}
+function fmtCTms(ms: number): string {
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(ms)) + " CT";
+}
+export function expiredExplainer(d: SwingDecision, nowMs: number): { why: string; reset: string; tip: string } | null {
+  if (d.setupStatus !== "SIGNAL_EXPIRED") return null;
+  const raw = d.whyNotReady[0] ?? d.failedRules[0] ?? "the setup's confirmation window closed";
+  const setup = d.setupType ? d.setupType.replace(/_/g, " ").toLowerCase() : "setup";
+  let why: string;
+  if (/invalidated/i.test(raw)) why = `The ${setup} was invalidated — ${raw.replace(/^Setup invalidated — /, "")}. Price closed below the structure the setup was built on, so the idea is void.`;
+  else if (/risk never fit/i.test(raw) && /passed T1/i.test(raw)) why = `${raw.replace(/^Expired: /, "")}. The pattern printed, but the stop/target math never met your risk rules, and price has already run through Target 1 — the move happened without a valid entry, so chasing it now would be late.`;
+  else if (/risk never fit/i.test(raw)) why = `${raw}. The pattern printed, but the stop/target math never met your risk rules before the window ran out.`;
+  else if (/no closed 1H above trigger/i.test(raw)) why = `${raw}. A 4H setup needs a CLOSED 1H bar above its trigger within the confirmation window; that never happened, so the card retired instead of going stale.`;
+  else why = raw;
+  const next = nextClosed1H(nowMs);
+  const reset = `There's no timer to wait out. The engine re-checks on every closed 1H bar during regular hours (next: ${fmtCTms(next)}). A new card prints as soon as a fresh setup forms — reclaim, base, higher low, breakout-retest, hammer/engulfing or continuation on a new closed 4H/1H bar. The expired card stays in History (Last 5 / All).`;
+  const tip = "Want more room? Settings → \u201CConfirmation window (4H bars)\u201D can be widened from 2 to 3 bars (≈ 1.5 trading days). Expired cards are never tradeable.";
+  return { why, reset, tip };
+}
