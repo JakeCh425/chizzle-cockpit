@@ -21,6 +21,8 @@
 // ─────────────────────────────────────────────────────────────────────────────
 import { storage } from "./storage";
 import { runFlexScan } from "./flexScanner";
+import { alignFlexResult } from "./swing/flexAlign";
+import { isUnifiedSwingEnabled } from "./featureFlags";
 import { dispatchHammerAlert } from "./alert-dispatcher";
 import type { FlexDeskCard } from "@shared/flexScanTypes";
 
@@ -268,7 +270,9 @@ async function scanOnce() {
     const universe = await buildUniverse();
     if (universe.length === 0) return;
     // Single scan covers every ticker in one call — cheaper than one scan per ticker.
-    const result = await runFlexScan({ universe });
+    const raw = await runFlexScan({ universe });
+    // PR 3f — alerts follow the unified engine when it is on, so they never contradict the cards.
+    const result = isUnifiedSwingEnabled() ? await alignFlexResult(raw) : raw;
     for (const ticker of universe) {
       try { await evaluateOne(ticker, result.cards); }
       catch (err) {

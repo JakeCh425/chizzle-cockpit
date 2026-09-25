@@ -1,5 +1,5 @@
 ﻿// ============================================================================
-//  CHIZZLE WEALTH ENGINE â€” Core Logic Library
+//  CHIZZLE WEALTH ENGINE — Core Logic Library
 //  Pure, deterministic, side-effect-free. Every formula matches the v1.0 blueprint.
 // ============================================================================
 
@@ -10,7 +10,7 @@ export type WatchlistState =
   | "DORMANT" | "BUILDING" | "APPROACHING" | "IN_ZONE" | "ARMED" | "LIVE" | "INVALIDATED";
 export type IdentityState = "OPERATOR" | "DISCIPLINED" | "WORKING" | "OFF_PROCESS";
 
-// â”€â”€â”€ Risk Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Risk Engine ────────────────────────────────────────────────────────────
 // Defaults (in fractions, not percent) — match shared/schema.ts settings defaults of 5/3/1.
 // At runtime, prefer reading from settings (riskPctFromSettings) — these are only the
 // fallback when settings haven't loaded yet.
@@ -78,7 +78,7 @@ export function rMultiple(entry: number, stop: number, exit: number): number {
   return (exit - entry) / risk;
 }
 
-// â”€â”€â”€ P/L Engine â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── P/L Engine ─────────────────────────────────────────────────────────────
 export interface TradeLike {
   rMultiple?: number | null;
   status: string;
@@ -110,9 +110,9 @@ export function drawdown(equityHistory: { equity: number }[]): { current: number
   return { current, max: maxDd };
 }
 
-// â”€â”€â”€ Chizzle Score â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Chizzle Score ──────────────────────────────────────────────────────────
 export interface ChizzleComponents {
-  planAdherence: number;       // 0â€“100
+  planAdherence: number;       // 0–100
   riskDiscipline: number;
   patience: number;
   processJournaling: number;
@@ -143,7 +143,7 @@ export function chizzleScore(c: ChizzleComponents): number {
     c.emotionalState * CHIZZLE_WEIGHTS.emotionalState +
     c.sleepBody * CHIZZLE_WEIGHTS.sleepBody +
     c.reviewCadence * CHIZZLE_WEIGHTS.reviewCadence;
-  return Math.round(total / 100); // weighted avg â†’ 0â€“100
+  return Math.round(total / 100); // weighted avg → 0–100
 }
 
 export function identityState(rollingScore: number): IdentityState {
@@ -153,9 +153,9 @@ export function identityState(rollingScore: number): IdentityState {
   return "OFF_PROCESS";
 }
 
-// â”€â”€â”€ Watchlist Score â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Watchlist Score ────────────────────────────────────────────────────────
 export interface WatchlistComponents {
-  trendQuality: number;       // 0â€“100
+  trendQuality: number;       // 0–100
   relativeStrength: number;
   setupCleanliness: number;
   volumeBehavior: number;
@@ -213,14 +213,14 @@ export function autoScoreWatchlist(input: {
   } else {
     setup = Math.max(0, 80 - (above / Math.max(input.atr, 0.001)) * 25);
   }
-  // Volume behavior â€” proxy 70 baseline
+  // Volume behavior — proxy 70 baseline
   const vol = 70;
   // RR available
   const rr = rrRatio(input.price, input.stop, input.t1);
   const rrScore = Math.max(0, Math.min(100, (rr / 3) * 100));
   // Catalyst
   const cat = input.hasEarningsWithin5d ? 0 : 100;
-  // Liquidity â€” Tier 1 is always 100
+  // Liquidity — Tier 1 is always 100
   const liq = 100;
 
   const components: WatchlistComponents = {
@@ -231,7 +231,7 @@ export function autoScoreWatchlist(input: {
   return { components, total, grade };
 }
 
-// â”€â”€â”€ State classifier (per ticker) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── State classifier (per ticker) ──────────────────────────────────────────
 export function classifyState(
   price: number,
   zoneLow: number,
@@ -251,7 +251,7 @@ export function classifyState(
   return "DORMANT";
 }
 
-// â”€â”€â”€ Regime classifier â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Regime classifier ──────────────────────────────────────────────────────
 export interface RegimeInputs {
   spyAbove20: boolean;
   spyAbove50: boolean;
@@ -281,7 +281,7 @@ export function regimeClassify(i: RegimeInputs): Regime {
   return "YELLOW";
 }
 
-// â”€â”€â”€ Auto-regime classifier (mirror of server/regimeService.ts) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Auto-regime classifier (mirror of server/regimeService.ts) ─────────────
 export type RegimeCode = "green" | "yellow" | "red";
 
 export interface AutoRegimeInputs {
@@ -323,13 +323,13 @@ export function regimeCodeLabel(c: RegimeCode): "GREEN" | "YELLOW" | "RED" {
 
 export function regimeLabel(r: Regime): string {
   switch (r) {
-    case "GREEN": return "GREEN LIGHT â€” ARMED";
-    case "YELLOW": return "STANDBY â€” SELECTIVE";
-    case "RED": return "STAND DOWN â€” CAPITAL PROTECTION";
+    case "GREEN": return "GREEN LIGHT — ARMED";
+    case "YELLOW": return "STANDBY — SELECTIVE";
+    case "RED": return "STAND DOWN — CAPITAL PROTECTION";
   }
 }
 
-// â”€â”€â”€ Trade validation â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Trade validation ───────────────────────────────────────────────────────
 export interface TradeValidationResult {
   ok: boolean;
   reason?: string;
@@ -361,11 +361,11 @@ export function validateTrade(args: {
   const newOpen = currentOpenRisk + newTradeRiskPct;
 
   if (psr <= 0) return { ok: false, reason: "Stop must be below entry.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
-  if (rr < MIN_RR) return { ok: false, reason: "Reward:Risk below 2.0 â€” trade rejected.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
+  if (rr < MIN_RR) return { ok: false, reason: "Reward:Risk below 2.0 — trade rejected.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   if (newOpen > MAX_OPEN_RISK_PCT) return { ok: false, reason: "Open risk cap breached.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
-  if (sh <= 0) return { ok: false, reason: "Position size rounds to 0 shares â€” UNDER-FUNDED.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
+  if (sh <= 0) return { ok: false, reason: "Position size rounds to 0 shares — UNDER-FUNDED.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   if (args.rollingChizzle != null && args.rollingChizzle < 60) {
-    return { ok: false, reason: "OFF-PROCESS â€” 7-day Chizzle Score < 60. No new entries.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
+    return { ok: false, reason: "OFF-PROCESS — 7-day Chizzle Score < 60. No new entries.", rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
   }
   const cap = NOTIONAL_CAP_PCT[args.regime];
   if (not > args.equity * cap) {
@@ -374,7 +374,7 @@ export function validateTrade(args: {
   return { ok: true, rr, shares: sh, riskDollarsValue: rd, perShareRiskValue: psr, notional: not, newOpenRiskPct: newOpen };
 }
 
-// â”€â”€â”€ Leak Detection â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Leak Detection ─────────────────────────────────────────────────────────
 export interface LeakInput {
   trades: { openedAt: string; closedAt?: string | null; setup: string; regimeAtEntry: string; rMultiple?: number | null; entry: number; stop: number; entryAboveZoneAtr?: number; status: string; ticker: string }[];
   periodStartISO: string;
@@ -394,11 +394,11 @@ export function detectLeaks(input: LeakInput): LeakFlag[] {
   // Over-trading: > 6 entries in week
   if (inPeriod.length > 6) flags.add("OVER_TRADING");
 
-  // Chasing â€” proxy: 2+ entries flagged as entryAboveZoneAtr > 0.5
+  // Chasing — proxy: 2+ entries flagged as entryAboveZoneAtr > 0.5
   const chasers = inPeriod.filter(t => (t.entryAboveZoneAtr ?? 0) > 0.5).length;
   if (chasers >= 2) flags.add("CHASING");
 
-  // Setup bias â€” >80% one setup
+  // Setup bias — >80% one setup
   if (inPeriod.length >= 3) {
     const setupA = inPeriod.filter(t => t.setup === "TREND_PULLBACK").length;
     const setupB = inPeriod.filter(t => t.setup === "BREAKOUT").length;
@@ -406,11 +406,11 @@ export function detectLeaks(input: LeakInput): LeakFlag[] {
     if (total > 0 && Math.max(setupA, setupB) / total > 0.8) flags.add("SETUP_BIAS");
   }
 
-  // Regime blindness â€” RED entries > 20%
+  // Regime blindness — RED entries > 20%
   const redEntries = inPeriod.filter(t => t.regimeAtEntry === "RED").length;
   if (inPeriod.length > 0 && redEntries / inPeriod.length > 0.2) flags.add("REGIME_BLINDNESS");
 
-  // Revenge trade â€” entry within 30min of stop-out on same ticker
+  // Revenge trade — entry within 30min of stop-out on same ticker
   for (let i = 0; i < input.trades.length; i++) {
     const a = input.trades[i];
     if (a.status !== "CLOSED" || !a.closedAt || (a.rMultiple ?? 0) >= 0) continue;
@@ -429,7 +429,7 @@ export function detectLeaks(input: LeakInput): LeakFlag[] {
   return Array.from(flags);
 }
 
-// â”€â”€â”€ Formatters â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Formatters ─────────────────────────────────────────────────────────────
 export function fmtCurrency(n: number): string {
   return new Intl.NumberFormat("en-US", {
     style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2,
@@ -450,7 +450,7 @@ export function fmtNum(n: number, decimals = 2): string {
   return n.toFixed(decimals);
 }
 
-// â”€â”€â”€ Setup state formatting (mirrors server setupService) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Setup state formatting (mirrors server setupService) ─────────────────────
 export type SetupStateCode =
   | "dormant" | "building" | "approaching" | "in_zone" | "armed" | "live" | "invalidated";
 
@@ -497,7 +497,7 @@ export function formatSetupKind(kind: string): string {
   return kind === "breakout" ? "Breakout" : "Trend-Pullback";
 }
 
-// â”€â”€â”€ Regime gate helpers (mirrors server /api/regime/gates) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─── Regime gate helpers (mirrors server /api/regime/gates) ───────────────
 // Lowercase regime keys to match the server's `getEffectiveRegime().code`.
 export type RegimeKey = "green" | "yellow" | "red";
 

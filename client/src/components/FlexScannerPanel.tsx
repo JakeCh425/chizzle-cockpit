@@ -17,6 +17,7 @@ import type {
 import type { Settings } from "@shared/schema";
 import { useAutoRescan } from "@/hooks/useAutoRescan";
 import AutoRescanPill from "@/components/AutoRescanPill";
+import CollapsibleSection from "@/components/CollapsibleSection";
 
 // Map the settings dropdown value → concrete Tailwind text-size class.
 const TICKER_SCALE_CLS: Record<string, string> = {
@@ -397,6 +398,16 @@ function DeskCard({ card, onSave, saved, saving, tickerScaleCls, bodyColor }: {
         </div>
       </div>
 
+      {(card as any).unified && !(card as any).unified.pending && (
+        <div className="text-[10px] font-mono text-slate-gray flex flex-wrap gap-x-2" data-testid={`unified-${card.ticker}`}>
+          <span className="text-neon-blue font-bold">UNIFIED ENGINE</span>
+          <span>{(card as any).unified.label}</span>
+          <span>grade {(card as any).unified.grade}</span>
+          <span>W {(card as any).unified.weeklyRegime} · D {(card as any).unified.dailyRegime}</span>
+          <span className="text-signal-amber">PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</span>
+        </div>
+      )}
+
       {/* Row 1: pin + ticker + state + score */}
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-1.5 flex-wrap">
@@ -565,6 +576,17 @@ function DeskCard({ card, onSave, saved, saving, tickerScaleCls, bodyColor }: {
         {card.smh_market_context}
       </div>
 
+      {(card as any).legacy && (
+        <CollapsibleSection id={`flex-legacy-${card.ticker}`} title="Legacy checks" defaultCollapsed>
+          <div className="text-[11px] text-slate-gray space-y-0.5" data-testid={`legacy-${card.ticker}`}>
+            <div>Old rules said: <span className="text-soft-white">{(card as any).legacy.state} · {(card as any).legacy.action}</span></div>
+            {((card as any).legacy.hard_blocks as string[]).map((b, i) => <div key={i}>• Old rule blocked: {b}</div>)}
+            {((card as any).legacy.fakeout_check?.reasons ?? []).map((r: string, i: number) => <div key={`f${i}`}>• Old fakeout note: {r}</div>)}
+            <div className="italic">Reference only — the unified engine above is the authority for status and levels.</div>
+          </div>
+        </CollapsibleSection>
+      )}
+
       {/* Action + save + market confirmation */}
       <div className="flex items-center justify-between gap-2 pt-1 border-t border-ink-line">
         <div className="flex items-center gap-1.5 flex-wrap min-w-0">
@@ -575,7 +597,9 @@ function DeskCard({ card, onSave, saved, saving, tickerScaleCls, bodyColor }: {
             card.state === "FLEX_WATCH"     ? "bg-neon-blue/15 text-neon-blue" :
                                               "bg-ink-line text-slate-gray"
           }`} title="Trade direction">
-            {card.state === "STANDBY" ? "No Trade" : "Long"}
+            {(card as any).unified
+              ? ((card as any).unified.status === "READY_TO_TRADE" ? "Practice" : card.state === "STANDBY" ? "No Trade" : "Watch")
+              : (card.state === "STANDBY" ? "No Trade" : "Long")}
           </span>
           <span className={`text-[11px] font-bold ${meta.text} truncate`}>{card.action}</span>
         </div>
@@ -647,7 +671,23 @@ interface Verdict {
   text: string;
   badges: VerdictBadge[];
 }
+// PR 3f — when the unified engine is on, the verdict verb comes from the shared SwingDecision.
+function unifiedVerdict(u: any): Pick<Verdict, "label" | "rationale" | "bg" | "border" | "text"> {
+  const s: string = u.status;
+  if (u.pending) return { label: "CHECKING…", rationale: u.nextAction, bg: "bg-ink-line/30", border: "border-ink-line", text: "text-slate-gray" };
+  if (s === "READY_TO_TRADE") return { label: "PRACTICE PLAN READY", rationale: u.nextAction, bg: "bg-signal-green/10", border: "border-signal-green/50", text: "text-signal-green" };
+  if (["SETUP_CONFIRMED", "SETUP_FORMING", "WATCH_RETEST"].includes(s)) return { label: String(u.label).toUpperCase(), rationale: u.nextAction, bg: "bg-neon-blue/10", border: "border-neon-blue/40", text: "text-neon-blue" };
+  if (s.startsWith("WATCH_") || s === "BLOCKED_DATA_MISMATCH") return { label: String(u.label).toUpperCase(), rationale: u.whyNotReady?.[0] ?? u.nextAction, bg: "bg-signal-amber/10", border: "border-signal-amber/50", text: "text-signal-amber" };
+  return { label: `${String(u.label).toUpperCase()} · STAND DOWN`, rationale: u.whyNotReady?.[0] ?? u.nextAction, bg: "bg-signal-red/10", border: "border-signal-red/40", text: "text-signal-red" };
+}
+
 function deriveVerdict(card: FlexDeskCard): Verdict {
+  const v = deriveLegacyVerdict(card);
+  const u = (card as any).unified;
+  return u ? { ...v, ...unifiedVerdict(u) } : v;
+}
+
+function deriveLegacyVerdict(card: FlexDeskCard): Verdict {
   const m = card.metrics;
   const permBlocked = card.permission === "NO_LONG";
   const hardBlocked = (card.hard_blocks?.length ?? 0) > 0;
