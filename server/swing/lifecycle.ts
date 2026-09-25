@@ -272,6 +272,16 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
       applyPlan(d, planAt(deadline)); d.suggestedShares = 0; d.cardGrade = "NO_TRADE";
       d.failedRules.push(`no closed 1H above trigger ${fx(trigger)} within ${s.expiryBars4h} closed 4H bar(s)`);
       d.whyNotReady = [`Expired ${fmtCT(deadline)}: no closed 1H above trigger ${fx(trigger)} within ${s.expiryBars4h} closed 4H bar(s) of the setup`];
+      // Learning aid: show what the wider 3-bar window would have done (the setting itself is unchanged).
+      if (s.expiryBars4h < 3) {
+        const alt = sessionEndAfter(det.barEnd!, 3);
+        const altConf = after.find((b) => b.c > trigger && b.end <= alt);
+        d.whyNotReady.push(altConf
+          ? `3-bar what-if: with a 3-bar window this would have confirmed — closed 1H ${fx(altConf.c)} above ${fx(trigger)} at ${fmtCT(altConf.end)}.`
+          : c.E.now < alt
+            ? `3-bar what-if: with a 3-bar window this setup would still be open until ${fmtCT(alt)} (no confirmation yet).`
+            : `3-bar what-if: a 3-bar window (until ${fmtCT(alt)}) would also have expired — no closed 1H above ${fx(trigger)}.`);
+      }
       d.nextAction = `${SETUP_NAME[det.type]} on ${sym} expired without 1H confirmation. Wait for a new setup.`;
       d.riskLabel = "EXPIRED — NOT TRADEABLE";
       return out("SIGNAL_EXPIRED");

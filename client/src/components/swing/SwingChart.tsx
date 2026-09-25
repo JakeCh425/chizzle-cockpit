@@ -374,6 +374,7 @@ export function ExpiredExplainer({ d }: { d: SwingDecision }) {
     <div className="rounded border border-slate-500/40 bg-slate-500/5 px-2.5 py-1.5 text-[11px] space-y-0.5" data-testid="explainer-expired">
       <div><span className="font-mono font-bold text-slate-300">WHY EXPIRED:</span> <span className="text-soft-white/90">{ex.why}</span></div>
       <div><span className="font-mono font-bold text-slate-300">WHEN IT RESETS:</span> <span className="text-soft-white/90">{ex.reset}</span></div>
+      {ex.whatIf && <div><span className="font-mono font-bold text-neon-blue">3-BAR WHAT-IF:</span> <span className="text-soft-white/90">{ex.whatIf}</span></div>}
       <div className="text-slate-gray">{ex.tip}</div>
     </div>
   );

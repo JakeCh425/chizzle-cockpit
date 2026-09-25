@@ -410,7 +410,14 @@ function SettingsPanel() {
         {sel("userMode", ["LEARN", "DISCIPLINED"], "User mode")}
         {sel("signalMode", ["STRICT", "STANDARD", "FLEXIBLE"], "Signal mode")}
         {sel("minRrT1", [1.5, 2, 2.5], "Min R:R to T1", true)}
-        {sel("expiryBars4h", [1, 2, 3], "Confirmation window (4H bars)", true)}
+        <label className="flex flex-col gap-0.5 text-[10.5px] text-slate-gray">Confirmation window (4H bars)
+          <select value={String(v.expiryBars4h)} onChange={(e) => put.mutate({ expiryBars4h: Number(e.target.value) } as any)} className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid="select-expiryBars4h">
+            <option value="1">1 bar — tight (≈ half day)</option>
+            <option value="2">2 bars — default (≈ 1 day)</option>
+            <option value="3">3 bars — wider (≈ 1.5 days)</option>
+          </select>
+          {v.expiryBars4h !== 2 && <button type="button" className="text-left text-[10px] text-neon-blue underline" onClick={() => put.mutate({ expiryBars4h: 2 } as any)} data-testid="button-reset-expiry">Back to default (2 bars)</button>}
+        </label>
         {numIn("maxDollarRisk", "Max $ risk (practice)", 5, 1, 100000)}
         {numIn("maxExtensionPct", "Max extension %", 0.25, 0.25, 5)}
         {numIn("maxExtensionAtr", "Max extension ATR", 0.25, 0.25, 5)}

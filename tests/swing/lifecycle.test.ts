@@ -241,7 +241,16 @@ describe("fixture 13 — expiry and invalidation", () => {
     const exp = r.candidates.filter((x) => x.decision.setupStatus === "SIGNAL_EXPIRED");
     expect(exp.length).toBeGreaterThan(0);
     expect(exp[0].decision.whyNotReady[0]).toMatch(/^Expired .*no closed 1H above trigger/);
+    // Default stays 2 bars; the 3-bar what-if is informational only.
+    expect(exp[0].decision.whyNotReady.some((x) => x.startsWith("3-bar what-if:"))).toBe(true);
     expect(r.decision.setupStatus).not.toBe("READY_TO_TRADE");
+  });
+  it("3-bar window setting: no what-if line, still expires later", () => {
+    const now = sessionEndAfter(rbEnd, 3) + 3600;
+    const r = run(now, { expiryBars4h: 3 } as any, {}, stall);
+    const exp = r.candidates.filter((x) => x.decision.setupStatus === "SIGNAL_EXPIRED");
+    expect(exp.length).toBeGreaterThan(0);
+    expect(exp[0].decision.whyNotReady.some((x) => x.startsWith("3-bar what-if:"))).toBe(false);
   });
   it("a closed 1H below structure invalidates", () => {
     const dump = [...base, ...raw1H(scale([[100.5, 100.6, 98.5, 98.6], [98.6, 98.8, 98.3, 98.4]], K), rbEnd)];
