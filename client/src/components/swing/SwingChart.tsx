@@ -12,6 +12,7 @@ import type { ChartMarker, ChartLevel, ChartZone, SwingDecision } from "@shared/
 import { STATUS_LABEL } from "@shared/swingDecision";
 import { DATA_TONE, fmtCT, swingGet, type BarsResp } from "@/lib/swing";
 import { expiredExplainer } from "@shared/tradeSummary";
+import { hasPlan, ticketRows } from "./TradeTicket";
 
 export const TFS = ["15m", "30m", "1H", "4H", "D", "W"] as const;
 export type Tf = typeof TFS[number];
@@ -71,9 +72,11 @@ export interface SwingChartProps {
   intradayLearningMode?: boolean;
   onMarker: (m: ChartMarker) => void;
   selectedMarkerId?: string | null;
+  /** True while the matching trade card is hovered — reveals plan levels on the chart. */
+  highlight?: boolean;
 }
 
-export default function SwingChart({ decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId }: SwingChartProps) {
+export default function SwingChart({ decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight }: SwingChartProps) {
   const symbol = decision?.symbol;
   const [range, setRange] = useState<typeof RANGES[number]>(DEFAULT_RANGE[tf]);
   const [type, setType] = useState<typeof TYPES[number]>("Candles");
@@ -83,6 +86,15 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
   const [smaHover, setSmaHover] = useState<{ vals: Partial<Record<SmaKey, number>>; hit: SmaKey | null; x: number; y: number } | null>(null);
   const [smaLast, setSmaLast] = useState<Partial<Record<SmaKey, number>>>({});
   useEffect(() => { setRange(DEFAULT_RANGE[tf]); }, [tf]);
+  // Clean chart by default: plan lines, labels and marker text only appear while the
+  // chart (or its trade card) is hovered, or when "Keep levels on" is pinned.
+  const [hoverChart, setHoverChart] = useState(false);
+  const [pinLevels, setPinLevels] = useState(false);
+  const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
+  const showRef = useRef(showInfo); showRef.current = showInfo;
+  const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
+  const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
+  const drawRef = useRef<() => void>(() => {});
 
   const bars = useQuery<BarsResp>({
     queryKey: ["/api/swing/bars", symbol ?? "", tf, range, ov.ext ? "1" : "0"],
@@ -173,13 +185,18 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
     if (ov.bb) { const b = bb(closes); line(b.map((x) => x?.u ?? null), "#64748b", LineStyle.Dotted); line(b.map((x) => x?.l ?? null), "#64748b", LineStyle.Dotted); }
 
     const overlay = decision?.chart;
+    const vis = showRef.current;
+    planLinesRef.current = [];
     if (ov.plan && overlay) for (const l of overlay.levels.filter((x) => x.current)) {
-      main.createPriceLine({ price: l.price, color: LEVEL_COLOR[l.kind], lineWidth: l.kind === "ENTRY" ? 2 : 1,
-        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, axisLabelVisible: true, title: l.label });
+      const line = main.createPriceLine({ price: l.price, color: LEVEL_COLOR[l.kind], lineWidth: l.kind === "ENTRY" ? 2 : 1,
+        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: vis, title: vis ? l.label : "" });
+      planLinesRef.current.push({ line, title: l.label, axis: true });
     }
     if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : ov.sr))) {
-      main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: z.kind === "RETEST" ? z.label : "" });
-      main.createPriceLine({ price: z.low, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, title: "" });
+      const retest = z.kind === "RETEST";
+      const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: retest && vis ? z.label : "" });
+      const lo = main.createPriceLine({ price: z.low, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: "" });
+      if (retest) planLinesRef.current.push({ line: hi, title: z.label, axis: false }, { line: lo, title: "", axis: false });
     }
     if (ov.markers && snapped.length) {
       // Cluster: one visible marker per bar; the rest stay in the accessible list below.
@@ -192,8 +209,10 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
           shape: m.kind === "READY" ? "arrowUp" : m.kind === "FORMING" ? "circle" : m.kind === "CONFIRMED" ? "square" : "arrowDown",
           text: g.length > 1 ? `${m.label} (+${g.length - 1})` : m.label, size: m.id === selectedMarkerId ? 2 : 1 };
       });
-      createSeriesMarkers(main, ms);
-    }
+      const bare = ms.map((m) => ({ ...m, text: "" }));
+      const plugin = createSeriesMarkers(main, showRef.current ? ms : bare);
+      markerRef.current = { plugin, full: ms, bare };
+    } else markerRef.current = null;
     chart.subscribeClick((p) => {
       if (p.time == null) return;
       const hit = snapped.filter((m) => m.at === Number(p.time));
@@ -206,6 +225,7 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
       const host = bandRef.current; if (!host) return;
       host.innerHTML = "";
       for (const z of zones) {
+        if (z.kind === "RETEST" && !showRef.current) continue;
         const y1 = main.priceToCoordinate(z.high), y2 = main.priceToCoordinate(z.low);
         if (y1 == null || y2 == null) continue;
         const d = document.createElement("div");
@@ -213,6 +233,7 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
         host.appendChild(d);
       }
     };
+    drawRef.current = drawBands;
     chart.timeScale().fitContent();
     const raf = () => requestAnimationFrame(drawBands);
     chart.timeScale().subscribeVisibleLogicalRangeChange(raf);
@@ -221,6 +242,16 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
     return () => { ro.disconnect(); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, ov, decision, snapped, selectedMarkerId, intraday]);
+
+  // Toggle plan info without rebuilding the chart.
+  useEffect(() => {
+    for (const p of planLinesRef.current) {
+      try { p.line.applyOptions({ lineVisible: showInfo, axisLabelVisible: showInfo && p.axis, title: showInfo ? p.title : "" }); } catch { /* chart rebuilt */ }
+    }
+    const m = markerRef.current;
+    if (m) { try { m.plugin.setMarkers(showInfo ? m.full : m.bare); } catch { /* chart rebuilt */ } }
+    drawRef.current();
+  }, [showInfo]);
 
   const b = bars.data;
   const visualOnly = (tf === "15m" || tf === "30m") && !intradayLearningMode;
@@ -274,6 +305,12 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
             {OVERLAY_LABEL[k]}
           </button>
         ))}
+        {ov.plan && (
+          <button className={`${btn(pinLevels)} inline-flex items-center gap-1`} onClick={() => setPinLevels(!pinLevels)} aria-pressed={pinLevels} data-testid="toggle-pin-levels"
+            title="Off = clean chart; levels show only while you hover the chart or its trade card.">
+            {pinLevels ? "Levels: always on" : "Levels: on hover"}
+          </button>
+        )}
         <span className="w-px h-4 bg-ink-line mx-1" />
         <span className="text-[10px] text-slate-gray font-mono">History</span>
         {(["CURRENT", "LAST5", "ALL"] as const).map((s) => (
@@ -285,7 +322,8 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
           {b?.visualOnlyNote ?? "15m / 30m are visual only — they never confirm a setup unless Intraday Learning Mode is on."}
         </div>
       )}
-      <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: 380 }}>
+      <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: 380 }}
+        onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area">
         <div ref={boxRef} className="absolute inset-0" />
         <div ref={bandRef} className="absolute inset-0 pointer-events-none" />
         {data.length > 0 && SMA_META.some((m) => ov[m.key]) && (
@@ -320,6 +358,24 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
             </div>
           );
         })()}
+        {showInfo && d && hasPlan(d) && data.length > 0 && (
+          <div className="absolute z-10 left-2 top-9 w-[178px] rounded border border-ink-line bg-[#050a13]/90 px-2 py-1.5 pointer-events-none" data-testid="chart-side-plan">
+            <div className="text-[9.5px] font-mono font-bold tracking-wider mb-0.5" style={{ color: d.setupStatus === "READY_TO_TRADE" ? "#22c55e" : "#facc15" }}>
+              {d.setupStatus === "READY_TO_TRADE" ? "TRADE · READY" : "POTENTIAL TRADE"}
+            </div>
+            {ticketRows(d).map((x) => (
+              <div key={x.id} className="flex justify-between text-[10.5px] font-mono leading-snug">
+                <span style={{ color: x.tone }}>{x.k}</span><span style={{ color: "#f1f5f9" }}>{x.v}</span>
+              </div>
+            ))}
+            <div className="text-[9px] mt-0.5" style={{ color: "#94a3b8" }}>Practice only · not advice</div>
+          </div>
+        )}
+        {!showInfo && ov.plan && hasPlan(d) && data.length > 0 && (
+          <div className="absolute z-10 bottom-1.5 left-2 rounded bg-[#050a13]/80 px-1.5 py-0.5 text-[9.5px] font-mono pointer-events-none" style={{ color: "#94a3b8" }} data-testid="chart-hover-hint">
+            Hover the chart to show entry / stop / targets
+          </div>
+        )}
         {(bars.isLoading || !symbol) && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-gray">Loading bars…</div>}
         {!bars.isLoading && symbol && !data.length && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-rose-300" data-testid="text-chart-error">
