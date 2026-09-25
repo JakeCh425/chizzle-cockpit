@@ -151,7 +151,7 @@ export function nextClosed1H(nowMs: number): number {
 function fmtCTms(ms: number): string {
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(ms)) + " CT";
 }
-export function expiredExplainer(d: SwingDecision, nowMs: number): { why: string; reset: string; tip: string } | null {
+export function expiredExplainer(d: SwingDecision, nowMs: number): { why: string; reset: string; tip: string; whatIf: string | null } | null {
   if (d.setupStatus !== "SIGNAL_EXPIRED") return null;
   const raw = d.whyNotReady[0] ?? d.failedRules[0] ?? "the setup's confirmation window closed";
   const setup = d.setupType ? d.setupType.replace(/_/g, " ").toLowerCase() : "setup";
@@ -163,6 +163,7 @@ export function expiredExplainer(d: SwingDecision, nowMs: number): { why: string
   else why = raw;
   const next = nextClosed1H(nowMs);
   const reset = `There's no timer to wait out. The engine re-checks on every closed 1H bar during regular hours (next: ${fmtCTms(next)}). A new card prints as soon as a fresh setup forms — reclaim, base, higher low, breakout-retest, hammer/engulfing or continuation on a new closed 4H/1H bar. The expired card stays in History (Last 5 / All).`;
-  const tip = "Want more room? Settings → \u201CConfirmation window (4H bars)\u201D can be widened from 2 to 3 bars (≈ 1.5 trading days). Expired cards are never tradeable.";
-  return { why, reset, tip };
+  const whatIf = d.whyNotReady.find((x) => x.startsWith("3-bar what-if:"))?.replace(/^3-bar what-if: /, "") ?? null;
+  const tip = "Confirmation window: 2 bars is the default (≈ 1 trading day); 3 bars (≈ 1.5 days) is available in Settings when you want more room. Expired cards are never tradeable.";
+  return { why, reset, tip, whatIf };
 }
