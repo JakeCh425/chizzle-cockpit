@@ -15,7 +15,9 @@
     "start": "NODE_ENV=production node dist/index.cjs",
     "typecheck": "tsc --noEmit",
     "test": "node scripts/smoke-test.mjs",
-    "db:push": "drizzle-kit push"
+    "db:push": "drizzle-kit push",
+    "test:swing": "vitest run tests/swing",
+    "test:regression": "node scripts/flag-off-regression.mjs"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -113,7 +115,8 @@
     "tailwindcss": "^3.4.17",
     "tsx": "^4.20.5",
     "typescript": "5.6.3",
-    "vite": "^5.4.11"
+    "vite": "^5.4.11",
+    "vitest": "^2.1.9"
   },
   "optionalDependencies": {
     "bufferutil": "^4.0.8"

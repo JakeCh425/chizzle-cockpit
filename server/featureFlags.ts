@@ -18,9 +18,16 @@ export function isMtfV2Enabled(): boolean {
   return envFlag("ENABLE_MTF_ENGINE_V2");
 }
 
+/** PR 3 — Unified Swing Decision Engine. One SwingDecision per symbol is the
+ *  only authority for trade state when ON. OFF = exact PR1/PR2 behavior. */
+export function isUnifiedSwingEnabled(): boolean {
+  return envFlag("ENABLE_UNIFIED_SWING_ENGINE");
+}
+
 /** All flags — snapshot for the /api/feature-flags endpoint. */
 export function allFlags(): Record<string, boolean> {
   return {
     ENABLE_MTF_ENGINE_V2: isMtfV2Enabled(),
+    ENABLE_UNIFIED_SWING_ENGINE: isUnifiedSwingEnabled(),
   };
 }
