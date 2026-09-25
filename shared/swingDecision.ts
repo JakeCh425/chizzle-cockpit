@@ -248,7 +248,11 @@ export interface SwingSettings {
   requireDailyAlignment: boolean;
   allowEarlyTrigger: boolean;
   allowFirstPullback: boolean;
-  minRrT1: 1.5 | 2 | 2.5;
+  minRrT1: number;
+  /** When true (default) the swing engine's $ risk + min R:R follow Settings → Risk Profile (equity × active-regime %). */
+  linkRiskToProfile?: boolean;
+  /** Read-only, filled by the server when linked: where maxDollarRisk came from. */
+  riskLinkInfo?: { equity: number; regime: string; riskPct: number; dollars: number; minRR: number } | null;
   expiryBars4h: 1 | 2 | 3;
   maxDollarRisk: number;
   maxExtensionPct: number;
@@ -343,6 +347,7 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   minRrT1: 2,
   expiryBars4h: 2,
   maxDollarRisk: 100,
+  linkRiskToProfile: true,
   maxExtensionPct: 1.5,
   maxExtensionAtr: 1.5,
   extensionAtrAnchor: "TRIGGER",

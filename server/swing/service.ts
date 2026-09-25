@@ -3,7 +3,8 @@
 // Only reachable when ENABLE_UNIFIED_SWING_ENGINE is on (or the ?unified=1 QA override).
 import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
-import { db } from "../storage";
+import { db, storage } from "../storage";
+import { getEffectiveRegime } from "../regimeService";
 import { mtfWebhookEvents, swingDecisionLog, swingSettings } from "@shared/schema";
 import {
   DEFAULT_SWING_SETTINGS, STATUS_PRIORITY, SETUP_STATUSES, USER_MODES, SIGNAL_MODES,
@@ -27,7 +28,8 @@ export const settingsPatchSchema = z.object({
   allowCountertrend: z.boolean().optional(), requireVolume: z.boolean().optional(),
   requireWeeklyAlignment: z.boolean().optional(), requireDailyAlignment: z.boolean().optional(),
   allowEarlyTrigger: z.boolean().optional(), allowFirstPullback: z.boolean().optional(),
-  minRrT1: z.union([z.literal(1.5), z.literal(2), z.literal(2.5)]).optional(),
+  minRrT1: z.number().min(0.5).max(10).optional(),
+  linkRiskToProfile: z.boolean().optional(),
   expiryBars4h: z.union([z.literal(1), z.literal(2), z.literal(3)]).optional(),
   maxDollarRisk: z.number().min(1).max(100000).optional(),
   maxExtensionPct: z.number().min(0.25).max(5).optional(),
@@ -49,16 +51,40 @@ export async function loadSettings(): Promise<SwingSettings> {
   let data: Partial<SwingSettings> = {};
   try { const row = (await db.select().from(swingSettings).where(eq(swingSettings.id, 1)).limit(1))[0]; data = (row?.data as any) ?? {}; } catch { /* table missing → defaults */ }
   const v: SwingSettings = { ...DEFAULT_SWING_SETTINGS, ...data, rthOnly: true, timezone: "America/Chicago" };
+  v.riskLinkInfo = null;
+  if (v.linkRiskToProfile !== false) {
+    // Risk link: one source of truth — Settings → Risk Profile drives the swing engine.
+    try {
+      const main: any = await storage.getSettings();
+      const code = String(getEffectiveRegime().code || main?.regime || "yellow").toLowerCase();
+      const pct = Number(code === "green" ? main.riskPctGreen : code === "red" ? main.riskPctRed : main.riskPctYellow);
+      const equity = Number(main.equity);
+      if (equity > 0 && pct > 0) {
+        const dollars = Math.max(1, Math.round(equity * pct) / 100);
+        v.maxDollarRisk = dollars;
+        const minRR = Number(main.minRR);
+        if (minRR > 0) v.minRrT1 = minRR;
+        v.riskLinkInfo = { equity, regime: code.toUpperCase(), riskPct: pct, dollars, minRR: v.minRrT1 };
+      }
+    } catch { /* fall back to stored swing values */ }
+  }
   v.watchlist = normalizeList(v.watchlist);
   v.universe = v.watchlist.filter((x) => !x.hidden).map((x) => `${x.exchange}:${x.symbol}`);
   settingsCache = { v, at: Date.now() };
   return v;
 }
+/** Clear cached swing settings + evaluations (called when Risk Profile or regime changes). */
+export function invalidateSwingCaches() { settingsCache = null; evalCache.clear(); }
+
 export async function saveSettings(patch: Partial<SwingSettings>): Promise<SwingSettings> {
   const cur = await loadSettings();
-  const next = { ...cur, ...patch };
+  // Keep the user's own stored $ risk / R:R — linked values are derived at read time, never persisted.
+  let stored: Partial<SwingSettings> = {};
+  try { const row = (await db.select().from(swingSettings).where(eq(swingSettings.id, 1)).limit(1))[0]; stored = (row?.data as any) ?? {}; } catch { /* defaults */ }
+  const next: any = { ...cur, maxDollarRisk: stored.maxDollarRisk ?? DEFAULT_SWING_SETTINGS.maxDollarRisk, minRrT1: stored.minRrT1 ?? DEFAULT_SWING_SETTINGS.minRrT1, ...patch };
+  delete next.riskLinkInfo;
   next.watchlist = normalizeList(next.watchlist);
-  next.universe = next.watchlist.filter((x) => !x.hidden).map((x) => `${x.exchange}:${x.symbol}`);
+  next.universe = next.watchlist.filter((x: WatchItem) => !x.hidden).map((x: WatchItem) => `${x.exchange}:${x.symbol}`);
   await db.insert(swingSettings).values({ id: 1, data: next as any, updatedAt: new Date() })
     .onConflictDoUpdate({ target: swingSettings.id, set: { data: next as any, updatedAt: new Date() } });
   settingsCache = null; evalCache.clear();
