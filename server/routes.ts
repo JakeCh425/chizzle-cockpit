@@ -67,6 +67,8 @@ import { decideDiscipline } from "../shared/discipline";
 import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
 import { runFlexScan } from "./flexScanner";
+import { alignFlexResult } from "./swing/flexAlign";
+import { isUnifiedSwingEnabled } from "./featureFlags";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
 import { scanProximity } from "./proximityEngine";
@@ -1938,7 +1940,8 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     if (!parsed) return;
     try {
       const result = await runFlexScan(parsed);
-      res.json(result);
+      // PR 3f — one authority: with the unified engine ON, flex cards mirror the SwingDecision.
+      res.json(isUnifiedSwingEnabled() || req.query.unified === "1" ? await alignFlexResult(result) : result);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "flex-scan failed";
       res.status(500).json({ error: msg });
