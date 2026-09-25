@@ -22,6 +22,7 @@ import MultiTimeframeContext from "@/components/MultiTimeframeContext";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { TIMEFRAMES, readSavedTimeframe, writeSavedTimeframe, maybeAggregate, type Timeframe } from "@/lib/timeframes";
 import TradePlanWorkspace from "@/components/TradePlanWorkspace";
+import { SwingStatusStrip } from "@/components/swing/SwingConsistency";
 import MTFSignalsPanel from "@/components/MTFSignalsPanel";
 import MTFSettingsPanel from "@/components/MTFSettingsPanel";
 import CollapsibleSection from "@/components/CollapsibleSection";
@@ -154,6 +155,7 @@ export default function CockpitWorkspace() {
           defaultCollapsed
         >
           <ErrorBoundary label="trade-plan">
+            <SwingStatusStrip symbol={ticker} context="trade-plan" />
             <TradePlanWorkspace />
           </ErrorBoundary>
         </CollapsibleSection>
@@ -206,6 +208,7 @@ export default function CockpitWorkspace() {
           defaultCollapsed
         >
           <ErrorBoundary label="ai-coach">
+            <SwingStatusStrip symbol={ticker} context="ai-coach" />
             <AITradeCoach ticker={ticker} bars={bars} timeframe={timeframe} />
           </ErrorBoundary>
         </CollapsibleSection>

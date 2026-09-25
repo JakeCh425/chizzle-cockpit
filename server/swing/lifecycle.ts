@@ -190,6 +190,13 @@ function retestZone(c: Ctx, trigger: number, tfAtr: number | null): PriceZone {
 }
 
 function applyPlan(d: SwingDecision, p: Plan) {
+  if (p.verdict === "INVALID") {
+    // Never publish a stop at/above entry — leave levels empty and say why (no silent bad plan).
+    d.entryPrice = null; d.structuralStop = null; d.stopBuffer = null; d.target1 = null; d.target2 = null;
+    d.riskPerShare = null; d.rewardRiskT1 = null; d.rewardRiskT2 = null; d.suggestedShares = 0;
+    d.missingConditions = [...d.missingConditions, `valid structural stop below entry (${p.notes[0] ?? "structure above entry"})`];
+    return;
+  }
   d.entryPrice = p.entry; d.structuralStop = p.stop; d.stopBuffer = p.stopBuffer;
   d.target1 = p.t1; d.target2 = p.t2; d.riskPerShare = p.riskPerShare;
   d.rewardRiskT1 = p.rrT1; d.rewardRiskT2 = p.rrT2;

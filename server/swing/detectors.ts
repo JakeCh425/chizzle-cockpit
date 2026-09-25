@@ -262,7 +262,7 @@ export function detectReclaimMomentum(ctx: DetectCtx): Detection {
     const hl = tail.length === 3 && tail[2].l > tail[1].l;
     d.levels.reclaim = r2(level);
     if (approaching && (improving || hl)) {
-      Object.assign(d, { stage: "FORMING", phase: "APPROACH", timeframe: "1H", barTime: last.t, barEnd: last.end, trigger: r2(level), structureLow: r2(Math.min(...tail.map((b) => b.l))) });
+      Object.assign(d, { stage: "FORMING", phase: "APPROACH", timeframe: "1H", barTime: last.t, barEnd: last.end, trigger: r2(level), structureLow: r2(Math.min(...tail.map((b) => b.l), level * 0.995)) });
       d.passed.push(`price within 0.5% of reclaim level ${r2(level)}`, improving ? "two improving 1H closes" : "1H higher low");
       d.missing.push("closed 4H candle above reclaim level");
     } else d.failed.push(`no closed 4H reclaim of ${r2(level)} with ≥3/6 prior bars at/below it`);
