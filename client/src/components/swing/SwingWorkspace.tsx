@@ -114,7 +114,10 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
       {wl.isLoading && <div className="text-xs text-slate-gray">Loading watchlist…</div>}
       <ul className="divide-y divide-ink-line border border-ink-line rounded" data-testid="list-watchlist">
         {shown.map((x) => (
-          <li key={x.symbol} className={`px-2 py-1.5 ${x.symbol === active ? "bg-neon-blue/5" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
+          <li key={x.symbol}
+            onClick={(e) => { if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return; onFocus(x.symbol); }}
+            title={`Show ${x.symbol} on the chart`}
+            className={`px-2 py-1.5 cursor-pointer hover:bg-white/5 ${x.symbol === active ? "border-l-2 border-neon-blue " : ""}${x.symbol === active ? "bg-neon-blue/5" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
             <div className="flex items-center gap-1.5">
               <input type="checkbox" checked={selected.has(x.symbol)} onChange={() => onToggleSelect(x.symbol)} aria-label={`Select ${x.symbol} for scan`} data-testid={`checkbox-select-${x.symbol}`} />
               <button className="font-mono text-xs font-bold text-soft-white hover:text-neon-blue" onClick={() => onFocus(x.symbol)} data-testid={`button-focus-${x.symbol}`} title="Focus chart">{x.symbol}</button>
@@ -487,6 +490,17 @@ export default function SwingWorkspace() {
   const firing = useMemo(() => (scan.data?.rows ?? []).map((r) => r.decision).filter((x) => x.setupStatus === "READY_TO_TRADE"), [scan.data]);
 
   const focus = (s: string) => { setActive(s); setMarker(null); };
+  // Top "What should I do today?" card → focus this ticker's chart.
+  useEffect(() => {
+    const on = (e: Event) => {
+      const sym = String((e as CustomEvent).detail ?? "").toUpperCase();
+      if (!sym) return;
+      setActive(sym); setMarker(null);
+      setTimeout(() => document.querySelector('[data-testid="swing-chart-anchor"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    };
+    window.addEventListener("chizzle:focus-symbol", on);
+    return () => window.removeEventListener("chizzle:focus-symbol", on);
+  }, []);
   const onMarker = (m: ChartMarker) => { setMarker(m); setTimeout(() => whyRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50); };
   const toggleSel = (s: string) => setSelected((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
@@ -506,6 +520,7 @@ export default function SwingWorkspace() {
           </CollapsibleSection>
         </div>
         <div className="space-y-3 min-w-0">
+          <div data-testid="swing-chart-anchor" />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
             <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} />
