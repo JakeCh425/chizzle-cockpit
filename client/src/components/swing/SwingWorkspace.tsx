@@ -16,6 +16,7 @@ import {
   DATA_TONE, STATUS_TONE, fmt$, fmtCT, swingGet, swingSend, useSwingDecision,
   type ScanResp, type WatchlistResp, type WatchRow,
 } from "@/lib/swing";
+import TradeTicketBar from "./TradeTicket";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
@@ -464,6 +465,7 @@ export default function SwingWorkspace() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [req, setReq] = useState<{ selection: ScanSelection; symbols: string[]; force: number }>({ selection: "DEFAULT_PLUS_CUSTOM", symbols: [], force: 0 });
   const whyRef = useRef<HTMLDivElement>(null);
+  const [hoverSym, setHoverSym] = useState<string | null>(null);
 
   const scan = useScan(req);
   const dec = useSwingDecision(active, scope);
@@ -477,6 +479,8 @@ export default function SwingWorkspace() {
     return { dataStatus: ds, statusBy: st };
   }, [scan.data]);
 
+  const firing = useMemo(() => (scan.data?.rows ?? []).map((r) => r.decision).filter((x) => x.setupStatus === "READY_TO_TRADE"), [scan.data]);
+
   const focus = (s: string) => { setActive(s); setMarker(null); };
   const onMarker = (m: ChartMarker) => { setMarker(m); setTimeout(() => whyRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50); };
   const toggleSel = (s: string) => setSelected((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
@@ -486,6 +490,7 @@ export default function SwingWorkspace() {
       <div className="flex flex-wrap items-center gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] font-mono text-signal-amber" role="note" data-testid="banner-practice">
         <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
       </div>
+      <TradeTicketBar firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} />
       <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
         <div className="space-y-3 min-w-0">
           <CollapsibleSection id="swing-watchlist" title="Watchlist" hint={DEFAULT_UNIVERSE_LABEL}>
@@ -498,7 +503,7 @@ export default function SwingWorkspace() {
         <div className="space-y-3 min-w-0">
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
-            <SwingChart decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} />
+            <SwingChart decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} />
           </CollapsibleSection>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
