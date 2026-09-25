@@ -67,7 +67,9 @@ export function useSwingDecision(symbol: string | null | undefined, scope: "CURR
     enabled: enabled && !!symbol,
     staleTime: 60_000,
     refetchInterval: 5 * 60_000,
-    retry: false,
+    retry: 1, retryDelay: 1500,
+    // Same symbol, new history scope: keep showing the last decision while it loads.
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === (symbol ?? "") ? prev : undefined),
   });
 }
 

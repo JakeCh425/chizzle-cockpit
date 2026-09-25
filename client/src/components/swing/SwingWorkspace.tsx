@@ -16,6 +16,7 @@ import {
   DATA_TONE, STATUS_TONE, fmt$, fmtCT, swingGet, swingSend, useSwingDecision,
   type ScanResp, type WatchlistResp, type WatchRow,
 } from "@/lib/swing";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
@@ -54,7 +55,7 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
   const [q, setQ] = useState("");
   const [err, setErr] = useState<string | null>(null);
   const [choices, setChoices] = useState<{ symbol: string; exchange: string; name?: string }[]>([]);
-  const [cat, setCat] = useState<WatchCategory | "ALL">("ALL");
+  const [cat, setCat] = usePersistentState<WatchCategory | "ALL">("swing-watch-category", "ALL");
   const [noteFor, setNoteFor] = useState<string | null>(null);
   const [noteText, setNoteText] = useState("");
 
@@ -458,12 +459,16 @@ function SettingsPanel() {
 
 // ─── Workspace ───────────────────────────────────────────────────────────────
 export default function SwingWorkspace() {
-  const [active, setActive] = useState("SMH");
-  const [tf, setTf] = useState<Tf>("4H");
-  const [scope, setScope] = useState<"CURRENT" | "LAST5" | "ALL">("LAST5");
+  const [active, setActive] = usePersistentState<string>("swing-active-symbol", "SMH");
+  const [tf, setTf] = usePersistentState<Tf>("swing-tf", "4H");
+  const [scope, setScope] = usePersistentState<"CURRENT" | "LAST5" | "ALL">("swing-history-scope", "LAST5");
   const [marker, setMarker] = useState<ChartMarker | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [req, setReq] = useState<{ selection: ScanSelection; symbols: string[]; force: number }>({ selection: "DEFAULT_PLUS_CUSTOM", symbols: [], force: 0 });
+  // Scanner preset is remembered; a forced rescan is never replayed on reload.
+  const [savedReq, setSavedReq] = usePersistentState<{ selection: ScanSelection; symbols: string[] }>("swing-scan-selection", { selection: "DEFAULT_PLUS_CUSTOM", symbols: [] });
+  const [force, setForce] = useState(0);
+  const req = useMemo(() => ({ selection: savedReq.selection, symbols: savedReq.symbols ?? [], force }), [savedReq, force]);
+  const setReq = (r: { selection: ScanSelection; symbols: string[]; force: number }) => { setSavedReq({ selection: r.selection, symbols: r.symbols }); setForce(r.force); };
   const whyRef = useRef<HTMLDivElement>(null);
   const [hoverSym, setHoverSym] = useState<string | null>(null);
 
@@ -490,7 +495,7 @@ export default function SwingWorkspace() {
       <div className="flex flex-wrap items-center gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] font-mono text-signal-amber" role="note" data-testid="banner-practice">
         <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
       </div>
-      <TradeTicketBar firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} />
+      <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} />
       <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
         <div className="space-y-3 min-w-0">
           <CollapsibleSection id="swing-watchlist" title="Watchlist" hint={DEFAULT_UNIVERSE_LABEL}>
@@ -503,7 +508,7 @@ export default function SwingWorkspace() {
         <div className="space-y-3 min-w-0">
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
-            <SwingChart decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} />
+            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} />
           </CollapsibleSection>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}

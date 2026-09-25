@@ -74,7 +74,7 @@ export async function loadSettings(): Promise<SwingSettings> {
   return v;
 }
 /** Clear cached swing settings + evaluations (called when Risk Profile or regime changes). */
-export function invalidateSwingCaches() { settingsCache = null; evalCache.clear(); }
+export function invalidateSwingCaches() { settingsCache = null; for (const c of evalCache.values()) c.reeval = true; }
 
 export async function saveSettings(patch: Partial<SwingSettings>): Promise<SwingSettings> {
   const cur = await loadSettings();
@@ -87,13 +87,21 @@ export async function saveSettings(patch: Partial<SwingSettings>): Promise<Swing
   next.universe = next.watchlist.filter((x: WatchItem) => !x.hidden).map((x: WatchItem) => `${x.exchange}:${x.symbol}`);
   await db.insert(swingSettings).values({ id: 1, data: next as any, updatedAt: new Date() })
     .onConflictDoUpdate({ target: swingSettings.id, set: { data: next as any, updatedAt: new Date() } });
-  settingsCache = null; evalCache.clear();
+  settingsCache = null; for (const c of evalCache.values()) c.reeval = true;
   return loadSettings();
 }
 
 // ─── Evaluation (cached per closed RTH hour) ─────────────────────────────────
-interface Cached { key: string; res: EvalResult; bars1h: SwingBar[]; daily: SwingBar[]; at: number }
+interface Cached {
+  key: string; res: EvalResult; bars1h: SwingBar[]; daily: SwingBar[]; at: number;
+  exchange: string; source: string | null; reference: ReferenceQuote | null;
+  /** Settings/regime changed — re-run the rules on the cached bars (no network). */
+  reeval?: boolean;
+}
 const evalCache = new Map<string, Cached>();
+/** One network refresh per symbol at a time — concurrent callers share it. */
+const inflight = new Map<string, Promise<Cached>>();
+const hourPart = (key: string) => key.split("|")[1]?.split(":").slice(0, 2).join(":") ?? "";
 /** Cache key changes when a new 1H bar closes (or every 10 min outside that, so quotes stay fresh). */
 export function barKey(now: number): string {
   const c = chicago(now);
@@ -112,26 +120,58 @@ async function tvReference(sym: string, now: number): Promise<ReferenceQuote | n
   } catch { return null; }
 }
 
-export async function evaluateSymbol(item: Pick<WatchItem, "symbol" | "exchange">, opts: { force?: boolean; settings?: SwingSettings } = {}): Promise<{ res: EvalResult; bars1h: SwingBar[]; daily: SwingBar[] }> {
+function runRules(sym: string, exchange: string, h1: SwingBar[], d1: SwingBar[], q: { price: number; ts: number } | null,
+  reference: ReferenceQuote | null, s: SwingSettings, now: number, source: string | null): EvalResult {
+  const res = evaluate({ symbol: sym, exchange, bars1h: h1, daily: d1, quote: q, reference, settings: s, now, dataSource: source });
+  if (!h1.length || !d1.length) {
+    res.decision.dataStatus = "ERROR";
+    res.decision.whyNotReady = [`Data unavailable for ${sym} (${!h1.length ? "1H bars" : "daily bars"}) — the card stays visible and re-checks on the next closed 1H bar.`, ...res.decision.whyNotReady];
+  }
+  res.decision.chart = buildOverlay(res, { scope: "ALL" });
+  return res;
+}
+
+async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, key: string): Promise<Cached> {
+  const running = inflight.get(sym);
+  if (running) return running;
+  const p = (async () => {
+    const now = nowSec();
+    const [h1, d1, q] = await Promise.all([fetch1H(sym), fetchDaily(sym), fetchQuote(sym)]);
+    const lastClosed = tag1H(h1.bars, now, true).filter((b) => b.closed).pop() ?? null;
+    const reference = (await tvReference(sym, now)) ?? (h1.source ? await secondVendorReference(sym, h1.source, now, lastClosed?.end ?? null) : null);
+    const prev = evalCache.get(sym);
+    // A failed vendor call keeps the last good bars instead of blanking the chart.
+    const bars1h = h1.bars.length ? h1.bars : prev?.bars1h ?? [];
+    const daily = d1.bars.length ? d1.bars : prev?.daily ?? [];
+    const source = h1.bars.length ? h1.source : prev?.source ?? null;
+    const res = runRules(sym, exchange, bars1h, daily, q ? { price: q.price, ts: q.ts } : null, reference, s, now, source);
+    const out: Cached = { key, res, bars1h, daily, at: Date.now(), exchange, source, reference };
+    evalCache.set(sym, out);
+    void writeLog(res).catch(() => {});
+    return out;
+  })().finally(() => inflight.delete(sym));
+  inflight.set(sym, p);
+  return p;
+}
+
+export async function evaluateSymbol(item: Pick<WatchItem, "symbol" | "exchange">, opts: { force?: boolean; settings?: SwingSettings; allowStale?: boolean } = {}): Promise<{ res: EvalResult; bars1h: SwingBar[]; daily: SwingBar[] }> {
   const s = opts.settings ?? await loadSettings();
   const now = nowSec(), sym = item.symbol.toUpperCase();
   const key = `${sym}|${barKey(now)}`;
   const hit = evalCache.get(sym);
-  if (!opts.force && hit && hit.key === key) return hit;
-  const [h1, d1, q] = await Promise.all([fetch1H(sym), fetchDaily(sym), fetchQuote(sym)]);
-  const lastClosed = tag1H(h1.bars, now, true).filter((b) => b.closed).pop() ?? null;
-  const reference = (await tvReference(sym, now)) ?? (h1.source ? await secondVendorReference(sym, h1.source, now, lastClosed?.end ?? null) : null);
-  const res = evaluate({ symbol: sym, exchange: item.exchange, bars1h: h1.bars, daily: d1.bars, quote: q ? { price: q.price, ts: q.ts } : null,
-    reference, settings: s, now, dataSource: h1.source });
-  if (!h1.bars.length || !d1.bars.length) {
-    res.decision.dataStatus = "ERROR";
-    res.decision.whyNotReady = [`Data unavailable for ${sym} (${!h1.bars.length ? "1H bars" : "daily bars"}) — the card stays visible and re-checks on the next closed 1H bar.`, ...res.decision.whyNotReady];
+  if (!opts.force && hit) {
+    const sameHour = hourPart(hit.key) === hourPart(key);
+    if (hit.reeval && (sameHour || opts.allowStale)) {
+      // Settings or regime changed: re-apply rules to cached bars instantly.
+      const q = await fetchQuote(sym).catch(() => null);
+      hit.res = runRules(sym, hit.exchange, hit.bars1h, hit.daily, q ? { price: q.price, ts: q.ts } : null, hit.reference, s, now, hit.source);
+      hit.reeval = false;
+    }
+    if (hit.key === key) return hit;
+    // Same closed hour, only the 10-min quote slot moved (or chart view): serve now, refresh in background.
+    if (sameHour || opts.allowStale) { void refreshSymbol(sym, item.exchange, s, key).catch(() => {}); return hit; }
   }
-  res.decision.chart = buildOverlay(res, { scope: "ALL" });
-  const out: Cached = { key, res, bars1h: h1.bars, daily: d1.bars, at: Date.now() };
-  evalCache.set(sym, out);
-  void writeLog(res).catch(() => {});
-  return out;
+  return refreshSymbol(sym, item.exchange, s, key);
 }
 
 /** Decision with its chart overlay filtered to the requested history scope, plus older setups from the log. */
@@ -237,12 +277,12 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
     const r = await fetchIntraday(sym, tf); source = r.source; error = r.error;
     bars = extended ? r.bars : r.bars.filter((b) => { const m = chicago(b.t).minutes; return m >= 510 && m < 900; });
   } else if (tf === "1H" || tf === "4H") {
-    const { bars1h } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s });
+    const { bars1h } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true });
     const r = bars1h.length ? { bars: bars1h, source: evalCache.get(sym)?.res.decision.dataSource ?? null } : await fetch1H(sym);
     source = r.source;
     bars = tf === "1H" ? tag1H(r.bars, now, !extended).map((b) => ({ ...b })) : aggregate4H(r.bars, now).map((b) => ({ ...b }));
   } else {
-    const { daily } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s });
+    const { daily } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true });
     source = "yahoo";
     bars = tf === "D" ? daily : aggregateWeekly(daily, now).map((b) => ({ ...b }));
   }
@@ -262,6 +302,8 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
 let timer: NodeJS.Timeout | null = null, lastSlot = "";
 export function startSwingScheduler() {
   if (timer) return;
+  // Warm the cache right after boot so the first chart open is fast.
+  setTimeout(() => { if (isUnifiedSwingEnabled()) void scan("DEFAULT_PLUS_CUSTOM", [], [], false).catch(() => {}); }, 3000);
   timer = setInterval(async () => {
     if (!isUnifiedSwingEnabled()) return;
     const now = nowSec(), c = chicago(now);

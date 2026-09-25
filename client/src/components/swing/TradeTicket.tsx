@@ -62,12 +62,15 @@ function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; fir
   );
 }
 
-export default function TradeTicketBar({ firing, focused, active, onFocus, onHover }: {
-  firing: SwingDecision[]; focused: SwingDecision | undefined; active: string;
+export default function TradeTicketBar({ loading, firing, focused, active, onFocus, onHover }: {
+  loading?: boolean; firing: SwingDecision[]; focused: SwingDecision | undefined; active: string;
   onFocus: (s: string) => void; onHover: (s: string | null) => void;
 }) {
   const list = firing.filter(hasPlan);
   const showPotential = list.length === 0 && hasPlan(focused);
+  if (!list.length && !showPotential && loading) {
+    return <div className="rounded border border-ink-line bg-ink-deep/60 px-2.5 py-1.5 text-[11px] text-slate-gray" data-testid="ticket-loading"><span className="font-mono text-soft-white/80">TRADE CARD</span> · Loading {active} levels…</div>;
+  }
   if (!list.length && !showPotential) {
     return (
       <div className="rounded border border-ink-line bg-ink-deep/60 px-2.5 py-1.5 text-[11px] text-slate-gray" data-testid="ticket-empty">

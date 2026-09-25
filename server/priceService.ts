@@ -900,6 +900,7 @@ export async function fetchYahooBars(
         "Accept": "application/json,text/plain,*/*",
         "Accept-Language": "en-US,en;q=0.9",
       },
+      signal: AbortSignal.timeout(8000),
     });
     if (!r.ok) {
       if (r.status === 429) {
@@ -1053,6 +1054,7 @@ export async function fetchYahooBarsOHLC(
           "Accept": "application/json,text/plain,*/*",
           "Accept-Language": "en-US,en;q=0.9",
         },
+        signal: AbortSignal.timeout(8000),
       });
       if (!r.ok) {
         if (r.status === 429) yahoo429Until = Date.now() + 5000;

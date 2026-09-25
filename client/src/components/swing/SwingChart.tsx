@@ -11,6 +11,7 @@ import {
 import type { ChartMarker, ChartLevel, ChartZone, SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
 import { DATA_TONE, fmtCT, swingGet, type BarsResp } from "@/lib/swing";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { expiredExplainer } from "@shared/tradeSummary";
 import { hasPlan, ticketRows } from "./TradeTicket";
 
@@ -55,6 +56,7 @@ const ctFmt = (t: number, withTime: boolean) =>
   new Date(t * 1000).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}) });
 
 type Overlay = "sma20" | "sma50" | "sma200" | "bb" | "volume" | "sr" | "plan" | "markers" | "ext";
+const OV_DEFAULT: Record<Overlay, boolean> = { sma20: true, sma50: true, sma200: false, bb: false, volume: true, sr: true, plan: true, markers: true, ext: false };
 const OVERLAY_LABEL: Record<Overlay, string> = { sma20: "SMA20", sma50: "SMA50", sma200: "SMA200", bb: "Bollinger", volume: "Volume", sr: "S/R zones", plan: "Plan levels", markers: "Markers", ext: "Extended hours" };
 
 /** SMA key — colors match the lines drawn on the chart. */
@@ -67,6 +69,8 @@ type SmaKey = typeof SMA_META[number]["key"];
 
 export interface SwingChartProps {
   decision: SwingDecision | undefined;
+  /** Focused symbol — lets bars load in parallel with the decision. */
+  symbol?: string;
   tf: Tf; onTf: (t: Tf) => void;
   scope: "CURRENT" | "LAST5" | "ALL"; onScope: (s: "CURRENT" | "LAST5" | "ALL") => void;
   intradayLearningMode?: boolean;
@@ -76,20 +80,23 @@ export interface SwingChartProps {
   highlight?: boolean;
 }
 
-export default function SwingChart({ decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight }: SwingChartProps) {
-  const symbol = decision?.symbol;
-  const [range, setRange] = useState<typeof RANGES[number]>(DEFAULT_RANGE[tf]);
-  const [type, setType] = useState<typeof TYPES[number]>("Candles");
-  const [ov, setOv] = useState<Record<Overlay, boolean>>({ sma20: true, sma50: true, sma200: false, bb: false, volume: true, sr: true, plan: true, markers: true, ext: false });
+export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight }: SwingChartProps) {
+  const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
+  // Chart controls remember how you last left them (per timeframe for the range).
+  const [rangeByTf, setRangeByTf] = usePersistentState<Partial<Record<Tf, typeof RANGES[number]>>>("swing-chart-range", {});
+  const range = (rangeByTf[tf] && (RANGES as readonly string[]).includes(rangeByTf[tf]!)) ? rangeByTf[tf]! : DEFAULT_RANGE[tf];
+  const setRange = (r: typeof RANGES[number]) => setRangeByTf((m) => ({ ...m, [tf]: r }));
+  const [type, setType] = usePersistentState<typeof TYPES[number]>("swing-chart-type", "Candles");
+  const [ovSaved, setOv] = usePersistentState<Record<Overlay, boolean>>("swing-chart-overlays", OV_DEFAULT);
+  const ov: Record<Overlay, boolean> = useMemo(() => ({ ...OV_DEFAULT, ...ovSaved }), [JSON.stringify(ovSaved)]);
   const [tip, setTip] = useState<{ title: string; lines: string[] } | null>(null);
   // Crosshair readout for the SMA key + hover callout when the cursor is on an SMA line.
   const [smaHover, setSmaHover] = useState<{ vals: Partial<Record<SmaKey, number>>; hit: SmaKey | null; x: number; y: number } | null>(null);
   const [smaLast, setSmaLast] = useState<Partial<Record<SmaKey, number>>>({});
-  useEffect(() => { setRange(DEFAULT_RANGE[tf]); }, [tf]);
   // Clean chart by default: plan lines, labels and marker text only appear while the
   // chart (or its trade card) is hovered, or when "Keep levels on" is pinned.
   const [hoverChart, setHoverChart] = useState(false);
-  const [pinLevels, setPinLevels] = useState(false);
+  const [pinLevels, setPinLevels] = usePersistentState<boolean>("swing-chart-pin-levels", false);
   const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
@@ -99,8 +106,16 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
   const bars = useQuery<BarsResp>({
     queryKey: ["/api/swing/bars", symbol ?? "", tf, range, ov.ext ? "1" : "0"],
     queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=${tf}&range=${range}${ov.ext ? "&extended=1" : ""}`),
-    enabled: !!symbol, staleTime: 60_000, retry: false,
+    enabled: !!symbol, staleTime: 60_000, retry: 1, retryDelay: 1500,
+    // Keep the current chart on screen while a new range/timeframe loads (same symbol only).
+    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === (symbol ?? "") ? prev : undefined),
   });
+  const [waitSec, setWaitSec] = useState(0);
+  useEffect(() => {
+    if (!bars.isFetching) { setWaitSec(0); return; }
+    const t0 = Date.now(); const id = setInterval(() => setWaitSec(Math.round((Date.now() - t0) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [bars.isFetching]);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
@@ -312,6 +327,10 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
           </button>
         )}
         <span className="w-px h-4 bg-ink-line mx-1" />
+        <button className={`${btn(false)} inline-flex items-center gap-1`} onClick={() => bars.refetch()} disabled={bars.isFetching} data-testid="button-refresh-bars" title="Reload bars for this symbol / timeframe">
+          {bars.isFetching ? `Loading… ${waitSec}s` : "↻ Refresh"}
+        </button>
+        <span className="w-px h-4 bg-ink-line mx-1" />
         <span className="text-[10px] text-slate-gray font-mono">History</span>
         {(["CURRENT", "LAST5", "ALL"] as const).map((s) => (
           <button key={s} className={btn(scope === s)} onClick={() => onScope(s)} aria-pressed={scope === s} data-testid={`button-scope-${s}`}>{s === "CURRENT" ? "Current" : s === "LAST5" ? "Last 5" : "All"}</button>
@@ -376,10 +395,19 @@ export default function SwingChart({ decision, tf, onTf, scope, onScope, intrada
             Hover the chart to show entry / stop / targets
           </div>
         )}
-        {(bars.isLoading || !symbol) && <div className="absolute inset-0 flex items-center justify-center text-xs text-slate-gray">Loading bars…</div>}
-        {!bars.isLoading && symbol && !data.length && (
+        {(bars.isLoading || !symbol) && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-xs text-slate-gray" data-testid="chart-loading">
+            <span>Loading {symbol ?? ""} {TF_LABEL[tf]} bars… {waitSec > 0 ? `${waitSec}s` : ""}</span>
+            {waitSec >= 12 && <span className="text-[10.5px]">Data vendors are slow right now — it keeps trying. You can also press ↻ Refresh.</span>}
+          </div>
+        )}
+        {!bars.isLoading && bars.isFetching && data.length > 0 && (
+          <div className="absolute z-10 top-1.5 right-16 rounded bg-[#050a13]/85 px-1.5 py-0.5 text-[9.5px] font-mono pointer-events-none" style={{ color: "#94a3b8" }} data-testid="chart-updating">updating… {waitSec}s</div>
+        )}
+        {!bars.isLoading && !bars.isFetching && symbol && !data.length && (
           <div className="absolute inset-0 flex items-center justify-center text-xs text-rose-300" data-testid="text-chart-error">
-            {b?.error ?? (bars.error as Error)?.message ?? "Data unavailable"} — {symbol} stays on the watchlist and re-checks on the next closed 1H bar.
+            <span>{b?.error ?? (bars.error as Error)?.message ?? "Data unavailable"} — {symbol} stays on the watchlist and re-checks on the next closed 1H bar.</span>
+            <button className="ml-2 underline" style={{ pointerEvents: "auto" }} onClick={() => bars.refetch()} data-testid="button-retry-bars">Retry</button>
           </div>
         )}
       </div>
