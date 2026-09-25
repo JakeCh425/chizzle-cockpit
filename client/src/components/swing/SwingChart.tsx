@@ -13,7 +13,7 @@ import { STATUS_LABEL } from "@shared/swingDecision";
 import { DATA_TONE, fmtCT, swingGet, type BarsResp } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { expiredExplainer } from "@shared/tradeSummary";
-import { hasPlan, ticketRows } from "./TradeTicket";
+import { hasPlan, stopLimitFor } from "./TradeTicket";
 
 export const TFS = ["15m", "30m", "1H", "4H", "D", "W"] as const;
 export type Tf = typeof TFS[number];
@@ -34,6 +34,7 @@ export const TF_GUIDE: Record<Tf, string> = {
 export const MARKER_COLOR: Record<ChartMarker["kind"], string> = {
   FORMING: "#facc15", CONFIRMED: "#3b82f6", READY: "#22c55e", EXTENDED: "#f97316", INVALIDATED: "#f87171", EXPIRED: "#94a3b8",
 };
+const GUTTER_W = 132;
 const LEVEL_COLOR: Record<ChartLevel["kind"], string> = { ENTRY: "#22c55e", STOP: "#ef4444", T1: "#14b8a6", T2: "#a855f7" };
 const ZONE_COLOR: Record<ChartZone["kind"], string> = { RETEST: "rgba(56,189,248,0.14)", SUPPORT: "rgba(34,197,94,0.08)", RESISTANCE: "rgba(248,113,113,0.08)" };
 const ZONE_EDGE: Record<ChartZone["kind"], string> = { RETEST: "#38bdf8", SUPPORT: "#22c55e", RESISTANCE: "#f87171" };
@@ -98,6 +99,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [hoverChart, setHoverChart] = useState(false);
   const [pinLevels, setPinLevels] = usePersistentState<boolean>("swing-chart-pin-levels", false);
   const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
+  const gutterOn = ov.plan && hasPlan(decision);
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
   const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
@@ -119,6 +121,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
 
   const boxRef = useRef<HTMLDivElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
+  const gutterRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const mainRef = useRef<ISeriesApi<any> | null>(null);
   const data = bars.data?.bars ?? [];
@@ -204,14 +207,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     planLinesRef.current = [];
     if (ov.plan && overlay) for (const l of overlay.levels.filter((x) => x.current)) {
       const line = main.createPriceLine({ price: l.price, color: LEVEL_COLOR[l.kind], lineWidth: l.kind === "ENTRY" ? 2 : 1,
-        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: vis, title: vis ? l.label : "" });
-      planLinesRef.current.push({ line, title: l.label, axis: true });
+        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: false, title: "" });
+      planLinesRef.current.push({ line, title: "", axis: false });
     }
     if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : ov.sr))) {
       const retest = z.kind === "RETEST";
-      const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: retest && vis ? z.label : "" });
+      const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: "" });
       const lo = main.createPriceLine({ price: z.low, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: "" });
-      if (retest) planLinesRef.current.push({ line: hi, title: z.label, axis: false }, { line: lo, title: "", axis: false });
+      if (retest) planLinesRef.current.push({ line: hi, title: "", axis: false }, { line: lo, title: "", axis: false });
     }
     if (ov.markers && snapped.length) {
       // Cluster: one visible marker per bar; the rest stay in the accessible list below.
@@ -225,8 +228,8 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           text: g.length > 1 ? `${m.label} (+${g.length - 1})` : m.label, size: m.id === selectedMarkerId ? 2 : 1 };
       });
       const bare = ms.map((m) => ({ ...m, text: "" }));
-      const plugin = createSeriesMarkers(main, showRef.current ? ms : bare);
-      markerRef.current = { plugin, full: ms, bare };
+      const plugin = createSeriesMarkers(main, bare);
+      markerRef.current = { plugin, full: bare, bare };
     } else markerRef.current = null;
     chart.subscribeClick((p) => {
       if (p.time == null) return;
@@ -248,15 +251,53 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         host.appendChild(d);
       }
     };
-    drawRef.current = drawBands;
+    // Right-hand label gutter: plan labels sit beside the price scale (never on candles),
+    // stacked without overlap, each with a thin leader line to its exact price.
+    const gLevels = ov.plan && overlay ? overlay.levels.filter((x) => x.current).map((l) => {
+      const r = /([\d.]+R)/.exec(l.label)?.[1];
+      const name = l.kind === "ENTRY" ? "Entry" : l.kind === "STOP" ? "Stop" : l.kind;
+      return { price: l.price, color: LEVEL_COLOR[l.kind], text: `${name} $${l.price.toFixed(2)}${r ? ` · ${r}` : ""}` };
+    }) : [];
+    const stopLv = gLevels.length ? overlay?.levels.find((x) => x.current && x.kind === "STOP") : undefined;
+    const sl = stopLv ? stopLimitFor(stopLv.price) : null;
+    if (sl != null) gLevels.push({ price: sl, color: "#fca5a5", text: `Stop lmt $${sl.toFixed(2)}` });
+    const drawGutter = () => {
+      const g = gutterRef.current; if (!g) return;
+      g.innerHTML = "";
+      if (!showRef.current || !gLevels.length) return;
+      const H = g.clientHeight, W = g.clientWidth, ROW = 17, LEAD = 14;
+      const pts = gLevels.map((l) => ({ ...l, y: main.priceToCoordinate(l.price) as number | null }))
+        .filter((l) => l.y != null && (l.y as number) > -40 && (l.y as number) < H + 40)
+        .sort((a, b) => (a.y as number) - (b.y as number)) as (typeof gLevels[number] & { y: number })[];
+      const pos = pts.map((p) => Math.min(Math.max(p.y, ROW / 2 + 2), H - 26 - ROW / 2));
+      for (let i = 1; i < pos.length; i++) if (pos[i] - pos[i - 1] < ROW) pos[i] = pos[i - 1] + ROW;
+      const over = pos.length ? pos[pos.length - 1] - (H - 26 - ROW / 2) : 0;
+      if (over > 0) for (let i = pos.length - 1; i >= 0; i--) { pos[i] -= over; if (i && pos[i] - pos[i - 1] >= ROW) break; }
+      const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+      svg.setAttribute("width", String(W)); svg.setAttribute("height", String(H));
+      svg.style.cssText = "position:absolute;left:0;top:0;pointer-events:none";
+      g.appendChild(svg);
+      pts.forEach((p, i) => {
+        const ln = document.createElementNS("http://www.w3.org/2000/svg", "path");
+        ln.setAttribute("d", `M0 ${p.y} L4 ${p.y} L${LEAD} ${pos[i]}`);
+        ln.setAttribute("stroke", p.color); ln.setAttribute("fill", "none"); ln.setAttribute("stroke-width", "1");
+        svg.appendChild(ln);
+        const d = document.createElement("div");
+        d.textContent = p.text;
+        d.setAttribute("data-testid", "gutter-label");
+        d.style.cssText = `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
+        g.appendChild(d);
+      });
+    };
+    drawRef.current = () => { drawBands(); drawGutter(); };
     chart.timeScale().fitContent();
-    const raf = () => requestAnimationFrame(() => { try { drawBands(); } catch { /* disposed */ } });
+    const raf = () => requestAnimationFrame(() => { try { drawBands(); drawGutter(); } catch { /* disposed */ } });
     chart.timeScale().subscribeVisibleLogicalRangeChange(raf);
     const ro = new ResizeObserver(raf); ro.observe(el);
     let alive = true;
-    const safeDraw = () => { if (alive) { try { drawBands(); } catch { /* chart already disposed */ } } };
+    const safeDraw = () => { if (alive) { try { drawBands(); drawGutter(); } catch { /* chart already disposed */ } } };
     const tm = setTimeout(safeDraw, 60);
-    return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; };
+    return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, ov, decision, snapped, selectedMarkerId, intraday]);
 
@@ -345,8 +386,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       )}
       <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: 380 }}
         onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area">
-        <div ref={boxRef} className="absolute inset-0" />
-        <div ref={bandRef} className="absolute inset-0 pointer-events-none" />
+        <div ref={boxRef} className="absolute inset-y-0 left-0" style={{ right: gutterOn ? GUTTER_W : 0 }} />
+        <div ref={bandRef} className="absolute inset-y-0 left-0 pointer-events-none" style={{ right: gutterOn ? GUTTER_W : 0 }} />
+        {gutterOn && (
+          <div className="absolute inset-y-0 right-0 border-l border-ink-line bg-[#050a13]" style={{ width: GUTTER_W }} data-testid="chart-label-gutter">
+            <div ref={gutterRef} className="absolute inset-0 pointer-events-none" />
+            {showInfo && <div className="absolute inset-x-1 bottom-1 text-center text-[9px] font-mono" style={{ color: "#64748b" }}>Practice only · not advice</div>}
+            {!showInfo && <div data-testid="chart-hover-hint" className="absolute inset-x-1 top-1/2 -translate-y-1/2 text-center text-[9.5px] font-mono leading-snug" style={{ color: "#64748b" }}>Hover chart for entry · stop · targets</div>}
+          </div>
+        )}
         {data.length > 0 && SMA_META.some((m) => ov[m.key]) && (
           <div className="absolute top-1.5 left-2 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" data-testid="legend-sma">
             {SMA_META.filter((m) => ov[m.key]).map((m) => {
@@ -379,24 +427,6 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             </div>
           );
         })()}
-        {showInfo && d && hasPlan(d) && data.length > 0 && (
-          <div className="absolute z-10 left-2 top-9 w-[178px] rounded border border-ink-line bg-[#050a13]/90 px-2 py-1.5 pointer-events-none" data-testid="chart-side-plan">
-            <div className="text-[9.5px] font-mono font-bold tracking-wider mb-0.5" style={{ color: d.setupStatus === "READY_TO_TRADE" ? "#22c55e" : "#facc15" }}>
-              {d.setupStatus === "READY_TO_TRADE" ? "TRADE · READY" : "POTENTIAL TRADE"}
-            </div>
-            {ticketRows(d).map((x) => (
-              <div key={x.id} className="flex justify-between text-[10.5px] font-mono leading-snug">
-                <span style={{ color: x.tone }}>{x.k}</span><span style={{ color: "#f1f5f9" }}>{x.v}</span>
-              </div>
-            ))}
-            <div className="text-[9px] mt-0.5" style={{ color: "#94a3b8" }}>Practice only · not advice</div>
-          </div>
-        )}
-        {!showInfo && ov.plan && hasPlan(d) && data.length > 0 && (
-          <div className="absolute z-10 bottom-1.5 left-2 rounded bg-[#050a13]/80 px-1.5 py-0.5 text-[9.5px] font-mono pointer-events-none" style={{ color: "#94a3b8" }} data-testid="chart-hover-hint">
-            Hover the chart to show entry / stop / targets
-          </div>
-        )}
         {(bars.isLoading || !symbol) && (
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 text-xs text-slate-gray" data-testid="chart-loading">
             <span>Loading {symbol ?? ""} {TF_LABEL[tf]} bars… {waitSec > 0 ? `${waitSec}s` : ""}</span>
