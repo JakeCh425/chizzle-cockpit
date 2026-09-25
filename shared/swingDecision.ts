@@ -149,7 +149,7 @@ export const STATUS_PRIORITY: Record<SetupStatus, number> = {
   WATCH_EXTENDED: 5,
   WATCH_STOP_TOO_WIDE: 6,
   WATCH_RR_TOO_LOW: 6,
-  BLOCKED_DATA_MISMATCH: 6,
+  BLOCKED_DATA_MISMATCH: 1.5, // a would-be READY blocked by data — outranks cards that are merely waiting
   SIGNAL_EXPIRED: 7,
   NO_SETUP: 8,
   NO_TRADE: 8,
@@ -235,6 +235,7 @@ export interface SwingSettings {
   signalMode: SignalMode;
   showFormingCards: boolean;
   showWatchCards: boolean;
+  showLowQualityForming?: boolean; // Disciplined: show low-quality forming cards anyway
   allowCountertrend: boolean;
   requireVolume: boolean;
   requireWeeklyAlignment: boolean;
@@ -261,6 +262,7 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   signalMode: "FLEXIBLE",
   showFormingCards: true,
   showWatchCards: true,
+  showLowQualityForming: false,
   allowCountertrend: false,
   requireVolume: false,
   requireWeeklyAlignment: false,
