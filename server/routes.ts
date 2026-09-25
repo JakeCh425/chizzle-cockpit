@@ -68,6 +68,8 @@ import { evaluateTrade, type TradeCheckInput } from "./tradeEvaluator";
 import { runSwingScan } from "./swingScanner";
 import { runFlexScan } from "./flexScanner";
 import { alignFlexResult } from "./swing/flexAlign";
+import { fetch1H as swingFetch1H } from "./swing/feed";
+import { aggregate4H as swingAggregate4H } from "./swing/bars";
 import { isUnifiedSwingEnabled } from "./featureFlags";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
@@ -1691,7 +1693,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       }
 
       let data: OHLC[] = [];
-      let source: "tiingo" | "yahoo" | "twelvedata" | "ticks" | "yahoo-4h-synth" | "none" = "none";
+      let source: "tiingo" | "yahoo" | "twelvedata" | "ticks" | "yahoo-4h-synth" | "yahoo-chart" | "yahoo-chart-4h" | "none" = "none";
       let warning: string | undefined;
       if (interval === "1D") {
         // Tiingo first (cheapest, supports full OHLC on the daily endpoint).
@@ -1746,6 +1748,31 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
             source = "yahoo-4h-synth";
             warning = "4H bars synthesized from Yahoo 1H (Twelve Data unavailable).";
           }
+        }
+        // Free alternative before tick synthesis: the Unified Swing Engine's
+        // hourly feed (Twelve Data → Yahoo lib → direct Yahoo chart API with
+        // query1/query2 host fallback + memo, which survives Yahoo 429s).
+        // 4H is built with the engine's own session-aligned aggregation
+        // (8:30–12:30 and 12:30–3:00 CT), so the chart matches the unified
+        // decision bar-for-bar. No paid provider needed.
+        if (data.length === 0) {
+          try {
+            const r = await swingFetch1H(symbol);
+            if (aborted) return;
+            if (r.bars.length > 0) {
+              if (interval === "1H") {
+                data = r.bars.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v ?? 0 }));
+                source = "yahoo-chart";
+              } else {
+                const b4 = swingAggregate4H(r.bars, Math.floor(Date.now() / 1000));
+                if (b4.length > 0) {
+                  data = b4.map((b) => ({ time: b.t, open: b.o, high: b.h, low: b.l, close: b.c, volume: b.v ?? 0 }));
+                  source = "yahoo-chart-4h";
+                  warning = "4H bars built from free 1H bars (session-aligned, same as the Unified Swing Engine).";
+                }
+              }
+            }
+          } catch { /* fall through to ticks */ }
         }
         // Final fallback for 1H/4H: bucket recorded live ticks. This gives
         // at least intraday coverage when both Twelve Data and Yahoo fail.
