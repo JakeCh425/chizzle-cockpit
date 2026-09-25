@@ -29,7 +29,7 @@ import {
   computeAndPersist as recomputeRegime,
   getEffectiveRegime,
 } from "./regimeService";
-import { invalidateSwingCaches } from "./swing/service";
+import { cachedSwingBars, invalidateSwingCaches } from "./swing/service";
 import {
   startSetupScheduler,
   runFullScan,
@@ -1699,8 +1699,11 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       let source: "tiingo" | "yahoo" | "twelvedata" | "ticks" | "yahoo-4h-synth" | "yahoo-chart" | "yahoo-chart-4h" | "none" = "none";
       let warning: string | undefined;
       if (interval === "1D") {
+        // Fast path: reuse the Unified Swing Engine's cached daily bars (no vendor call).
+        const sw = cachedSwingBars(symbol);
+        if (sw && sw.daily.length >= 60) { data = sw.daily.map((x) => ({ time: x.t, open: x.o, high: x.h, low: x.l, close: x.c, volume: x.v ?? 0 })); source = "yahoo-chart"; }
         // Tiingo first (cheapest, supports full OHLC on the daily endpoint).
-        const tg = await fetchTiingoDailyOHLC(symbol);
+        const tg = data.length ? null : await fetchTiingoDailyOHLC(symbol);
         if (aborted) return;
         if (tg && tg.length > 0) { data = tg; source = "tiingo"; }
         // Yahoo OHLC next (free, no key).

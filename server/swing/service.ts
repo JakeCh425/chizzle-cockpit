@@ -174,6 +174,12 @@ export async function evaluateSymbol(item: Pick<WatchItem, "symbol" | "exchange"
   return refreshSymbol(sym, item.exchange, s, key);
 }
 
+/** Bars the swing engine already fetched (no network) — lets legacy charts skip slow vendor chains. */
+export function cachedSwingBars(symbol: string): { daily: SwingBar[]; bars1h: SwingBar[] } | null {
+  const c = evalCache.get(symbol.toUpperCase());
+  return c && (c.daily.length || c.bars1h.length) ? { daily: c.daily, bars1h: c.bars1h } : null;
+}
+
 /** Decision with its chart overlay filtered to the requested history scope, plus older setups from the log. */
 export async function decisionFor(symbol: string, exchange: string, scope: HistoryScope = "LAST5", force = false): Promise<SwingDecision> {
   const { res } = await evaluateSymbol({ symbol, exchange }, { force });

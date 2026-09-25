@@ -250,11 +250,13 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
     drawRef.current = drawBands;
     chart.timeScale().fitContent();
-    const raf = () => requestAnimationFrame(drawBands);
+    const raf = () => requestAnimationFrame(() => { try { drawBands(); } catch { /* disposed */ } });
     chart.timeScale().subscribeVisibleLogicalRangeChange(raf);
     const ro = new ResizeObserver(raf); ro.observe(el);
-    setTimeout(drawBands, 60);
-    return () => { ro.disconnect(); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; };
+    let alive = true;
+    const safeDraw = () => { if (alive) { try { drawBands(); } catch { /* chart already disposed */ } } };
+    const tm = setTimeout(safeDraw, 60);
+    return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, ov, decision, snapped, selectedMarkerId, intraday]);
 
@@ -265,7 +267,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     }
     const m = markerRef.current;
     if (m) { try { m.plugin.setMarkers(showInfo ? m.full : m.bare); } catch { /* chart rebuilt */ } }
-    drawRef.current();
+    try { drawRef.current(); } catch { /* chart rebuilding */ }
   }, [showInfo]);
 
   const b = bars.data;
