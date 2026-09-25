@@ -130,6 +130,9 @@ export interface SwingDecision {
   referenceSource: string | null;      // "tradingview" | "twelvedata" | "yahoo" | null
   evaluatedAt: string;
 
+  target1Source?: "resistance" | "r-multiple";
+  target2Source?: "resistance" | "r-multiple";
+
   // §Q — additive: chart overlay derived from this decision and its setup history.
   chart?: ChartOverlay;
 }
@@ -366,4 +369,35 @@ export const USER_MODE_DEFAULT_SIGNAL: Record<UserMode, SignalMode> = {
 export function splitSymbol(q: string): { exchange: string; symbol: string } {
   const [a, b] = q.includes(":") ? q.split(":") : ["", q];
   return { exchange: a || "", symbol: (b || a).toUpperCase() };
+}
+
+// ─── §Q6 "CAN I PRACTICE THIS SETUP?" — pure, shared by server and UI ────────
+export type PracticeVerdictCode = "A_READY" | "B_NOT_YET" | "C_WAIT_EXTENDED" | "D_PASS_RISK" | "E_NO_SETUP";
+export interface PracticeVerdict {
+  code: PracticeVerdictCode; headline: string; lines: string[];
+  status: SetupStatus; entry: number | null; stop: number | null; t1: number | null; t2: number | null;
+  rrT1: number | null; nextAction: string; riskWarning: string;
+}
+const $ = (n: number | null | undefined) => (n == null ? "—" : `$${n.toFixed(2)}`);
+export function practiceVerdict(d: SwingDecision): PracticeVerdict {
+  const base = { status: d.setupStatus, entry: d.entryPrice, stop: d.structuralStop, t1: d.target1, t2: d.target2, rrT1: d.rewardRiskT1, nextAction: d.nextAction, riskWarning: GAP_RISK_WARNING };
+  switch (d.setupStatus) {
+    case "READY_TO_TRADE":
+      return { ...base, code: "A_READY", headline: "YES — a practice plan is available", lines: [...d.passedRules.slice(0, 6), "Review the plan before deciding."] };
+    case "SETUP_FORMING": case "SETUP_CONFIRMED":
+      return { ...base, code: "B_NOT_YET", headline: `NOT YET — setup is ${d.setupStatus === "SETUP_FORMING" ? "forming" : "confirmed but not triggered"}`,
+        lines: [`Wait for a 1H close above ${$(d.originalTrigger)}.`, "Do not enter from an unfinished candle.", ...d.missingConditions.slice(0, 3)] };
+    case "BLOCKED_DATA_MISMATCH":
+      return { ...base, code: "B_NOT_YET", headline: "NOT YET — data sources disagree", lines: [d.dataMismatchReason ?? "Data mismatch", "Markers stay visible, but READY is blocked until the data agrees."] };
+    case "WATCH_EXTENDED": case "WATCH_RETEST":
+      return { ...base, code: "C_WAIT_EXTENDED", headline: `WAIT — original setup was valid, but price is ${d.extensionPercentAboveTrigger ?? "—"}% above trigger`,
+        lines: ["Do not chase.", d.retestLevel ? `Watch ${$(d.retestLevel.low)}–${$(d.retestLevel.high)} for a bullish 1H retest.` : "Wait for a structured pullback."] };
+    case "WATCH_STOP_TOO_WIDE": case "WATCH_RR_TOO_LOW":
+      return { ...base, code: "D_PASS_RISK", headline: "PASS — risk does not fit",
+        lines: [`A structural stop below ${$(d.structuralStop)} makes risk per share ${$(d.riskPerShare)}, and Target 1 offers only ${d.rewardRiskT1 ?? "—"}R.`, "Wait for a better structure."] };
+    default:
+      return { ...base, code: "E_NO_SETUP", headline: d.setupStatus === "SIGNAL_EXPIRED" ? "NO SETUP — last signal expired" : "NO SETUP",
+        lines: [d.setupStatus === "SIGNAL_EXPIRED" ? "The last setup expired or was invalidated." : "No confirmed reclaim, pullback, or breakout-retest.",
+          `Watch support ${$(d.supportZone?.low)} and resistance ${$(d.resistanceZone?.high)}.`] };
+  }
 }

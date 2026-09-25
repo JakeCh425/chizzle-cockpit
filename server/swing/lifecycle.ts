@@ -48,6 +48,13 @@ export interface Candidate {
   visible: boolean;
   hiddenWhy: string | null;
   earlyTrigger: boolean;
+  /** §Q4 chart events (closed bars only): where confirmation / invalidation / expiry happened. */
+  events: CandidateEvents;
+}
+export interface CandidateEvents {
+  confirm1h?: { t: number; end: number; c: number };
+  invalidated?: { t: number; end: number; c: number };
+  expiredAt?: number;
 }
 
 export interface DecisionLogRecord {
@@ -187,6 +194,7 @@ function applyPlan(d: SwingDecision, p: Plan) {
   d.target1 = p.t1; d.target2 = p.t2; d.riskPerShare = p.riskPerShare;
   d.rewardRiskT1 = p.rrT1; d.rewardRiskT2 = p.rrT2;
   d.suggestedShares = p.verdict === "OK" ? p.shares : 0;
+  d.target1Source = p.t1Source; d.target2Source = p.t2Source;
 }
 
 function evalDetection(det: Detection, c: Ctx): Candidate {
@@ -212,12 +220,13 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     resistances: resistancesAsOf(c, asOf), minRr: s.minRrT1, maxDollarRisk: s.maxDollarRisk,
     entryBufferPct: s.entryBufferPct, stopBufferAtr: s.stopBufferAtr,
   });
+  const ev: CandidateEvents = {};
   const out = (status: SetupStatus, extra: Partial<Candidate> = {}): Candidate => {
     d.setupStatus = status;
     if (!d.nextAction) d.nextAction = `Watch ${sym}: ${d.whyNotReady[0] ?? "re-check on the next closed 1H bar"}.`;
     const v = cardVisible({ status, userMode: s.userMode, showFormingCards: s.showFormingCards, showWatchCards: s.showWatchCards,
       showLowQualityForming: s.showLowQualityForming, weekly: c.weekly.regime, daily: c.dailyS.regime, dailyImproving: c.dailyS.improving });
-    return { detection: det, decision: d, visible: v.visible, hiddenWhy: v.why, earlyTrigger: false, ...extra };
+    return { detection: det, decision: d, visible: v.visible, hiddenWhy: v.why, earlyTrigger: false, events: ev, ...extra };
   };
 
   // ── FORMING: developing, not tradeable ─────────────────────────────────────
@@ -238,7 +247,9 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   const after = c.closed1h.filter((b) => b.t >= start);
   const conf = after.find((b) => b.c > trigger && b.end <= deadline) ?? null;
   const inv = after.find((b) => b.c < low) ?? null;
+  if (conf) ev.confirm1h = { t: conf.t, end: conf.end, c: conf.c };
   if (inv) {
+    ev.invalidated = { t: inv.t, end: inv.end, c: inv.c };
     applyPlan(d, planAt(conf?.end ?? inv.end)); d.suggestedShares = 0; d.cardGrade = "NO_TRADE";
     d.failedRules.push(`invalidated: closed 1H ${fx(inv.c)} below structure ${fx(low)} at ${fmtCT(inv.end)}`);
     d.whyNotReady = [`Setup invalidated — closed 1H ${fx(inv.c)} < structure ${fx(low)} (${fmtCT(inv.end)})`];
@@ -250,6 +261,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   let early = false;
   if (!conf) {
     if (c.E.now >= deadline) {
+      ev.expiredAt = deadline;
       applyPlan(d, planAt(deadline)); d.suggestedShares = 0; d.cardGrade = "NO_TRADE";
       d.failedRules.push(`no closed 1H above trigger ${fx(trigger)} within ${s.expiryBars4h} closed 4H bar(s)`);
       d.whyNotReady = [`Expired ${fmtCT(deadline)}: no closed 1H above trigger ${fx(trigger)} within ${s.expiryBars4h} closed 4H bar(s) of the setup`];
@@ -277,6 +289,25 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   if (plan.verdict === "INVALID") {
     d.cardGrade = "NO_TRADE"; d.whyNotReady = plan.notes; d.nextAction = `No valid structural stop for ${sym}. Wait for a clearer base.`;
     return out("NO_TRADE", { earlyTrigger: early });
+  }
+  // A risk-policy WATCH is only live while it can still become a plan: once price has
+  // run past T1, or the confirmation window has passed again since the signal, it expires
+  // (kept in history) instead of lingering as the "current" card with stale levels.
+  if (plan.verdict === "STOP_TOO_WIDE" || plan.verdict === "RR_TOO_LOW") {
+    const staleAt = sessionEndAfter(signalEnd, s.expiryBars4h);
+    const pastT1 = plan.t1 != null && c.closed1h.some((b) => b.t >= signalEnd && b.c >= plan.t1!); // a later CLOSED 1H beyond T1
+    if (!early && (pastT1 || c.E.now >= staleAt)) {
+      ev.expiredAt = pastT1 ? c.E.now : staleAt;
+      d.suggestedShares = 0; d.cardGrade = "NO_TRADE";
+      const why = plan.verdict === "RR_TOO_LOW" ? `R:R to T1 ${fx(plan.rrT1)} < minimum ${s.minRrT1}` : `stop too wide for $${s.maxDollarRisk} risk`;
+      d.failedRules.push(`${why} at signal ${fmtCT(signalEnd)}`);
+      d.whyNotReady = [pastT1
+        ? `Expired: risk never fit (${why}) and price ${fx(price)} has already passed T1 ${fx(plan.t1)}`
+        : `Expired ${fmtCT(staleAt)}: risk never fit (${why}) within ${s.expiryBars4h} closed 4H bar(s) of the signal`];
+      d.nextAction = `${SETUP_NAME[det.type]} on ${sym} expired without a workable plan. Wait for a new setup.`;
+      d.riskLabel = "EXPIRED — NOT TRADEABLE";
+      return out("SIGNAL_EXPIRED");
+    }
   }
   if (plan.verdict === "STOP_TOO_WIDE") {
     d.riskLabel = "WATCH — STOP TOO WIDE FOR RISK POLICY";
