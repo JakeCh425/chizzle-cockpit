@@ -8,6 +8,7 @@ import NotFound from "@/pages/not-found";
 import { AppShell } from "@/components/AppShell";
 import Cockpit from "@/pages/Cockpit";
 import PipelineCockpit from "@/pages/PipelineCockpit";
+import LegacyPipelineArchive from "@/pages/LegacyPipelineArchive";
 import Watchlist from "@/pages/Watchlist";
 import Trades from "@/pages/Trades";
 import Journal from "@/pages/Journal";
@@ -26,6 +27,7 @@ function AppRouter() {
       <Switch>
         <Route path="/" component={PipelineCockpit} />
         <Route path="/advanced" component={Cockpit} />
+        <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
         <Route path="/watchlist" component={Watchlist} />
         <Route path="/trades" component={Trades} />
         <Route path="/trade-planner" component={TradePlanner} />
