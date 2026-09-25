@@ -404,12 +404,29 @@ function SettingsPanel() {
         className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white w-full" data-testid={`input-${String(k)}`} />
     </label>
   );
+  const linked = v.linkRiskToProfile !== false;
+  const info = v.riskLinkInfo;
+  const lockedField = (label: string, val: string, tid: string) => (
+    <label className="flex flex-col gap-0.5 text-[10.5px] text-slate-gray">{label} · linked
+      <div className="bg-ink-deep border border-neon-blue/40 rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid={tid} title="Follows Settings → Risk Profile. Turn off the link below to type your own.">{val}</div>
+    </label>
+  );
   return (
     <div className="space-y-2" data-testid="panel-swing-settings">
+      <div className="flex flex-wrap items-center gap-2 rounded border border-neon-blue/30 bg-neon-blue/5 px-2 py-1.5 text-[11px] text-soft-white/90" data-testid="banner-risk-link">
+        <label className="flex items-center gap-1.5">
+          <input type="checkbox" checked={linked} onChange={() => put.mutate({ linkRiskToProfile: !linked } as any)} data-testid="toggle-linkRiskToProfile" />
+          Link $ risk + R:R to Settings → Risk Profile
+        </label>
+        <span className="text-slate-gray" data-testid="text-risk-link-info">
+          {linked && info ? `= ${info.riskPct}% of $${info.equity.toLocaleString(undefined, { maximumFractionDigits: 2 })} (${info.regime} regime) → $${info.dollars.toFixed(2)} per trade · min R:R ${info.minRR}`
+            : linked ? "Linked — set equity and risk % in Settings." : "Unlinked — using the values you type here."}
+        </span>
+      </div>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
         {sel("userMode", ["LEARN", "DISCIPLINED"], "User mode")}
         {sel("signalMode", ["STRICT", "STANDARD", "FLEXIBLE"], "Signal mode")}
-        {sel("minRrT1", [1.5, 2, 2.5], "Min R:R to T1", true)}
+        {linked ? lockedField("Min R:R to T1", String(v.minRrT1), "input-minRrT1-linked") : numIn("minRrT1", "Min R:R to T1", 0.1, 0.5, 10)}
         <label className="flex flex-col gap-0.5 text-[10.5px] text-slate-gray">Confirmation window (4H bars)
           <select value={String(v.expiryBars4h)} onChange={(e) => put.mutate({ expiryBars4h: Number(e.target.value) } as any)} className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid="select-expiryBars4h">
             <option value="1">1 bar — tight (≈ half day)</option>
@@ -418,7 +435,7 @@ function SettingsPanel() {
           </select>
           {v.expiryBars4h !== 2 && <button type="button" className="text-left text-[10px] text-neon-blue underline" onClick={() => put.mutate({ expiryBars4h: 2 } as any)} data-testid="button-reset-expiry">Back to default (2 bars)</button>}
         </label>
-        {numIn("maxDollarRisk", "Max $ risk (practice)", 5, 1, 100000)}
+        {linked ? lockedField("Max $ risk (practice)", `$${Number(v.maxDollarRisk).toFixed(2)}`, "input-maxDollarRisk-linked") : numIn("maxDollarRisk", "Max $ risk (practice)", 5, 1, 100000)}
         {numIn("maxExtensionPct", "Max extension %", 0.25, 0.25, 5)}
         {numIn("maxExtensionAtr", "Max extension ATR", 0.25, 0.25, 5)}
         {sel("extensionAtrAnchor", ["TRIGGER", "DAILY_SMA20"], "Extension measured from")}

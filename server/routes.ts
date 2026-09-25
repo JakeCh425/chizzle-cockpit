@@ -29,6 +29,7 @@ import {
   computeAndPersist as recomputeRegime,
   getEffectiveRegime,
 } from "./regimeService";
+import { invalidateSwingCaches } from "./swing/service";
 import {
   startSetupScheduler,
   runFullScan,
@@ -132,7 +133,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.patch("/api/settings", async (req, res) => {
     const data = validateBody(req, res, insertSettingsSchema.partial());
     if (!data) return;
-    try { res.json(await storage.updateSettings(data)); } catch (e: any) { res.status(500).json({ error: e.message }); }
+    try { const out = await storage.updateSettings(data); invalidateSwingCaches(); res.json(out); } catch (e: any) { res.status(500).json({ error: e.message }); }
   });
 
   // ── tickers ─────────────────────────────────────────────────────
@@ -1076,6 +1077,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/regime/recompute", async (_req, res) => {
     try {
       const result = await recomputeRegime({ forceRefresh: true });
+      invalidateSwingCaches();
       const state = await storage.getRegimeState();
       const latest = await storage.latestRegimeInputs();
       res.json({ ok: result.ok, error: result.error, state, latestInputs: latest, effective: getEffectiveRegime() });
@@ -1101,6 +1103,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         patch.manualOverrideRegime = r;
       }
       await storage.updateRegimeState(patch);
+      invalidateSwingCaches();
       // Mirror to legacy settings.regime so existing UI keeps in sync.
       const state = await storage.getRegimeState();
       const eff = state.manualOverride && state.manualOverrideRegime
@@ -2438,6 +2441,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   };
   runArchivePrune();
   setInterval(runArchivePrune, 24 * 60 * 60 * 1000);
+  // Auto regime engine: boot run + daily 6:15 PM ET + every 15 min in market hours.
+  // (Was imported but never started, so the regime only updated on "Recompute now".)
+  try { startRegimeScheduler(); } catch (e: any) { console.warn("[boot] regime scheduler failed:", e?.message); }
 
   // Candle pre-warmer: on cold start, the very first burst of client requests
   // hits rate-limited free providers (Stooq's bot-challenge, Yahoo 429) and

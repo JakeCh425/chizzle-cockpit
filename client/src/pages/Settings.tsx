@@ -20,12 +20,14 @@ function RiskSlider({
   value,
   onChange,
   active,
+  equity = 0,
 }: {
   label: string;
   color: "green" | "amber" | "red";
   value: string;
   onChange: (v: string) => void;
   active: boolean;
+  equity?: number;
 }) {
   const hueVar =
     color === "green" ? "--signal-green" : color === "amber" ? "--signal-amber" : "--signal-red";
@@ -48,11 +50,14 @@ function RiskSlider({
         <span className={`font-mono-num tabular-nums text-2xl font-semibold ${textColor}`}>{v.toFixed(1)}</span>
         <span className="text-[12px] text-slate-gray">% per trade</span>
       </div>
+      <div className="text-[10.5px] text-soft-white/80 mb-1" data-testid={`text-risk-dollars-${color}`}>
+        {equity > 0 ? `≈ $${((equity * v) / 100).toFixed(2)} at risk per trade` : "Set equity to see $"}
+      </div>
       <input
         type="range"
-        min={1}
+        min={0.25}
         max={10}
-        step={0.1}
+        step={0.25}
         value={v}
         onChange={(e) => onChange(e.target.value)}
         className="w-full cursor-pointer"
@@ -60,7 +65,7 @@ function RiskSlider({
         data-testid={`slider-risk-${color}`}
       />
       <div className="flex justify-between text-[9px] text-slate-gray mt-1">
-        <span>1%</span>
+        <span>0.25%</span>
         <span>5%</span>
         <span>10%</span>
       </div>
@@ -405,6 +410,16 @@ function VehicleStylePanel() {
   );
 }
 
+// Beginner risk presets — one click fills every Risk Profile + Governor field.
+// Everything stays editable afterwards; nothing here is enforced.
+type RiskPreset = { id: string; label: string; blurb: string; g: number; y: number; r: number; posG: number; posY: number; posR: number; openRisk: number; minRR: number; dailyX: number; weeklyPct: number; dd: number; scaleDD: number };
+const RISK_PRESETS: RiskPreset[] = [
+  { id: "conservative", label: "Conservative", blurb: "1% / 0.75% / 0.5% · small, slow, safest while learning", g: 1, y: 0.75, r: 0.5, posG: 3, posY: 2, posR: 1, openRisk: 3, minRR: 2, dailyX: 2, weeklyPct: 5, dd: 10, scaleDD: 5 },
+  { id: "medium", label: "Medium", blurb: "2% / 1.5% / 1% · balanced default", g: 2, y: 1.5, r: 1, posG: 3, posY: 2, posR: 1, openRisk: 6, minRR: 2, dailyX: 2, weeklyPct: 9, dd: 15, scaleDD: 8 },
+  { id: "medium-plus", label: "Medium+ (aggressive at times)", blurb: "2.5% / 1.5% / 1% · leans in only when GREEN", g: 2.5, y: 1.5, r: 1, posG: 3, posY: 2, posR: 1, openRisk: 7.5, minRR: 2, dailyX: 2, weeklyPct: 10, dd: 15, scaleDD: 8 },
+  { id: "aggressive", label: "Aggressive", blurb: "3% / 2% / 1% · bigger swings, bigger drawdowns", g: 3, y: 2, r: 1, posG: 4, posY: 3, posR: 1, openRisk: 9, minRR: 2, dailyX: 2, weeklyPct: 12, dd: 20, scaleDD: 10 },
+];
+
 export default function SettingsPage() {
   const { toast } = useToast();
   const { data: settings } = useQuery<SettingsType>({ queryKey: ["/api/settings"] });
@@ -453,6 +468,47 @@ export default function SettingsPage() {
     }
   }, [settings]);
 
+  const matchedPreset = RISK_PRESETS.find((p) =>
+    Number(riskG) === p.g && Number(riskY) === p.y && Number(riskR) === p.r && Number(maxRisk) === p.openRisk &&
+    Number(maxPosG) === p.posG && Number(maxPosY) === p.posY && Number(maxPosR) === p.posR)?.id ?? null;
+
+  const applyPreset = async (p: RiskPreset) => {
+    const eq = Number(equity) || 0;
+    const daily = Math.round((eq * p.g * p.dailyX) / 100);
+    const weekly = Math.round((eq * p.weeklyPct) / 100);
+    setRiskG(String(p.g)); setRiskY(String(p.y)); setRiskR(String(p.r));
+    setMaxPosG(String(p.posG)); setMaxPosY(String(p.posY)); setMaxPosR(String(p.posR));
+    setMaxRisk(String(p.openRisk)); setMinRR(String(p.minRR));
+    if (eq > 0) { setMaxDailyLoss(String(daily)); setMaxWeeklyLoss(String(weekly)); }
+    setMaxDD(String(p.dd)); setScaleDownDD(String(p.scaleDD));
+    await apiRequest("PATCH", "/api/settings", {
+      riskPctGreen: p.g, riskPctYellow: p.y, riskPctRed: p.r,
+      maxPositionsGreen: p.posG, maxPositionsYellow: p.posY, maxPositionsRed: p.posR,
+      maxOpenRiskPct: p.openRisk, minRR: p.minRR,
+      ...(eq > 0 ? { maxDailyLossAmount: daily, maxWeeklyLossAmount: weekly } : {}),
+      maxDrawdownPercent: p.dd, scaleDownDrawdownPercent: p.scaleDD,
+    });
+    queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/swing") });
+    toast({ title: `${p.label} preset applied`, description: "Saved. Every field is still editable — tweak anything below." });
+  };
+
+  // Soft "do these fit together?" notes — informational only, never block saving.
+  const eqN = Number(equity) || 0;
+  const fitNotes: string[] = [];
+  ([["GREEN", riskG, maxPosG], ["YELLOW", riskY, maxPosY], ["RED", riskR, maxPosR]] as const).forEach(([rg, pct, pos]) => {
+    const p = Number(pct), n = Number(pos), cap = Number(maxRisk);
+    if (p > 0 && n > 0 && cap > 0 && p * n > cap + 1e-9) {
+      fitNotes.push(`${rg}: ${n} positions × ${p}% = ${(p * n).toFixed(2)}% open risk, above your ${cap}% cap — only ${Math.max(1, Math.floor(cap / p + 1e-9))} will fit at full size.`);
+    }
+  });
+  const biggestRiskDollars = (eqN * Math.max(Number(riskG) || 0, Number(riskY) || 0, Number(riskR) || 0)) / 100;
+  if (eqN > 0 && Number(maxDailyLoss) > 0 && biggestRiskDollars > Number(maxDailyLoss)) {
+    fitNotes.push(`One full stop-out (≈ $${biggestRiskDollars.toFixed(2)}) is bigger than your $${maxDailyLoss} daily loss cap.`);
+  }
+  if (Number(maxWeeklyLoss) > 0 && Number(maxDailyLoss) > Number(maxWeeklyLoss)) fitNotes.push("Daily loss cap is larger than the weekly cap.");
+  if (Number(scaleDownDD) > 0 && Number(maxDD) > 0 && Number(scaleDownDD) >= Number(maxDD)) fitNotes.push("Scale-down drawdown should be smaller than max drawdown so you slow down before the hard stop.");
+
   const save = async () => {
     await apiRequest("PATCH", "/api/settings", {
       equity: Number(equity),
@@ -473,7 +529,8 @@ export default function SettingsPage() {
       scaleDownDrawdownPercent: Number(scaleDownDD),
     });
     queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
-    toast({ title: "Settings saved" });
+    queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/swing") });
+    toast({ title: "Settings saved", description: "Swing engine $ risk follows these values when linked." });
   };
 
   const confirmReset = async () => {
@@ -508,14 +565,23 @@ export default function SettingsPage() {
         title="Risk Profile"
         hint={`Active: ${activeRegime} · ${activeRiskPct.toFixed(1)}% per trade`}
       >
-        <div className="text-[11px] text-slate-gray mb-3">
-          Risk per trade adjusts to current regime. Drag the sliders (1–10%) or type a value.
-          Higher % = larger position size on each setup.
+        <div className="text-[11px] text-slate-gray mb-2">
+          Pick a starting preset, then fine-tune anything. Risk per trade follows the market regime automatically
+          (GREEN → YELLOW → RED), and the Swing engine's $ risk + min R:R use these same numbers. Practice / analysis only.
+        </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 mb-3" data-testid="group-risk-presets">
+          {RISK_PRESETS.map((p) => (
+            <button key={p.id} type="button" onClick={() => applyPreset(p)} data-testid={`button-preset-${p.id}`}
+              className={`text-left border rounded-sm px-2 py-1.5 transition-colors ${matchedPreset === p.id ? "border-neon-blue bg-neon-blue/10" : "border-ink-line/70 hover:border-neon-blue/60"}`}>
+              <div className="text-[11px] uppercase tracking-wider text-soft-white">{p.label}{matchedPreset === p.id ? " · current" : ""}</div>
+              <div className="text-[10px] text-slate-gray mt-0.5">{p.blurb}</div>
+            </button>
+          ))}
         </div>
         <div className="grid grid-cols-3 gap-4">
-          <RiskSlider label="Green Regime" color="green" value={riskG} onChange={setRiskG} active={activeRegime === "GREEN"} />
-          <RiskSlider label="Yellow Regime" color="amber" value={riskY} onChange={setRiskY} active={activeRegime === "YELLOW"} />
-          <RiskSlider label="Red Regime" color="red" value={riskR} onChange={setRiskR} active={activeRegime === "RED"} />
+          <RiskSlider label="Green Regime" color="green" value={riskG} onChange={setRiskG} active={activeRegime === "GREEN"} equity={eqN} />
+          <RiskSlider label="Yellow Regime" color="amber" value={riskY} onChange={setRiskY} active={activeRegime === "YELLOW"} equity={eqN} />
+          <RiskSlider label="Red Regime" color="red" value={riskR} onChange={setRiskR} active={activeRegime === "RED"} equity={eqN} />
         </div>
         <div className="grid grid-cols-3 gap-3 mt-4 pt-3 border-t border-ink-line/60">
           <Field label="Max Positions Green"><input type="number" value={maxPosG} onChange={e => setMaxPosG(e.target.value)} className="form-input num" /></Field>
@@ -524,6 +590,18 @@ export default function SettingsPage() {
           <Field label="Max Open Risk %"><input type="number" step="0.5" value={maxRisk} onChange={e => setMaxRisk(e.target.value)} className="form-input num" /></Field>
           <Field label="Min RR"><input type="number" step="0.1" value={minRR} onChange={e => setMinRR(e.target.value)} className="form-input num" /></Field>
         </div>
+        <div className="mt-3 text-[10.5px] text-slate-gray leading-relaxed" data-testid="text-risk-glossary">
+          <b className="text-soft-white/90">Max positions</b> = trades open at once in that regime. <b className="text-soft-white/90">Max open risk %</b> = total of all open stops combined.
+          {" "}<b className="text-soft-white/90">Min RR</b> = reward must be at least this many times the risk to the first target.
+        </div>
+        {fitNotes.length > 0 ? (
+          <div className="mt-2 border border-signal-amber/50 bg-signal-amber/5 rounded-sm px-2 py-1.5 text-[10.5px] text-signal-amber space-y-0.5" data-testid="notes-risk-fit">
+            {fitNotes.map((n) => <div key={n}>• {n}</div>)}
+            <div className="text-slate-gray">Just a heads-up — you can still save any values.</div>
+          </div>
+        ) : (
+          <div className="mt-2 text-[10.5px] text-signal-green" data-testid="notes-risk-fit-ok">✓ Risk %, positions, open-risk cap and loss caps all fit together.</div>
+        )}
       </Panel>
 
       <Panel
