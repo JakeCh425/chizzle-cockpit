@@ -17,6 +17,8 @@ import {
   type ScanResp, type WatchlistResp, type WatchRow,
 } from "@/lib/swing";
 import SwingChart, { type Tf } from "./SwingChart";
+import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
+import { buildTradeSummary } from "@shared/tradeSummary";
 
 const CAT_LABEL: Record<WatchCategory, string> = {
   DEFAULT_LEARNING: "Default Learning", ETFS: "ETFs", SEMICONDUCTOR: "Semiconductor", BROAD_MARKET: "Broad Market",
@@ -230,6 +232,7 @@ export function PracticeCard({ d, v }: { d: SwingDecision; v: PracticeVerdict })
       {d.suggestedShares != null && <div className="text-[10.5px] text-slate-gray">Sizing reference (informational, never an order): {d.suggestedShares} sh at {fmt$(d.riskPerShare)} risk/share within ${d.maxDollarRisk} max risk.</div>}
       {d.setupStatus === "SETUP_FORMING" && <div className="text-[10.5px] font-mono text-yellow-300">{FORMING_WARNING}</div>}
       {d.setupStatus === "READY_TO_TRADE" && <div className="text-[10.5px] font-mono text-emerald-300">{READY_WARNING}</div>}
+      {d.setupStatus === "READY_TO_TRADE" && <BrokerStep s={buildTradeSummary(d)} compact />}
       <div className="text-[10.5px] font-mono text-rose-300" data-testid="text-gap-risk">{GAP_RISK_WARNING}</div>
       <div className="text-[10px] font-mono text-slate-gray" data-testid="text-practice-banner">{PRACTICE_BANNER}</div>
     </div>
@@ -474,6 +477,9 @@ export default function SwingWorkspace() {
           </CollapsibleSection>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
+          </CollapsibleSection>
+          <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${STATUS_LABEL[d.setupStatus]}` : undefined}>
+            <TradeSummaryPanel d={d} />
           </CollapsibleSection>
           <div ref={whyRef}>
             <CollapsibleSection id="swing-why" title="Why Did This Form?" hint={marker ? marker.label : "click a marker or card"}>

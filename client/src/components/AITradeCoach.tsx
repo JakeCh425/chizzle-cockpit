@@ -11,8 +11,10 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { GraduationCap } from "lucide-react";
 import { rsi as rsiSeries } from "@/lib/rsi";
+import { useSwingDecision, useSwingEnabled } from "@/lib/swing";
+import { harmonizeCoach } from "@shared/tradeSummary";
 
-interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
+export interface OHLCBar { date: string; open: number; high: number; low: number; close: number; volume: number }
 
 interface Props {
   ticker: string;
@@ -29,17 +31,10 @@ function sma(values: number[], period: number): number | null {
   return s / period;
 }
 
-export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
-  const { data: regime } = useQuery<any>({
-    queryKey: ["/api/regime-v2"],
-    queryFn: async () => {
-      const res = await apiRequest("GET", "/api/regime-v2");
-      return await res.json();
-    },
-    staleTime: 60_000,
-  });
 
-  const coach = useMemo(() => {
+export interface CoachRead { headline: string; body: string; bullets: string[]; alignment: "bull" | "bear" | "neutral" }
+/** Pure rule set behind the AI Trade Coach — shared with the unified Trade Summary. */
+export function coachRead(ticker: string, bars: OHLCBar[] | undefined, dayClass: string): CoachRead {
     if (!bars || bars.length < 50) {
       return {
         headline: "Warming up",
@@ -64,7 +59,7 @@ export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
     const distFrom50 = s50 ? ((last - s50) / s50) * 100 : 0;
     const distFrom200 = s200 ? ((last - s200) / s200) * 100 : 0;
 
-    const dayClass = regime?.day_class || "UNKNOWN";
+    
     const bullish = last > (s20 || 0) && last > (s50 || 0) && (s50 || 0) > (s200 || 0);
     const bearish = last < (s20 || 0) && last < (s50 || 0) && (s50 || 0) < (s200 || 0);
 
@@ -108,7 +103,28 @@ export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
     else if (dayClass === "RED") bullets.push(`Regime RED: defense. No new longs, tighten stops.`);
 
     return { headline, body: "", bullets, alignment };
-  }, [bars, ticker, regime]);
+}
+
+export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
+  const { data: regime } = useQuery<any>({
+    queryKey: ["/api/regime-v2"],
+    queryFn: async () => {
+      const res = await apiRequest("GET", "/api/regime-v2");
+      return await res.json();
+    },
+    staleTime: 60_000,
+  });
+
+  const rawCoach = useMemo(() => coachRead(ticker, bars, regime?.day_class || "UNKNOWN"), [bars, ticker, regime]);
+  // Unified engine ON → coach lines that contradict the shared decision are dropped.
+  const unifiedOn = useSwingEnabled();
+  const uq = useSwingDecision(ticker, "LAST5", unifiedOn);
+  const st = unifiedOn ? uq.data?.decision?.setupStatus : undefined;
+  const coach = useMemo(() => {
+    if (!st) return rawCoach;
+    const h = harmonizeCoach(st, rawCoach)!;
+    return { ...rawCoach, headline: h.headline, bullets: [...h.bullets, "Full trade summary: Unified Swing Engine → Trade Summary · AI Coach."] };
+  }, [rawCoach, st]);
 
   const alignColor =
     coach.alignment === "bull" ? "text-signal-green border-signal-green/40 bg-signal-green/5" :
