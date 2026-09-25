@@ -129,6 +129,9 @@ export interface SwingDecision {
   referenceClose: number | null;       // TradingView webhook or 2nd vendor close
   referenceSource: string | null;      // "tradingview" | "twelvedata" | "yahoo" | null
   evaluatedAt: string;
+
+  // §Q — additive: chart overlay derived from this decision and its setup history.
+  chart?: ChartOverlay;
 }
 
 // ─── Fixed copy (spec §C, §I) ───────────────────────────────────────────────
@@ -247,6 +250,17 @@ export interface SwingSettings {
   maxDollarRisk: number;
   maxExtensionPct: number;
   maxExtensionAtr: number;
+  /** Where the ATR-extension leg is measured from. TRIGGER (default, flexible) or DAILY_SMA20 (spec-strict). */
+  extensionAtrAnchor?: "TRIGGER" | "DAILY_SMA20";
+  /** Retest zone = [trigger − retestBelowAtr·ATR, trigger + max(maxExtensionPct %, retestZoneAtr·ATR)]. */
+  retestZoneAtr?: number;
+  retestBelowAtr?: number;
+  /** Which setups may earn A2 practice cards: ALL 8 (default) or only the §J list. */
+  a2SetupScope?: "ALL" | "SPEC_LIST";
+  /** 15m/30m may inform learning only; never override 1H/4H confirmation unless this is on. */
+  intradayLearningMode?: boolean;
+  maxCustomTickers?: number;
+  watchlist?: WatchItem[];
   rthOnly: boolean;
   timezone: string;
   entryBufferPct: number;   // small buffer above trigger
@@ -256,6 +270,60 @@ export interface SwingSettings {
 }
 
 export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY"];
+
+// ─── Watchlist (spec §Q1) ───────────────────────────────────────────────────
+export type AssetType = "ETF" | "STOCK";
+export type WatchCategory = "DEFAULT_LEARNING" | "ETFS" | "SEMICONDUCTOR" | "BROAD_MARKET" | "GROWTH_TECH" | "CUSTOM" | "ARCHIVED";
+export const WATCH_CATEGORIES: WatchCategory[] = ["DEFAULT_LEARNING", "ETFS", "SEMICONDUCTOR", "BROAD_MARKET", "GROWTH_TECH", "CUSTOM", "ARCHIVED"];
+export interface WatchItem {
+  symbol: string;            // "SMH"
+  exchange: string;          // "NASDAQ"
+  name?: string;
+  assetType: AssetType;
+  categories: WatchCategory[];
+  isDefault: boolean;        // defaults can be hidden, never deleted
+  hidden: boolean;
+  pinned: boolean;
+  order: number;
+  notes?: string;
+}
+export const DEFAULT_WATCHLIST: WatchItem[] = [
+  { symbol: "SMH", exchange: "NASDAQ", name: "VanEck Semiconductor ETF", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "SEMICONDUCTOR"], isDefault: true, hidden: false, pinned: false, order: 0 },
+  { symbol: "QQQ", exchange: "NASDAQ", name: "Invesco QQQ Trust", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "GROWTH_TECH"], isDefault: true, hidden: false, pinned: false, order: 1 },
+  { symbol: "SPY", exchange: "AMEX", name: "SPDR S&P 500 ETF", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "BROAD_MARKET"], isDefault: true, hidden: false, pinned: false, order: 2 },
+];
+export const DEFAULT_UNIVERSE_LABEL = "DEFAULT LEARNING UNIVERSE";
+export const SINGLE_STOCK_RISK = "SINGLE-STOCK EVENT RISK — verify earnings date and news before swing planning.";
+export const ETF_RISK = "ETF — diversified but may still have sector or top-holding concentration risk.";
+export type ScanSelection = "DEFAULT" | "DEFAULT_PLUS_CUSTOM" | "ETFS" | "STOCKS" | "SEMICONDUCTOR" | "BROAD_MARKET" | "CUSTOM_SELECTION";
+
+// ─── Chart overlay (spec §Q4) — built ONLY from SwingDecision + setup history ──
+export type MarkerKind = "FORMING" | "CONFIRMED" | "READY" | "EXTENDED" | "INVALIDATED" | "EXPIRED";
+export interface ChartMarker {
+  id: string;
+  kind: MarkerKind;
+  time: number;              // unix sec of the bar the marker belongs to (bar START)
+  barEnd: number;            // unix sec the bar closed (markers only from closed bars, except FORMING)
+  timeframe: SwingTimeframe;
+  price: number;
+  label: string;             // "FORMING: Hammer"
+  setupType: SetupType;
+  status: SetupStatus;
+  tooltip: string[];         // plain-English lines
+  current: boolean;          // belongs to the primary decision
+}
+export type LevelKind = "ENTRY" | "STOP" | "T1" | "T2";
+export interface ChartLevel {
+  id: string; kind: LevelKind; price: number; label: string;
+  style: "dashed" | "solid"; tooltip: string[]; setupId: string; current: boolean;
+}
+export interface ChartZone { id: string; kind: "RETEST" | "SUPPORT" | "RESISTANCE"; low: number; high: number; label: string; tooltip: string[]; current: boolean }
+export interface SetupHistoryEntry {
+  id: string; setupType: SetupType; status: SetupStatus; timeframe: SwingTimeframe;
+  setupTimestamp: string | null; trigger: number | null; stop: number | null; t1: number | null; t2: number | null;
+  rrT1: number | null; grade: CardGrade; reason: string; current: boolean;
+}
+export interface ChartOverlay { markers: ChartMarker[]; levels: ChartLevel[]; zones: ChartZone[]; history: SetupHistoryEntry[] }
 
 export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   userMode: "LEARN",
@@ -272,8 +340,14 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   minRrT1: 2,
   expiryBars4h: 2,
   maxDollarRisk: 100,
-  maxExtensionPct: 1.0,
-  maxExtensionAtr: 1.25,
+  maxExtensionPct: 1.5,
+  maxExtensionAtr: 1.5,
+  extensionAtrAnchor: "TRIGGER",
+  retestZoneAtr: 0.5,
+  retestBelowAtr: 0.25,
+  a2SetupScope: "ALL",
+  intradayLearningMode: false,
+  maxCustomTickers: 12,
   rthOnly: true,
   timezone: "America/Chicago",
   entryBufferPct: 0.05,

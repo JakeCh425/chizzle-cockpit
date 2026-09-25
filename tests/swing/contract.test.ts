@@ -102,8 +102,8 @@ describe("defaults (spec §A, §D, approved decisions)", () => {
     const d = DEFAULT_SWING_SETTINGS;
     expect([d.userMode, d.signalMode]).toEqual(["LEARN", "FLEXIBLE"]);
     expect(d.maxDollarRisk).toBe(100);
-    expect(d.maxExtensionPct).toBe(1.0);
-    expect(d.maxExtensionAtr).toBe(1.25);
+    expect(d.maxExtensionPct).toBe(1.5); // widened 2026-09-24 (user: keep flexible)
+    expect(d.maxExtensionAtr).toBe(1.5);
     expect(d.rthOnly).toBe(true);
     expect(d.timezone).toBe("America/Chicago");
     expect(d.autoRefresh1H).toBe(true);

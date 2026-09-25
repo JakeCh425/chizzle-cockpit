@@ -49,7 +49,8 @@ describe("fixture 1 — SMH 560→600 replay (§H)", () => {
     expect(e.decision.currentPrice!).toBeGreaterThan(599);
     expect(e.decision.extensionPercentAboveTrigger!).toBeGreaterThan(4);
     expect(e.decision.suggestedShares).toBe(0);
-    expect(e.decision.retestLevel!.low).toBe(r.originalTrigger);
+    expect(e.decision.retestLevel!.low).toBeLessThan(r.originalTrigger!);      // widened: a little below the trigger
+    expect(e.decision.retestLevel!.high).toBeGreaterThan(r.originalTrigger! * 1.015 - 0.01); // ≥ max-ext % above
     expect(e.decision.nextAction).toMatch(/^Do not chase SMH\. Wait for retest zone [\d.]+–[\d.]+ and bullish 1H close\.$/);
     expect(e.decision.whyNotReady.join(" ")).toContain("Wait for 1H pullback/retest and closed bullish confirmation.");
     expect(e.log.reason).toMatch(/^SMH: .* Original trigger: [\d.]+\. Current price: [\d.]+, [\d.]+% above trigger\. Status: WATCH_EXTENDED\./);
@@ -142,6 +143,11 @@ describe("grading (§J, §D, §E)", () => {
     expect(flex.riskLabel).toContain("EARLY TRIGGER");
     expect(g({ earlyTrigger: true, userMode: "LEARN", signalMode: "FLEXIBLE", settings: { ...s, allowEarlyTrigger: false } }).ok).toBe(false);
   });
+  it("A2 scope: ALL setups by default; SPEC_LIST limits A2 to the §J list", () => {
+    expect(g({ signalMode: "FLEXIBLE", daily: "NEUTRAL", setupType: "HAMMER" }).grade).toBe("A2_PRACTICE");
+    expect(g({ signalMode: "FLEXIBLE", daily: "NEUTRAL", setupType: "HAMMER", settings: { ...s, a2SetupScope: "SPEC_LIST" } }).ok).toBe(false);
+    expect(g({ signalMode: "FLEXIBLE", daily: "NEUTRAL", setupType: "STRONG_BULL_BAR", settings: { ...s, a2SetupScope: "SPEC_LIST" } }).grade).toBe("A2_PRACTICE");
+  });
   it("Weekly RED: countertrend only when enabled, never in Strict", () => {
     expect(g({ weekly: "RED", signalMode: "FLEXIBLE" }).ok).toBe(false);
     expect(g({ weekly: "RED", signalMode: "FLEXIBLE", settings: { ...s, allowCountertrend: true } }).grade).toBe("A2_PRACTICE");
@@ -184,6 +190,14 @@ describe("fixture 10/11 inside the lifecycle", () => {
     expect(w!.decision.suggestedShares).toBe(0);
     expect(w!.decision.whyNotReady.length).toBeGreaterThanOrEqual(2);
     expect(r.decision.setupStatus).not.toBe("READY_TO_TRADE");
+  });
+});
+
+describe("extension anchor option", () => {
+  it("TRIGGER anchor (default) keeps an early breakout READY; DAILY_SMA20 anchor is stricter", () => {
+    const d578 = dailySeries(Array(140).fill(562));
+    expect(run(T.ready, {}, {}, smh, d578).decision.setupStatus).toBe("READY_TO_TRADE");
+    expect(run(T.ready, { extensionAtrAnchor: "DAILY_SMA20" }, {}, smh, d578).decision.setupStatus).not.toBe("READY_TO_TRADE");
   });
 });
 

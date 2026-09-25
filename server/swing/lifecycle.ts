@@ -162,15 +162,24 @@ function resistancesAsOf(c: Ctx, asOf: number): number[] {
   ];
 }
 
-/** Extension (§H): > max % above trigger OR > max ATR above the daily SMA20. Without daily data
- *  the ATR leg falls back to ATR above the trigger on the setup timeframe. */
+/** Extension (§H): > max % above trigger OR > max ATR. The ATR leg is measured from the trigger by
+ *  default (flexible), or from the daily SMA20 when extensionAtrAnchor = DAILY_SMA20 (spec-strict). */
 function extensionOf(c: Ctx, price: number, trigger: number, tfAtr: number | null) {
   const pct = ((price - trigger) / trigger) * 100;
   let atrExt: number | null = null, atrRef = "";
-  if (c.dailyS.sma20 != null && c.dailyS.atr) { atrExt = (price - c.dailyS.sma20) / c.dailyS.atr; atrRef = `daily SMA20 ${fx(c.dailyS.sma20)}`; }
-  else if (tfAtr) { atrExt = (price - trigger) / tfAtr; atrRef = "trigger"; }
+  const dAtr = c.dailyS.atr || null;
+  if ((c.s.extensionAtrAnchor ?? "TRIGGER") === "DAILY_SMA20" && c.dailyS.sma20 != null && dAtr) {
+    atrExt = (price - c.dailyS.sma20) / dAtr; atrRef = `daily SMA20 ${fx(c.dailyS.sma20)}`;
+  } else if (dAtr || tfAtr) { atrExt = (price - trigger) / (dAtr || tfAtr!); atrRef = `trigger (${dAtr ? "daily" : "setup-timeframe"} ATR)`; }
   const ext = pct > c.s.maxExtensionPct || (atrExt != null && atrExt > c.s.maxExtensionAtr);
   return { pct: r2(pct), atr: atrExt == null ? null : r2(atrExt), atrRef, ext };
+}
+
+/** Retest zone (§H, widened): from a little below the trigger to the larger of max-ext % or k·ATR above. */
+function retestZone(c: Ctx, trigger: number, tfAtr: number | null): PriceZone {
+  const a = c.dailyS.atr || tfAtr || 0;
+  const up = Math.max(trigger * (c.s.maxExtensionPct / 100), (c.s.retestZoneAtr ?? 0.5) * a);
+  return { low: r2(trigger - (c.s.retestBelowAtr ?? 0.25) * a), high: r2(trigger + up) };
 }
 
 function applyPlan(d: SwingDecision, p: Plan) {
@@ -285,7 +294,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   // ── Current extension & feasibility (§H step 6) ────────────────────────────
   const ex = extensionOf(c, price, trigger, tfAtr);
   d.extensionPercentAboveTrigger = ex.pct; d.extensionAtr = ex.atr; d.isExtended = ex.ext;
-  const zone: PriceZone = { low: r2(trigger), high: r2(trigger * (1 + s.maxExtensionPct / 100)) };
+  const zone = retestZone(c, trigger, tfAtr);
   d.retestLevel = zone;
   if (ex.ext) {
     d.riskLabel = "WATCH — EXTENDED, DO NOT CHASE";

@@ -10,7 +10,7 @@ import {
 export interface GradeInput {
   signalMode: SignalMode;
   userMode: UserMode;
-  settings: Pick<SwingSettings, "allowCountertrend" | "requireVolume" | "requireWeeklyAlignment" | "requireDailyAlignment" | "allowEarlyTrigger">;
+  settings: Pick<SwingSettings, "allowCountertrend" | "requireVolume" | "requireWeeklyAlignment" | "requireDailyAlignment" | "allowEarlyTrigger"> & Partial<Pick<SwingSettings, "a2SetupScope">>;
   weekly: WeeklyRegime;
   daily: DailyRegime;
   dailyImproving: boolean;
@@ -42,6 +42,9 @@ export function earlyTriggerAllowed(g: Pick<GradeInput, "signalMode" | "userMode
   if (g.userMode === "PRACTICE" || g.userMode === "DISCIPLINED") return false;
   return g.signalMode === "FLEXIBLE" || g.userMode === "LEARN";
 }
+
+/** §J A2 list — used only when a2SetupScope = SPEC_LIST. Default scope is ALL 8 setups. */
+export const A2_SPEC_TYPES: SetupType[] = ["AGGRESSIVE_BOUNCE", "STRONG_BULL_BAR", "RECLAIM_MOMENTUM_CONTINUATION", "FIRST_PULLBACK_AFTER_BREAKOUT", "HIGHER_LOW_CONSOLIDATION"];
 
 export function gradeReady(g: GradeInput): GradeResult {
   const passed: string[] = [], reasons: string[] = [];
@@ -81,6 +84,9 @@ export function gradeReady(g: GradeInput): GradeResult {
       grade = a4 ? "A4_CORE" : "A2_PRACTICE"; // never A4 unless A4 rules pass independently
       break;
     }
+  }
+  if (grade === "A2_PRACTICE" && (g.settings.a2SetupScope ?? "ALL") === "SPEC_LIST" && !A2_SPEC_TYPES.includes(g.setupType)) {
+    reasons.push(`A2 is limited to the §J setup list and ${g.setupType} is not on it ("A2 setup scope")`); grade = "WATCH";
   }
   if (grade === "A2_PRACTICE" && !a2Mode && !(g.signalMode === "STANDARD" && g.settings.allowCountertrend)) {
     reasons.push("A2 practice cards need Flexible signal mode or Learn user mode"); grade = "WATCH";
