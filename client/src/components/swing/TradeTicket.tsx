@@ -5,6 +5,7 @@
 // stop-limit price, which is a simple display helper. Practice / analysis only.
 import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
+import { DataVerifyBlock, ReferenceOnlyTag, isUnverified } from "./DataStatus";
 import { STATUS_TONE } from "@/lib/swing";
 
 const $ = (n: number | null | undefined) => (n == null || !isFinite(n) ? "—" : `$${n.toFixed(2)}`);
@@ -27,8 +28,26 @@ export function ticketRows(d: SwingDecision) {
   ];
 }
 
+/** Plain-English state line: forming waits for a bar close; extended waits for a retest. */
+function StateLine({ d }: { d: SwingDecision }) {
+  if (d.setupStatus === "SETUP_FORMING" || d.setupStatus === "SETUP_CONFIRMED") {
+    const tf = d.setupStatus === "SETUP_CONFIRMED" ? "1H" : (d.setupTimeframe === "1H" ? "1H" : "4H");
+    return <div className="text-[10.5px] font-mono font-bold text-yellow-600 dark:text-yellow-300" data-testid={`ticket-state-${d.symbol}`}>{d.setupStatus === "SETUP_FORMING" ? "SETUP FORMING" : "SETUP CONFIRMED"} — WAIT FOR {tf} BAR CLOSE.</div>;
+  }
+  if (d.setupStatus === "WATCH_EXTENDED") {
+    return (
+      <div className="text-[10.5px] font-mono" data-testid={`ticket-state-${d.symbol}`}>
+        <span className="font-bold text-orange-600 dark:text-orange-300">WATCH — EXTENDED / AWAIT RETEST.</span>{" "}
+        <span className="text-slate-gray">Original trigger {$(d.originalTrigger)} · {d.extensionPercentAboveTrigger != null ? `${d.extensionPercentAboveTrigger.toFixed(1)}%` : "—"} above · {d.extensionAtr != null ? `${d.extensionAtr.toFixed(2)} ATR` : "—"} · retest zone {d.retestLevel ? `${$(d.retestLevel.low)}–${$(d.retestLevel.high)}` : "—"} · needs a closed bullish 1H from the retest zone for a new plan.</span>
+      </div>
+    );
+  }
+  return null;
+}
+
 function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void }) {
   const rows = ticketRows(d);
+  const unverified = isUnverified(d.dataStatus);
   return (
     <div
       role="button" tabIndex={0}
@@ -44,6 +63,11 @@ function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; fir
         <span className="ml-auto text-[10.5px] font-mono text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>
           {d.suggestedShares != null ? `≈ ${d.suggestedShares} sh · ${$(d.maxDollarRisk)} max risk` : `${$(d.maxDollarRisk)} max risk`}
         </span>
+      </div>
+      <div className="space-y-1 mb-1.5">
+        <StateLine d={d} />
+        <DataVerifyBlock d={d} />
+        {unverified && <ReferenceOnlyTag />}
       </div>
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
         {rows.map((x) => (

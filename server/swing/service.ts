@@ -10,7 +10,7 @@ import {
   DEFAULT_SWING_SETTINGS, STATUS_PRIORITY, SETUP_STATUSES, USER_MODES, SIGNAL_MODES,
   type ScanSelection, type SetupHistoryEntry, type SetupStatus, type SwingDecision, type SwingSettings, type WatchItem,
 } from "@shared/swingDecision";
-import { evaluate, type EvalResult, type ReferenceQuote } from "./lifecycle";
+import { dataRulesV2, evaluate, type EvalResult, type ReferenceQuote } from "./lifecycle";
 import { buildOverlay, type HistoryScope } from "./markers";
 import { fetch1H, fetchDaily, fetchIntraday, fetchQuote, secondVendorReference } from "./feed";
 import { aggregate4H, aggregateWeekly, chicago, chicagoTs, tag1H } from "./bars";
@@ -131,6 +131,42 @@ function runRules(sym: string, exchange: string, h1: SwingBar[], d1: SwingBar[],
   return res;
 }
 
+// ─── Data recovery (v2): bounded-backoff retries + an in-memory event log (no schema change) ─
+export interface DataEvent { at: string; symbol: string; kind: "FETCH_FAILED" | "STATUS_CHANGE" | "RETRY_SCHEDULED" | "RECOVERED"; detail: string }
+const dataEvents: DataEvent[] = [];
+function logDataEvent(symbol: string, kind: DataEvent["kind"], detail: string) {
+  dataEvents.unshift({ at: new Date().toISOString(), symbol, kind, detail });
+  if (dataEvents.length > 300) dataEvents.length = 300;
+  if (kind !== "RETRY_SCHEDULED") console.warn(`[swing-data] ${symbol} ${kind}: ${detail}`);
+}
+export const readDataEvents = (symbol?: string | null, limit = 100) =>
+  dataEvents.filter((e) => !symbol || e.symbol === symbol.toUpperCase()).slice(0, Math.min(300, limit));
+const RETRY_BASE_MS = 15_000, RETRY_MAX_MS = 5 * 60_000, RETRY_MAX_ATTEMPTS = 4; // 15s → 30s → 60s → 120s, then wait for the normal refresh (protects vendor credits)
+const retries = new Map<string, { attempt: number; timer: NodeJS.Timeout | null; last: number }>();
+function scheduleRetry(sym: string, exchange: string, why: string) {
+  let r = retries.get(sym) ?? { attempt: 0, timer: null, last: 0 };
+  if (!r.timer && Date.now() - r.last > 30 * 60_000) r = { attempt: 0, timer: null, last: 0 }; // new episode
+  r.last = Date.now();
+  if (r.timer || r.attempt >= RETRY_MAX_ATTEMPTS) return; // one pending retry per symbol; bounded
+  const delay = Math.min(RETRY_MAX_MS, RETRY_BASE_MS * 2 ** r.attempt);
+  r.attempt += 1;
+  logDataEvent(sym, "RETRY_SCHEDULED", `attempt ${r.attempt}/${RETRY_MAX_ATTEMPTS} in ${Math.round(delay / 1000)}s — ${why}`);
+  r.timer = setTimeout(async () => {
+    r.timer = null;
+    try { const s = await loadSettings(); await refreshSymbol(sym, exchange, s, `${sym}|${barKey(nowSec())}`); } catch { /* next attempt is scheduled by refreshSymbol */ }
+  }, delay);
+  r.timer.unref?.();
+  retries.set(sym, r);
+}
+function afterRefresh(sym: string, exchange: string, prevStatus: string | undefined, out: Cached, failed: string[]) {
+  const st = out.res.decision.dataStatus;
+  if (failed.length) logDataEvent(sym, "FETCH_FAILED", `${failed.join(", ")} request(s) failed${out.bars1h.length ? " — kept the last good bars" : ""}`);
+  if (prevStatus && prevStatus !== st) logDataEvent(sym, st === "LIVE" ? "RECOVERED" : "STATUS_CHANGE", `${prevStatus} → ${st}: ${out.res.decision.dataHealth?.reason ?? ""}`);
+  if (!dataRulesV2()) return;
+  if (failed.length || st === "STALE" || st === "ERROR") scheduleRetry(sym, exchange, failed.length ? `${failed.join(", ")} failed` : `data ${st}`);
+  else if (st === "LIVE") { const r = retries.get(sym); if (r?.timer) clearTimeout(r.timer); retries.delete(sym); }
+}
+
 async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, key: string): Promise<Cached> {
   const running = inflight.get(sym);
   if (running) return running;
@@ -147,6 +183,7 @@ async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, ke
     const res = runRules(sym, exchange, bars1h, daily, q ? { price: q.price, ts: q.ts } : null, reference, s, now, source);
     const out: Cached = { key, res, bars1h, daily, at: Date.now(), exchange, source, reference };
     evalCache.set(sym, out);
+    afterRefresh(sym, exchange, prev?.res.decision.dataStatus, out, [!h1.bars.length && "1H bars", !d1.bars.length && "daily bars", !q && "quote"].filter(Boolean) as string[]);
     void writeLog(res).catch(() => {});
     return out;
   })().finally(() => inflight.delete(sym));

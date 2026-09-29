@@ -222,10 +222,37 @@ describe("fixture 12 — data mismatch (§M)", () => {
     expect(d.setupStatus).toBe("READY_TO_TRADE");
     expect(d.dataStatus).toBe("LIVE");
   });
-  it("no reference → DELAYED (unverified), not blocking", () => {
+  it("v2: no reference + fresh data → LIVE (unverified), Ready still fires", () => {
     const d = run(T.ready).decision;
-    expect(d.dataStatus).toBe("DELAYED");
+    expect(d.dataStatus).toBe("LIVE");
+    expect(d.dataHealth?.referenceVerified).toBe(false);
     expect(d.setupStatus).toBe("READY_TO_TRADE");
+  });
+  it("v2: quote 25 min old → DELAYED blocks Ready but keeps the plan levels", () => {
+    const d = run(T.ready, {}, { quote: { price: 577.2, ts: T.ready - 25 * 60 } }).decision;
+    expect(d.dataStatus).toBe("DELAYED");
+    expect(d.setupStatus).toBe("BLOCKED_DATA_MISMATCH");
+    expect(d.riskLabel).toBe("DATA DELAYED — VERIFY BEFORE PRACTICE PLAN");
+    expect(d.entryPrice).not.toBeNull(); expect(d.structuralStop).not.toBeNull(); expect(d.target1).not.toBeNull();
+    expect(d.dataHealth?.quoteAgeSec).toBe(25 * 60);
+  });
+  it("v2: quote 50 min old → STALE blocks Ready", () => {
+    const d = run(T.ready, {}, { quote: { price: 577.2, ts: T.ready - 50 * 60 } }).decision;
+    expect(d.dataStatus).toBe("STALE");
+    expect(d.setupStatus).toBe("BLOCKED_DATA_MISMATCH");
+    expect(d.dataHealth?.reason).toMatch(/2 refresh cycles/);
+  });
+  it("v2: market closed — quote from the session close is LIVE, not STALE", () => {
+    const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(T.ready * 1000));
+    const [y, m, dd] = ymd.split("-").map(Number);
+    const night = Math.floor(Date.UTC(y, m - 1, dd, 1 + 24, 0) / 1000); // ~20:00 CT same day
+    const d = run(night, {}, { quote: { price: 577.2, ts: night - 5 * 3600 } }).decision;
+    expect(["LIVE"]).toContain(d.dataStatus);
+    expect(d.dataHealth?.marketSession).not.toBe("RTH");
+  });
+  it("v2 kill switch: ENABLE_DATA_STATUS_V2=false restores the old labels", () => {
+    process.env.ENABLE_DATA_STATUS_V2 = "false";
+    try { expect(run(T.ready).decision.dataStatus).toBe("DELAYED"); } finally { delete process.env.ENABLE_DATA_STATUS_V2; }
   });
   it("symbol mismatch blocks", () => {
     const d = run(T.ready, {}, { reference: { ...refFor(T.ready, 0), symbol: "SOXX" } }).decision;

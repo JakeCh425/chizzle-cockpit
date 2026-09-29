@@ -66,7 +66,8 @@ export function useSwingDecision(symbol: string | null | undefined, scope: "CURR
     queryFn: () => swingGet<DecisionResp>(`/api/swing/decision/${encodeURIComponent(symbol!)}?history=${scope}`),
     enabled: enabled && !!symbol,
     staleTime: 60_000,
-    refetchInterval: 5 * 60_000,
+    // Non-LIVE data re-checks every minute so the card upgrades/downgrades in place when fresh data returns.
+    refetchInterval: (q) => { const st = (q.state.data as any)?.decision?.dataStatus; return st && st !== "LIVE" ? 60_000 : 5 * 60_000; },
     retry: 1, retryDelay: 1500,
     // Same symbol, new history scope: keep showing the last decision while it loads.
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === (symbol ?? "") ? prev : undefined),
@@ -102,6 +103,7 @@ export const STATUS_TONE: Record<string, string> = {
 export const DATA_TONE: Record<string, string> = {
   LIVE: "text-emerald-400 border-emerald-500/50",
   DELAYED: "text-yellow-300 border-yellow-500/50",
+  STALE: "text-orange-300 border-orange-500/50",
   ERROR: "text-rose-400 border-rose-500/50",
   MISMATCH: "text-fuchsia-300 border-fuchsia-500/50",
 };

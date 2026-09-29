@@ -7,7 +7,7 @@ import { db } from "../storage";
 import { swingJournal } from "@shared/schema";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
-import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readLog, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
 import { addItem, patchItem, removeItem, resolveSymbol, restoreDefaults, riskNote, WatchlistError, yahooSearch } from "./universe";
 
 const SELECTIONS: ScanSelection[] = ["DEFAULT", "DEFAULT_PLUS_CUSTOM", "ETFS", "STOCKS", "SEMICONDUCTOR", "BROAD_MARKET", "CUSTOM_SELECTION"];
@@ -95,6 +95,7 @@ export function registerSwingRoutes(app: Express) {
     if (!item) { res.status(404).json({ error: "Not on the watchlist" }); return; }
     return chartBars(item.symbol, item.exchange, tf as any, range as any, req.query.extended === "1");
   }));
+  app.get("/api/swing/data-events", wrap(async (req) => ({ events: readDataEvents(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 100) })));
   app.get("/api/swing/log", wrap(async (req) => readLog(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 50)));
 
   // ── Practice journal (§Q5 buttons) — stores the shared decision snapshot ──

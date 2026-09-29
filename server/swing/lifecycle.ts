@@ -7,7 +7,8 @@
 // Analysis and practice plans only. Never places, routes or suggests broker orders.
 import {
   FORMING_WARNING, GAP_RISK_WARNING, pickPrimary,
-  type CardGrade, type DataStatus, type PriceZone, type SetupStatus, type SetupType, type SwingDecision, type SwingSettings,
+  dataVerifyLabel,
+  type CardGrade, type DataHealth, type DataStatus, type PriceZone, type SetupStatus, type SetupType, type SwingDecision, type SwingSettings,
 } from "@shared/swingDecision";
 import { atr, pivotHighs, supportLevels, type SwingBar } from "./candleMath";
 import { aggregate4H, aggregateWeekly, chicago, chicagoTs, dailyClosed, inRth, tag1H, type Bar1H, type Bar4H } from "./bars";
@@ -17,7 +18,11 @@ import { cardVisible, earlyTriggerAllowed, gradeReady } from "./grading";
 import { dailyRegime, weeklyRegime, type DailyState, type WeeklyState } from "./regime";
 
 export const DATA_MISMATCH_PCT = 0.15;
-export const QUOTE_FRESH_SEC = 20 * 60;
+export const QUOTE_FRESH_SEC = 20 * 60;          // LIVE tolerance for the free (≈15-min) vendor feed
+export const EXPECTED_REFRESH_SEC = 20 * 60;     // one expected refresh cycle
+export const STALE_AFTER_SEC = 2 * EXPECTED_REFRESH_SEC; // > 2 cycles without an update → STALE
+/** Data-status rules v2 (age-based LIVE, DELAYED/STALE block Ready). Kill switch: ENABLE_DATA_STATUS_V2=false. */
+export const dataRulesV2 = () => process.env.ENABLE_DATA_STATUS_V2 !== "false";
 export const MIN_CLOSED_4H = 8;
 export const LOOKBACK_1H = 8;
 
@@ -127,7 +132,7 @@ interface Ctx {
   daily: SwingBar[]; closedDaily: SwingBar[];
   weekly: WeeklyState; dailyS: DailyState;
   price: number | null; dataStatus: DataStatus; mismatch: string | null;
-  session: "RTH" | "EXTENDED";
+  session: "RTH" | "EXTENDED"; health: DataHealth;
   support: PriceZone | null; resistance: PriceZone | null;
   supportPx: number | null; resistancePx: number | null;
 }
@@ -154,6 +159,7 @@ function blank(c: Ctx): SwingDecision {
     lastCompletedBar4H: iso(c.closed4h[c.closed4h.length - 1]?.end ?? null),
     referenceClose: E.reference?.close ?? null, referenceSource: E.reference?.source ?? null,
     evaluatedAt: iso(E.now)!,
+    dataHealth: c.health,
   };
 }
 
@@ -392,6 +398,14 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   d.passedRules.push(...g.passed, `not extended (${fx(ex.pct)}% / ${fx(ex.atr)} ATR)`, `R:R to T1 ${fx(plan.rrT1)} ≥ ${s.minRrT1}`);
   d.whyNotReady = [];
   d.whyThisPrinted.push(`plan: entry ${fx(plan.entry)} · stop ${fx(plan.stop)} · T1 ${fx(plan.t1)} · T2 ${fx(plan.t2)}`, GAP_RISK_WARNING);
+  // ── Data-status rules v2: DELAYED / STALE block Ready — the card and its levels stay visible ──
+  if (dataRulesV2() && (c.dataStatus === "DELAYED" || c.dataStatus === "STALE")) {
+    d.riskLabel = dataVerifyLabel(c.dataStatus);
+    d.whyNotReady = [c.health.reason, "Every rule passed, but Ready is blocked until the data is fresh. Press Refresh Data or wait for the next update."];
+    d.nextAction = `Refresh ${sym} data. The plan upgrades to Ready automatically once a fresh quote confirms it.`;
+    d.suggestedShares = 0;
+    return out("BLOCKED_DATA_MISMATCH", { earlyTrigger: early });
+  }
   d.nextAction = "Practice plan is available. Review entry, stop, targets, and risk.";
   return out("READY_TO_TRADE", { earlyTrigger: early });
 }
@@ -476,6 +490,47 @@ function choosePrimary(vis: Candidate[]): SwingDecision | null {
   return peers.reduce((a, b) => ((a.setupTimestamp ?? "") <= (b.setupTimestamp ?? "") ? a : b));
 }
 
+/** Data-status rules v2: LIVE / DELAYED / STALE / MISMATCH from quote age, bar age and the chart reference.
+ *  Market closed → age is measured to the last session close, so nights/weekends are not STALE. */
+export function dataHealthOf(E: EvalInput, sym: string, closed1h: Bar1H[], closed4h: Bar4H[], closedDaily: SwingBar[],
+  mm: { mismatch: string | null; verified: boolean }): DataHealth & { status: DataStatus } {
+  const now = E.now, rth = inRth(now);
+  const last1h = closed1h[closed1h.length - 1]?.end ?? null;
+  const last4h = closed4h[closed4h.length - 1]?.end ?? null;
+  const qTs = E.quote?.ts ?? last1h;
+  // Market closed: the latest data can't be newer than the last session close.
+  const lastDay = closedDaily[closedDaily.length - 1];
+  const lastClose = lastDay ? chicagoTs(chicago(lastDay.t).ymd, 900) : null;
+  const asOf = rth ? now : Math.max(lastClose ?? 0, last1h ?? 0) || now;
+  const quoteAge = qTs != null ? Math.max(0, asOf - qTs) : null;
+  const barAge = last1h != null ? Math.max(0, now - last1h) : null;
+  const cm = chicago(now).minutes;
+  // During RTH after the first hour + one cycle, a missing new 1H bar means the bar feed stopped updating.
+  const barsStale = rth && last1h != null && cm >= 510 + 60 + STALE_AFTER_SEC / 60
+    && (chicago(last1h).ymd !== chicago(now).ymd || now - last1h > 3600 + STALE_AFTER_SEC);
+  let status: DataStatus, reason: string;
+  const ageTxt = (a: number | null) => (a == null ? "unknown" : a < 120 ? `${a}s` : `${Math.round(a / 60)} min`);
+  if (mm.mismatch) { status = "MISMATCH"; reason = mm.mismatch; }
+  else if (quoteAge == null) { status = "ERROR"; reason = "No quote and no completed bars returned by the feed."; }
+  else if (quoteAge > STALE_AFTER_SEC || barsStale) {
+    status = "STALE";
+    reason = barsStale ? `No new completed 1H bar since ${fmtCT(last1h)} — the bar feed has not updated for more than 2 refresh cycles.`
+      : `Quote is ${ageTxt(quoteAge)} old — more than 2 refresh cycles (${EXPECTED_REFRESH_SEC / 60} min each) without an update.`;
+  } else if (quoteAge > QUOTE_FRESH_SEC) { status = "DELAYED"; reason = `Quote is ${ageTxt(quoteAge)} old — updating, but past the ${QUOTE_FRESH_SEC / 60}-min live tolerance.`; }
+  else { status = "LIVE"; reason = rth ? `Quote ${ageTxt(quoteAge)} old — within the ${QUOTE_FRESH_SEC / 60}-min tolerance of the free feed.` : "Market closed — data is current as of the last session close."; }
+  const ref = E.reference;
+  return {
+    status, reason,
+    quoteTimestamp: iso(qTs), lastCompleted1H: iso(last1h), lastCompleted4H: iso(last4h),
+    dataVendor: E.dataSource ?? null, symbol: sym, exchange: E.exchange,
+    marketSession: rth ? "RTH" : (cm >= 180 && cm < 1140 && [1, 2, 3, 4, 5].includes(new Date(now * 1000).getUTCDay()) ? "EXTENDED" : "CLOSED"),
+    expectedRefreshSec: EXPECTED_REFRESH_SEC,
+    quoteAgeSec: quoteAge, completedBarAgeSec: barAge,
+    referenceSource: ref?.source ?? null, referenceTime: iso(ref?.barEnd ?? null), referenceVerified: mm.verified,
+    mismatchAmount: mm.mismatch,
+  };
+}
+
 export function evaluate(E: EvalInput): EvalResult {
   const s = E.settings, sym = E.symbol.toUpperCase();
   // 1 · Normalize & validate
@@ -488,12 +543,15 @@ export function evaluate(E: EvalInput): EvalResult {
   const mm = checkMismatch(E, sym, closed1h, closed4h);
   const fresh = E.quote ? E.now - E.quote.ts <= QUOTE_FRESH_SEC : false;
   let dataStatus: DataStatus = mm.mismatch ? "MISMATCH" : mm.verified && fresh ? "LIVE" : "DELAYED";
-  if (closed4h.length < MIN_CLOSED_4H || price == null) dataStatus = "ERROR";
+  const health = dataHealthOf(E, sym, closed1h, closed4h, closedDaily, mm);
+  if (dataRulesV2()) dataStatus = health.status;
+  if (closed4h.length < MIN_CLOSED_4H || price == null) { dataStatus = "ERROR"; health.reason = `Not enough closed bars (${closed4h.length} 4H) or no price — the feed returned incomplete data.`; }
 
   // 2 · Regime
   const weekly = weeklyRegime(daily, E.now);
   const dailyS = dailyRegime(daily, E.now);
-  const c: Ctx = { E, s, sym, h1, closed1h, b4, closed4h, daily, closedDaily, weekly, dailyS, price, dataStatus,
+  const { status: _st, ...healthOut } = health;
+  const c: Ctx = { E, s, sym, h1, closed1h, b4, closed4h, daily, closedDaily, weekly, dailyS, price, dataStatus, health: healthOut,
     mismatch: mm.mismatch, session: inRth(E.now) ? "RTH" : "EXTENDED", support: null, resistance: null, supportPx: null, resistancePx: null };
   nearestLevels(c);
 

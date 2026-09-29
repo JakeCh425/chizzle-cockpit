@@ -18,6 +18,7 @@ import {
 } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
+import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
@@ -212,6 +213,8 @@ export function useScan(req: { selection: ScanSelection; symbols: string[]; forc
     queryKey: ["/api/swing/scan", req.selection, req.symbols.join(","), req.force],
     queryFn: () => swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : ""}`),
     enabled, staleTime: 5 * 60_000, placeholderData: (prev) => prev, retry: false,
+    // Cached (non-forced) scans only: re-check every minute while any ticker's data is not LIVE.
+    refetchInterval: (q) => (req.force ? false : ((q.state.data as ScanResp | undefined)?.rows ?? []).some((r) => r.decision.dataStatus !== "LIVE") ? 60_000 : 5 * 60_000),
   });
 }
 
@@ -509,6 +512,7 @@ export default function SwingWorkspace() {
       <div className="flex flex-wrap items-center gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] font-mono text-signal-amber" role="note" data-testid="banner-practice">
         <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
       </div>
+      <DataStatusBanner decisions={(scan.data?.rows ?? []).map((r) => r.decision)} />
       <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} />
       <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
         <div className="space-y-3 min-w-0">

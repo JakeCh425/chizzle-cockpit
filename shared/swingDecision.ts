@@ -9,7 +9,7 @@
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE. No broker orders, ever.
 
 // ─── Enums ──────────────────────────────────────────────────────────────────
-export const DATA_STATUSES = ["LIVE", "DELAYED", "ERROR", "MISMATCH"] as const;
+export const DATA_STATUSES = ["LIVE", "DELAYED", "STALE", "ERROR", "MISMATCH"] as const;
 export type DataStatus = typeof DATA_STATUSES[number];
 
 export const SESSIONS = ["RTH", "EXTENDED"] as const;
@@ -135,7 +135,30 @@ export interface SwingDecision {
 
   // §Q — additive: chart overlay derived from this decision and its setup history.
   chart?: ChartOverlay;
+  // Data-status rules v2 — additive provenance for the Data Status banner / verify card.
+  dataHealth?: DataHealth;
 }
+
+export interface DataHealth {
+  quoteTimestamp: string | null;
+  lastCompleted1H: string | null;
+  lastCompleted4H: string | null;
+  dataVendor: string | null;
+  symbol: string; exchange: string;
+  marketSession: "RTH" | "EXTENDED" | "CLOSED";
+  expectedRefreshSec: number;
+  quoteAgeSec: number | null;          // measured to now (RTH) or to the last session close (market closed)
+  completedBarAgeSec: number | null;   // age of the last completed 1H bar
+  referenceSource: string | null;      // chart reference (TradingView / 2nd vendor), if connected
+  referenceTime: string | null;
+  referenceVerified: boolean;          // a reference agreed with the engine's completed close
+  mismatchAmount: string | null;       // exact mismatch detail when MISMATCH
+  reason: string;                      // one plain-English line explaining the status
+}
+
+/** Shown on every card whose data is not LIVE. */
+export const dataVerifyLabel = (s: DataStatus) => `DATA ${s} — VERIFY BEFORE PRACTICE PLAN`;
+export const REFERENCE_ONLY = "REFERENCE ONLY — DATA NOT VERIFIED";
 
 // ─── Fixed copy (spec §C, §I) ───────────────────────────────────────────────
 export const PRACTICE_BANNER = "PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE";
@@ -215,7 +238,7 @@ export const STATUS_LABEL: Record<SetupStatus, string> = {
   WATCH_EXTENDED: "Watch — Extended",
   WATCH_STOP_TOO_WIDE: "Watch — Stop Too Wide",
   WATCH_RR_TOO_LOW: "Watch — R:R Too Low",
-  BLOCKED_DATA_MISMATCH: "Blocked — Data Mismatch",
+  BLOCKED_DATA_MISMATCH: "Blocked — Data Not Verified",
   SIGNAL_EXPIRED: "Signal Expired",
   NO_SETUP: "No Setup",
   NO_TRADE: "No Trade",
@@ -230,7 +253,7 @@ export function readinessLabel(score: number, s: SetupStatus): string {
   if (s === "WATCH_RETEST") return "Watching retest zone";
   if (s === "WATCH_STOP_TOO_WIDE") return "Structure stop exceeds risk policy";
   if (s === "WATCH_RR_TOO_LOW") return "Reward/risk below your minimum";
-  if (s === "BLOCKED_DATA_MISMATCH") return "Data mismatch — resolve before entry";
+  if (s === "BLOCKED_DATA_MISMATCH") return "Data not verified — refresh before entry";
   if (s === "SIGNAL_EXPIRED") return "Signal expired";
   return score >= 60 ? "Trend constructive — no setup yet" : "No setup";
 }
