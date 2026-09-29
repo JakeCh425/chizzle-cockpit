@@ -25,6 +25,9 @@ export const STALE_AFTER_SEC = 2 * EXPECTED_REFRESH_SEC; // > 2 cycles without a
 export const dataRulesV2 = () => process.env.ENABLE_DATA_STATUS_V2 !== "false";
 export const MIN_CLOSED_4H = 8;
 export const LOOKBACK_1H = 8;
+/** A FORMING setup that never confirms goes stale: after this many closed 4H bars (~3 sessions) it
+ *  expires so the card moves to the newest setup instead of showing an old date forever. */
+export const FORMING_MAX_4H = 6;
 
 export interface ReferenceQuote {
   symbol: string;          // e.g. "SMH"
@@ -244,6 +247,17 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
 
   // ── FORMING: developing, not tradeable ─────────────────────────────────────
   if (det.stage === "FORMING") {
+    const formedEnd = det.barEnd ?? det.barTime;
+    const formingDeadline = formedEnd != null && det.timeframe === "4H" ? sessionEndAfter(formedEnd, FORMING_MAX_4H) : null;
+    if (formingDeadline != null && c.E.now > formingDeadline) {
+      applyPlan(d, planAt(c.E.now)); d.suggestedShares = 0;
+      d.expiryTime = iso(formingDeadline);
+      d.riskLabel = "SIGNAL EXPIRED — FORMING SETUP NEVER CONFIRMED";
+      d.failedRules.push(`forming since ${fmtCT(formedEnd)} with no confirmation within ${FORMING_MAX_4H} closed 4H bars`);
+      d.whyNotReady = [`Expired ${fmtCT(formingDeadline)}: this ${SETUP_NAME[det.type]} started forming ${fmtCT(formedEnd)} and never confirmed within ${FORMING_MAX_4H} closed 4H bars (~3 sessions).`];
+      d.nextAction = `Old ${SETUP_NAME[det.type]} on ${sym} is stale — watch for a new setup on the next closed 4H bar.`;
+      return out("SIGNAL_EXPIRED");
+    }
     applyPlan(d, planAt(c.E.now)); d.suggestedShares = null;
     d.riskLabel = FORMING_WARNING;
     d.whyNotReady = [FORMING_WARNING, ...det.missing];
