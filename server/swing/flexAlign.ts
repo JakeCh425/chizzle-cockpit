@@ -133,6 +133,13 @@ export async function alignFlexResult(result: FlexScanResult): Promise<FlexScanR
       if (left <= 0) { void decide(c.ticker, exch.get(c.ticker) ?? ""); continue; } // warm cache for the next refresh
       // Serve the last known decision instantly (stale-while-revalidate) so the scanner never stalls.
       const hit = _test.evalCache.get(c.ticker.toUpperCase()) as any;
+      // A new 1H bar closed since this decision: wait (within budget) for the fresh one so every
+      // panel fires on the same bar; fall back to the last decision only if the vendor is slow.
+      const hourOf = (k: string) => String(k).split("|")[1]?.split(":").slice(0, 2).join(":") ?? "";
+      if (hit && hourOf(hit.key) !== hourOf(`x|${barKey(Math.floor(Date.now() / 1000))}`)) {
+        const d = await Promise.race([decide(c.ticker, exch.get(c.ticker) ?? ""), new Promise<null>((r) => setTimeout(() => r(null), Math.max(0, deadline - Date.now())))]);
+        out[i] = alignCard(c, d ?? hit.res.decision); continue;
+      }
       if (hit) {
         if (!String(hit.key).endsWith(barKey(Math.floor(Date.now() / 1000)))) void decide(c.ticker, exch.get(c.ticker) ?? "");
         out[i] = alignCard(c, hit.res.decision); continue;

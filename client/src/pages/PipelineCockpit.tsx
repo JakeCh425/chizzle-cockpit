@@ -25,6 +25,7 @@ import ErrorBoundary from "@/components/ErrorBoundary";
 import CollapsibleSection from "@/components/CollapsibleSection";
 import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
+import SyncClock from "@/components/SyncClock";
 import SwingWorkspace from "@/components/swing/SwingWorkspace";
 import { SwingDoToday, UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
@@ -59,6 +60,7 @@ export default function PipelineCockpit() {
 
       {/* 2. "What should I do today?" — plain-English translation of
            existing regime + scanner outputs. No new signals. */}
+      <SyncClock />
       <DoTodayCard />
 
       {/* PR 3e — Unified Swing Engine (§Q). Renders nothing unless ENABLE_UNIFIED_SWING_ENGINE is on. */}

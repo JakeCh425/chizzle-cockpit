@@ -34,6 +34,9 @@ function StateLine({ d }: { d: SwingDecision }) {
     const tf = d.setupStatus === "SETUP_CONFIRMED" ? "1H" : (d.setupTimeframe === "1H" ? "1H" : "4H");
     return <div className="text-[10.5px] font-mono font-bold text-yellow-600 dark:text-yellow-300" data-testid={`ticket-state-${d.symbol}`}>{d.setupStatus === "SETUP_FORMING" ? "SETUP FORMING" : "SETUP CONFIRMED"} — WAIT FOR {tf} BAR CLOSE.</div>;
   }
+  if (d.setupStatus === "SIGNAL_EXPIRED") {
+    return <div className="text-[10.5px] font-mono" data-testid={`ticket-state-${d.symbol}`}><span className="font-bold text-slate-gray">SIGNAL EXPIRED — OLD SETUP{d.setupTimestamp ? ` FROM ${new Date(d.setupTimestamp).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).toUpperCase()}` : ""}.</span> <span className="text-slate-gray">Levels below are history only — wait for a new setup.</span></div>;
+  }
   if (d.setupStatus === "WATCH_EXTENDED") {
     return (
       <div className="text-[10.5px] font-mono" data-testid={`ticket-state-${d.symbol}`}>
@@ -79,7 +82,7 @@ function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; fir
         ))}
       </div>
       <div className="mt-1.5 text-[10.5px]" style={{ color: firing ? "#6ee7b7" : "#cbd5e1" }} data-testid={`ticket-next-${d.symbol}`}>
-        {firing ? "Setup confirmed on closed bars — if you practice it, place the order yourself in your broker. " : "Potential trade — not ready yet. "}
+        {firing ? "Setup confirmed on closed bars — if you practice it, place the order yourself in your broker. " : d.setupStatus === "SIGNAL_EXPIRED" ? "Expired — not a trade. " : "Potential trade — not ready yet. "}
         <span className="text-slate-gray">{d.nextAction}</span>
       </div>
     </div>
