@@ -221,6 +221,12 @@ function ReadyPlanCard({ c, maxRisk }: { c: any; maxRisk: number | null }) {
           <span>Heads up: price is stretched ({c.extension.pct_distance?.toFixed?.(1)}% above the 20-SMA). Chasing stretched moves is riskier — a pullback toward the 20-SMA is a calmer entry.</span>
         </div>
       )}
+      {c.unified?.dataStatus && !["LIVE", "PENDING", "OK"].includes(c.unified.dataStatus) && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-yellow-500/50 bg-yellow-500/5 px-2 py-1 text-[10.5px] font-mono text-yellow-600 dark:text-yellow-300" data-testid={`warn-data-${c.ticker}`}>
+          <span className="font-bold">DATA {c.unified.dataStatus} — VERIFY BEFORE PRACTICE PLAN.</span>
+          <span>REFERENCE ONLY — DATA NOT VERIFIED.</span>
+        </div>
+      )}
       <div className="text-[9.5px] font-mono text-slate-gray">PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE · OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.</div>
     </div>
   );
