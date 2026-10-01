@@ -989,3 +989,50 @@ export const swingPlanVersions = pgTable("swing_plan_versions", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type SwingPlanVersionRow = typeof swingPlanVersions.$inferSelect;
+
+// ─── Section R4 — practice price alerts (additive) ───────────────────────────
+// Rollback: DROP TABLE swing_alert_events, swing_price_alerts, swing_alert_prefs;
+// Informational only — nothing here is ever connected to a broker.
+export const swingPriceAlerts = pgTable("swing_price_alerts", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  setupId: text("setup_id"),
+  planVersion: integer("plan_version").notNull().default(0),
+  type: text("type").notNull(),
+  level: doublePrecision("level"),
+  levelHigh: doublePrecision("level_high"),
+  channels: jsonb("channels").notNull().default(["in_app"] as any),
+  frequency: text("frequency").notNull().default("ONCE"),
+  repeatMinutes: integer("repeat_minutes").notNull().default(30),
+  expiryMode: text("expiry_mode").notNull().default("END_OF_DAY"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  active: boolean("active").notNull().default(true),
+  lastFiredAt: timestamp("last_fired_at", { withTimezone: true }),
+  lastFiredBar: text("last_fired_bar"),
+  fireCount: integer("fire_count").notNull().default(0),
+  lastState: text("last_state"),
+  note: text("note").notNull().default(""),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export const swingAlertEvents = pgTable("swing_alert_events", {
+  id: serial("id").primaryKey(),
+  alertId: integer("alert_id"),
+  symbol: text("symbol").notNull(),
+  type: text("type").notNull(),
+  firedAt: timestamp("fired_at", { withTimezone: true }).notNull().defaultNow(),
+  price: doublePrecision("price"),
+  level: doublePrecision("level"),
+  dataSource: text("data_source"),
+  dataStatus: text("data_status"),
+  condition: text("condition").notNull().default(""),
+  planVersion: integer("plan_version").notNull().default(0),
+  message: text("message").notNull().default(""),
+  delivery: jsonb("delivery").notNull().default({} as any),   // channel → { status, error? }
+  acknowledged: boolean("acknowledged").notNull().default(false),
+  acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+});
+export const swingAlertPrefs = pgTable("swing_alert_prefs", {
+  id: integer("id").primaryKey().default(1),
+  data: jsonb("data").notNull().default({} as any),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});

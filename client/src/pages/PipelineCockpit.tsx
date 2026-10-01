@@ -30,6 +30,7 @@ import SwingWorkspace from "@/components/swing/SwingWorkspace";
 import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import ActionCenter from "@/components/swing/ActionCenter";
 import { PlanEditorHost } from "@/components/swing/PlanEditor";
+import { AlertDialogHost } from "@/components/swing/PriceAlerts";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
 import CockpitWorkspace from "@/components/CockpitWorkspace";
 import LegacyPipeline, { PENDING_PREFILL_KEY } from "@/components/LegacyPipeline";
@@ -69,6 +70,7 @@ export default function PipelineCockpit() {
           <ErrorBoundary label="Action Center">
             <ActionCenter />
             <PlanEditorHost />
+            <AlertDialogHost />
           </ErrorBoundary>
         )}
       </UnifiedSwingMount>

@@ -19,6 +19,7 @@ import {
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
 import { activeVersion, effectivePlan, useSelectedPlans } from "@/lib/plans";
+import { alertLevelsFor, useAlerts } from "@/lib/alerts";
 import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
@@ -484,6 +485,7 @@ export default function SwingWorkspace() {
   const scan = useScan(req);
   const dec = useSwingDecision(active, scope);
   const plans = useSelectedPlans();
+  const alertsQ = useAlerts();
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
   const d = dec.data?.decision;
   const v = dec.data?.verdict;
@@ -534,7 +536,7 @@ export default function SwingWorkspace() {
           <div data-testid="swing-chart-anchor" />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
-            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} />
+            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} alertLevels={alertLevelsFor(alertsQ.data?.alerts, active)} />
           </CollapsibleSection>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}

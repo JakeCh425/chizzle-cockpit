@@ -82,9 +82,11 @@ export interface SwingChartProps {
   highlight?: boolean;
   /** Section R6 — selected user-adjusted plan version (dashed "Practice Plan vN" lines). */
   userPlan?: PlanVersion | null;
+  /** Section R4 — active practice-alert levels (drawn with a bell in the label gutter). */
+  alertLevels?: { price: number; type: string }[];
 }
 
-export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan }: SwingChartProps) {
+export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan, alertLevels }: SwingChartProps) {
   const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
   // Chart controls remember how you last left them (per timeframe for the range).
   const [rangeByTf, setRangeByTf] = usePersistentState<Partial<Record<Tf, typeof RANGES[number]>>>("swing-chart-range", {});
@@ -102,7 +104,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [hoverChart, setHoverChart] = useState(false);
   const [pinLevels, setPinLevels] = usePersistentState<boolean>("swing-chart-pin-levels", false);
   const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
-  const gutterOn = ov.plan && (hasPlan(decision) || !!userPlan);
+  const gutterOn = ov.plan && (hasPlan(decision) || !!userPlan || !!alertLevels?.length);
   const userLevels = useMemo(() => {
     const r = userPlan?.result; if (!r) return [];
     const v = userPlan!.version;
@@ -110,6 +112,8 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       .filter(([, , p]) => p != null).map(([kind, name, price]) => ({ kind, name, price: price as number, v,
         color: kind === "STOPLMT" ? "#fca5a5" : LEVEL_COLOR[kind as keyof typeof LEVEL_COLOR] ?? "#cbd5e1" }));
   }, [userPlan?.id]);
+  const alertKey = JSON.stringify(alertLevels ?? []);
+  const alertLv = useMemo(() => (alertLevels ?? []).filter((a) => Number.isFinite(a.price)), [alertKey]);
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
   const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
@@ -276,6 +280,11 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const sl = stopLv ? stopLimitFor(stopLv.price) : null;
     if (sl != null) gLevels.push({ price: sl, color: "#fca5a5", text: `Stop lmt $${sl.toFixed(2)}` });
     if (ov.plan) for (const u of userLevels) (gLevels as any[]).push({ price: u.price, color: u.color, text: `v${u.v} ${u.name} $${u.price.toFixed(2)}`, dashed: true });
+    if (ov.plan) for (const a of alertLv) {
+      const hit = (gLevels as any[]).find((l) => Math.abs(l.price - a.price) < 0.006);
+      if (hit) hit.bell = true;
+      else (gLevels as any[]).push({ price: a.price, color: "#38bdf8", text: `Alert $${a.price.toFixed(2)}`, dashed: true, bell: true });
+    }
     const drawGutter = () => {
       const g = gutterRef.current; if (!g) return;
       g.innerHTML = "";
@@ -304,6 +313,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           ? `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:14px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:${p.color};background:#050a13;border:1px dashed ${p.color}`
           : `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
         if ((p as any).dashed) d.setAttribute("data-testid", "gutter-label-user");
+        if ((p as any).bell) {
+          // Bell = an active practice price alert sits on this level (not an order).
+          const b = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+          b.setAttribute("viewBox", "0 0 24 24"); b.setAttribute("width", "9"); b.setAttribute("height", "9");
+          b.setAttribute("fill", "none"); b.setAttribute("stroke", "currentColor"); b.setAttribute("stroke-width", "2.5");
+          b.style.cssText = "display:inline-block;vertical-align:-1px;margin-right:3px";
+          b.innerHTML = '<path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/>';
+          d.prepend(b); d.setAttribute("data-alert", "1"); d.title = "Active practice price alert on this level";
+        }
         g.appendChild(d);
       });
     };
@@ -317,7 +335,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const tm = setTimeout(safeDraw, 60);
     return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels]);
+  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv]);
 
   // Toggle plan info without rebuilding the chart.
   useEffect(() => {
