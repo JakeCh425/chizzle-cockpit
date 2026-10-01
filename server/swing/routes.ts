@@ -133,6 +133,12 @@ export function registerSwingRoutes(app: Express) {
     const { sym, ex } = await symEx(String(req.params.symbol));
     if (!ex) { res.status(404).json({ error: `${sym} is not on the watchlist — add it first.` }); return; }
     const b = z.object({ inputs: planInputsSchema, reason: z.string().max(2000).default(""), chartState: z.record(z.unknown()).default({}) }).parse(req.body ?? {});
+    // Manual levels (trading card / editor) — same direction rules as the client (long plan).
+    const mi = b.inputs, bad: string[] = [];
+    if (mi.stopMethod === "MANUAL" && mi.stopLevel != null && mi.stopLevel - (mi.manualBuffer ?? 0) >= mi.entry) bad.push("Entry must be above the long stop/invalidation price.");
+    if (mi.targetMethod === "MANUAL" && mi.manualT1 != null && mi.manualT1 <= mi.entry) bad.push("Target 1 must be above the entry for a long plan.");
+    if (mi.targetMethod === "MANUAL" && mi.manualT1 != null && mi.manualT2 != null && mi.manualT2 < mi.manualT1) bad.push("Target 2 must be at or above Target 1.");
+    if (bad.length) { res.status(400).json({ error: bad.join(" ") }); return; }
     return { ok: true, version: await saveVersion(sym, ex, b.inputs, b.reason, b.chartState) };
   }));
   app.post("/api/swing/plans/:symbol/select", wrap(async (req, res) => {

@@ -349,3 +349,57 @@ export function effectivePlan(d: DecisionLike, v: PlanVersion | null): Effective
   };
 }
 
+
+// ─── Trading card — direct level editing (reuses recalcPlan; no new math) ────
+/** The five prices a beginner edits on the trading card. */
+export interface CardLevels { entry: number; stop: number; stopLimit: number; t1: number; t2: number }
+const cents = (n: number) => Math.abs(Math.round(n * 100) - n * 100) < 1e-6;
+/** Minimum gap between the stop trigger and its limit price — same floor as `stopLimitOf`. */
+export const MIN_STOP_LIMIT_GAP = 0.05;
+
+/** Validation for a long practice plan. Returns plain-English problems keyed by field. */
+export function validateCardLevels(l: Partial<Record<keyof CardLevels, number | null>>): Partial<Record<keyof CardLevels, string>> {
+  const e: Partial<Record<keyof CardLevels, string>> = {};
+  const names: Record<keyof CardLevels, string> = { entry: "Entry", stop: "Stop loss", stopLimit: "Stop limit", t1: "Target 1", t2: "Target 2" };
+  for (const k of Object.keys(names) as (keyof CardLevels)[]) {
+    const v = l[k];
+    if (v == null || !Number.isFinite(v)) e[k] = `${names[k]} needs a price.`;
+    else if (v <= 0) e[k] = `${names[k]} must be a positive price.`;
+    else if (!cents(v)) e[k] = `${names[k]} can have at most 2 decimals (cents).`;
+  }
+  const { entry, stop, stopLimit, t1, t2 } = l as Record<keyof CardLevels, number>;
+  if (!e.stop && !e.entry && stop >= entry) e.stop = "Entry must be above the long stop/invalidation price.";
+  if (!e.stopLimit && !e.stop && stopLimit > stop - MIN_STOP_LIMIT_GAP + 1e-9) e.stopLimit = `The limit price must sit at least $${MIN_STOP_LIMIT_GAP.toFixed(2)} below the stop trigger ($${stop.toFixed(2)}).`;
+  if (!e.t1 && !e.entry && t1 <= entry) e.t1 = "Target 1 must be above the entry for a long plan.";
+  if (!e.t2 && !e.t1 && t2 < t1) e.t2 = "Target 2 must be at or above Target 1.";
+  return e;
+}
+
+/** Map the five edited prices onto the existing editor inputs (manual stop, manual targets, explicit stop-limit offset). */
+export function inputsFromCardLevels(ctx: PlanContext, l: CardLevels, maxDollarRisk: number, minRrT1: number): PlanInputs {
+  const o = ctx.original, px = ctx.currentPrice;
+  const sameEntry = o.entry != null && Math.abs(o.entry - l.entry) < 0.005;
+  const entryMethod: EntryMethod = sameEntry ? "TRIGGER" : px != null && l.entry < px ? "PULLBACK_LIMIT" : px != null && l.entry > px ? "BREAKOUT" : "TRIGGER";
+  const sameStop = o.stop != null && Math.abs(o.stop - l.stop) < 0.005;
+  // stopLimitOf(stop, pct) = stop − max(0.05, stop·pct/100) → pct that reproduces the chosen limit price.
+  const pct = Math.min(5, Math.max(0, ((l.stop - l.stopLimit) / l.stop) * 100));
+  return {
+    entry: r2(l.entry), entryMethod,
+    stopMethod: sameStop ? "ORIGINAL" : "MANUAL", stopLevel: sameStop ? null : r2(l.stop), bufferMethod: "MANUAL", manualBuffer: 0,
+    targetMethod: "MANUAL", t1R: DEFAULT_T1R, t2R: DEFAULT_T2R, manualT1: r2(l.t1), manualT2: r2(l.t2),
+    maxDollarRisk, minRrT1, shareMethod: "AUTO", manualShares: null, stopLimitBufferPct: Math.round(pct * 1e6) / 1e6,
+  };
+}
+
+/** Did the engine's own plan move since this version was saved (same setup)? */
+export function engineChangedSince(v: PlanVersion | null, d: { entryPrice: number | null; structuralStop: number | null; target1: number | null; target2: number | null }): string[] {
+  if (!v) return [];
+  const o = v.context?.original; if (!o) return [];
+  const out: string[] = [];
+  const cmp = (name: string, a: number | null, b: number | null) => { if ((a == null) !== (b == null) || (a != null && b != null && Math.abs(a - b) >= 0.005)) out.push(`${name} ${$(a)} → ${$(b)}`); };
+  cmp("Entry", o.entry, d.entryPrice); cmp("Stop", o.stop, d.structuralStop); cmp("Target 1", o.t1, d.target1); cmp("Target 2", o.t2, d.target2);
+  return out;
+}
+/** Stable signature of the engine plan, for remembering a "keep my plan" choice. */
+export const enginePlanSig = (d: { entryPrice: number | null; structuralStop: number | null; target1: number | null; target2: number | null }) =>
+  [d.entryPrice, d.structuralStop, d.target1, d.target2].map((x) => (x == null ? "-" : x.toFixed(2))).join("|");
