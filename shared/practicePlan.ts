@@ -403,3 +403,84 @@ export function engineChangedSince(v: PlanVersion | null, d: { entryPrice: numbe
 /** Stable signature of the engine plan, for remembering a "keep my plan" choice. */
 export const enginePlanSig = (d: { entryPrice: number | null; structuralStop: number | null; target1: number | null; target2: number | null }) =>
   [d.entryPrice, d.structuralStop, d.target1, d.target2].map((x) => (x == null ? "-" : x.toFixed(2))).join("|");
+
+// ─── Target methods (trading card) ───────────────────────────────────────────
+// R = |entry − stop loss|  (the STOP LOSS, never the stop-limit price)
+// long target  = entry + multiple × R      short target = entry − multiple × R
+export type CardTargetMethod = "ENGINE" | "FIXED_R" | "STRUCTURE" | "MANUAL";
+export const CARD_TARGET_METHOD_LABEL: Record<CardTargetMethod, string> = {
+  ENGINE: "Engine Original", FIXED_R: "Fixed R", STRUCTURE: "Structure-Based", MANUAL: "Manual Prices",
+};
+export const R_CHOICES = [1, 1.5, 2, 3, 4, 5] as const;
+export const R_PRESETS: [number, number][] = [[2, 3], [2, 4], [3, 5]];
+export const R_EXPLAIN = "2R means $2 of potential reward for every $1 of planned risk, before execution costs.";
+
+/** Planned risk per share. Null for zero/invalid risk (no target can be derived). */
+export function plannedR(entry: number | null, stop: number | null): number | null {
+  if (entry == null || stop == null || !Number.isFinite(entry) || !Number.isFinite(stop) || entry <= 0 || stop <= 0) return null;
+  const r = r2(Math.abs(entry - stop));
+  return r > 0 ? r : null;
+}
+/** Direction from the stop's side of entry: stop below → long, stop above → short. */
+export const directionOf = (entry: number, stop: number): "LONG" | "SHORT" | null => (stop < entry ? "LONG" : stop > entry ? "SHORT" : null);
+/** Target price at `multiple` R. Rounded to cents (supported precision) only at the end. */
+export function targetAtR(entry: number | null, stop: number | null, multiple: number): number | null {
+  const R = plannedR(entry, stop);
+  if (R == null || !(multiple > 0) || !Number.isFinite(multiple)) return null;
+  return directionOf(entry!, stop!) === "LONG" ? r2(entry! + multiple * R) : r2(entry! - multiple * R);
+}
+/** R multiple a target represents (positive = in the trade's favour). */
+export function rMultipleOf(entry: number | null, stop: number | null, target: number | null): number | null {
+  const R = plannedR(entry, stop);
+  if (R == null || target == null || !Number.isFinite(target)) return null;
+  const dir = directionOf(entry!, stop!) === "LONG" ? 1 : -1;
+  return Math.round(((target - entry!) * dir / R) * 100) / 100;
+}
+
+export interface TargetChoice {
+  method: CardTargetMethod;
+  t1R?: number; t2R?: number;                     // FIXED_R (and STRUCTURE T2 fallback via t2R)
+  t1Ref?: number | null; t2Ref?: number | null;   // STRUCTURE: chosen level prices
+  manualT1?: number | null; manualT2?: number | null;
+}
+export interface ResolvedTargets { t1: number | null; t2: number | null; why: string; error?: string }
+
+/** Turn a target method into prices. Each mode follows its own rule when entry/stop move:
+ *  ENGINE keeps the engine's prices; FIXED_R re-derives prices from the new R; STRUCTURE keeps the chosen levels;
+ *  MANUAL keeps your prices. R multiples are always re-read from the current entry/stop. */
+export function resolveTargets(c: TargetChoice, entry: number | null, stop: number | null, engine: { t1: number | null; t2: number | null }): ResolvedTargets {
+  const R = plannedR(entry, stop);
+  if (R == null) return { t1: null, t2: null, why: "", error: "Planned risk is zero or invalid — entry and stop loss must differ." };
+  switch (c.method) {
+    case "ENGINE":
+      return { t1: engine.t1, t2: engine.t2, why: "Engine target prices are kept as calculated; their R is re-read from your entry and stop." };
+    case "FIXED_R": {
+      const a = c.t1R ?? 2, b = c.t2R ?? 3;
+      if (!(a > 0) || !(b > 0)) return { t1: null, t2: null, why: "", error: "R multiples must be positive numbers." };
+      if (b < a) return { t1: null, t2: null, why: "", error: "Target 2's multiple must be at or above Target 1's." };
+      return { t1: targetAtR(entry, stop, a), t2: targetAtR(entry, stop, b), why: `Target = entry ${directionOf(entry!, stop!) === "LONG" ? "+" : "−"} multiple × R (R = |entry − stop loss| = $${R.toFixed(2)}). Prices move with your entry and stop.` };
+    }
+    case "STRUCTURE": {
+      if (c.t1Ref == null) return { t1: null, t2: null, why: "", error: "Pick a structure level for Target 1." };
+      const t2 = c.t2Ref ?? (c.t2R != null ? targetAtR(entry, stop, c.t2R) : null);
+      return { t1: r2(c.t1Ref), t2: t2 != null ? r2(t2) : null, why: c.t2Ref == null && c.t2R != null ? `Target 1 is the chosen structure level; no structure level exists beyond it, so Target 2 uses a fixed ${c.t2R}R.` : "Targets are the chosen structure levels (prices stay fixed when entry or stop move)." };
+    }
+    default:
+      return { t1: c.manualT1 ?? null, t2: c.manualT2 ?? null, why: "You set the target prices; their R is re-read from your entry and stop." };
+  }
+}
+
+/** Nearest supported structure level strictly between entry and a target (long plans) — an obstacle to show, never a filter. */
+export function obstacleBefore<L extends { price: number }>(levels: L[] | undefined, entry: number | null, target: number | null): L | null {
+  if (!levels?.length || entry == null || target == null || target <= entry) return null;
+  return [...levels].filter((l) => l.price > entry * 1.001 && l.price < target - 0.005).sort((a, b) => a.price - b.price)[0] ?? null;
+}
+
+/** Map a target choice onto the existing editor inputs (FIXED_R → R_MULTIPLE so recalcPlan derives prices; others → manual prices). */
+export function inputsFromCardChoice(ctx: PlanContext, l: Omit<CardLevels, "t1" | "t2">, choice: TargetChoice, engine: { t1: number | null; t2: number | null }, maxDollarRisk: number, minRrT1: number): { inputs: PlanInputs | null; resolved: ResolvedTargets } {
+  const resolved = resolveTargets(choice, l.entry, l.stop, engine);
+  if (resolved.error || resolved.t1 == null || resolved.t2 == null) return { inputs: null, resolved: resolved.error ? resolved : { ...resolved, error: "Both targets need a price." } };
+  const base = inputsFromCardLevels(ctx, { ...l, t1: resolved.t1, t2: resolved.t2 }, maxDollarRisk, minRrT1);
+  if (choice.method === "FIXED_R") return { inputs: { ...base, targetMethod: "R_MULTIPLE", t1R: choice.t1R ?? 2, t2R: choice.t2R ?? 3, manualT1: null, manualT2: null }, resolved };
+  return { inputs: base, resolved };
+}

@@ -132,6 +132,11 @@ export interface SwingDecision {
 
   target1Source?: "resistance" | "r-multiple";
   target2Source?: "resistance" | "r-multiple";
+  /** Target provenance (additive, metadata only): the pivot-high resistance levels above entry that the
+   *  engine's plan math saw AS OF plan time, nearest first, and which one (if any) became T1 / T2. */
+  structureLevels?: StructureLevel[];
+  target1Ref?: StructureLevel | null;
+  target2Ref?: StructureLevel | null;
 
   // §Q — additive: chart overlay derived from this decision and its setup history.
   chart?: ChartOverlay;
@@ -229,6 +234,9 @@ export const FORBIDDEN_PHRASES: Record<SetupStatus, string[]> = {
   NO_SETUP:              ["Ready to Trade", "Hard Block", "Long"],
   NO_TRADE:              ["Ready to Trade", "Hard Block", "Long"],
 };
+
+/** A market-structure level used by the plan math (pivot high = a bar whose high exceeds the 2 bars on each side). */
+export interface StructureLevel { price: number; timeframe: "1H" | "4H" | "1D"; time: string; kind: "pivot high" }
 
 export const STATUS_LABEL: Record<SetupStatus, string> = {
   READY_TO_TRADE: "Ready to Trade",

@@ -42,7 +42,7 @@ const planInputsSchema = z.object({
   entry: num.positive(), entryMethod: z.enum(ENTRY_METHODS), stopMethod: z.enum(STOP_METHODS),
   stopLevel: num.positive().nullable().optional(), bufferMethod: z.enum(["AUTO", "MANUAL"]),
   manualBuffer: num.min(0).nullable().optional(), targetMethod: z.enum(TARGET_METHODS),
-  t1R: num.min(0.5).max(10), t2R: num.min(0.5).max(20), manualT1: num.positive().nullable().optional(), manualT2: num.positive().nullable().optional(),
+  t1R: num.positive().max(20), t2R: num.positive().max(20), manualT1: num.positive().nullable().optional(), manualT2: num.positive().nullable().optional(),
   maxDollarRisk: num.positive().max(1_000_000), minRrT1: num.min(0).max(10), shareMethod: z.enum(["AUTO", "MANUAL"]),
   manualShares: num.min(0).max(1_000_000).nullable().optional(), stopLimitBufferPct: num.min(0).max(5).optional(),
 });
