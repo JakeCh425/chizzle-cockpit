@@ -481,3 +481,37 @@
 .recharts-tooltip-wrapper {
   outline: none !important;
 }
+
+/* ─── Action Center / Trading Card appearance (scoped; the rest of the cockpit is untouched) ───
+   Five themes × two font modes × three sizes. Semantic colours (good / warn / bad) keep the
+   same meaning in every theme and are always paired with text + icons. */
+.ac-root {
+  --ac-bg: #0B1220; --ac-surface: #111a2e; --ac-surface-2: #16223a; --ac-border: #2a3a5c; --ac-border-strong: #22D3EE;
+  --ac-text: #F1F5F9; --ac-muted: #A7B4C8; --ac-accent: #22D3EE; --ac-accent-2: #F5C451; --ac-on-accent: #04121a;
+  --ac-good: #34D399; --ac-warn: #FBBF24; --ac-bad: #F87171; --ac-shadow: 0 10px 30px -12px rgba(0,0,0,.65);
+  --ac-fs: 16px; --ac-fs-sm: 14px; --ac-fs-xs: 12.5px; --ac-price: 28px; --ac-ticker: 30px;
+  --ac-font: "Inter", ui-sans-serif, system-ui, sans-serif; --ac-num: "Inter", ui-sans-serif, system-ui, sans-serif;
+  font-family: var(--ac-font); font-size: var(--ac-fs); color: var(--ac-text);
+}
+.ac-root[data-ac-theme="mint"]   { --ac-bg:#101816; --ac-surface:#15211e; --ac-surface-2:#1b2a26; --ac-border:#2c423c; --ac-border-strong:#5EEAD4; --ac-text:#F1F5F9; --ac-muted:#B4C2BE; --ac-accent:#5EEAD4; --ac-accent-2:#CBD5E1; --ac-on-accent:#06201b; }
+.ac-root[data-ac-theme="violet"] { --ac-bg:#171226; --ac-surface:#1e1832; --ac-surface-2:#261f3f; --ac-border:#3d3363; --ac-border-strong:#A78BFA; --ac-text:#F5F3FF; --ac-muted:#C4BCDF; --ac-accent:#A78BFA; --ac-accent-2:#BAE6FD; --ac-on-accent:#150c2e; }
+.ac-root[data-ac-theme="copper"] { --ac-bg:#191919; --ac-surface:#212121; --ac-surface-2:#2a2a2a; --ac-border:#423a33; --ac-border-strong:#FB923C; --ac-text:#FFF7ED; --ac-muted:#C9BFB3; --ac-accent:#FB923C; --ac-accent-2:#FFF7ED; --ac-on-accent:#241002; }
+.ac-root[data-ac-theme="arctic"] { --ac-bg:#F5F7FB; --ac-surface:#FFFFFF; --ac-surface-2:#EEF2F8; --ac-border:#C9D3E3; --ac-border-strong:#14243B; --ac-text:#14243B; --ac-muted:#475569; --ac-accent:#0F766E; --ac-accent-2:#14243B; --ac-on-accent:#FFFFFF;
+  --ac-good:#047857; --ac-warn:#B45309; --ac-bad:#B91C1C; --ac-shadow: 0 10px 30px -14px rgba(20,36,59,.35); }
+.ac-root[data-ac-font="desk"] { --ac-num: "IBM Plex Mono", ui-monospace, monospace; }
+.ac-root[data-ac-size="large"]  { --ac-fs: 17px; --ac-fs-sm: 15px; --ac-fs-xs: 13.5px; --ac-price: 32px; --ac-ticker: 34px; }
+.ac-root[data-ac-size="xl"]     { --ac-fs: 18px; --ac-fs-sm: 16px; --ac-fs-xs: 14.5px; --ac-price: 36px; --ac-ticker: 38px; }
+.ac-root .ac-num { font-family: var(--ac-num); font-variant-numeric: tabular-nums; }
+.ac-root.ac-shell, .ac-root .ac-shell { background: var(--ac-bg); border: 2px solid var(--ac-border-strong); box-shadow: var(--ac-shadow); }
+.ac-root .ac-card { background: var(--ac-surface); border: 1px solid var(--ac-border); box-shadow: var(--ac-shadow); }
+.ac-root .ac-tile { background: var(--ac-surface-2); border: 1px solid var(--ac-border); }
+.ac-root .ac-muted { color: var(--ac-muted); }
+.ac-root .ac-accent { color: var(--ac-accent); }
+.ac-root .ac-good { color: var(--ac-good); } .ac-root .ac-warn { color: var(--ac-warn); } .ac-root .ac-bad { color: var(--ac-bad); }
+.ac-root .ac-btn { display:inline-flex; align-items:center; gap:.4em; border-radius:.55rem; padding:.42em .85em; font-size: var(--ac-fs-sm); font-weight:600;
+  border:1px solid var(--ac-border); color: var(--ac-text); background: transparent; }
+.ac-root .ac-btn:hover { border-color: var(--ac-accent); }
+.ac-root .ac-btn-primary { background: var(--ac-accent); color: var(--ac-on-accent); border-color: var(--ac-accent); }
+.ac-root .ac-btn:focus-visible, .ac-root button:focus-visible, .ac-root input:focus-visible, .ac-root select:focus-visible { outline: 3px solid var(--ac-accent); outline-offset: 2px; }
+.ac-root .ac-input { background: var(--ac-bg); color: var(--ac-text); border: 1px solid var(--ac-border); border-radius: .45rem; padding: .35em .55em; width: 100%; font-family: var(--ac-num); font-size: var(--ac-fs); }
+@media (prefers-reduced-motion: no-preference) { .ac-root .ac-card { transition: border-color .15s ease; } }

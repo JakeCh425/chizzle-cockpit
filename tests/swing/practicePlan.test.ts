@@ -178,3 +178,57 @@ describe("Section R — every module reads the same selected version", () => {
     expect(staleVersion(newer, { SMH: v })?.version).toBe(2);
   });
 });
+
+// ─── Trading card: direct level editing ──────────────────────────────────────
+import { validateCardLevels, inputsFromCardLevels, engineChangedSince, enginePlanSig, recalcPlan as rp, activeVersion as av } from "@shared/practicePlan";
+describe("trading card levels", () => {
+  const ctx: any = {
+    symbol: "SMH", exchange: "NASDAQ", setupType: "BREAKOUT_RETEST", setupTimestamp: "T", setupStatus: "WATCH_RETEST", originalTrigger: 618.6,
+    original: { entry: 618.6, stop: 610.63, stopLimit: 609.41, t1: 634.54, t2: 642.51, riskPerShare: 7.97, rrT1: 2, rrT2: 3 },
+    currentPrice: 618.2, atr1h: 3, resistances: [], maxExtensionPct: 1.5, dataStatus: "LIVE", dataSource: "yahoo", quoteTimestamp: null,
+  };
+  const L = { entry: 612, stop: 606.5, stopLimit: 605.2, t1: 623, t2: 628.5 };
+  it("validates positive, cents, direction and stop-limit semantics", () => {
+    expect(validateCardLevels(L)).toEqual({});
+    expect(validateCardLevels({ ...L, entry: -1 }).entry).toMatch(/positive/);
+    expect(validateCardLevels({ ...L, t1: 623.123 }).t1).toMatch(/2 decimals/);
+    expect(validateCardLevels({ ...L, stop: 613 }).stop).toMatch(/above the long stop/);
+    expect(validateCardLevels({ ...L, stopLimit: 606.5 }).stopLimit).toMatch(/below the stop trigger/);
+    expect(validateCardLevels({ ...L, stopLimit: 606.47 }).stopLimit).toMatch(/at least \$0\.05/);
+    expect(validateCardLevels({ ...L, t1: 611 }).t1).toMatch(/above the entry/);
+    expect(validateCardLevels({ ...L, t2: 620 }).t2).toMatch(/at or above Target 1/);
+    expect(validateCardLevels({ ...L, stop: null }).stop).toMatch(/needs a price/);
+  });
+  it("maps the five prices onto existing inputs and recalcPlan reproduces them exactly", () => {
+    const inp = inputsFromCardLevels(ctx, L, 100, 2);
+    expect(inp.stopMethod).toBe("MANUAL"); expect(inp.targetMethod).toBe("MANUAL"); expect(inp.entryMethod).toBe("PULLBACK_LIMIT");
+    const r = rp(ctx, inp);
+    expect([r.entry, r.stop, r.stopLimit, r.t1, r.t2]).toEqual([612, 606.5, 605.2, 623, 628.5]);
+    expect(r.riskPerShare).toBe(5.5);
+    expect(r.shares).toBe(18);                 // floor(100 / 5.5) — existing auto sizing
+    expect(r.totalRisk).toBe(99);              // 18 × 5.5
+    expect(r.capital).toBe(11016);             // 18 × 612
+    expect(r.rrT1).toBe(2);                    // (623 − 612) / 5.5
+    expect(r.rrT2).toBe(3);                    // (628.5 − 612) / 5.5
+    expect(r.changedFields).toEqual(expect.arrayContaining(["entry", "stop", "target1", "target2"]));
+  });
+  it("unchanged engine prices keep the ORIGINAL stop and reproduce the engine plan", () => {
+    const inp = inputsFromCardLevels(ctx, { entry: 618.6, stop: 610.63, stopLimit: 609.41, t1: 634.54, t2: 642.51 }, 100, 2);
+    expect(inp.stopMethod).toBe("ORIGINAL"); expect(inp.entryMethod).toBe("TRIGGER");
+    const r = rp(ctx, inp);
+    expect([r.entry, r.stop, r.stopLimit, r.t1, r.t2]).toEqual([618.6, 610.63, 609.41, 634.54, 642.51]);
+  });
+  it("flags an engine plan that moved since a version was saved (same setup), never silently", () => {
+    const v: any = { id: 7, version: 1, setupId: "SMH:BREAKOUT_RETEST:4H:T", context: ctx, result: {} };
+    const same = { entryPrice: 618.6, structuralStop: 610.63, target1: 634.54, target2: 642.51 };
+    expect(engineChangedSince(v, same)).toEqual([]);
+    expect(engineChangedSince(v, { ...same, target1: 620.9 })).toEqual(["Target 1 $634.54 → $620.90"]);
+    expect(enginePlanSig(same)).not.toBe(enginePlanSig({ ...same, target1: 620.9 }));
+  });
+  it("setup isolation: a version never applies to a new setup instance", () => {
+    const v: any = { id: 7, version: 1, setupId: "SMH:BREAKOUT_RETEST:4H:T1", result: {} };
+    const d: any = { symbol: "SMH", setupType: "BREAKOUT_RETEST", setupTimeframe: "4H", setupTimestamp: "T2" };
+    expect(av(d, { SMH: v })).toBeNull();
+    expect(av({ ...d, setupTimestamp: "T1" }, { SMH: v })).toBe(v);
+  });
+});
