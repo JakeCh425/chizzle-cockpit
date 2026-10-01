@@ -1,7 +1,8 @@
 // Section R4 — Set Alert dialog, Alerts panel (active + recent + acknowledge) and Alert Settings
 // (channels, verification, quiet hours, caps, dedupe). PRICE ALERT ONLY — never a broker order.
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, BellRing, Check, Settings2, Trash2 } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronDown, ChevronRight, Settings2, Trash2 } from "lucide-react";
+import { usePersistentState } from "@/hooks/use-persistent-state";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ALERT_SAFETY, ALERT_TYPES, ALERT_TYPE_LABEL, CHANNELS, CHANNEL_LABEL, needsLevel,
@@ -166,7 +167,8 @@ export function AlertsPanel() {
   const alertsQ = useAlerts();
   const eventsQ = useAlertEvents();
   const prefsQ = useAlertPrefs();
-  const [showSettings, setShowSettings] = useState(false);
+  const [open, setOpen] = usePersistentState<boolean>("swing-alerts-panel-open", true);
+  const [showSettings, setShowSettings] = usePersistentState<boolean>("swing-alerts-settings-open", false);
   const [showAll, setShowAll] = useState(false);
   useBrowserPush(eventsQ.data?.events, !!prefsQ.data?.prefs.channels.push);
   const active = (alertsQ.data?.alerts ?? []).filter((a) => a.active);
@@ -178,14 +180,19 @@ export function AlertsPanel() {
   return (
     <section className="mt-3 rounded-lg border border-ink-line px-3 py-2" aria-label="Practice alerts" data-testid="panel-alerts">
       <div className="flex flex-wrap items-center gap-2">
-        <Bell className="h-4 w-4 text-neon-blue" aria-hidden />
-        <span className="font-mono font-bold text-[12.5px] text-soft-white">PRACTICE ALERTS</span>
-        <span className="font-mono text-[11px] text-slate-gray" data-testid="text-alert-counts">{active.length} active · {unacked.length} new</span>
-        <span className="ml-auto flex gap-1.5">
+        <button className="inline-flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
+          onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="alerts-panel-body" data-testid="button-toggle-alerts-panel">
+          {open ? <ChevronDown className="h-4 w-4 text-slate-gray" aria-hidden /> : <ChevronRight className="h-4 w-4 text-slate-gray" aria-hidden />}
+          <Bell className="h-4 w-4 text-neon-blue" aria-hidden />
+          <span className="font-mono font-bold text-[12.5px] text-soft-white">PRACTICE ALERTS</span>
+          <span className="font-mono text-[11px] text-slate-gray" data-testid="text-alert-counts">{active.length} active · {unacked.length} new</span>
+        </button>
+        {open && <span className="ml-auto flex gap-1.5">
           <button className={btnSub} onClick={() => setShowAll((v) => !v)} data-testid="button-alert-history">{showAll ? "New only" : "History"}</button>
           <button className={btnSub} onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings} data-testid="button-alert-settings"><Settings2 className="h-3 w-3" aria-hidden /> Alert Settings</button>
-        </span>
+        </span>}
       </div>
+      {open && <div id="alerts-panel-body">
       <p className="text-[10.5px] font-mono font-bold text-signal-amber mt-0.5">{ALERT_SAFETY}</p>
 
       {shown.length > 0 && (
@@ -234,6 +241,7 @@ export function AlertsPanel() {
         </div>
       )}
       {showSettings && prefsQ.data && <AlertSettings prefs={prefsQ.data.prefs} contacts={prefsQ.data.contacts} />}
+      </div>}
     </section>
   );
 }
@@ -243,15 +251,24 @@ function AlertSettings({ prefs, contacts }: { prefs: AlertPrefs; contacts: NonNu
   const [code, setCode] = useState<Record<number, string>>({});
   const [note, setNote] = useState<Record<number, string>>({});
   const [saved, setSaved] = useState<string | null>(null);
-  const save = async () => {
+  // Every change saves itself (numbers/times after a short pause) — no Save button to forget.
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const persist = async (n: AlertPrefs) => {
+    setSaved("Saving…");
     try {
-      await alertApi.savePrefs({ channels: p.channels, quietStart: p.quietStart || null, quietEnd: p.quietEnd || null, marketHoursOnly: p.marketHoursOnly, maxPerTickerPerDay: p.maxPerTickerPerDay, maxPerDay: p.maxPerDay, dedupeMinutes: p.dedupeMinutes });
-      setSaved("Saved"); invalidateAlerts();
+      await alertApi.savePrefs({ channels: n.channels, quietStart: n.quietStart || null, quietEnd: n.quietEnd || null, marketHoursOnly: n.marketHoursOnly, maxPerTickerPerDay: n.maxPerTickerPerDay, maxPerDay: n.maxPerDay, dedupeMinutes: n.dedupeMinutes });
+      setSaved(`Saved ${new Date().toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" })} CT`); invalidateAlerts();
     } catch (e: any) { setSaved(e?.message ?? "Save failed"); }
   };
+  const update = (n: AlertPrefs, delay = 0) => {
+    setP(n);
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => { void persist(n); }, delay);
+  };
+  useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const send = async (id: number) => { try { await alertApi.sendCode(id); setNote((n) => ({ ...n, [id]: "Code sent — check that inbox/chat." })); } catch (e: any) { setNote((n) => ({ ...n, [id]: e?.message ?? "Could not send" })); } };
   const confirm = async (id: number) => { try { await alertApi.confirmCode(id, code[id] ?? ""); setNote((n) => ({ ...n, [id]: "Verified" })); invalidateAlerts(); } catch (e: any) { setNote((n) => ({ ...n, [id]: e?.message ?? "Wrong code" })); } };
-  const askPush = async () => { try { if (typeof Notification !== "undefined") await Notification.requestPermission(); } catch { /* ignore */ } setP({ ...p, channels: { ...p.channels, push: true } }); };
+  const askPush = async () => { try { if (typeof Notification !== "undefined") await Notification.requestPermission(); } catch { /* ignore */ } update({ ...p, channels: { ...p.channels, push: true } }); };
   return (
     <div className="mt-3 rounded border border-ink-line px-3 py-2 space-y-3 text-[11.5px]" data-testid="panel-alert-settings">
       <fieldset>
@@ -260,7 +277,7 @@ function AlertSettings({ prefs, contacts }: { prefs: AlertPrefs; contacts: NonNu
           {CHANNELS.map((ch) => (
             <label key={ch} className="inline-flex items-center gap-1.5">
               <input type="checkbox" checked={p.channels[ch]} disabled={ch === "in_app"}
-                onChange={(e) => (ch === "push" && e.target.checked ? askPush() : setP({ ...p, channels: { ...p.channels, [ch]: e.target.checked } }))} data-testid={`checkbox-pref-channel-${ch}`} />
+                onChange={(e) => (ch === "push" && e.target.checked ? askPush() : update({ ...p, channels: { ...p.channels, [ch]: e.target.checked } }))} data-testid={`checkbox-pref-channel-${ch}`} />
               {CHANNEL_LABEL[ch]}
             </label>
           ))}
@@ -286,16 +303,15 @@ function AlertSettings({ prefs, contacts }: { prefs: AlertPrefs; contacts: NonNu
         </ul>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
-        <div><label className={lab} htmlFor="pref-quiet-start">Quiet from (CT)</label><input id="pref-quiet-start" type="time" className={field} value={p.quietStart ?? ""} onChange={(e) => setP({ ...p, quietStart: e.target.value || null })} data-testid="input-quiet-start" /></div>
-        <div><label className={lab} htmlFor="pref-quiet-end">Quiet until (CT)</label><input id="pref-quiet-end" type="time" className={field} value={p.quietEnd ?? ""} onChange={(e) => setP({ ...p, quietEnd: e.target.value || null })} data-testid="input-quiet-end" /></div>
-        <div><label className={lab} htmlFor="pref-max-ticker">Max / ticker / day</label><input id="pref-max-ticker" type="number" min={1} className={field} value={p.maxPerTickerPerDay} onChange={(e) => setP({ ...p, maxPerTickerPerDay: Number(e.target.value) })} data-testid="input-max-ticker" /></div>
-        <div><label className={lab} htmlFor="pref-max-day">Max / day</label><input id="pref-max-day" type="number" min={1} className={field} value={p.maxPerDay} onChange={(e) => setP({ ...p, maxPerDay: Number(e.target.value) })} data-testid="input-max-day" /></div>
-        <div><label className={lab} htmlFor="pref-dedupe">Ignore repeats (min)</label><input id="pref-dedupe" type="number" min={0} className={field} value={p.dedupeMinutes} onChange={(e) => setP({ ...p, dedupeMinutes: Number(e.target.value) })} data-testid="input-dedupe" /></div>
+        <div><label className={lab} htmlFor="pref-quiet-start">Quiet from (CT)</label><input id="pref-quiet-start" type="time" className={field} value={p.quietStart ?? ""} onChange={(e) => update({ ...p, quietStart: e.target.value || null }, 700)} data-testid="input-quiet-start" /></div>
+        <div><label className={lab} htmlFor="pref-quiet-end">Quiet until (CT)</label><input id="pref-quiet-end" type="time" className={field} value={p.quietEnd ?? ""} onChange={(e) => update({ ...p, quietEnd: e.target.value || null }, 700)} data-testid="input-quiet-end" /></div>
+        <div><label className={lab} htmlFor="pref-max-ticker">Max / ticker / day</label><input id="pref-max-ticker" type="number" min={1} className={field} value={p.maxPerTickerPerDay} onChange={(e) => update({ ...p, maxPerTickerPerDay: Number(e.target.value) }, 700)} data-testid="input-max-ticker" /></div>
+        <div><label className={lab} htmlFor="pref-max-day">Max / day</label><input id="pref-max-day" type="number" min={1} className={field} value={p.maxPerDay} onChange={(e) => update({ ...p, maxPerDay: Number(e.target.value) }, 700)} data-testid="input-max-day" /></div>
+        <div><label className={lab} htmlFor="pref-dedupe">Ignore repeats (min)</label><input id="pref-dedupe" type="number" min={0} className={field} value={p.dedupeMinutes} onChange={(e) => update({ ...p, dedupeMinutes: Number(e.target.value) }, 700)} data-testid="input-dedupe" /></div>
       </div>
-      <label className="inline-flex items-center gap-1.5 font-mono"><input type="checkbox" checked={p.marketHoursOnly} onChange={(e) => setP({ ...p, marketHoursOnly: e.target.checked })} data-testid="checkbox-market-hours-only" /> Market hours only (8:30 AM–3:00 PM CT; data alerts always allowed)</label>
-      <div className="flex items-center gap-2">
-        <button className={`${btnMain} py-1`} onClick={save} data-testid="button-save-alert-prefs">Save Alert Settings</button>
-        {saved && <span className="text-slate-gray" role="status">{saved}</span>}
+      <label className="inline-flex items-center gap-1.5 font-mono"><input type="checkbox" checked={p.marketHoursOnly} onChange={(e) => update({ ...p, marketHoursOnly: e.target.checked })} data-testid="checkbox-market-hours-only" /> Market hours only (8:30 AM–3:00 PM CT; data alerts always allowed)</label>
+      <div className="text-[10.5px] font-mono text-slate-gray" role="status" aria-live="polite" data-testid="text-alert-prefs-saved">
+        {saved ?? "Changes save automatically."}
       </div>
     </div>
   );
