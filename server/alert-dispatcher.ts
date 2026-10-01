@@ -102,7 +102,7 @@ function buildSmsText(p: HammerAlertPayload): string {
 }
 
 // ─── Resend (email) ────────────────────────────────────────────────────────────
-async function sendEmailResend(to: string, subject: string, html: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendEmailResend(to: string, subject: string, html: string): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
   const from = process.env.RESEND_FROM_EMAIL || "Chizzle Cockpit <onboarding@resend.dev>";
@@ -147,7 +147,7 @@ function buildTelegramText(p: HammerAlertPayload): string {
   return lines.join("\n");
 }
 
-async function sendTelegram(chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendTelegram(chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
   try {

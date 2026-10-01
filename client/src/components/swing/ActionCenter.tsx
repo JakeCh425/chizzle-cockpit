@@ -10,6 +10,8 @@ import { fmt$, fmtCT, swingGet, swingSend } from "@/lib/swing";
 import { activeVersion, effectivePlan, focusSymbol, openPlanEditor, staleVersion, useSelectedPlans } from "@/lib/plans";
 import { RefreshDataButton } from "./DataStatus";
 import { useScan } from "./SwingWorkspace";
+import { AlertsPanel, SetAlertButton } from "./PriceAlerts";
+import { defaultAlertFor } from "@/lib/alerts";
 
 const TONE: Record<ActionGroup, { box: string; head: string; Icon: typeof CheckCircle2 }> = {
   READY: { box: "border-emerald-500 bg-emerald-500/[0.09] border-2", head: "text-signal-green", Icon: CheckCircle2 },
@@ -35,7 +37,7 @@ function Lv({ k, v, tone }: { k: string; v: string; tone: string }) {
   );
 }
 
-function Buttons({ d, group }: { d: SwingDecision; group: ActionGroup }) {
+function Buttons({ d, group, ver }: { d: SwingDecision; group: ActionGroup; ver: ReturnType<typeof activeVersion> }) {
   const [saved, setSaved] = useState<string | null>(null);
   const editable = canEditPlan(d);
   const journal = async () => {
@@ -55,6 +57,7 @@ function Buttons({ d, group }: { d: SwingDecision; group: ActionGroup }) {
       {group === "RR_STOP" && why("See why")}
       {group === "DATA" && <><RefreshDataButton symbols={[d.symbol]} /><button className={btnSub} onClick={() => focusSymbol(d.symbol, "why")} data-testid={`button-ac-data-${d.symbol}`}><Eye className="h-3 w-3" aria-hidden /> View Data Details</button></>}
       {edit}
+      {group !== "NO_TRADE" && <SetAlertButton draft={defaultAlertFor(d, group, effectivePlan(d, ver))} label={group === "DATA" ? "Set Data-Recovery Alert" : "Set Alert"} />}
       {group === "READY" && <button className={btnSub} onClick={journal} data-testid={`button-ac-journal-${d.symbol}`}>Save to Journal</button>}
       {saved && <span className="text-[10.5px] text-slate-gray" role="status">{saved}</span>}
     </div>
@@ -121,7 +124,7 @@ function Card({ d, group, expiryBars, ver }: { d: SwingDecision; group: ActionGr
       </div>
 
       {group === "READY" && <div className="mt-1.5 text-[13px] font-bold text-signal-green" data-testid={`text-ac-review-${d.symbol}`}>Review before deciding — practice plan only.</div>}
-      <Buttons d={d} group={group} />
+      <Buttons d={d} group={group} ver={ver} />
     </article>
   );
 }
@@ -183,6 +186,7 @@ export default function ActionCenter() {
           )}
         </div>
       )}
+      <AlertsPanel />
     </section>
   );
 }

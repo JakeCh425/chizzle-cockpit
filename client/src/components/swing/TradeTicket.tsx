@@ -7,7 +7,9 @@ import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
 import { DataVerifyBlock, ReferenceOnlyTag, isUnverified } from "./DataStatus";
 import { STATUS_TONE } from "@/lib/swing";
-import { Pencil } from "lucide-react";
+import { Bell, Pencil } from "lucide-react";
+import { openAlertDialog } from "@/lib/alerts";
+import type { AlertType } from "@shared/priceAlerts";
 import { canEditPlan, type PlanVersion } from "@shared/practicePlan";
 import { activeVersion, effectivePlan, openPlanEditor } from "@/lib/plans";
 
@@ -54,6 +56,12 @@ function StateLine({ d }: { d: SwingDecision }) {
 
 function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void; ver: PlanVersion | null }) {
   const rows = ticketRows(d, ver);
+  const p = effectivePlan(d, ver);
+  const lvl: Record<string, { type: AlertType; price: number | null }> = {
+    entry: { type: p.entry != null && d.currentPrice != null && p.entry < d.currentPrice ? "PULLBACK_DOWN" : "ENTRY_CROSS_UP", price: p.entry },
+    stop: { type: "STOP_REFERENCE", price: p.stop }, t1: { type: "TARGET_1", price: p.t1 }, t2: { type: "TARGET_2", price: p.t2 },
+  };
+  const alertable = d.setupStatus !== "SIGNAL_EXPIRED";
   const unverified = isUnverified(d.dataStatus);
   return (
     <div
@@ -86,7 +94,16 @@ function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
         {rows.map((x) => (
           <div key={x.id} className="rounded border bg-[#050a13] px-2 py-1" style={{ borderColor: `${x.tone}66` }} data-testid={`ticket-${d.symbol}-${x.id}`}>
-            <div className="text-[9.5px] uppercase tracking-wide font-mono" style={{ color: x.tone }}>{x.k}</div>
+            <div className="flex items-center text-[9.5px] uppercase tracking-wide font-mono" style={{ color: x.tone }}>
+              {x.k}
+              {alertable && lvl[x.id]?.price != null && (
+                <button className="ml-auto rounded p-0.5 text-[#94a3b8] hover:text-[#38bdf8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
+                  onClick={(e) => { e.stopPropagation(); openAlertDialog({ symbol: d.symbol, type: lvl[x.id].type, level: lvl[x.id].price, levelHigh: null, context: `ticket ${x.id}` }); }}
+                  aria-label={`Set price alert at ${x.k} ${x.v}`} title={`Set price alert at ${x.k}`} data-testid={`button-ticket-alert-${d.symbol}-${x.id}`}>
+                  <Bell className="h-3 w-3" aria-hidden />
+                </button>
+              )}
+            </div>
             <div className="font-mono font-bold text-[14px]" style={{ color: "#f1f5f9" }}>{x.v}</div>
             {x.sub && <div className="text-[9.5px] leading-tight" style={{ color: "#94a3b8" }}>{x.sub}</div>}
           </div>

@@ -8,6 +8,8 @@ import { swingJournal } from "@shared/schema";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { ackEvent, confirmVerification, contactsWithStatus, createAlert, deleteAlert, listAlerts, listEvents, loadPrefs, savePrefs, sendVerification, setAlertActive, startAlertLoop, tickAlerts } from "./alerts";
+import { ALERT_TYPES, CHANNELS, needsLevel } from "@shared/priceAlerts";
 import { listVersions, planContext, saveVersion, selectVersion, selectedVersions } from "./plans";
 import { ENTRY_METHODS, STOP_METHODS, TARGET_METHODS } from "@shared/practicePlan";
 import { addItem, patchItem, removeItem, resolveSymbol, restoreDefaults, riskNote, WatchlistError, yahooSearch } from "./universe";
@@ -47,6 +49,7 @@ const planInputsSchema = z.object({
 
 export function registerSwingRoutes(app: Express) {
   startSwingScheduler(); // no-op each tick while the flag is off
+  startAlertLoop();      // Section R4 — informational price alerts, every 60s (no-op when none are active)
 
   app.get("/api/swing/status", wrap(async () => ({ enabled: isUnifiedSwingEnabled(), banner: PRACTICE_BANNER })));
 
@@ -138,6 +141,47 @@ export function registerSwingRoutes(app: Express) {
     try { return { ok: true, ...(await selectVersion(sym, b.version)) }; }
     catch (e: any) { if (e?.status === 404) { res.status(404).json({ error: e.message }); return; } throw e; }
   }));
+
+  // ── Section R4: practice price alerts (informational only — never a broker order) ──
+  const httpErr = (res: Response, e: any) => { if (e?.status) { res.status(e.status).json({ error: e.message }); return true; } return false; };
+  app.get("/api/swing/alerts", wrap(async (req) => ({ alerts: await listAlerts(req.query.symbol ? String(req.query.symbol) : null) })));
+  app.post("/api/swing/alerts", wrap(async (req, res) => {
+    const b = z.object({
+      symbol: z.string().min(1).max(16), type: z.enum(ALERT_TYPES), level: num.positive().nullable().optional(), levelHigh: num.positive().nullable().optional(),
+      channels: z.array(z.enum(CHANNELS)).max(4).default(["in_app"]), frequency: z.enum(["ONCE", "PER_BAR", "REPEAT"]).default("ONCE"),
+      repeatMinutes: z.number().int().min(5).max(480).optional(), expiryMode: z.enum(["END_OF_DAY", "END_OF_WEEK", "CUSTOM", "SETUP_EXPIRES"]).default("END_OF_DAY"),
+      customExpiry: z.string().datetime().nullable().optional(), note: z.string().max(500).optional(),
+    }).parse(req.body ?? {});
+    if (needsLevel(b.type) && b.level == null) { res.status(400).json({ error: "This alert type needs a price level." }); return; }
+    if (b.type === "RETEST_ZONE" && b.levelHigh == null) { res.status(400).json({ error: "A retest-zone alert needs a low and a high price." }); return; }
+    if (b.expiryMode === "CUSTOM" && !b.customExpiry) { res.status(400).json({ error: "Pick a custom expiry date." }); return; }
+    const { sym, ex } = await symEx(b.symbol);
+    if (!ex) { res.status(404).json({ error: `${sym} is not on the watchlist — add it first.` }); return; }
+    return { ok: true, alert: await createAlert({ ...b, symbol: sym, exchange: ex }) };
+  }));
+  app.post("/api/swing/alerts/:id/active", wrap(async (req, res) => {
+    try { return await setAlertActive(Number(req.params.id), z.object({ active: z.boolean() }).parse(req.body ?? {}).active); } catch (e) { if (!httpErr(res, e)) throw e; }
+  }));
+  app.delete("/api/swing/alerts/:id", wrap(async (req) => deleteAlert(Number(req.params.id))));
+  app.get("/api/swing/alert-events", wrap(async (req) => ({ events: await listEvents(Number(req.query.limit) || 50, Number(req.query.since) || 0) })));
+  app.post("/api/swing/alert-events/:id/ack", wrap(async (req) => ackEvent(Number(req.params.id))));
+  app.get("/api/swing/alert-prefs", wrap(async () => ({ prefs: await loadPrefs(), contacts: await contactsWithStatus() })));
+  app.put("/api/swing/alert-prefs", wrap(async (req) => {
+    const hhmm = z.string().regex(/^\d{1,2}:\d{2}$/).nullable();
+    const b = z.object({
+      channels: z.object({ in_app: z.boolean(), email: z.boolean(), telegram: z.boolean(), push: z.boolean() }).partial().optional(),
+      quietStart: hhmm.optional(), quietEnd: hhmm.optional(), marketHoursOnly: z.boolean().optional(),
+      maxPerTickerPerDay: z.number().int().min(1).max(100).optional(), maxPerDay: z.number().int().min(1).max(500).optional(), dedupeMinutes: z.number().int().min(0).max(1440).optional(),
+    }).parse(req.body ?? {});
+    return { prefs: await savePrefs(b as any) };
+  }));
+  app.post("/api/swing/alert-verify/:contactId/send", wrap(async (req, res) => {
+    try { return await sendVerification(Number(req.params.contactId)); } catch (e) { if (!httpErr(res, e)) throw e; }
+  }));
+  app.post("/api/swing/alert-verify/:contactId/confirm", wrap(async (req, res) => {
+    try { return await confirmVerification(Number(req.params.contactId), z.object({ code: z.string().min(4).max(10) }).parse(req.body ?? {}).code); } catch (e) { if (!httpErr(res, e)) throw e; }
+  }));
+  app.post("/api/swing/alerts/check-now", wrap(async () => tickAlerts()));
 
   // ── Practice journal (§Q5 buttons) — stores the shared decision snapshot ──
   app.get("/api/swing/journal", wrap(async (req) => {

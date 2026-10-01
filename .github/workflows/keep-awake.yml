@@ -1,0 +1,18 @@
+# Keeps the free Render instance awake during US market hours so 60-second practice
+# price alerts keep running. Weekdays 8:15 AM–3:15 PM America/Chicago, every 10 min.
+# Cron runs in UTC and covers both CDT and CST; the step below skips pings outside the CT window.
+name: keep-awake
+on:
+  schedule:
+    - cron: "*/10 13-21 * * 1-5"
+  workflow_dispatch: {}
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping Chizzle Cockpit (market hours CT only)
+        run: |
+          now=$(TZ=America/Chicago date +%H%M)
+          if [ "$now" -lt 0815 ] || [ "$now" -gt 1515 ]; then echo "Outside 8:15–15:15 CT ($now) — skip"; exit 0; fi
+          curl -fsS -m 60 -o /dev/null -w "HTTP %{http_code} in %{time_total}s\n" https://chizzle-cockpit-duyn.onrender.com/api/swing/status || echo "ping failed (will retry next run)"
