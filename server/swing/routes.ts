@@ -8,6 +8,8 @@ import { swingJournal } from "@shared/schema";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { listVersions, planContext, saveVersion, selectVersion, selectedVersions } from "./plans";
+import { ENTRY_METHODS, STOP_METHODS, TARGET_METHODS } from "@shared/practicePlan";
 import { addItem, patchItem, removeItem, resolveSymbol, restoreDefaults, riskNote, WatchlistError, yahooSearch } from "./universe";
 
 const SELECTIONS: ScanSelection[] = ["DEFAULT", "DEFAULT_PLUS_CUSTOM", "ETFS", "STOCKS", "SEMICONDUCTOR", "BROAD_MARKET", "CUSTOM_SELECTION"];
@@ -32,6 +34,16 @@ async function findItem(symbol: string) {
   const sym = symbol.toUpperCase().split(":").pop()!;
   return s.watchlist!.find((x) => x.symbol === sym) ?? null;
 }
+
+const num = z.number().finite();
+const planInputsSchema = z.object({
+  entry: num.positive(), entryMethod: z.enum(ENTRY_METHODS), stopMethod: z.enum(STOP_METHODS),
+  stopLevel: num.positive().nullable().optional(), bufferMethod: z.enum(["AUTO", "MANUAL"]),
+  manualBuffer: num.min(0).nullable().optional(), targetMethod: z.enum(TARGET_METHODS),
+  t1R: num.min(0.5).max(10), t2R: num.min(0.5).max(20), manualT1: num.positive().nullable().optional(), manualT2: num.positive().nullable().optional(),
+  maxDollarRisk: num.positive().max(1_000_000), minRrT1: num.min(0).max(10), shareMethod: z.enum(["AUTO", "MANUAL"]),
+  manualShares: num.min(0).max(1_000_000).nullable().optional(), stopLimitBufferPct: num.min(0).max(5).optional(),
+});
 
 export function registerSwingRoutes(app: Express) {
   startSwingScheduler(); // no-op each tick while the flag is off
@@ -97,6 +109,35 @@ export function registerSwingRoutes(app: Express) {
   }));
   app.get("/api/swing/data-events", wrap(async (req) => ({ events: readDataEvents(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 100) })));
   app.get("/api/swing/log", wrap(async (req) => readLog(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 50)));
+
+  // ── Section R: practice plan versions (the system plan is never modified) ──
+  const symEx = async (raw: string) => {
+    const item = await findItem(raw); const sym = raw.toUpperCase().split(":").pop()!;
+    return { sym, ex: item?.exchange ?? (raw.includes(":") ? raw.split(":")[0].toUpperCase() : "") };
+  };
+  app.get("/api/swing/plans-selected", wrap(async () => ({ selected: await selectedVersions() })));
+  app.get("/api/swing/plans/:symbol", wrap(async (req) => {
+    const { sym } = await symEx(String(req.params.symbol));
+    const versions = await listVersions(sym);
+    return { symbol: sym, versions, selected: versions.find((v) => v.selected)?.version ?? 0 };
+  }));
+  app.get("/api/swing/plan-context/:symbol", wrap(async (req, res) => {
+    const { sym, ex } = await symEx(String(req.params.symbol));
+    if (!ex) { res.status(404).json({ error: `${sym} is not on the watchlist — add it first.` }); return; }
+    return planContext(sym, ex);
+  }));
+  app.post("/api/swing/plans/:symbol", wrap(async (req, res) => {
+    const { sym, ex } = await symEx(String(req.params.symbol));
+    if (!ex) { res.status(404).json({ error: `${sym} is not on the watchlist — add it first.` }); return; }
+    const b = z.object({ inputs: planInputsSchema, reason: z.string().max(2000).default(""), chartState: z.record(z.unknown()).default({}) }).parse(req.body ?? {});
+    return { ok: true, version: await saveVersion(sym, ex, b.inputs, b.reason, b.chartState) };
+  }));
+  app.post("/api/swing/plans/:symbol/select", wrap(async (req, res) => {
+    const { sym } = await symEx(String(req.params.symbol));
+    const b = z.object({ version: z.number().int().min(0) }).parse(req.body ?? {});
+    try { return { ok: true, ...(await selectVersion(sym, b.version)) }; }
+    catch (e: any) { if (e?.status === 404) { res.status(404).json({ error: e.message }); return; } throw e; }
+  }));
 
   // ── Practice journal (§Q5 buttons) — stores the shared decision snapshot ──
   app.get("/api/swing/journal", wrap(async (req) => {

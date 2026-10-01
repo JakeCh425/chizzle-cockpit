@@ -18,6 +18,7 @@ import {
 } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
+import { activeVersion, effectivePlan, useSelectedPlans } from "@/lib/plans";
 import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
@@ -164,6 +165,7 @@ function ScannerPanel({ req, setReq, selected, onFocus, active }: {
   selected: Set<string>; onFocus: (s: string) => void; active: string;
 }) {
   const scan = useScan(req);
+  const plans = useSelectedPlans();
   const rows = scan.data?.rows ?? [];
   return (
     <div className="space-y-2" data-testid="panel-scanner">
@@ -186,20 +188,21 @@ function ScannerPanel({ req, setReq, selected, onFocus, active }: {
       <div className="overflow-x-auto">
         <table className="w-full text-[11px]" data-testid="table-scan">
           <thead><tr className="text-left text-slate-gray font-mono uppercase text-[9.5px]">
-            <th className="py-1 pr-2">Ticker</th><th className="pr-2">Status</th><th className="pr-2">Can I practice?</th><th className="pr-2">Trigger</th><th className="pr-2">Stop</th><th className="pr-2">T1</th><th>Reason</th>
+            <th className="py-1 pr-2">Ticker</th><th className="pr-2">Status</th><th className="pr-2">Can I practice?</th><th className="pr-2">Trigger</th><th className="pr-2">Entry</th><th className="pr-2">Stop</th><th className="pr-2">T1</th><th>Reason</th>
           </tr></thead>
           <tbody>
-            {rows.map((r) => (
+            {rows.map((r) => { const ver = activeVersion(r.decision, plans.data?.selected); const p = effectivePlan(r.decision, ver); return (
               <tr key={r.item.symbol} className={`border-t border-ink-line align-top cursor-pointer hover:bg-white/5 ${r.item.symbol === active ? "bg-neon-blue/5" : ""}`} onClick={() => onFocus(r.item.symbol)} data-testid={`row-scan-${r.item.symbol}`}>
                 <td className="py-1 pr-2 font-mono font-bold text-soft-white whitespace-nowrap">{r.item.symbol} <DataPill s={r.decision.dataStatus} /></td>
                 <td className="pr-2"><StatusPill s={r.decision.setupStatus} /></td>
                 <td className="pr-2 text-soft-white">{r.verdict.headline}</td>
                 <td className="pr-2 font-mono">{fmt$(r.decision.originalTrigger)}</td>
-                <td className="pr-2 font-mono">{fmt$(r.decision.structuralStop)}</td>
-                <td className="pr-2 font-mono">{fmt$(r.decision.target1)}</td>
+                <td className="pr-2 font-mono whitespace-nowrap">{fmt$(p.entry)}{ver && <span className="ml-1 px-1 rounded border border-dashed border-neon-blue/70 text-neon-blue text-[9px]" title="User-adjusted practice plan in use" data-testid={`pill-plan-version-${r.item.symbol}`}>v{ver.version}</span>}</td>
+                <td className="pr-2 font-mono">{fmt$(p.stop)}</td>
+                <td className="pr-2 font-mono">{fmt$(p.t1)}</td>
                 <td className="text-slate-gray">{r.decision.nextAction}</td>
               </tr>
-            ))}
+            ); })}
           </tbody>
         </table>
       </div>
@@ -480,6 +483,7 @@ export default function SwingWorkspace() {
 
   const scan = useScan(req);
   const dec = useSwingDecision(active, scope);
+  const plans = useSelectedPlans();
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
   const d = dec.data?.decision;
   const v = dec.data?.verdict;
@@ -496,10 +500,13 @@ export default function SwingWorkspace() {
   // Top "What should I do today?" card → focus this ticker's chart.
   useEffect(() => {
     const on = (e: Event) => {
-      const sym = String((e as CustomEvent).detail ?? "").toUpperCase();
+      const det = (e as CustomEvent).detail;
+      const sym = String((typeof det === "object" && det ? det.symbol : det) ?? "").toUpperCase();
       if (!sym) return;
       setActive(sym); setMarker(null);
-      setTimeout(() => document.querySelector('[data-testid="swing-chart-anchor"]')?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+      const sel = typeof det === "object" && det?.target === "why" ? '[data-testid="swing-why-anchor"]' : '[data-testid="swing-chart-anchor"]';
+      const smooth = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      setTimeout(() => document.querySelector(sel)?.scrollIntoView({ behavior: smooth as ScrollBehavior, block: "start" }), 80);
     };
     window.addEventListener("chizzle:focus-symbol", on);
     return () => window.removeEventListener("chizzle:focus-symbol", on);
@@ -513,7 +520,7 @@ export default function SwingWorkspace() {
         <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
       </div>
       <DataStatusBanner decisions={(scan.data?.rows ?? []).map((r) => r.decision)} />
-      <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} />
+      <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} plans={plans.data?.selected} />
       <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
         <div className="space-y-3 min-w-0">
           <CollapsibleSection id="swing-watchlist" title="Watchlist" hint={DEFAULT_UNIVERSE_LABEL}>
@@ -527,15 +534,20 @@ export default function SwingWorkspace() {
           <div data-testid="swing-chart-anchor" />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
-            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} />
+            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} />
           </CollapsibleSection>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
           </CollapsibleSection>
           <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${STATUS_LABEL[d.setupStatus]}` : undefined}>
+            {(() => { const uv = activeVersion(d, plans.data?.selected); return uv ? (
+              <div className="mb-2 rounded border border-dashed border-neon-blue/60 px-2 py-1 text-[11px] text-soft-white/90" data-testid="strip-summary-plan-version">
+                <span className="font-mono font-bold text-neon-blue">PRACTICE PLAN v{uv.version} IN USE</span> — entry {fmt$(uv.result.entry)} · stop {fmt$(uv.result.stop)} · T1 {fmt$(uv.result.t1)} · T2 {fmt$(uv.result.t2)} · {uv.result.rrT1?.toFixed(2) ?? "—"}R.
+                <span className="text-slate-gray"> The summary below explains the original system setup; your version's numbers are the ones above, on the chart and in the Action Center.</span>
+              </div>) : null; })()}
             <TradeSummaryPanel d={d} />
           </CollapsibleSection>
-          <div ref={whyRef}>
+          <div ref={whyRef} data-testid="swing-why-anchor">
             <CollapsibleSection id="swing-why" title="Why Did This Form?" hint={marker ? marker.label : "click a marker or card"}>
               {d ? <WhyPanel d={d} marker={marker} /> : <div className="text-xs text-slate-gray">Waiting for the decision…</div>}
             </CollapsibleSection>

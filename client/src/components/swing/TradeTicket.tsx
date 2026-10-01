@@ -7,6 +7,9 @@ import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
 import { DataVerifyBlock, ReferenceOnlyTag, isUnverified } from "./DataStatus";
 import { STATUS_TONE } from "@/lib/swing";
+import { Pencil } from "lucide-react";
+import { canEditPlan, type PlanVersion } from "@shared/practicePlan";
+import { activeVersion, effectivePlan, openPlanEditor } from "@/lib/plans";
 
 const $ = (n: number | null | undefined) => (n == null || !isFinite(n) ? "—" : `$${n.toFixed(2)}`);
 /** Limit price for a stop-limit sell: a small cushion under the stop (0.2%, min $0.05). */
@@ -15,16 +18,17 @@ export const stopLimitFor = (stop: number | null | undefined) =>
 
 export const hasPlan = (d: SwingDecision | undefined) => !!d && d.entryPrice != null && d.structuralStop != null && d.target1 != null;
 
-export function ticketRows(d: SwingDecision) {
-  const entry = d.entryPrice, stop = d.structuralStop, risk = entry != null && stop != null ? entry - stop : null;
+export function ticketRows(d: SwingDecision, v: PlanVersion | null = null) {
+  const p = effectivePlan(d, v);
+  const entry = p.entry, stop = p.stop, risk = entry != null && stop != null ? entry - stop : null;
   const pct = (t: number | null) => (t != null && entry ? `+${(((t - entry) / entry) * 100).toFixed(1)}%` : "");
   const r = (t: number | null) => (t != null && risk && risk > 0 ? `${((t - entry!) / risk).toFixed(1)}R` : "");
   return [
     { k: "Entry", v: $(entry), sub: "buy only after a closed 1H above the trigger", tone: "#22c55e", id: "entry" },
     { k: "Stop loss", v: $(stop), sub: risk != null ? `risk ${$(risk)} / share` : "", tone: "#ef4444", id: "stop" },
-    { k: "Stop limit", v: $(stopLimitFor(stop)), sub: "lowest sell price if the stop triggers", tone: "#f87171", id: "stoplimit" },
-    { k: "Target 1", v: $(d.target1), sub: [pct(d.target1), r(d.target1)].filter(Boolean).join(" · "), tone: "#14b8a6", id: "t1" },
-    { k: "Target 2", v: $(d.target2), sub: [pct(d.target2), r(d.target2)].filter(Boolean).join(" · "), tone: "#a855f7", id: "t2" },
+    { k: "Stop limit", v: $(p.stopLimit ?? stopLimitFor(stop)), sub: "lowest sell price if the stop triggers", tone: "#f87171", id: "stoplimit" },
+    { k: "Target 1", v: $(p.t1), sub: [pct(p.t1), r(p.t1)].filter(Boolean).join(" · "), tone: "#14b8a6", id: "t1" },
+    { k: "Target 2", v: $(p.t2), sub: [pct(p.t2), r(p.t2)].filter(Boolean).join(" · "), tone: "#a855f7", id: "t2" },
   ];
 }
 
@@ -48,8 +52,8 @@ function StateLine({ d }: { d: SwingDecision }) {
   return null;
 }
 
-function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void }) {
-  const rows = ticketRows(d);
+function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void; ver: PlanVersion | null }) {
+  const rows = ticketRows(d, ver);
   const unverified = isUnverified(d.dataStatus);
   return (
     <div
@@ -63,9 +67,16 @@ function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; fir
         <span className="font-mono font-bold text-[13px] text-soft-white">{d.symbol}</span>
         <span className={`px-1.5 rounded border text-[10px] font-mono ${STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`}>{firing ? "ENGINES FIRING · " : ""}{STATUS_LABEL[d.setupStatus]}</span>
         {d.setupType && <span className="text-[10.5px] text-slate-gray font-mono">{d.setupType.replace(/_/g, " ")}</span>}
+        {ver && <span className="px-1.5 rounded border border-dashed border-neon-blue/70 text-neon-blue text-[10px] font-mono" data-testid={`ticket-version-${d.symbol}`}>PRACTICE PLAN v{ver.version} — USER-ADJUSTED</span>}
         <span className="ml-auto text-[10.5px] font-mono text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>
-          {d.suggestedShares != null ? `≈ ${d.suggestedShares} sh · ${$(d.maxDollarRisk)} max risk` : `${$(d.maxDollarRisk)} max risk`}
+          {ver ? `≈ ${ver.result.shares} sh · ${$(ver.result.totalRisk)} practice risk` : d.suggestedShares != null ? `≈ ${d.suggestedShares} sh · ${$(d.maxDollarRisk)} max risk` : `${$(d.maxDollarRisk)} max risk`}
         </span>
+        {canEditPlan(d) && (
+          <button className="inline-flex items-center gap-1 rounded border border-neon-blue/60 px-1.5 text-[10.5px] font-mono text-neon-blue hover:bg-neon-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
+            onClick={(e) => { e.stopPropagation(); openPlanEditor(d.symbol); }} data-testid={`button-ticket-edit-${d.symbol}`}>
+            <Pencil className="h-3 w-3" aria-hidden /> Edit Practice Plan
+          </button>
+        )}
       </div>
       <div className="space-y-1 mb-1.5">
         <StateLine d={d} />
@@ -89,9 +100,9 @@ function Ticket({ d, firing, active, onFocus, onHover }: { d: SwingDecision; fir
   );
 }
 
-export default function TradeTicketBar({ loading, firing, focused, active, onFocus, onHover }: {
+export default function TradeTicketBar({ loading, firing, focused, active, onFocus, onHover, plans }: {
   loading?: boolean; firing: SwingDecision[]; focused: SwingDecision | undefined; active: string;
-  onFocus: (s: string) => void; onHover: (s: string | null) => void;
+  onFocus: (s: string) => void; onHover: (s: string | null) => void; plans?: Record<string, PlanVersion>;
 }) {
   const list = firing.filter(hasPlan);
   const showPotential = list.length === 0 && hasPlan(focused);
@@ -112,7 +123,7 @@ export default function TradeTicketBar({ loading, firing, focused, active, onFoc
         <span className="text-slate-gray">hover to show levels on the chart · click to focus</span>
       </div>
       {(list.length ? list : [focused!]).map((d) => (
-        <Ticket key={d.symbol} d={d} firing={d.setupStatus === "READY_TO_TRADE"} active={d.symbol === active} onFocus={onFocus} onHover={onHover} />
+        <Ticket key={d.symbol} d={d} firing={d.setupStatus === "READY_TO_TRADE"} active={d.symbol === active} onFocus={onFocus} onHover={onHover} ver={activeVersion(d, plans)} />
       ))}
       <div className="text-[9.5px] font-mono text-slate-gray">PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE · OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE (a stop-limit may not fill at all on a gap).</div>
     </div>
