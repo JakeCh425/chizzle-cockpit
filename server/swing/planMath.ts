@@ -37,6 +37,8 @@ export interface Plan {
   shares: number;
   nextResistance: number | null;
   notes: string[];
+  /** Metadata only — tagged structure levels the caller supplied (never used in the math). */
+  levels?: import("@shared/swingDecision").StructureLevel[];
 }
 
 const r2 = (n: number) => Math.round(n * 100) / 100;

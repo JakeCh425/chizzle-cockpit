@@ -163,11 +163,14 @@ function useBrowserPush(events: AlertEvent[] | undefined, enabled: boolean) {
   }, [events, enabled]);
 }
 
-export function AlertsPanel() {
+/** `open`/`onOpenChange` let the Action Center's Expand All / Collapse All control the fold; otherwise it remembers itself. */
+export function AlertsPanel(props: { open?: boolean; onOpenChange?: (o: boolean) => void } = {}) {
   const alertsQ = useAlerts();
   const eventsQ = useAlertEvents();
   const prefsQ = useAlertPrefs();
-  const [open, setOpen] = usePersistentState<boolean>("swing-alerts-panel-open", true);
+  const [ownOpen, setOwnOpen] = usePersistentState<boolean>("swing-alerts-panel-open", true);
+  const open = props.open ?? ownOpen;
+  const setOpen = (o: boolean) => { setOwnOpen(o); props.onOpenChange?.(o); };
   const [showSettings, setShowSettings] = usePersistentState<boolean>("swing-alerts-settings-open", false);
   const [showAll, setShowAll] = useState(false);
   useBrowserPush(eventsQ.data?.events, !!prefsQ.data?.prefs.channels.push);

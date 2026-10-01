@@ -9,6 +9,7 @@ import {
   FORMING_WARNING, GAP_RISK_WARNING, pickPrimary,
   dataVerifyLabel,
   type CardGrade, type DataHealth, type DataStatus, type PriceZone, type SetupStatus, type SetupType, type SwingDecision, type SwingSettings,
+  type StructureLevel,
 } from "@shared/swingDecision";
 import { atr, pivotHighs, supportLevels, type SwingBar } from "./candleMath";
 import { aggregate4H, aggregateWeekly, chicago, chicagoTs, dailyClosed, inRth, tag1H, type Bar1H, type Bar4H } from "./bars";
@@ -166,16 +167,25 @@ function blank(c: Ctx): SwingDecision {
   };
 }
 
-/** Resistance levels known AS OF a time (plan math uses the chart as it was when the setup formed). */
-function resistancesAsOf(c: Ctx, asOf: number): number[] {
+/** Resistance levels known AS OF a time (plan math uses the chart as it was when the setup formed),
+ *  tagged with timeframe + bar time so the card can show where a structure target came from. */
+function taggedResistancesAsOf(c: Ctx, asOf: number): StructureLevel[] {
   const b4 = c.closed4h.filter((b) => b.end <= asOf).slice(-40);
   const b1 = c.closed1h.filter((b) => b.end <= asOf).slice(-40);
   const dd = c.closedDaily.filter((d) => d.t < asOf).slice(-60);
-  return [
-    ...pivotHighs(b4, 2).map((i) => b4[i].h),
-    ...pivotHighs(b1, 2).map((i) => b1[i].h),
-    ...pivotHighs(dd, 2).map((i) => dd[i].h),
-  ];
+  const tag = (bars: SwingBar[], tf: StructureLevel["timeframe"]) => pivotHighs(bars, 2).map((i) => ({ price: bars[i].h, timeframe: tf, time: iso(bars[i].t)!, kind: "pivot high" as const }));
+  return [...tag(b4, "4H"), ...tag(b1, "1H"), ...tag(dd, "1D")];
+}
+/** Levels above entry (same 0.1% filter as buildPlan), nearest first, deduped by price (higher timeframe wins). */
+function levelsAbove(all: StructureLevel[], entry: number): StructureLevel[] {
+  const rank = { "1D": 3, "4H": 2, "1H": 1 } as const;
+  const m = new Map<number, StructureLevel>();
+  for (const l of all) {
+    if (!Number.isFinite(l.price) || l.price <= entry * 1.001) continue;
+    const k = r2(l.price), cur = m.get(k);
+    if (!cur || rank[l.timeframe] > rank[cur.timeframe]) m.set(k, { ...l, price: k });
+  }
+  return [...m.values()].sort((a, b) => a.price - b.price).slice(0, 12);
 }
 
 /** Extension (§H): > max % above trigger OR > max ATR. The ATR leg is measured from the trigger by
@@ -211,6 +221,11 @@ function applyPlan(d: SwingDecision, p: Plan) {
   d.rewardRiskT1 = p.rrT1; d.rewardRiskT2 = p.rrT2;
   d.suggestedShares = p.verdict === "OK" ? p.shares : 0;
   d.target1Source = p.t1Source; d.target2Source = p.t2Source;
+  if (p.levels) {
+    d.structureLevels = levelsAbove(p.levels, p.entry);
+    d.target1Ref = p.t1Source === "resistance" ? d.structureLevels.find((l) => l.price === p.t1) ?? null : null;
+    d.target2Ref = p.t2Source === "resistance" ? d.structureLevels.find((l) => l.price === p.t2) ?? null : null;
+  }
 }
 
 function evalDetection(det: Detection, c: Ctx): Candidate {
@@ -231,11 +246,14 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
 
   const tfBars: SwingBar[] = det.timeframe === "4H" ? c.closed4h : c.closed1h;
   const tfAtr = atr(tfBars);
-  const planAt = (asOf: number) => buildPlan({
-    trigger, structureLow: low, atr: atr(tfBars.filter((b) => (b as Bar1H).end <= asOf)) ?? tfAtr,
-    resistances: resistancesAsOf(c, asOf), minRr: s.minRrT1, maxDollarRisk: s.maxDollarRisk,
-    entryBufferPct: s.entryBufferPct, stopBufferAtr: s.stopBufferAtr,
-  });
+  const planAt = (asOf: number): Plan => {
+    const tagged = taggedResistancesAsOf(c, asOf);
+    return { ...buildPlan({
+      trigger, structureLow: low, atr: atr(tfBars.filter((b) => (b as Bar1H).end <= asOf)) ?? tfAtr,
+      resistances: tagged.map((l) => l.price), minRr: s.minRrT1, maxDollarRisk: s.maxDollarRisk,
+      entryBufferPct: s.entryBufferPct, stopBufferAtr: s.stopBufferAtr,
+    }), levels: tagged };
+  };
   const ev: CandidateEvents = {};
   const out = (status: SetupStatus, extra: Partial<Candidate> = {}): Candidate => {
     d.setupStatus = status;

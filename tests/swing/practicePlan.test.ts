@@ -232,3 +232,53 @@ describe("trading card levels", () => {
     expect(av({ ...d, setupTimestamp: "T1" }, { SMH: v })).toBe(v);
   });
 });
+
+// ─── Target methods ──────────────────────────────────────────────────────────
+import { plannedR, targetAtR, rMultipleOf, resolveTargets, obstacleBefore, inputsFromCardChoice } from "@shared/practicePlan";
+describe("target methods", () => {
+  const E = 618.6, S = 610.63; // the pictured SMH plan: R = 7.97
+  it("screenshot example: 2R 634.54 · 3R 642.51 · 4R 650.48 · 5R 658.45", () => {
+    expect(plannedR(E, S)).toBe(7.97);
+    expect([2, 3, 4, 5].map((m) => targetAtR(E, S, m))).toEqual([634.54, 642.51, 650.48, 658.45]);
+    expect(rMultipleOf(E, S, 620.9)).toBe(0.29);   // engine T1 = nearest resistance
+    expect(rMultipleOf(E, S, 642.51)).toBe(3);     // engine T2 = 3R fallback
+  });
+  it("long and short directions", () => {
+    expect(targetAtR(100, 95, 2)).toBe(110);
+    expect(targetAtR(100, 105, 2)).toBe(90);         // short: entry − m × R
+    expect(rMultipleOf(100, 105, 90)).toBe(2);
+    expect(targetAtR(100, 95, 1.5)).toBe(107.5);
+  });
+  it("rejects zero-risk and invalid inputs", () => {
+    expect(plannedR(100, 100)).toBeNull(); expect(targetAtR(100, 100, 2)).toBeNull();
+    expect(targetAtR(100, 95, 0)).toBeNull(); expect(targetAtR(100, 95, -1)).toBeNull();
+    expect(plannedR(-1, 95)).toBeNull();
+    expect(resolveTargets({ method: "FIXED_R", t1R: 2, t2R: 3 }, 100, 100, { t1: null, t2: null }).error).toMatch(/zero or invalid/);
+    expect(resolveTargets({ method: "FIXED_R", t1R: 3, t2R: 2 }, 100, 95, { t1: null, t2: null }).error).toMatch(/at or above/);
+  });
+  it("entry/stop edits: Fixed R moves prices, Manual keeps prices and re-reads R, Engine keeps engine prices", () => {
+    const eng = { t1: 620.9, t2: 642.51 };
+    const fx = resolveTargets({ method: "FIXED_R", t1R: 2, t2R: 3 }, 612, 606.5, eng);
+    expect([fx.t1, fx.t2]).toEqual([623, 628.5]);
+    const man = resolveTargets({ method: "MANUAL", manualT1: 630, manualT2: 640 }, 612, 606.5, eng);
+    expect([man.t1, man.t2]).toEqual([630, 640]); expect(rMultipleOf(612, 606.5, 630)).toBe(3.27);
+    const en = resolveTargets({ method: "ENGINE" }, 612, 606.5, eng);
+    expect([en.t1, en.t2]).toEqual([620.9, 642.51]);
+  });
+  it("structure: uses chosen levels, falls back to an explicit fixed R for T2, flags obstacles", () => {
+    const levels = [{ price: 620.9 }, { price: 625 }];
+    const st = resolveTargets({ method: "STRUCTURE", t1Ref: 625, t2Ref: null, t2R: 3 }, E, S, { t1: null, t2: null });
+    expect([st.t1, st.t2]).toEqual([625, 642.51]); expect(st.why).toMatch(/fixed 3R/);
+    expect(resolveTargets({ method: "STRUCTURE", t1Ref: null }, E, S, { t1: null, t2: null }).error).toMatch(/structure level/);
+    expect(obstacleBefore(levels, E, 642.51)?.price).toBe(620.9);
+    expect(obstacleBefore(levels, E, 620.9)).toBeNull();
+    expect(obstacleBefore(undefined, E, 650)).toBeNull();
+  });
+  it("Fixed R maps to the existing R_MULTIPLE inputs and recalcPlan reproduces the prices (risk from STOP LOSS, not stop-limit)", () => {
+    const ctx: any = { original: { entry: E, stop: S, stopLimit: 609.41, t1: 620.9, t2: 642.51 }, currentPrice: 619, atr1h: 3, resistances: [], maxExtensionPct: 1.5, originalTrigger: 618.29, dataStatus: "LIVE" };
+    const { inputs } = inputsFromCardChoice(ctx, { entry: E, stop: S, stopLimit: 609.41 }, { method: "FIXED_R", t1R: 4, t2R: 5 }, { t1: 620.9, t2: 642.51 }, 16.25, 2);
+    expect(inputs!.targetMethod).toBe("R_MULTIPLE");
+    const r = rp(ctx, inputs!);
+    expect([r.riskPerShare, r.t1, r.t2, r.rrT1, r.rrT2, r.shares]).toEqual([7.97, 650.48, 658.45, 4, 5, 2]);
+  });
+});
