@@ -968,3 +968,24 @@ export const swingJournal = pgTable("swing_journal", {
 export const insertSwingJournalSchema = createInsertSchema(swingJournal).omit({ id: true, createdAt: true });
 export type SwingJournalRow = typeof swingJournal.$inferSelect;
 export type InsertSwingJournal = z.infer<typeof insertSwingJournalSchema>;
+
+// ─── Section R — user-adjusted practice plan versions (additive) ────────────
+// Rollback: DROP TABLE swing_plan_versions; (nothing else references it).
+// Rows are append-only: inputs/result/context never change after insert; only `selected` moves.
+export const swingPlanVersions = pgTable("swing_plan_versions", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  setupId: text("setup_id").notNull(),
+  version: integer("version").notNull(),
+  createdBy: text("created_by").notNull().default("USER_ADJUSTED"),
+  inputs: jsonb("inputs").notNull().default({} as any),
+  result: jsonb("result").notNull().default({} as any),
+  context: jsonb("context").notNull().default({} as any),
+  reason: text("reason").notNull().default(""),
+  changedFields: jsonb("changed_fields").notNull().default([] as any),
+  chartState: jsonb("chart_state").notNull().default({} as any),
+  dataVendor: text("data_vendor"),
+  selected: boolean("selected").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SwingPlanVersionRow = typeof swingPlanVersions.$inferSelect;

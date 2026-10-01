@@ -27,7 +27,9 @@ import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
 import SyncClock from "@/components/SyncClock";
 import SwingWorkspace from "@/components/swing/SwingWorkspace";
-import { SwingDoToday, UnifiedSwingMount } from "@/components/swing/SwingConsistency";
+import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
+import ActionCenter from "@/components/swing/ActionCenter";
+import { PlanEditorHost } from "@/components/swing/PlanEditor";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
 import CockpitWorkspace from "@/components/CockpitWorkspace";
 import LegacyPipeline, { PENDING_PREFILL_KEY } from "@/components/LegacyPipeline";
@@ -61,13 +63,21 @@ export default function PipelineCockpit() {
       {/* 2. "What should I do today?" — plain-English translation of
            existing regime + scanner outputs. No new signals. */}
       <SyncClock />
+      {/* Section R5 — Action Center: Ready > Confirmed > Forming > Watch, directly under P&L. */}
+      <UnifiedSwingMount>
+        {() => (
+          <ErrorBoundary label="Action Center">
+            <ActionCenter />
+            <PlanEditorHost />
+          </ErrorBoundary>
+        )}
+      </UnifiedSwingMount>
       <DoTodayCard />
 
       {/* PR 3e — Unified Swing Engine (§Q). Renders nothing unless ENABLE_UNIFIED_SWING_ENGINE is on. */}
       <UnifiedSwingMount>
         {() => (
           <>
-            <SwingDoToday />
             <CollapsibleSection id="unified-swing" title="Unified Swing Engine" hint="SMH · QQQ · SPY + custom">
               <ErrorBoundary label="Unified Swing Engine">
                 <SwingWorkspace />

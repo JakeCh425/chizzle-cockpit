@@ -14,6 +14,7 @@ import { DATA_TONE, fmtCT, swingGet, type BarsResp } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { expiredExplainer } from "@shared/tradeSummary";
 import { hasPlan, stopLimitFor } from "./TradeTicket";
+import type { PlanVersion } from "@shared/practicePlan";
 
 export const TFS = ["15m", "30m", "1H", "4H", "D", "W"] as const;
 export type Tf = typeof TFS[number];
@@ -79,9 +80,11 @@ export interface SwingChartProps {
   selectedMarkerId?: string | null;
   /** True while the matching trade card is hovered — reveals plan levels on the chart. */
   highlight?: boolean;
+  /** Section R6 — selected user-adjusted plan version (dashed "Practice Plan vN" lines). */
+  userPlan?: PlanVersion | null;
 }
 
-export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight }: SwingChartProps) {
+export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan }: SwingChartProps) {
   const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
   // Chart controls remember how you last left them (per timeframe for the range).
   const [rangeByTf, setRangeByTf] = usePersistentState<Partial<Record<Tf, typeof RANGES[number]>>>("swing-chart-range", {});
@@ -99,7 +102,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [hoverChart, setHoverChart] = useState(false);
   const [pinLevels, setPinLevels] = usePersistentState<boolean>("swing-chart-pin-levels", false);
   const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
-  const gutterOn = ov.plan && hasPlan(decision);
+  const gutterOn = ov.plan && (hasPlan(decision) || !!userPlan);
+  const userLevels = useMemo(() => {
+    const r = userPlan?.result; if (!r) return [];
+    const v = userPlan!.version;
+    return ([["ENTRY", "Entry", r.entry], ["STOP", "Stop", r.stop], ["STOPLMT", "Stop lmt", r.stopLimit], ["T1", "T1", r.t1], ["T2", "T2", r.t2]] as const)
+      .filter(([, , p]) => p != null).map(([kind, name, price]) => ({ kind, name, price: price as number, v,
+        color: kind === "STOPLMT" ? "#fca5a5" : LEVEL_COLOR[kind as keyof typeof LEVEL_COLOR] ?? "#cbd5e1" }));
+  }, [userPlan?.id]);
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
   const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
@@ -210,6 +220,10 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: false, title: "" });
       planLinesRef.current.push({ line, title: "", axis: false });
     }
+    if (ov.plan) for (const u of userLevels) {
+      const line = main.createPriceLine({ price: u.price, color: u.color, lineWidth: 1, lineStyle: LineStyle.LargeDashed, lineVisible: vis, axisLabelVisible: false, title: "" });
+      planLinesRef.current.push({ line, title: "", axis: false });
+    }
     if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : ov.sr))) {
       const retest = z.kind === "RETEST";
       const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : true, title: "" });
@@ -261,6 +275,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const stopLv = gLevels.length ? overlay?.levels.find((x) => x.current && x.kind === "STOP") : undefined;
     const sl = stopLv ? stopLimitFor(stopLv.price) : null;
     if (sl != null) gLevels.push({ price: sl, color: "#fca5a5", text: `Stop lmt $${sl.toFixed(2)}` });
+    if (ov.plan) for (const u of userLevels) (gLevels as any[]).push({ price: u.price, color: u.color, text: `v${u.v} ${u.name} $${u.price.toFixed(2)}`, dashed: true });
     const drawGutter = () => {
       const g = gutterRef.current; if (!g) return;
       g.innerHTML = "";
@@ -285,7 +300,10 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         const d = document.createElement("div");
         d.textContent = p.text;
         d.setAttribute("data-testid", "gutter-label");
-        d.style.cssText = `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
+        d.style.cssText = (p as any).dashed
+          ? `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:14px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:${p.color};background:#050a13;border:1px dashed ${p.color}`
+          : `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
+        if ((p as any).dashed) d.setAttribute("data-testid", "gutter-label-user");
         g.appendChild(d);
       });
     };
@@ -299,7 +317,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const tm = setTimeout(safeDraw, 60);
     return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday]);
+  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels]);
 
   // Toggle plan info without rebuilding the chart.
   useEffect(() => {
@@ -470,6 +488,21 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             <span key={z.id} tabIndex={0} onMouseEnter={() => setTip({ title: z.label, lines: z.tooltip })} onMouseLeave={() => setTip(null)}
               className="px-1.5 py-0.5 rounded border border-sky-400/60 text-sky-300 text-[10.5px] font-mono bg-sky-400/10" data-testid="zone-retest">{z.label}</span>
           ))}
+        </div>
+      )}
+      {ov.plan && userPlan && (
+        <div className="flex flex-wrap items-center gap-1" aria-label={`Practice Plan v${userPlan.version} levels`} data-testid="chart-user-plan">
+          <span className="text-[10px] font-mono text-neon-blue font-bold">PRACTICE PLAN v{userPlan.version} (USER-ADJUSTED, dashed):</span>
+          {userLevels.map((u) => (
+            <span key={u.kind} tabIndex={0} className="px-1.5 py-0.5 rounded border border-dashed text-[10.5px] font-mono" style={{ borderColor: u.color, color: u.color }}
+              onMouseEnter={() => setTip({ title: `Practice Plan v${u.v} · ${u.name} $${u.price.toFixed(2)}`, lines: [
+                u.kind === "ENTRY" ? userPlan.result.explain.mustHappen : u.kind === "STOP" || u.kind === "STOPLMT" ? userPlan.result.explain.whyStop : userPlan.result.explain.whyTargets,
+                "User-adjusted practice estimate — not a broker order.",
+              ] })}
+              onMouseLeave={() => setTip(null)} onFocus={() => setTip({ title: `Practice Plan v${u.v} · ${u.name}`, lines: [userPlan.result.explain.whatChanged] })} onBlur={() => setTip(null)}
+              data-testid={`level-user-${u.kind}`}>v{u.v} {u.name} ${u.price.toFixed(2)}</span>
+          ))}
+          {userPlan.result.originalMathInvalid && <span className="text-[10.5px] font-mono font-bold text-signal-amber" data-testid="text-chart-original-math">Original plan math no longer applies.</span>}
         </div>
       )}
       {tip && (
