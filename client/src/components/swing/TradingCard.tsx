@@ -399,7 +399,7 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
 }
 
 /** Card header — always visible; the whole card collapses under it but keeps ticker, status and key prices. */
-function CardHeader({ d, group, ver, isNew, open, toggle }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; isNew?: boolean; open?: boolean; toggle?: () => void }) {
+function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; isNew?: boolean; open?: boolean; toggle?: () => void; action?: React.ReactNode }) {
   const p = effectivePlan(d, ver);
   const tone = TONE[group], Icon = ICON[group];
   const badData = BAD_DATA.includes(d.dataStatus);
@@ -429,6 +429,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle }: { d: SwingDecision; 
           <span className="ac-muted">· {d.dataSource ?? "—"} · {fmtCT(d.quoteTimestamp)}</span>
         </span>
       </div>
+      {action}
       {!open && toggle && p.entry != null && (
         <div className="basis-full ac-num ac-muted" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`text-card-summary-${d.symbol}`}>
           Entry {$(p.entry)} · Stop {$(p.stop)} · T1 {$(p.t1)} ({rTxt(p.rrT1) ?? "—"}) · T2 {$(p.t2)} ({rTxt(p.rrT2) ?? "—"}) · Risk/sh {$(p.risk)}
@@ -446,14 +447,12 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   return (
     <article className="ac-card rounded-2xl overflow-hidden" style={{ borderLeft: `5px solid ${toneVar(TONE[group])}` }}
       aria-label={`${d.symbol} trading card: ${STATUS_LABEL[d.setupStatus]}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open}>
-      <div className="px-3 pt-2.5 sm:px-4 space-y-1.5 pb-2">
-        <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle} />
+      <div className="px-3 pt-2 sm:px-4 space-y-1 pb-1.5">
+        <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle}
+          action={!open && props.onOpen ? <button className="ac-btn ac-btn-primary !py-1" onClick={() => { onSeen(); props.onOpen!(); }} data-testid={`button-open-card-collapsed-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button> : undefined} />
         <CriticalWarnings d={d} ver={props.ver} />
       </div>
       {open && <TradingCardBody {...props} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />}
-      {!open && props.onOpen && (
-        <div className="px-3 pb-2.5 sm:px-4"><button className="ac-btn ac-btn-primary" onClick={() => { onSeen(); props.onOpen!(); }} data-testid={`button-open-card-collapsed-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button></div>
-      )}
     </article>
   );
 }
