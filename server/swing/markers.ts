@@ -1,3 +1,4 @@
+import type { PlanTargets } from "@shared/practicePlan";
 // PR 3d — §Q4 chart overlay. Built ONLY from the evaluated SwingDecision objects
 // (primary + candidates) so the chart can never disagree with the cards.
 // Pure: no I/O, no wall clock.
@@ -82,7 +83,7 @@ function candidateMarkers(c: Candidate, current: boolean, latest: { t: number; e
   return out;
 }
 
-function levelsFor(c: Candidate, current: boolean): ChartLevel[] {
+function levelsFor(c: Candidate, current: boolean, pt?: PlanTargets | null): ChartLevel[] {
   const d = c.decision, id = setupId(d);
   if (d.entryPrice == null || d.structuralStop == null || d.target1 == null) return [];
   if (d.setupStatus === "SIGNAL_EXPIRED" || d.setupStatus === "NO_TRADE") return [];
@@ -95,11 +96,13 @@ function levelsFor(c: Candidate, current: boolean): ChartLevel[] {
       tooltip: [`Trigger type: ${triggerType(c)}`, triggered ? "Triggered on a closed bar." : "Not triggered yet.", MARKER_COPY.ENTRY], setupId: id, current },
     { id: `${id}:STOP`, kind: "STOP", price: d.structuralStop, label: `INVALIDATION / STOP: ${fx(d.structuralStop)}`, style: "solid",
       tooltip: [`Below setup structure; buffer ${fx(d.stopBuffer)}`, `Risk/share ${fx(d.riskPerShare)}`, MARKER_COPY.STOP], setupId: id, current },
-    { id: `${id}:T1`, kind: "T1", price: d.target1, label: `T1: ${fx(d.target1)} — ${r1}`, style: "solid",
-      tooltip: [`Target source: ${src(d.target1Source)}`], setupId: id, current },
   ];
-  if (d.target2 != null) out.push({ id: `${id}:T2`, kind: "T2", price: d.target2, label: `T2: ${fx(d.target2)} — ${r2}`, style: "solid",
-    tooltip: [`Target source: ${src(d.target2Source)}`], setupId: id, current });
+  // Plan targets follow the user's default target method (same as the card); the engine's structure target stays as context.
+  const pr = (x: number | null) => (x != null ? `${x.toFixed(1)}R` : "—R");
+  const t1 = pt?.t1 ?? d.target1, t2 = pt ? pt.t2 : d.target2;
+  const ctx = (n: 1 | 2) => pt && pt.method !== "ENGINE" ? [`Method: ${pt.label}`, `Engine structure target ${fx(n === 1 ? d.target1 : d.target2)} (${n === 1 ? r1 : r2}) — readiness uses the engine target.`] : [`Target source: ${src(n === 1 ? d.target1Source : d.target2Source)}`];
+  out.push({ id: `${id}:T1`, kind: "T1", price: t1!, label: `T1: ${fx(t1)} — ${pt ? pr(pt.rrT1) : r1}`, style: "solid", tooltip: ctx(1), setupId: id, current });
+  if (t2 != null) out.push({ id: `${id}:T2`, kind: "T2", price: t2, label: `T2: ${fx(t2)} — ${pt ? pr(pt.rrT2) : r2}`, style: "solid", tooltip: ctx(2), setupId: id, current });
   return out;
 }
 
@@ -137,7 +140,7 @@ export function buildOverlay(res: EvalResult, opts: { scope?: HistoryScope; late
   const inScope = scope === "CURRENT" ? (cur ? [cur] : []) : scope === "LAST5" ? cands.slice(0, 5) : cands;
   if (cur && !inScope.includes(cur)) inScope.unshift(cur);
   const markers = clusterMarkers(inScope.flatMap((c) => candidateMarkers(c, c === cur, latest)));
-  const levels = cur ? levelsFor(cur, true) : [];
+  const levels = cur ? levelsFor(cur, true, primary.planTargets) : [];
   const zones: ChartZone[] = [];
   if (primary.retestLevel && (primary.setupStatus === "WATCH_EXTENDED" || primary.setupStatus === "WATCH_RETEST"))
     zones.push({ id: "retest", kind: "RETEST", ...primary.retestLevel, label: `RETEST ZONE ${fx(primary.retestLevel.low)}–${fx(primary.retestLevel.high)}`, tooltip: [MARKER_COPY.RETEST], current: true });

@@ -319,6 +319,7 @@ type DecisionLike = {
   symbol: string; setupType: string | null; setupTimeframe: string | null; setupTimestamp: string | null;
   entryPrice: number | null; structuralStop: number | null; target1: number | null; target2: number | null;
   riskPerShare: number | null; rewardRiskT1: number | null; rewardRiskT2: number | null; suggestedShares: number | null;
+  planTargets?: PlanTargets | null;
 };
 /** The user version that applies to this decision right now (same setup), or null = system plan. */
 export function activeVersion(d: DecisionLike | undefined, sel: Record<string, PlanVersion> | undefined): PlanVersion | null {
@@ -345,7 +346,9 @@ export function effectivePlan(d: DecisionLike, v: PlanVersion | null): Effective
   }
   return {
     source: "SYSTEM", version: 0, entry: d.entryPrice, stop: d.structuralStop, stopLimit: d.structuralStop != null ? stopLimitOf(d.structuralStop) : null,
-    t1: d.target1, t2: d.target2, risk: d.riskPerShare, rrT1: d.rewardRiskT1, rrT2: d.rewardRiskT2, shares: d.suggestedShares,
+    // Unedited plans use the user's default target method (Fixed 2R/3R unless changed); readiness still uses the engine's targets.
+    t1: d.planTargets ? d.planTargets.t1 : d.target1, t2: d.planTargets ? d.planTargets.t2 : d.target2, risk: d.riskPerShare,
+    rrT1: d.planTargets ? d.planTargets.rrT1 : d.rewardRiskT1, rrT2: d.planTargets ? d.planTargets.rrT2 : d.rewardRiskT2, shares: d.suggestedShares,
   };
 }
 
@@ -457,7 +460,7 @@ export function resolveTargets(c: TargetChoice, entry: number | null, stop: numb
     case "FIXED_R": {
       const a = c.t1R ?? 2, b = c.t2R ?? 3;
       if (!(a > 0) || !(b > 0)) return { t1: null, t2: null, why: "", error: "R multiples must be positive numbers." };
-      if (b < a) return { t1: null, t2: null, why: "", error: "Target 2's multiple must be at or above Target 1's." };
+      if (!(b > a)) return { t1: null, t2: null, why: "", error: "Target 2's multiple must be larger than Target 1's (T2 sits farther from entry)." };
       return { t1: targetAtR(entry, stop, a), t2: targetAtR(entry, stop, b), why: `Target = entry ${directionOf(entry!, stop!) === "LONG" ? "+" : "−"} multiple × R (R = |entry − stop loss| = $${R.toFixed(2)}). Prices move with your entry and stop.` };
     }
     case "STRUCTURE": {
@@ -484,3 +487,88 @@ export function inputsFromCardChoice(ctx: PlanContext, l: Omit<CardLevels, "t1" 
   if (choice.method === "FIXED_R") return { inputs: { ...base, targetMethod: "R_MULTIPLE", t1R: choice.t1R ?? 2, t2R: choice.t2R ?? 3, manualT1: null, manualT2: null }, resolved };
   return { inputs: base, resolved };
 }
+
+// ─── Default target method for new, unedited plans (applied to the engine plan, display only) ─
+// Readiness, confirmations and hard blocks keep using the engine's own structure targets
+// (decision.target1 / rewardRiskT1). A larger selected R never changes readiness.
+export type DefaultTargetMethod = "FIXED_R" | "ENGINE" | "STRUCTURE";
+export interface TargetDefault { method: DefaultTargetMethod; t1R: number; t2R: number }
+export const DEFAULT_TARGET_DEFAULT: TargetDefault = { method: "FIXED_R", t1R: 2, t2R: 3 };
+export interface PlanTargets {
+  method: DefaultTargetMethod; t1R: number | null; t2R: number | null;
+  t1: number | null; t2: number | null; rrT1: number | null; rrT2: number | null;
+  label: string; why: string;
+}
+/** Validate a target default: positive multiples, T2 strictly farther than T1. */
+export function targetDefaultError(t: Partial<TargetDefault>): string | null {
+  if (t.method !== "FIXED_R") return null;
+  const a = Number(t.t1R), b = Number(t.t2R);
+  if (!(a > 0) || !(b > 0) || !Number.isFinite(a) || !Number.isFinite(b)) return "R multiples must be positive numbers.";
+  if (a > 20 || b > 20) return "R multiples must be 20 or less.";
+  if (!(b > a)) return "Target 2's multiple must be larger than Target 1's.";
+  return null;
+}
+export const targetDefaultLabel = (t: TargetDefault) =>
+  t.method === "FIXED_R" ? `Fixed R ${t.t1R}R / ${t.t2R}R` : t.method === "STRUCTURE" ? "Structure-Based" : "Engine Original";
+
+type PlanTargetInput = {
+  entryPrice: number | null; structuralStop: number | null; target1: number | null; target2: number | null; setupStatus?: string;
+  target1Ref?: { price: number } | null; target2Ref?: { price: number } | null;
+};
+/** Targets for the engine plan under the user's default target method, from the SAME entry/stop snapshot. */
+export function planTargetsFor(d: PlanTargetInput, pref: TargetDefault | undefined): PlanTargets | null {
+  const t = pref ?? DEFAULT_TARGET_DEFAULT;
+  if (d.entryPrice == null || d.structuralStop == null) return null;
+  if (d.setupStatus === "SIGNAL_EXPIRED" || d.setupStatus === "NO_TRADE") return null; // follow existing invalidation; never recycle
+  const engine = { t1: d.target1, t2: d.target2 };
+  let choice: TargetChoice;
+  if (t.method === "FIXED_R") { if (targetDefaultError(t)) return null; choice = { method: "FIXED_R", t1R: t.t1R, t2R: t.t2R }; }
+  else if (t.method === "STRUCTURE") choice = { method: "STRUCTURE", t1Ref: d.target1Ref?.price ?? d.target1, t2Ref: d.target2Ref?.price ?? null, t2R: t.t2R };
+  else choice = { method: "ENGINE" };
+  const r = resolveTargets(choice, d.entryPrice, d.structuralStop, engine);
+  if (r.error || r.t1 == null) return null;
+  return {
+    method: t.method, t1R: t.method === "FIXED_R" ? t.t1R : null, t2R: t.method === "FIXED_R" ? t.t2R : null,
+    t1: r.t1, t2: r.t2, rrT1: rMultipleOf(d.entryPrice, d.structuralStop, r.t1), rrT2: rMultipleOf(d.entryPrice, d.structuralStop, r.t2),
+    label: targetDefaultLabel(t), why: r.why,
+  };
+}
+
+// ─── Plan refresh bookkeeping (what changed between two analysis snapshots) ───
+export type PlanChangeKind = "FIRST" | "UNCHANGED" | "UPDATED" | "NEW_SETUP" | "INVALIDATED" | "EXPIRED" | "NO_PLAN";
+export interface PlanFieldChange { field: "entry" | "stop" | "stopLimit" | "t1" | "t2"; from: number | null; to: number | null }
+export interface PlanRefreshInfo {
+  kind: PlanChangeKind;
+  /** Bars-based analysis succeeded on this run. False = showing the last successful snapshot. */
+  ok: boolean;
+  /** When the plan levels were last successfully analysed (ISO). */
+  analysisAt: string | null;
+  /** When the most recent attempt ran (ISO), successful or not. */
+  attemptAt: string;
+  failed: string[];
+  /** The latest set of level changes for this setup (sticky until the next change). */
+  changes: PlanFieldChange[]; changedAt: string | null;
+}
+type SnapLike = PlanTargetInput & { symbol: string; setupType: string | null; setupTimeframe: string | null; setupTimestamp: string | null; planTargets?: PlanTargets | null; planRefresh?: PlanRefreshInfo | null };
+const levelsOf = (d: SnapLike) => ({
+  entry: d.entryPrice, stop: d.structuralStop, stopLimit: d.structuralStop != null ? stopLimitOf(d.structuralStop) : null,
+  t1: d.planTargets?.t1 ?? d.target1, t2: d.planTargets?.t2 ?? d.target2,
+});
+/** Compare the new snapshot to the previous one. Never moves a price — it only describes what the engine produced. */
+export function planChangeOf(prev: SnapLike | null | undefined, next: SnapLike, at: string, ok: boolean, failed: string[]): PlanRefreshInfo {
+  const prevInfo = prev?.planRefresh ?? null;
+  const base = { ok, attemptAt: at, failed, analysisAt: ok ? at : (prevInfo?.analysisAt ?? null) };
+  const hasPlan = next.entryPrice != null && next.structuralStop != null;
+  const sameSetup = !!prev && setupIdOf(prev) === setupIdOf(next);
+  if (next.setupStatus === "SIGNAL_EXPIRED") return { ...base, kind: "EXPIRED", changes: [], changedAt: null };
+  if (!hasPlan) return { ...base, kind: prev && prev.entryPrice != null && sameSetup ? "INVALIDATED" : "NO_PLAN", changes: [], changedAt: null };
+  if (!prev) return { ...base, kind: "FIRST", changes: [], changedAt: null };
+  if (!sameSetup) return { ...base, kind: "NEW_SETUP", changes: [], changedAt: at };
+  const a = levelsOf(prev), b = levelsOf(next);
+  const changes: PlanFieldChange[] = (Object.keys(a) as (keyof typeof a)[])
+    .filter((k) => (a[k] == null) !== (b[k] == null) || (a[k] != null && b[k] != null && Math.abs(a[k]! - b[k]!) >= 0.005))
+    .map((k) => ({ field: k, from: a[k], to: b[k] }));
+  if (!changes.length) return { ...base, kind: "UNCHANGED", changes: prevInfo?.changes ?? [], changedAt: prevInfo?.changedAt ?? null };
+  return { ...base, kind: "UPDATED", changes, changedAt: at };
+}
+export const PLAN_FIELD_LABEL: Record<PlanFieldChange["field"], string> = { entry: "Entry", stop: "Stop loss", stopLimit: "Stop limit", t1: "Target 1", t2: "Target 2" };

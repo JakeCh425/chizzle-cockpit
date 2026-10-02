@@ -254,7 +254,7 @@ describe("target methods", () => {
     expect(targetAtR(100, 95, 0)).toBeNull(); expect(targetAtR(100, 95, -1)).toBeNull();
     expect(plannedR(-1, 95)).toBeNull();
     expect(resolveTargets({ method: "FIXED_R", t1R: 2, t2R: 3 }, 100, 100, { t1: null, t2: null }).error).toMatch(/zero or invalid/);
-    expect(resolveTargets({ method: "FIXED_R", t1R: 3, t2R: 2 }, 100, 95, { t1: null, t2: null }).error).toMatch(/at or above/);
+    expect(resolveTargets({ method: "FIXED_R", t1R: 3, t2R: 2 }, 100, 95, { t1: null, t2: null }).error).toMatch(/larger than/);
   });
   it("entry/stop edits: Fixed R moves prices, Manual keeps prices and re-reads R, Engine keeps engine prices", () => {
     const eng = { t1: 620.9, t2: 642.51 };

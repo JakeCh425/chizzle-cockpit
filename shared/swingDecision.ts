@@ -1,3 +1,4 @@
+import type { PlanRefreshInfo, PlanTargets, TargetDefault } from "./practicePlan";
 // PR 3 — Unified Swing Decision Engine: the shared contract.
 // ----------------------------------------------------------------------------
 // SwingDecision is the ONLY authority for trade state when
@@ -129,6 +130,10 @@ export interface SwingDecision {
   referenceClose: number | null;       // TradingView webhook or 2nd vendor close
   referenceSource: string | null;      // "tradingview" | "twelvedata" | "yahoo" | null
   evaluatedAt: string;
+  /** Engine plan targets under the user's default target method (display; readiness keeps target1/target2). */
+  planTargets?: PlanTargets | null;
+  /** Freshness + what changed since the previous analysis snapshot. */
+  planRefresh?: PlanRefreshInfo | null;
 
   target1Source?: "resistance" | "r-multiple";
   target2Source?: "resistance" | "r-multiple";
@@ -305,6 +310,10 @@ export interface SwingSettings {
   stopBufferAtr: number;    // volatility buffer below structure
   universe: string[];       // exchange-qualified, e.g. "NASDAQ:SMH"
   autoRefresh1H: boolean;   // recompute on each closed RTH hour (approved 2026-09-24)
+  /** Default target method for new, unedited plans. */
+  targetDefault?: TargetDefault;
+  /** Opt-in plan auto refresh during regular hours (minutes; 0 = off). Shares the existing scheduler. */
+  planAutoRefreshMin?: 0 | 15 | 30 | 60;
 }
 
 export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY"];
@@ -393,6 +402,8 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   stopBufferAtr: 0.1,
   universe: DEFAULT_UNIVERSE,
   autoRefresh1H: true,
+  targetDefault: { method: "FIXED_R", t1R: 2, t2R: 3 },
+  planAutoRefreshMin: 0,
 };
 
 /** Signal mode each user mode defaults to when the user switches modes. */

@@ -7,7 +7,7 @@ import { db } from "../storage";
 import { swingJournal } from "@shared/schema";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
-import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
 import { ackEvent, confirmVerification, contactsWithStatus, createAlert, deleteAlert, listAlerts, listEvents, loadPrefs, savePrefs, sendVerification, setAlertActive, startAlertLoop, tickAlerts } from "./alerts";
 import { ALERT_TYPES, CHANNELS, needsLevel } from "@shared/priceAlerts";
 import { listVersions, planContext, saveVersion, selectVersion, selectedVersions } from "./plans";
@@ -84,6 +84,10 @@ export function registerSwingRoutes(app: Express) {
     const s = await loadSettings();
     return saveSettings({ watchlist: restoreDefaults(s.watchlist!) }).then((x) => ({ ok: true, items: x.watchlist }));
   }));
+
+  // ── Plan refresh (manual "Refresh Plan Now" + status; shares the scheduler's lock) ──
+  app.get("/api/swing/plan-refresh", wrap(async () => refreshStatus()));
+  app.post("/api/swing/plan-refresh", wrap(async () => runPlanAnalysis("MANUAL")));
 
   // ── Decisions & scans (§Q2) ──
   app.get("/api/swing/scan", wrap(async (req) => {

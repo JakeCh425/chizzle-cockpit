@@ -21,6 +21,7 @@ import { fmtCT, swingGet, swingSend } from "@/lib/swing";
 import { effectivePlan, focusSymbol, invalidatePlans, openPlanEditor, selectPlanVersion } from "@/lib/plans";
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton } from "./DataStatus";
+import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 
 // ─── Appearance (scoped to the Action Center + cards) ────────────────────────
 export const AC_THEMES = [
@@ -165,8 +166,8 @@ function Badge({ tone, Icon, children, testId }: { tone: string; Icon?: typeof C
   );
 }
 const autoGrid = (min: number) => ({ display: "grid", gap: "0.6rem", gridTemplateColumns: `repeat(auto-fit, minmax(min(100%, ${min}px), 1fr))` });
-function PriceTile({ label, sub, value, tone, guided, engineValue, changed, rText, source, flags, testId }: {
-  label: string; sub: string; value: string; tone: string; guided: boolean; engineValue?: string | null; changed?: boolean;
+function PriceTile({ label, sub, value, tone, guided, engineValue, changed, moved, rText, source, flags, testId }: {
+  label: string; sub: string; value: string; tone: string; guided: boolean; engineValue?: string | null; changed?: boolean; moved?: string | null;
   rText?: string | null; source?: string | null; flags?: { text: string; tone: string }[]; testId: string;
 }) {
   return (
@@ -174,6 +175,7 @@ function PriceTile({ label, sub, value, tone, guided, engineValue, changed, rTex
       <div className="flex items-center gap-1.5 flex-wrap">
         <span className="font-bold tracking-wide" style={{ fontSize: "var(--ac-fs-xs)", color: toneVar(tone) }}>{label}</span>
         {changed && <span className="rounded px-1.5 font-semibold" style={{ fontSize: "11px", background: "var(--ac-accent)", color: "var(--ac-on-accent)" }} data-testid={`${testId}-changed`}>ADJUSTED</span>}
+        {moved && <span className="rounded px-1.5 font-semibold" style={{ fontSize: "11px", border: "1px solid var(--ac-accent-2)", color: "var(--ac-accent-2)" }} title={`Engine updated this level (was ${moved})`} data-testid={`${testId}-moved`}>UPDATED · was {moved}</span>}
       </div>
       {guided && <div className="ac-muted leading-tight" style={{ fontSize: "var(--ac-fs-xs)" }}>{sub}</div>}
       <div className="ac-num font-bold leading-none mt-1" style={{ fontSize: "var(--ac-price)" }} data-testid={`${testId}-value`}>{value}</div>
@@ -203,6 +205,12 @@ export function targetSources(d: SwingDecision, ver: PlanVersion | null, minRr: 
     const lab = m ? CARD_TARGET_METHOD_LABEL[m] : ver.inputs.targetMethod === "R_MULTIPLE" ? "Fixed R" : ver.inputs.targetMethod === "RESISTANCE" ? "Resistance" : "Manual Prices";
     const fx = ver.inputs.targetMethod === "R_MULTIPLE";
     return { t1: `My plan · ${lab}${fx ? ` (${ver.inputs.t1R}R)` : ""}`, t2: `My plan · ${lab}${fx ? ` (${ver.inputs.t2R}R)` : ""}` };
+  }
+  const pt = d.planTargets;
+  if (pt && pt.method !== "ENGINE") {
+    const eng = (t: number | null, rr: number | null) => `Engine structure target ${t != null ? `$${t.toFixed(2)}` : "—"}${rr != null ? ` (${rr.toFixed(2)}R)` : ""} stays the readiness check.`;
+    const how = pt.method === "FIXED_R" ? (m: number | null) => `Default · Fixed R: entry + ${m}R × $${(d.riskPerShare ?? 0).toFixed(2)}.` : () => "Default · Structure-Based (nearest pivot-high levels).";
+    return { t1: `${how(pt.t1R)} ${eng(d.target1, d.rewardRiskT1)}`, t2: `${how(pt.t2R)} ${eng(d.target2, d.rewardRiskT2)}` };
   }
   const t1 = d.target1Source === "resistance"
     ? `Engine · nearest resistance above entry${d.target1Ref ? `: ${d.target1Ref.timeframe} pivot high from ${fmtCT(d.target1Ref.time)}` : ""}`
@@ -243,6 +251,7 @@ export function CriticalWarnings({ d, ver }: { d: SwingDecision; ver: PlanVersio
           {expired ? "Expired setup: these levels are history only." : badData ? `Data ${d.dataStatus}: don't rely on these levels until the data is verified.` : invalidated ? "Price is below the stop: this plan is invalidated." : "My Adjusted Plan is invalid: entry must be above the stop."}
         </div>
       )}
+      <PlanFreshness d={d} adjusted={ver != null} />
       <div className="font-semibold ac-warn leading-snug" style={{ fontSize: "var(--ac-fs-xs)" }}>
         PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE · OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.
       </div>
@@ -257,10 +266,12 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const tone = TONE[group];
   const populated = p.entry != null && p.stop != null;
   const changed = new Set(ver?.result.changedFields ?? []);
+  const mv = (f: string) => { const c = !ver && d.planRefresh?.changedAt ? d.planRefresh.changes.find((x) => x.field === f) : null; return c ? $(c.from) : null; };
   const engine = { entry: d.entryPrice, stop: d.structuralStop, t1: d.target1, t2: d.target2 };
   const [acks, setAcks] = usePersistentState<Record<string, string>>("ac-engine-change-acks", {});
   const engineMoved = engineChangedSince(ver, d);
   const needsChoice = ver != null && engineMoved.length > 0 && acks[String(ver.id)] !== enginePlanSig(d);
+  const [review, setReview] = useState(false);
   const step = nextStepFor(d, group, ver);
   const shares = p.shares;
   const posValue = shares != null && p.entry != null ? shares * p.entry : null;
@@ -279,13 +290,24 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
       )}
       {needsChoice && (
         <div className="rounded-xl p-3 space-y-2" style={{ border: "2px solid var(--ac-warn)" }} role="alert" data-testid={`banner-engine-changed-${d.symbol}`}>
-          <div className="font-bold ac-warn flex items-center gap-2"><AlertTriangle className="h-4 w-4" aria-hidden /> The engine plan changed after you saved My Adjusted Plan v{ver!.version}.</div>
-          <div style={{ fontSize: "var(--ac-fs-sm)" }}>{engineMoved.join(" · ")}. Your adjusted plan is still the one in use. Choose what to do:</div>
+          <div className="font-bold ac-warn flex items-center gap-2"><AlertTriangle className="h-4 w-4" aria-hidden /> New engine plan available</div>
+          <div style={{ fontSize: "var(--ac-fs-sm)" }}>The engine recalculated this setup after you saved My Adjusted Plan v{ver!.version}. Your plan is still the one in use and was not changed.</div>
+          {review && (
+            <table className="ac-num w-full max-w-md" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`table-engine-changes-${d.symbol}`}>
+              <thead><tr className="ac-muted text-left"><th className="font-semibold">Level</th><th className="font-semibold">When you saved</th><th className="font-semibold">New engine</th><th className="font-semibold">My plan</th></tr></thead>
+              <tbody>{([["Entry", ver!.context?.original?.entry, d.entryPrice, ver!.result.entry], ["Stop loss", ver!.context?.original?.stop, d.structuralStop, ver!.result.stop],
+                ["Target 1", ver!.context?.original?.t1, d.target1, ver!.result.t1], ["Target 2", ver!.context?.original?.t2, d.target2, ver!.result.t2]] as const).map(([k, a, b, m]) => (
+                <tr key={k}><td>{k}</td><td>{$(a ?? null)}</td><td className={a != null && b != null && Math.abs(a - b) >= 0.005 ? "ac-accent font-bold" : ""}>{$(b)}</td><td>{$(m)}</td></tr>
+              ))}</tbody>
+            </table>
+          )}
           <div className="flex flex-wrap gap-2">
-            <button className="ac-btn" onClick={() => setAcks({ ...acks, [String(ver!.id)]: enginePlanSig(d) })} data-testid={`button-keep-adjusted-${d.symbol}`}>Keep my adjusted plan</button>
-            {onAdjust && <button className="ac-btn" onClick={onAdjust} data-testid={`button-rebase-${d.symbol}`}>Rebase: review my edits against the new plan</button>}
-            <button className="ac-btn" onClick={() => void selectPlanVersion(d.symbol, 0)} data-testid={`button-reset-engine-banner-${d.symbol}`}><Undo2 className="h-4 w-4" aria-hidden /> Reset to Engine Plan</button>
+            <button className="ac-btn" aria-expanded={review} onClick={() => setReview(!review)} data-testid={`button-review-changes-${d.symbol}`}>{review ? "Hide changes" : "Review Changes"}</button>
+            <button className="ac-btn" onClick={() => void selectPlanVersion(d.symbol, 0)} data-testid={`button-apply-engine-${d.symbol}`}><Undo2 className="h-4 w-4" aria-hidden /> Apply new engine plan</button>
+            <button className="ac-btn" onClick={() => setAcks({ ...acks, [String(ver!.id)]: enginePlanSig(d) })} data-testid={`button-keep-adjusted-${d.symbol}`}>Keep Mine</button>
+            {onAdjust && review && <button className="ac-btn" onClick={onAdjust} data-testid={`button-rebase-${d.symbol}`}>Edit my plan against the new levels</button>}
           </div>
+          <div className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>Apply switches to the engine plan; your version stays saved in history.</div>
         </div>
       )}
 
@@ -316,18 +338,18 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
           summary={`Entry ${$(p.entry)} · Stop ${$(p.stop)} · T1 ${$(p.t1)} (${rTxt(p.rrT1) ?? "—"}) · T2 ${$(p.t2)} (${rTxt(p.rrT2) ?? "—"})`}>
           <div className="flex flex-wrap items-center gap-2 mb-2" style={{ fontSize: "var(--ac-fs-xs)" }}>
             <Badge tone={p.source === "USER" ? "accent" : "muted"} Icon={p.source === "USER" ? Pencil : undefined} testId={`badge-target-method-${d.symbol}`}>
-              Target method: {ver ? (CARD_TARGET_METHOD_LABEL[ver.chartState?.targetMethod as CardTargetMethod] ?? "Adjusted") : "Engine Original"}
+              Target method: {ver ? (CARD_TARGET_METHOD_LABEL[ver.chartState?.targetMethod as CardTargetMethod] ?? "Adjusted") : (d.planTargets?.label ?? "Engine Original")}
             </Badge>
             <span className="ac-muted">R = |entry − stop loss| = <b className="ac-num">{$(p.risk)}</b> (stop loss, not the stop-limit price).</span>
           </div>
           <div style={autoGrid(150)}>
-            <PriceTile testId={`tile-entry-${d.symbol}`} label="ENTRY" sub="Planned starting price, not a fill" value={$(p.entry)} tone="good" guided={guided} changed={changed.has("entry")} engineValue={$(engine.entry)} />
-            <PriceTile testId={`tile-stop-${d.symbol}`} label="STOP LOSS" sub="Planned protective exit trigger" value={$(p.stop)} tone="bad" guided={guided} changed={changed.has("stop")} engineValue={$(engine.stop)} />
-            <PriceTile testId={`tile-stoplimit-${d.symbol}`} label="STOP LIMIT" sub="Lowest price the sell limit accepts" value={p.stopLimit != null ? $(p.stopLimit) : "Not configured"} tone="bad" guided={guided}
+            <PriceTile moved={mv("entry")} testId={`tile-entry-${d.symbol}`} label="ENTRY" sub="Planned starting price, not a fill" value={$(p.entry)} tone="good" guided={guided} changed={changed.has("entry")} engineValue={$(engine.entry)} />
+            <PriceTile moved={mv("stop")} testId={`tile-stop-${d.symbol}`} label="STOP LOSS" sub="Planned protective exit trigger" value={$(p.stop)} tone="bad" guided={guided} changed={changed.has("stop")} engineValue={$(engine.stop)} />
+            <PriceTile moved={mv("stopLimit")} testId={`tile-stoplimit-${d.symbol}`} label="STOP LIMIT" sub="Lowest price the sell limit accepts" value={p.stopLimit != null ? $(p.stopLimit) : "Not configured"} tone="bad" guided={guided}
               source={p.stopLimit != null && p.source === "SYSTEM" ? "Default: 0.2% below stop (min $0.05)" : null} flags={p.stopLimit != null ? [{ text: "May not fill in a fast drop or gap.", tone: "warn" }] : undefined} />
-            <PriceTile testId={`tile-t1-${d.symbol}`} label="TARGET 1" sub="First planned profit level" value={$(p.t1)} tone="accent" guided={guided} rText={rTxt(p.rrT1)}
+            <PriceTile moved={mv("t1")} testId={`tile-t1-${d.symbol}`} label="TARGET 1" sub="First planned profit level" value={$(p.t1)} tone="accent" guided={guided} rText={rTxt(p.rrT1)}
               changed={changed.has("target1")} engineValue={$(engine.t1)} source={src.t1} flags={targetFlags(1, p.rrT1, minRr, ob1)} />
-            <PriceTile testId={`tile-t2-${d.symbol}`} label="TARGET 2" sub="Further level for any remaining position" value={$(p.t2)} tone="accent" guided={guided} rText={rTxt(p.rrT2)}
+            <PriceTile moved={mv("t2")} testId={`tile-t2-${d.symbol}`} label="TARGET 2" sub="Further level for any remaining position" value={$(p.t2)} tone="accent" guided={guided} rText={rTxt(p.rrT2)}
               changed={changed.has("target2")} engineValue={$(engine.t2)} source={src.t2} flags={targetFlags(2, p.rrT2, minRr, ob2)} />
           </div>
         </Section>
@@ -512,10 +534,10 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
   const p = effectivePlan(d, ver);
   const cs = (ver?.chartState ?? {}) as Record<string, any>;
   const [raw, setRaw] = useState({ entry: p.entry?.toFixed(2) ?? "", stop: p.stop?.toFixed(2) ?? "", stopLimit: p.stopLimit?.toFixed(2) ?? "", t1: p.t1?.toFixed(2) ?? "", t2: p.t2?.toFixed(2) ?? "" });
-  const initialMethod: CardTargetMethod = (cs.targetMethod as CardTargetMethod) ?? (ver ? (ver.inputs.targetMethod === "R_MULTIPLE" ? "FIXED_R" : "MANUAL") : "ENGINE");
+  const initialMethod: CardTargetMethod = (cs.targetMethod as CardTargetMethod) ?? (ver ? (ver.inputs.targetMethod === "R_MULTIPLE" ? "FIXED_R" : "MANUAL") : (d.planTargets?.method ?? "ENGINE"));
   const [method, setMethod] = useState<CardTargetMethod>(initialMethod);
-  const [r1, setR1] = useState<RSel>(rSel(ver?.inputs.targetMethod === "R_MULTIPLE" ? ver.inputs.t1R : undefined, 2));
-  const [r2s, setR2] = useState<RSel>(rSel(ver?.inputs.targetMethod === "R_MULTIPLE" ? ver.inputs.t2R : undefined, 3));
+  const [r1, setR1] = useState<RSel>(rSel(ver?.inputs.targetMethod === "R_MULTIPLE" ? ver.inputs.t1R : d.planTargets?.t1R ?? undefined, 2));
+  const [r2s, setR2] = useState<RSel>(rSel(ver?.inputs.targetMethod === "R_MULTIPLE" ? ver.inputs.t2R : d.planTargets?.t2R ?? undefined, 3));
   const [ref1, setRef1] = useState<number | null>(cs.t1Ref ?? d.target1Ref?.price ?? null);
   const [ref2, setRef2] = useState<number | null>(cs.t2Ref ?? d.target2Ref?.price ?? null);
   const [busy, setBusy] = useState(false);
@@ -632,6 +654,11 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
             <div style={autoGrid(180)}>
               <RPicker id="t1r" label="Target 1 multiple" sel={r1} onChange={setR1} />
               <RPicker id="t2r" label="Target 2 multiple" sel={r2s} onChange={setR2} />
+            </div>
+            <div className="flex flex-wrap gap-2 items-center" style={{ fontSize: "var(--ac-fs-xs)" }}>
+              <span className="ac-muted">Default for new, unedited plans:</span>
+              {rVal(r1) != null && rVal(r2s) != null && rVal(r2s)! > rVal(r1)! && <button className="ac-btn" onClick={() => void saveTargetDefault({ method: "FIXED_R", t1R: rVal(r1)!, t2R: rVal(r2s)! })} data-testid="button-save-r-default">Save {rVal(r1)}R / {rVal(r2s)}R as my default</button>}
+              <button className="ac-btn" onClick={() => void saveTargetDefault({ method: "FIXED_R", t1R: 2, t2R: 3 })} data-testid="button-use-2r3r-default-adjust">Use 2R/3R as my default</button>
             </div>
           </div>
         )}
