@@ -65,7 +65,7 @@ describe("§Q8-2 QQQ first pullback — lines drawn from the decision", () => {
     if (d.entryPrice != null && o.levels.length) {
       expect(o.levels.find((l) => l.kind === "ENTRY")!.price).toBe(d.entryPrice);
       expect(o.levels.find((l) => l.kind === "STOP")!.price).toBe(d.structuralStop);
-      expect(o.levels.find((l) => l.kind === "T1")!.price).toBe(d.target1);
+      expect(o.levels.find((l) => l.kind === "T1")!.price).toBe(d.planTargets?.t1 ?? d.target1);
       if (d.setupStatus !== "READY_TO_TRADE") expect(o.levels.find((l) => l.kind === "ENTRY")!.style).toBe("dashed");
     }
     expect(o.history.length).toBeGreaterThan(0);

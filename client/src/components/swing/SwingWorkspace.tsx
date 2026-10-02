@@ -227,7 +227,9 @@ export function PracticeCard({ d, v }: { d: SwingDecision; v: PracticeVerdict })
   const tone = v.code === "A_READY" ? "border-emerald-500/60" : v.code === "B_NOT_YET" ? "border-yellow-500/60" : v.code === "C_WAIT_EXTENDED" ? "border-orange-500/60" : v.code === "D_PASS_RISK" ? "border-rose-500/60" : "border-ink-line";
   const rows: [string, string][] = [
     ["Current status", STATUS_LABEL[d.setupStatus]], ["Entry trigger", fmt$(d.originalTrigger ?? d.entryPrice)], ["Stop", fmt$(d.structuralStop)],
-    ["Target 1", fmt$(d.target1)], ["Target 2", fmt$(d.target2)], ["R:R (T1 / T2)", `${d.rewardRiskT1 ?? "—"}R / ${d.rewardRiskT2 ?? "—"}R`],
+    ["Target 1", fmt$(d.planTargets?.t1 ?? d.target1)], ["Target 2", fmt$(d.planTargets ? d.planTargets.t2 : d.target2)],
+    ["R:R (T1 / T2)", d.planTargets ? `${d.planTargets.rrT1 ?? "—"}R / ${d.planTargets.rrT2 ?? "—"}R · ${d.planTargets.label}` : `${d.rewardRiskT1 ?? "—"}R / ${d.rewardRiskT2 ?? "—"}R`],
+    ...(d.planTargets && d.planTargets.method !== "ENGINE" ? [["Engine structure targets (readiness)", `${fmt$(d.target1)} (${d.rewardRiskT1 ?? "—"}R) / ${fmt$(d.target2)}`] as [string, string]] : []),
   ];
   return (
     <div className={`rounded border ${tone} bg-ink-deep p-3 space-y-2`} data-testid="card-practice">

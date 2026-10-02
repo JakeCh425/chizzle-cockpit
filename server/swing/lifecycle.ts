@@ -11,6 +11,7 @@ import {
   type CardGrade, type DataHealth, type DataStatus, type PriceZone, type SetupStatus, type SetupType, type SwingDecision, type SwingSettings,
   type StructureLevel,
 } from "@shared/swingDecision";
+import { planTargetsFor } from "@shared/practicePlan";
 import { atr, pivotHighs, supportLevels, type SwingBar } from "./candleMath";
 import { aggregate4H, aggregateWeekly, chicago, chicagoTs, dailyClosed, inRth, tag1H, type Bar1H, type Bar4H } from "./bars";
 import { detectAll, LOOKBACK_4H, type Detection } from "./detectors";
@@ -662,6 +663,7 @@ function finish(c: Ctx, d: SwingDecision, candidates: Candidate[], detections: D
     volume: d.volumeCondition, extensionPct: d.extensionPercentAboveTrigger, extensionAtr: d.extensionAtr,
     mismatch: d.dataMismatchReason, finalStatus: d.setupStatus, grade: d.cardGrade, reason,
   };
+  d.planTargets = planTargetsFor(d, c.s.targetDefault); // same entry/stop snapshot; readiness untouched
   return { decision: d, candidates, detections, log };
 }
 

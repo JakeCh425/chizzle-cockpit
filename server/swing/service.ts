@@ -17,6 +17,7 @@ import { aggregate4H, aggregateWeekly, chicago, chicagoTs, tag1H } from "./bars"
 import type { SwingBar } from "./candleMath";
 import { normalizeList, riskNote, selectUniverse } from "./universe";
 import { isUnifiedSwingEnabled } from "../featureFlags";
+import { planChangeOf, targetDefaultError } from "@shared/practicePlan";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -43,6 +44,9 @@ export const settingsPatchSchema = z.object({
   entryBufferPct: z.number().min(0).max(1).optional(),
   stopBufferAtr: z.number().min(0).max(2).optional(),
   autoRefresh1H: z.boolean().optional(),
+  targetDefault: z.object({ method: z.enum(["FIXED_R", "ENGINE", "STRUCTURE"]), t1R: z.number().positive().max(20), t2R: z.number().positive().max(20) })
+    .refine((t) => !targetDefaultError(t), (t) => ({ message: targetDefaultError(t) ?? "Invalid target default" })).optional(),
+  planAutoRefreshMin: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
 }).strict();
 
 let settingsCache: { v: SwingSettings; at: number } | null = null;
@@ -181,9 +185,13 @@ async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, ke
     const daily = d1.bars.length ? d1.bars : prev?.daily ?? [];
     const source = h1.bars.length ? h1.source : prev?.source ?? null;
     const res = runRules(sym, exchange, bars1h, daily, q ? { price: q.price, ts: q.ts } : null, reference, s, now, source);
+    const failed = [!h1.bars.length && "1H bars", !d1.bars.length && "daily bars", !q && "quote"].filter(Boolean) as string[];
+    // Plan analysis is "successful" only when fresh bars arrived; a quote alone never refreshes (or confirms) the plan.
+    res.decision.planRefresh = planChangeOf(prev?.res.decision, res.decision, new Date(now * 1000).toISOString(), !!h1.bars.length && !!d1.bars.length, failed);
     const out: Cached = { key, res, bars1h, daily, at: Date.now(), exchange, source, reference };
-    evalCache.set(sym, out);
-    afterRefresh(sym, exchange, prev?.res.decision.dataStatus, out, [!h1.bars.length && "1H bars", !d1.bars.length && "daily bars", !q && "quote"].filter(Boolean) as string[]);
+    const cur = evalCache.get(sym);
+    if (!cur || cur.at <= out.at) evalCache.set(sym, out); // an older response never overwrites a newer snapshot
+    afterRefresh(sym, exchange, prev?.res.decision.dataStatus, out, failed);
     void writeLog(res).catch(() => {});
     return out;
   })().finally(() => inflight.delete(sym));
@@ -201,7 +209,11 @@ export async function evaluateSymbol(item: Pick<WatchItem, "symbol" | "exchange"
     if (hit.reeval && (sameHour || opts.allowStale)) {
       // Settings or regime changed: re-apply rules to cached bars instantly.
       const q = await fetchQuote(sym).catch(() => null);
+      const before = hit.res.decision;
       hit.res = runRules(sym, hit.exchange, hit.bars1h, hit.daily, q ? { price: q.price, ts: q.ts } : null, hit.reference, s, now, hit.source);
+      // Settings changed (e.g. target default): same bars, so the analysis time stays the bars' analysis time.
+      const pi = planChangeOf(before, hit.res.decision, new Date(now * 1000).toISOString(), true, []);
+      hit.res.decision.planRefresh = { ...pi, analysisAt: before.planRefresh?.analysisAt ?? pi.analysisAt };
       hit.reeval = false;
     }
     if (hit.key === key) return hit;
@@ -341,7 +353,69 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
   };
 }
 
-// ─── Auto-recompute on each closed RTH hour (approved) ───────────────────────
+// ─── Plan analysis runs: one lock shared by manual, hourly and opt-in interval refreshes ─
+export type RefreshTrigger = "MANUAL" | "HOURLY_CLOSE" | "INTERVAL";
+interface RefreshState { running: Promise<RefreshStatus> | null; trigger: RefreshTrigger | null; startedAt: string | null; lastRunAt: number; lastOkAt: string | null; lastAttemptAt: string | null; lastError: string | null; lastTrigger: RefreshTrigger | null; failedSymbols: string[]; runs: number }
+const rs: RefreshState = { running: null, trigger: null, startedAt: null, lastRunAt: 0, lastOkAt: null, lastAttemptAt: null, lastError: null, lastTrigger: null, failedSymbols: [], runs: 0 };
+export interface RefreshStatus {
+  running: boolean; trigger: RefreshTrigger | null; lastTrigger: RefreshTrigger | null;
+  lastOkAt: string | null; lastAttemptAt: string | null; lastError: string | null; failedSymbols: string[];
+  intervalMin: 0 | 15 | 30 | 60; hourly: boolean; nextAt: string | null; nextKind: RefreshTrigger | null; marketOpen: boolean; runs: number;
+}
+const RUN_TIMEOUT_MS = 150_000;
+const RTH_OPEN = 510, RTH_CLOSE = 900; // CT minutes (08:30–15:00)
+const inSession = (t: number) => { const c = chicago(t); return c.weekday >= 1 && c.weekday <= 5 && c.minutes >= RTH_OPEN + 2 && c.minutes <= RTH_CLOSE + 5; };
+/** Next scheduled run (interval during regular hours, or the 1H-close recompute), scanning forward by minute. */
+function nextScheduled(s: SwingSettings, nowS: number): { at: number; kind: RefreshTrigger } | null {
+  const iv = s.planAutoRefreshMin ?? 0, hourly = s.autoRefresh1H !== false;
+  if (!iv && !hourly) return null;
+  const start = Math.ceil(nowS / 60) * 60;
+  for (let t = start; t < start + 5 * 86400; t += 60) {
+    const c = chicago(t);
+    if (!(c.weekday >= 1 && c.weekday <= 5)) continue;
+    if (hourly) { const b = closeBoundaryNear(c.minutes); if (b != null && c.minutes - b === 2) return { at: t, kind: "HOURLY_CLOSE" }; }
+    if (iv && inSession(t) && t >= rs.lastRunAt + iv * 60) return { at: t, kind: "INTERVAL" };
+  }
+  return null;
+}
+export async function refreshStatus(): Promise<RefreshStatus> {
+  const s = await loadSettings(); const now = nowSec(); const n = nextScheduled(s, now);
+  return {
+    running: !!rs.running, trigger: rs.trigger, lastTrigger: rs.lastTrigger,
+    // Latest successful analysis from any path (scheduled, manual, or a closed-bar refresh on read).
+    lastOkAt: [rs.lastOkAt, ...[...evalCache.values()].map((c) => c.res.decision.planRefresh?.analysisAt ?? null)].filter(Boolean).sort().pop() ?? null, lastAttemptAt: rs.lastAttemptAt, lastError: rs.lastError,
+    failedSymbols: rs.failedSymbols, intervalMin: (s.planAutoRefreshMin ?? 0) as RefreshStatus["intervalMin"], hourly: s.autoRefresh1H !== false,
+    nextAt: n ? new Date(n.at * 1000).toISOString() : null, nextKind: n?.kind ?? null, marketOpen: inSession(now), runs: rs.runs,
+  };
+}
+/** Full plan recalculation for the watchlist. Overlapping callers join the run already in progress (no duplicate requests). */
+export function runPlanAnalysis(trigger: RefreshTrigger): Promise<RefreshStatus> {
+  if (rs.running) return rs.running;
+  // Provider-friendly: a manual click within 30s of the last run just reports that run.
+  if (trigger === "MANUAL" && nowSec() - rs.lastRunAt < 30) return refreshStatus();
+  rs.trigger = trigger; rs.startedAt = new Date().toISOString(); rs.lastRunAt = nowSec();
+  rs.running = (async () => {
+    try {
+      // Bounded: a slow / rate-limited vendor can't hold the lock forever. Per-symbol fetches already de-duplicate,
+      // so a timed-out run's requests finish in the background and simply land in the cache.
+      let to: NodeJS.Timeout | undefined;
+      const out = await Promise.race([
+        scan("DEFAULT_PLUS_CUSTOM", [], [], true),
+        new Promise<never>((_, rej) => { to = setTimeout(() => rej(new Error(`Analysis timed out after ${RUN_TIMEOUT_MS / 1000}s (data provider slow or rate-limited) — showing the last successful snapshot.`)), RUN_TIMEOUT_MS); }),
+      ]).finally(() => clearTimeout(to));
+      const bad = out.rows.filter((r) => r.decision.planRefresh ? !r.decision.planRefresh.ok : r.decision.dataStatus === "ERROR").map((r) => r.item.symbol);
+      rs.failedSymbols = bad; rs.lastAttemptAt = new Date().toISOString(); rs.lastTrigger = trigger; rs.runs += 1;
+      if (bad.length < out.rows.length) rs.lastOkAt = rs.lastAttemptAt;
+      rs.lastError = bad.length ? `Analysis failed for ${bad.join(", ")} — showing the last successful snapshot.` : null;
+    } catch (e: any) {
+      rs.lastAttemptAt = new Date().toISOString(); rs.lastTrigger = trigger; rs.lastError = e?.message || "Analysis failed"; rs.runs += 1;
+      console.warn(`[swing] ${trigger} plan analysis failed:`, rs.lastError);
+    }
+  })().then(() => { rs.running = null; rs.trigger = null; return refreshStatus(); });
+  return rs.running;
+}
+
+// ─── Auto-recompute on each closed RTH hour (approved) + opt-in interval — one timer ─
 let timer: NodeJS.Timeout | null = null, lastSlot = "";
 export function startSwingScheduler() {
   if (timer) return;
@@ -350,14 +424,19 @@ export function startSwingScheduler() {
   timer = setInterval(async () => {
     if (!isUnifiedSwingEnabled()) return;
     const now = nowSec(), c = chicago(now);
-    // Fire 2–7 min after each closed RTH 1H bar (09:30 … 14:30, 15:00 CT) to allow vendor latency.
-    const b = closeBoundaryNear(c.minutes);
-    if (!(c.weekday >= 1 && c.weekday <= 5) || b == null) return;
-    const slot = `${c.ymd}:${b}`;
-    if (slot === lastSlot) return;
-    lastSlot = slot;
-    try { const s = await loadSettings(); if (s.autoRefresh1H !== false) await scan("DEFAULT_PLUS_CUSTOM", [], [], true); }
-    catch (e: any) { console.warn("[swing] auto-recompute failed:", e?.message || e); }
+    if (!(c.weekday >= 1 && c.weekday <= 5)) return;
+    try {
+      const s = await loadSettings();
+      // Fire 2–7 min after each closed RTH 1H bar (09:30 … 14:30, 15:00 CT) to allow vendor latency.
+      const b = closeBoundaryNear(c.minutes);
+      if (b != null && `${c.ymd}:${b}` !== lastSlot) {
+        lastSlot = `${c.ymd}:${b}`;
+        if (s.autoRefresh1H !== false) { await runPlanAnalysis("HOURLY_CLOSE"); return; }
+      }
+      // Opt-in interval refresh during regular hours. Any run (manual / hourly) resets the clock, so nothing doubles up.
+      const iv = s.planAutoRefreshMin ?? 0;
+      if (iv > 0 && inSession(now) && now - rs.lastRunAt >= iv * 60) await runPlanAnalysis("INTERVAL");
+    } catch (e: any) { console.warn("[swing] auto-recompute failed:", e?.message || e); }
   }, 60_000);
   timer.unref?.();
 }
@@ -368,5 +447,5 @@ export function closeBoundaryNear(min: number): number | null {
   return null;
 }
 
-export const _test = { evalCache, barKey };
+export const _test = { evalCache, barKey, rs, nextScheduled, inSession };
 export { SETUP_STATUSES };
