@@ -8,6 +8,7 @@ import { swingJournal } from "@shared/schema";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { sendTestTelegram, startReadyAlerts } from "./readyAlerts";
 import { ackEvent, confirmVerification, contactsWithStatus, createAlert, deleteAlert, listAlerts, listEvents, loadPrefs, savePrefs, sendVerification, setAlertActive, startAlertLoop, tickAlerts } from "./alerts";
 import { ALERT_TYPES, CHANNELS, needsLevel } from "@shared/priceAlerts";
 import { listVersions, planContext, saveVersion, selectVersion, selectedVersions } from "./plans";
@@ -49,7 +50,8 @@ const planInputsSchema = z.object({
 
 export function registerSwingRoutes(app: Express) {
   startSwingScheduler(); // no-op each tick while the flag is off
-  startAlertLoop();      // Section R4 — informational price alerts, every 60s (no-op when none are active)
+  startAlertLoop();
+  startReadyAlerts();   // Ready-now notifications (server-side status transition → in-app + Telegram)      // Section R4 — informational price alerts, every 60s (no-op when none are active)
 
   app.get("/api/swing/status", wrap(async () => ({ enabled: isUnifiedSwingEnabled(), banner: PRACTICE_BANNER })));
 
@@ -192,6 +194,7 @@ export function registerSwingRoutes(app: Express) {
     try { return await confirmVerification(Number(req.params.contactId), z.object({ code: z.string().min(4).max(10) }).parse(req.body ?? {}).code); } catch (e) { if (!httpErr(res, e)) throw e; }
   }));
   app.post("/api/swing/alerts/check-now", wrap(async () => tickAlerts()));
+  app.post("/api/swing/alerts/test-telegram", wrap(async () => sendTestTelegram()));
 
   // ── Practice journal (§Q5 buttons) — stores the shared decision snapshot ──
   app.get("/api/swing/journal", wrap(async (req) => {

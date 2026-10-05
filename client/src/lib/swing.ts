@@ -1,4 +1,5 @@
 // PR 3e — client helpers for the Unified Swing Engine (§Q UI).
+import type { LivePermission } from "@shared/readyAlerts";
 // Everything here is inert unless ENABLE_UNIFIED_SWING_ENGINE is on, or the
 // QA preview override `?unified=1` is present in the URL (search or hash).
 // Analysis / practice only — no broker calls exist anywhere in this module.
@@ -51,7 +52,7 @@ export function useSwingEnabled(): boolean {
 export interface WatchRow extends WatchItem { riskNote: string }
 export interface WatchlistResp { items: WatchRow[]; maxCustomTickers: number; categories: WatchCategory[] }
 export interface ScanRowResp { item: WatchItem; riskNote: string; decision: SwingDecision; verdict: PracticeVerdict }
-export interface ScanResp { selection: ScanSelection; scanned: number; rows: ScanRowResp[]; emptyReason: string | null; evaluatedAt: string; banner: string }
+export interface ScanResp { selection: ScanSelection; scanned: number; rows: ScanRowResp[]; emptyReason: string | null; evaluatedAt: string; banner: string; livePermission?: LivePermission }
 export interface DecisionResp { banner: string; decision: SwingDecision; verdict: PracticeVerdict; riskNote: string | null }
 export interface BarsResp {
   symbol: string; exchange: string; timeframe: string; range: string; session: "RTH" | "EXTENDED"; source: string | null; error?: string;

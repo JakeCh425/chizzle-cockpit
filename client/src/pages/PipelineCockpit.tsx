@@ -29,6 +29,7 @@ import SyncClock from "@/components/SyncClock";
 import SwingWorkspace from "@/components/swing/SwingWorkspace";
 import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import ActionCenter from "@/components/swing/ActionCenter";
+import ReadyNow from "@/components/swing/ReadyNow";
 import { PlanEditorHost } from "@/components/swing/PlanEditor";
 import { AlertDialogHost } from "@/components/swing/PriceAlerts";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
@@ -60,6 +61,10 @@ export default function PipelineCockpit() {
     <div className="max-w-[1440px] mx-auto p-3 sm:p-4 lg:p-5 space-y-4">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
+      {/* READY NOW — only when a decision is ready; hidden otherwise. Same scan as the Action Center. */}
+      <UnifiedSwingMount>
+        {() => <ErrorBoundary label="Ready now"><ReadyNow /></ErrorBoundary>}
+      </UnifiedSwingMount>
 
       {/* 2. "What should I do today?" — plain-English translation of
            existing regime + scanner outputs. No new signals. */}
