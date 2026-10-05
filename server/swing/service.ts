@@ -18,6 +18,7 @@ import type { SwingBar } from "./candleMath";
 import { normalizeList, riskNote, selectUniverse } from "./universe";
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { planChangeOf, targetDefaultError } from "@shared/practicePlan";
+import type { LivePermission } from "@shared/readyAlerts";
 
 const nowSec = () => Math.floor(Date.now() / 1000);
 
@@ -171,6 +172,24 @@ function afterRefresh(sym: string, exchange: string, prevStatus: string | undefi
   else if (st === "LIVE") { const r = retries.get(sym); if (r?.timer) clearTimeout(r.timer); retries.delete(sym); }
 }
 
+// ─── Ready-now hook (notifications) + live-risk permission ───────────────────
+type ReadyHook = (d: SwingDecision, qualifyingBar: string | null) => void;
+let readyHook: ReadyHook | null = null;
+export function onReadyDecision(fn: ReadyHook) { readyHook = fn; }
+/** Live-risk permission from the market regime — separate from the engine's practice readiness. */
+export function livePermission(): LivePermission {
+  const r = getEffectiveRegime();
+  const allowed = r.code !== "red";
+  return { allowed, regime: r.code, source: r.source, reason: allowed ? "" : "Capital Protection is active (red regime) — no new live risk." };
+}
+/** The closed 1H bar that confirmed the primary setup (falls back to the last closed 1H bar). */
+function qualifyingBarOf(res: EvalResult): string | null {
+  const d = res.decision;
+  const c = res.candidates.find((x) => x.decision === d) ?? res.candidates.find((x) => x.decision.setupType === d.setupType && x.decision.setupTimestamp === d.setupTimestamp);
+  const end = c?.events?.confirm1h?.end;
+  return end ? new Date(end * 1000).toISOString() : d.lastCompletedBar1H;
+}
+
 async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, key: string): Promise<Cached> {
   const running = inflight.get(sym);
   if (running) return running;
@@ -192,6 +211,13 @@ async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, ke
     const cur = evalCache.get(sym);
     if (!cur || cur.at <= out.at) evalCache.set(sym, out); // an older response never overwrites a newer snapshot
     afterRefresh(sym, exchange, prev?.res.decision.dataStatus, out, failed);
+    // Ready notifications come only from a fresh, newest snapshot of a watchlist symbol —
+    // never from a quote-only refresh, stale data, an older response, or a UI render.
+    const dd = res.decision;
+    if (readyHook && dd.setupStatus === "READY_TO_TRADE" && dd.planRefresh?.ok && dd.dataStatus !== "STALE" && dd.dataStatus !== "ERROR"
+      && evalCache.get(sym) === out && s.watchlist?.some((w) => w.symbol === sym && !w.hidden)) {
+      try { readyHook(dd, qualifyingBarOf(res)); } catch { /* notifications never block the engine */ }
+    }
     void writeLog(res).catch(() => {});
     return out;
   })().finally(() => inflight.delete(sym));
@@ -298,7 +324,7 @@ export async function scan(sel: ScanSelection, symbols: string[] = [], statusFil
   const shown = statusFilter.length ? rows.filter((r) => statusFilter.includes(r.decision.setupStatus)) : rows;
   const emptyReason = !items.length ? `No tickers match “${sel}”. Add tickers or reset to the default learning universe.`
     : !shown.length ? `${rows.length} ticker(s) scanned; none match the status filter (${statusFilter.join(", ")}). Clear the filter to see all outcomes.` : null;
-  return { selection: sel, scanned: rows.length, rows: shown, emptyReason, evaluatedAt: new Date().toISOString() };
+  return { selection: sel, scanned: rows.length, rows: shown, emptyReason, evaluatedAt: new Date().toISOString(), livePermission: livePermission() };
 }
 
 function errorDecision(item: WatchItem, s: SwingSettings, why: string): SwingDecision {

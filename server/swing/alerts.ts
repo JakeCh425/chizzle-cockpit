@@ -45,6 +45,7 @@ export async function savePrefs(patch: Partial<AlertPrefs>): Promise<AlertPrefs>
 
 // ─── Contacts + verification ─────────────────────────────────────────────────
 const codes = new Map<number, { code: string; exp: number; tries: number }>();
+export async function contactForChannel(ch: Channel) { return contactFor(ch); }
 async function contactFor(ch: Channel) {
   if (ch !== "email" && ch !== "telegram") return null;
   const all = await storage.listAlertContacts();
@@ -159,7 +160,8 @@ export async function tickAlerts(now = new Date()): Promise<{ checked: number; f
     const prefs = await loadPrefs();
     const s = await loadSettings();
     const sel = await selectedVersions();
-    const today = await db.select({ symbol: swingAlertEvents.symbol }).from(swingAlertEvents).where(gte(swingAlertEvents.firedAt, startOfDayCT()));
+    // Ready-now events (readyAlerts.ts) have their own once-per-event rule and don't use up price-alert caps.
+    const today = (await db.select({ symbol: swingAlertEvents.symbol, type: swingAlertEvents.type }).from(swingAlertEvents).where(gte(swingAlertEvents.firedAt, startOfDayCT()))).filter((t) => t.type !== "READY_NOW");
     let total = today.length; const perTicker: Record<string, number> = {};
     for (const t of today) perTicker[t.symbol] = (perTicker[t.symbol] ?? 0) + 1;
     const nowSec = Math.floor(now.getTime() / 1000), nowIso = now.toISOString();

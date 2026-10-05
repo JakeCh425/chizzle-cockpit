@@ -12,6 +12,7 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/compone
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
+import { readyStatusLabel, type LivePermission } from "@shared/readyAlerts";
 import {
   ACTION_GROUP_LABEL, canEditPlan, engineChangedSince, enginePlanSig, inputsFromCardChoice, obstacleBefore, plannedR, recalcPlan, rMultipleOf,
   R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels,
@@ -100,6 +101,14 @@ const toneVar = (t: string) => `var(--ac-${t === "accent" ? "accent" : t === "mu
 
 const $ = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
+
+/** Live-risk permission (market regime) — kept separate from the engine's practice readiness. */
+export const LiveCtx = createContext<LivePermission | null>(null);
+/** Status wording: never "Ready to Trade" while the same snapshot says live risk is blocked. */
+export function statusText(d: SwingDecision, group: ActionGroup, live: LivePermission | null): string {
+  return readyStatusLabel(d.setupStatus, live) || STATUS_LABEL[d.setupStatus] || ACTION_GROUP_LABEL[group];
+}
+export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLowerCase().replace(/(^|[\s-])\w/g, (c) => c.toUpperCase()) : "No setup");
 
 /** One clear next step, always consistent with the engine status (never upgrades it). */
 export function nextStepFor(d: SwingDecision, group: ActionGroup, ver: PlanVersion | null): { text: string; tone: "good" | "warn" | "bad" | "accent" } {
@@ -423,6 +432,7 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
 /** Card header — always visible; the whole card collapses under it but keeps ticker, status and key prices. */
 function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; isNew?: boolean; open?: boolean; toggle?: () => void; action?: React.ReactNode }) {
   const p = effectivePlan(d, ver);
+  const live = useContext(LiveCtx);
   const tone = TONE[group], Icon = ICON[group];
   const badData = BAD_DATA.includes(d.dataStatus);
   return (
@@ -437,7 +447,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
         {d.setupType ? d.setupType.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "No setup"}
         {d.setupTimeframe && <span className="ac-accent"> · {d.setupTimeframe}</span>}
       </span>
-      <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{STATUS_LABEL[d.setupStatus] ?? ACTION_GROUP_LABEL[group]}</Badge>
+      <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{statusText(d, group, live)}</Badge>
       <Badge tone="muted" testId={`badge-classification-${d.symbol}`}>Class: {CLASS_LABEL[d.cardGrade] ?? d.cardGrade}</Badge>
       <Badge tone={p.source === "USER" ? "accent" : "muted"} Icon={p.source === "USER" ? Pencil : undefined} testId={`text-ac-plan-source-${d.symbol}`}>
         {p.source === "USER" ? `My Adjusted Plan v${p.version}` : "Engine Plan"}
@@ -464,18 +474,68 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
 // ─── Inline stat card (collapsible, remembered per setup) ────────────────────
 export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void }) {
   const { d, group, setupKey, isNew, onSeen } = props;
-  const [open, setOpen] = useDisclosure(`card:${setupKey}`, true);
+  // Compact by default; the user's choice is remembered per setup instance.
+  const [open, setOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggle = () => { setOpen(!open); onSeen(); };
+  const live = useContext(LiveCtx);
   return (
     <article className="ac-card rounded-2xl overflow-hidden" style={{ borderLeft: `5px solid ${toneVar(TONE[group])}` }}
-      aria-label={`${d.symbol} trading card: ${STATUS_LABEL[d.setupStatus]}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open}>
-      <div className="px-3 pt-2 sm:px-4 space-y-1 pb-1.5">
-        <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle}
-          action={!open && props.onOpen ? <button className="ac-btn ac-btn-primary !py-1" onClick={() => { onSeen(); props.onOpen!(); }} data-testid={`button-open-card-collapsed-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button> : undefined} />
-        <CriticalWarnings d={d} ver={props.ver} />
-      </div>
-      {open && <TradingCardBody {...props} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />}
+      aria-label={`${d.symbol} trading card: ${statusText(d, group, live)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open}>
+      {open ? (
+        <>
+          <div className="px-3 pt-2 sm:px-4 space-y-1 pb-1.5">
+            <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle} />
+            <CriticalWarnings d={d} ver={props.ver} />
+          </div>
+          <TradingCardBody {...props} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
+        </>
+      ) : <CompactRow {...props} toggle={toggle} />}
     </article>
+  );
+}
+
+/** Collapsed card (~75–95px): ticker, status, setup · TF, price, entry, stop, T1, risk/share, one action.
+ *  Critical warnings (expired, bad data, invalidated, failed analysis) stay visible. */
+function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; toggle: () => void }) {
+  const { d, group, ver, isNew, onSeen, toggle } = props;
+  const live = useContext(LiveCtx);
+  const p = effectivePlan(d, ver);
+  const tone = TONE[group], Icon = ICON[group];
+  const expired = d.setupStatus === "SIGNAL_EXPIRED";
+  const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
+  const invalidated = d.currentPrice != null && p.stop != null && d.currentPrice < p.stop;
+  const invalidPlan = ver != null && ver.result.state === "INVALID";
+  const failed = d.planRefresh && !d.planRefresh.ok;
+  const warn = expired ? "Expired — levels are history only" : badData ? `Data ${d.dataStatus} — verify before using levels` : invalidated ? "Price below stop — plan invalidated" : invalidPlan ? "My Adjusted Plan is invalid" : null;
+  const sm = { fontSize: "var(--ac-fs-sm)" } as const, xs = { fontSize: "var(--ac-fs-xs)" } as const;
+  return (
+    <div className="px-3 py-2 sm:px-4 flex flex-col gap-1" data-testid={`row-compact-${d.symbol}`}>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <button className="ac-btn !px-1.5 !py-0.5" onClick={toggle} aria-expanded={false} aria-label={`Expand ${d.symbol} card`} data-testid={`button-collapse-card-${d.symbol}`}><ChevronRight className="h-4 w-4" aria-hidden /></button>
+        <span className="ac-num font-extrabold leading-none tracking-tight" style={{ fontSize: "calc(var(--ac-ticker) * 0.85)" }} data-testid={`text-card-ticker-${d.symbol}`}>{d.symbol}</span>
+        <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{statusText(d, group, live)}</Badge>
+        <span className="font-semibold" style={sm}>{setupName(d.setupType)}{d.setupTimeframe && <span className="ac-accent"> · {d.setupTimeframe}</span>}</span>
+        {p.source === "USER" && <Badge tone="accent" Icon={Pencil} testId={`text-ac-plan-source-${d.symbol}`}>My Plan v{p.version}</Badge>}
+        {isNew && <span className="rounded-full px-2 py-0.5 font-bold" style={{ ...xs, background: "var(--ac-accent-2)", color: "var(--ac-bg)" }} data-testid={`badge-new-plan-${d.symbol}`}>NEW</span>}
+        <span className="ml-auto ac-num font-bold" style={{ fontSize: "calc(var(--ac-fs) * 1.1)" }} data-testid={`text-card-price-${d.symbol}`}>{$(d.currentPrice)}</span>
+        {props.onOpen && <button className="ac-btn ac-btn-primary !py-1" onClick={() => { onSeen(); props.onOpen!(); }} data-testid={`button-open-card-collapsed-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Card</button>}
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 ac-num pl-9" style={sm} data-testid={`text-card-summary-${d.symbol}`}>
+        {p.entry != null ? <>
+          <span>Entry <b>{$(p.entry)}</b></span><span className="ac-muted">|</span>
+          <span>Stop <b>{$(p.stop)}</b></span><span className="ac-muted">|</span>
+          <span>T1 <b>{$(p.t1)}</b></span><span className="ac-muted">|</span>
+          <span>Risk/sh <b>{$(p.risk)}</b></span>
+        </> : <span className="ac-muted">{d.nextAction || "No plan levels yet."}</span>}
+        <span className="ac-warn font-semibold" style={xs} title="OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE." data-testid={`text-gap-risk-${d.symbol}`}>Gap risk: stops can fill below stop</span>
+      </div>
+      {(warn || failed) && (
+        <div className="pl-9 flex flex-wrap items-center gap-x-3 font-semibold" style={xs} role="alert" data-testid={`card-warnings-${d.symbol}`}>
+          {warn && <span className="ac-bad inline-flex items-center gap-1" data-testid={`banner-levels-caution-${d.symbol}`}><XCircle className="h-3.5 w-3.5" aria-hidden /> {warn}</span>}
+          {failed && <span className="ac-warn inline-flex items-center gap-1" data-testid={`text-plan-fresh-${d.symbol}`} data-kind="FAILED"><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Last confirmed snapshot · {fmtCT(d.planRefresh!.analysisAt)}</span>}
+        </div>
+      )}
+    </div>
   );
 }
 

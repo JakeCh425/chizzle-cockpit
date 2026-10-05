@@ -1,7 +1,7 @@
 // Section R4 — Set Alert dialog, Alerts panel (active + recent + acknowledge) and Alert Settings
 // (channels, verification, quiet hours, caps, dedupe). PRICE ALERT ONLY — never a broker order.
 import { useEffect, useRef, useState } from "react";
-import { Bell, BellOff, BellRing, Check, ChevronDown, ChevronRight, Settings2, Trash2 } from "lucide-react";
+import { Bell, BellOff, BellRing, Check, ChevronDown, ChevronRight, ExternalLink, Send, Settings2, Trash2, Zap } from "lucide-react";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
@@ -9,7 +9,15 @@ import {
   type AlertPrefs, type AlertType, type Channel, type ExpiryMode, type Frequency,
 } from "@shared/priceAlerts";
 import { fmtCT } from "@/lib/swing";
-import { alertApi, invalidateAlerts, useAlertEvents, useAlertPrefs, useAlerts, type AlertDraft, type AlertEvent } from "@/lib/alerts";
+import { alertApi, deliveryEntries, invalidateAlerts, openTradingCard, useAlertEvents, useAlertPrefs, useAlerts, type AlertDraft, type AlertEvent, type DeliveryState } from "@/lib/alerts";
+
+const typeLabel = (t: string) => (t === "READY_NOW" ? "Ready now" : ALERT_TYPE_LABEL[t as AlertType] ?? t);
+const deliveryText = (ch: string, v: DeliveryState) => {
+  const name = CHANNEL_LABEL[ch as Channel] ?? ch;
+  if (v.status === "failed") return `${name}: delivery failed — ${v.label ?? v.error ?? "unknown"}${v.attempts ? ` (attempt ${v.attempts}${v.nextAt ? `, retry ${fmtCT(v.nextAt)}` : ", no more retries"})` : ""}`;
+  if (v.status === "sending") return `${name}: sending…`;
+  return `${name}: ${v.status}${v.error ? ` (${v.error})` : ""}`;
+};
 
 const $ = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `$${n.toFixed(2)}`);
 const btn = "inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[11px] font-mono focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue";
@@ -155,7 +163,7 @@ function useBrowserPush(events: AlertEvent[] | undefined, enabled: boolean) {
     const top = events[0].id;
     if (seen.current == null) { seen.current = top; return; } // don't replay history on load
     if (enabled && typeof Notification !== "undefined" && Notification.permission === "granted") {
-      for (const e of events.filter((x) => x.id > seen.current! && x.delivery?.push)) {
+      for (const e of events.filter((x) => x.id > seen.current! && (x.delivery?.push as DeliveryState | undefined)?.status === "queued_browser")) {
         try { new Notification(`Chizzle practice alert: ${e.symbol}`, { body: e.message.slice(0, 180), tag: `chizzle-${e.id}` }); } catch { /* blocked in frame */ }
       }
     }
@@ -179,16 +187,29 @@ export function AlertsPanel(props: { open?: boolean; onOpenChange?: (o: boolean)
   const unacked = events.filter((e) => !e.acknowledged);
   const shown = showAll ? events.slice(0, 20) : unacked.slice(0, 5);
   const act = async (fn: () => Promise<unknown>) => { try { await fn(); } finally { invalidateAlerts(); } };
+  // Briefly highlight when a new alert arrives (not on first load).
+  const topSeen = useRef<number | null>(null);
+  const [flash, setFlash] = useState(false);
+  useEffect(() => {
+    const top = events[0]?.id ?? 0;
+    if (topSeen.current != null && top > topSeen.current) { setFlash(true); const t = setTimeout(() => setFlash(false), 6000); topSeen.current = top; return () => clearTimeout(t); }
+    topSeen.current = Math.max(topSeen.current ?? 0, top);
+  }, [events]);
+  // Opening the card is an intentional read; it never changes the setup's status.
+  const openCard = (e: AlertEvent) => { openTradingCard(e.symbol); if (!e.acknowledged) void act(() => alertApi.ack(e.id)); };
 
   return (
-    <section className="mt-3 rounded-lg border border-ink-line px-3 py-2" aria-label="Practice alerts" data-testid="panel-alerts">
+    <section className={`mt-3 rounded-lg border px-3 py-2 transition-shadow ${flash ? "border-neon-blue shadow-[0_0_0_2px_rgba(56,189,248,0.45)]" : "border-ink-line"}`} aria-label="Practice alerts" data-testid="panel-alerts" data-flash={flash}>
       <div className="flex flex-wrap items-center gap-2">
         <button className="inline-flex items-center gap-2 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
           onClick={() => setOpen(!open)} aria-expanded={open} aria-controls="alerts-panel-body" data-testid="button-toggle-alerts-panel">
           {open ? <ChevronDown className="h-4 w-4 text-slate-gray" aria-hidden /> : <ChevronRight className="h-4 w-4 text-slate-gray" aria-hidden />}
           <Bell className="h-4 w-4 text-neon-blue" aria-hidden />
           <span className="font-mono font-bold text-[12.5px] text-soft-white">PRACTICE ALERTS</span>
-          <span className="font-mono text-[11px] text-slate-gray" data-testid="text-alert-counts">{active.length} active · {unacked.length} new</span>
+          {unacked.length > 0
+            ? <span className="rounded-full bg-neon-blue px-2 py-0.5 font-mono text-[11px] font-bold text-ink-black" data-testid="badge-alert-unread">{unacked.length} unread</span>
+            : <span className="font-mono text-[11px] text-slate-gray" data-testid="badge-alert-unread">0 unread</span>}
+          <span className="font-mono text-[11px] text-slate-gray" data-testid="text-alert-counts">{active.length} price alert{active.length === 1 ? "" : "s"} active</span>
         </button>
         {open && <span className="ml-auto flex gap-1.5">
           <button className={btnSub} onClick={() => setShowAll((v) => !v)} data-testid="button-alert-history">{showAll ? "New only" : "History"}</button>
@@ -203,19 +224,22 @@ export function AlertsPanel(props: { open?: boolean; onOpenChange?: (o: boolean)
           {shown.map((e) => (
             <li key={e.id} className={`rounded border px-2 py-1.5 text-[11.5px] ${e.acknowledged ? "border-ink-line opacity-70" : "border-neon-blue/60"}`} data-testid={`row-alert-event-${e.id}`}>
               <div className="flex flex-wrap items-center gap-2 font-mono">
-                <BellRing className="h-3 w-3 text-neon-blue" aria-hidden />
+                {e.type === "READY_NOW" ? <Zap className="h-3 w-3 text-emerald-600 dark:text-emerald-300" aria-hidden /> : <BellRing className="h-3 w-3 text-neon-blue" aria-hidden />}
                 <b className="text-soft-white">{e.symbol}</b>
-                <span className="text-slate-gray">{ALERT_TYPE_LABEL[e.type]}</span>
+                <span className={e.type === "READY_NOW" ? "text-emerald-600 dark:text-emerald-300 font-bold" : "text-slate-gray"}>{typeLabel(e.type)}</span>
                 <span className="text-slate-gray">{fmtCT(e.firedAt)}</span>
                 {e.planVersion > 0 && <span className="text-neon-blue">Plan v{e.planVersion}</span>}
                 <span className="text-slate-gray">data {e.dataStatus ?? "—"} · {e.dataSource ?? "—"}</span>
+                <button className={`${btnMain} ml-auto`} onClick={() => openCard(e)} data-testid={`button-alert-open-card-${e.id}`}><ExternalLink className="h-3 w-3" aria-hidden /> Open Card</button>
                 {!e.acknowledged
-                  ? <button className={`${btnSub} ml-auto`} onClick={() => act(() => alertApi.ack(e.id))} data-testid={`button-ack-${e.id}`}><Check className="h-3 w-3" aria-hidden /> Acknowledge</button>
-                  : <span className="ml-auto text-slate-gray">acknowledged</span>}
+                  ? <button className={btnSub} onClick={() => act(() => alertApi.ack(e.id))} data-testid={`button-ack-${e.id}`}><Check className="h-3 w-3" aria-hidden /> Acknowledge</button>
+                  : <span className="text-slate-gray">read</span>}
               </div>
               <div className="text-soft-white mt-0.5" data-testid={`text-alert-message-${e.id}`}>{e.message}</div>
-              <div className="text-[10px] font-mono text-slate-gray mt-0.5">
-                {Object.entries(e.delivery ?? {}).map(([ch, v]) => `${CHANNEL_LABEL[ch as Channel] ?? ch}: ${v.status}${v.error ? ` (${v.error})` : ""}`).join(" · ")}
+              <div className="text-[10px] font-mono mt-0.5" data-testid={`text-alert-delivery-${e.id}`}>
+                {deliveryEntries(e).map(([ch, v], i) => (
+                  <span key={ch} className={v.status === "failed" ? "text-signal-red font-bold" : "text-slate-gray"} data-testid={`text-delivery-${ch}-${e.id}`}>{i ? " · " : ""}{deliveryText(ch, v)}</span>
+                ))}
               </div>
             </li>
           ))}
@@ -271,6 +295,12 @@ function AlertSettings({ prefs, contacts }: { prefs: AlertPrefs; contacts: NonNu
   useEffect(() => () => { if (timer.current) clearTimeout(timer.current); }, []);
   const send = async (id: number) => { try { await alertApi.sendCode(id); setNote((n) => ({ ...n, [id]: "Code sent — check that inbox/chat." })); } catch (e: any) { setNote((n) => ({ ...n, [id]: e?.message ?? "Could not send" })); } };
   const confirm = async (id: number) => { try { await alertApi.confirmCode(id, code[id] ?? ""); setNote((n) => ({ ...n, [id]: "Verified" })); invalidateAlerts(); } catch (e: any) { setNote((n) => ({ ...n, [id]: e?.message ?? "Wrong code" })); } };
+  const [tg, setTg] = useState<{ busy: boolean; msg: string | null; ok: boolean }>({ busy: false, msg: null, ok: false });
+  const testTelegram = async () => {
+    setTg({ busy: true, msg: null, ok: false });
+    try { const r = await alertApi.testTelegram(); setTg({ busy: false, ok: r.ok, msg: `${r.label}${r.chat ? ` · ${r.chat}` : ""}${!r.ok && r.error ? ` — ${r.error}` : ""}` }); }
+    catch (e: any) { setTg({ busy: false, ok: false, msg: `Network/provider failure — ${e?.message ?? "request failed"}` }); }
+  };
   const askPush = async () => { try { if (typeof Notification !== "undefined") await Notification.requestPermission(); } catch { /* ignore */ } update({ ...p, channels: { ...p.channels, push: true } }); };
   return (
     <div className="mt-3 rounded border border-ink-line px-3 py-2 space-y-3 text-[11.5px]" data-testid="panel-alert-settings">
@@ -304,6 +334,11 @@ function AlertSettings({ prefs, contacts }: { prefs: AlertPrefs; contacts: NonNu
             </li>
           ))}
         </ul>
+      </div>
+      <div className="flex flex-wrap items-center gap-2 font-mono">
+        <button className={btnMain} onClick={testTelegram} disabled={tg.busy} data-testid="button-test-telegram"><Send className="h-3 w-3" aria-hidden /> {tg.busy ? "Sending…" : "Send Test Telegram"}</button>
+        {tg.msg && <span className={tg.ok ? "text-signal-green" : "text-signal-red"} role="status" data-testid="text-test-telegram">{tg.msg}</span>}
+        <span className="text-slate-gray text-[10.5px]">Ready-now alerts use the Telegram switch above; the bot token stays on the server.</span>
       </div>
       <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
         <div><label className={lab} htmlFor="pref-quiet-start">Quiet from (CT)</label><input id="pref-quiet-start" type="time" className={field} value={p.quietStart ?? ""} onChange={(e) => update({ ...p, quietStart: e.target.value || null }, 700)} data-testid="input-quiet-start" /></div>

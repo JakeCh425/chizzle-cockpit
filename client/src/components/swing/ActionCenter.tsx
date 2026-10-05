@@ -1,18 +1,19 @@
 // Section R5 + stat-card upgrade — Action Center: the top-of-Cockpit summary of every watchlist symbol,
 // ordered Ready > Confirmed > Forming > Retest > Extended > R:R/stop > Data > No trade (unchanged).
 // Reads the SAME scan + selected plan versions as the workspace. Practice / analysis only.
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, Palette, Pencil, X } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
-import { actionGroupOf, setupIdOf, sortForActionCenter } from "@shared/practicePlan";
+import { actionGroupOf, setupIdOf } from "@shared/practicePlan";
+import { sortForCockpit } from "@shared/readyAlerts";
 import { swingGet } from "@/lib/swing";
 import { activeVersion, staleVersion, useSelectedPlans } from "@/lib/plans";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useScan } from "./SwingWorkspace";
 import { AlertsPanel } from "./PriceAlerts";
-import { PlanRefreshBar } from "./PlanRefresh";
-import { AppearanceControls, DisclosureProvider, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
+import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
+import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
 
 const DEFAULT_TITLE = "Action Center";
 
@@ -60,7 +61,27 @@ function ActionCenterInner() {
   // The dialog is ONLY opened by a click — never by polling or refresh.
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
 
-  const rows = sortForActionCenter((scan.data?.rows ?? []).map((r) => r.decision));
+  // Visual priority: Ready > Confirmed > Near trigger > Forming > Watching > Extended > No trade > Expired.
+  const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const close = (e: MouseEvent) => { if (moreRef.current && !moreRef.current.contains(e.target as Node)) setMoreOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === "Escape") setMoreOpen(false); };
+    document.addEventListener("mousedown", close); document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [moreOpen]);
+  // READY NOW banner / alerts open the EXISTING card for a symbol (never a duplicate plan).
+  useEffect(() => {
+    const onOpen = (e: Event) => {
+      const sym = String((e as CustomEvent).detail?.symbol ?? "").toUpperCase();
+      if (!sym) return;
+      setBoxOpen(true); setDlg({ symbol: sym, mode: "view" });
+    };
+    window.addEventListener("chizzle:open-card", onOpen);
+    return () => window.removeEventListener("chizzle:open-card", onOpen);
+  }, [setBoxOpen]);
   const loud = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE");
   const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE");
   const counts = rows.reduce<Record<string, number>>((m, d) => { const g = actionGroupOf(d); m[g] = (m[g] ?? 0) + 1; return m; }, {});
@@ -72,6 +93,7 @@ function ActionCenterInner() {
   const dlgDecision: SwingDecision | undefined = dlg ? rows.find((d) => d.symbol === dlg.symbol) : undefined;
 
   return (
+    <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section className="ac-root ac-shell rounded-2xl px-3 py-2 sm:px-4 space-y-2" {...acAttrs(prefs)} aria-label={title} data-testid="action-center" data-open={boxOpen}>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <button className="ac-btn !px-2 !py-1" onClick={() => setBoxOpen(!boxOpen)} aria-expanded={boxOpen} aria-controls="ac-body"
@@ -79,8 +101,11 @@ function ActionCenterInner() {
           {boxOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
         </button>
         <EditableTitle value={title} onChange={setTitle} />
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ac-num ${counts.READY ? "" : "ac-muted"}`} style={{ fontSize: "var(--ac-fs-xs)", border: `1.5px solid ${counts.READY ? "var(--ac-good)" : "var(--ac-border)"}`, color: counts.READY ? "var(--ac-good)" : undefined }} data-testid="text-ac-ready-count">
+          <Zap className="h-3.5 w-3.5" aria-hidden /> {counts.READY ?? 0} ready
+        </span>
         <span className="ac-muted ac-num" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid="text-ac-counts">
-          {scan.isLoading ? "Evaluating watchlist…" : `${counts.READY ?? 0} ready · ${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
+          {scan.isLoading ? "Evaluating watchlist…" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
         </span>
         <span className="font-semibold ac-warn" style={{ fontSize: "var(--ac-fs-xs)" }}>PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</span>
         {boxOpen && (
@@ -94,11 +119,24 @@ function ActionCenterInner() {
                 </button>
               ))}
             </div>
-            <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => all(true)} data-testid="button-expand-all"><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand All</button>
-            <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => all(false)} data-testid="button-collapse-all"><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse All</button>
-            <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => setAppOpen(!appOpen)} aria-expanded={appOpen} aria-controls="ac-appearance" data-testid="sec-appearance-toggle">
-              <Palette className="h-3.5 w-3.5" aria-hidden /> Appearance
-            </button>
+            <div className="relative" ref={moreRef}>
+              <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen} aria-haspopup="true" data-testid="button-ac-more">
+                <MoreHorizontal className="h-3.5 w-3.5" aria-hidden /> More
+              </button>
+              {moreOpen && (
+                <div className="ac-shell absolute right-0 top-full mt-1 z-40 w-[22rem] max-w-[90vw] rounded-xl p-2.5 space-y-2 shadow-xl" style={{ border: "1px solid var(--ac-border)" }} role="menu" data-testid="menu-ac-more">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} role="menuitem" onClick={() => { all(true); setMoreOpen(false); }} data-testid="button-expand-all"><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand All</button>
+                    <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} role="menuitem" onClick={() => { all(false); setMoreOpen(false); }} data-testid="button-collapse-all"><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse All</button>
+                    <button className="ac-btn !py-1" style={{ fontSize: "var(--ac-fs-xs)" }} role="menuitem" onClick={() => { setAppOpen(!appOpen); setMoreOpen(false); }} aria-expanded={appOpen} aria-controls="ac-appearance" data-testid="sec-appearance-toggle">
+                      <Palette className="h-3.5 w-3.5" aria-hidden /> Appearance
+                    </button>
+                  </div>
+                  <TargetDefaultControl settings={settings.data} />
+                  <div className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.</div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -151,5 +189,6 @@ function ActionCenterInner() {
       </div>
       </div>}
     </section>
+    </LiveCtx.Provider>
   );
 }
