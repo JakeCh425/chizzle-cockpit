@@ -88,7 +88,13 @@ export default function CollapsibleSection({
   containerClassName = "rounded-lg border border-ink-line bg-ink-panel/30",
   headerToneClassName = "",
 }: CollapsibleSectionProps) {
-  const { collapsed, toggle } = usePanelCollapsed(id, defaultCollapsed);
+  const { collapsed, toggle, setCollapsed } = usePanelCollapsed(id, defaultCollapsed);
+  // Cockpit navigation can ask a folded section to open (e.g. "Open Chart" from a trading card).
+  useEffect(() => {
+    const on = (e: Event) => { if ((e as CustomEvent).detail === id && collapsed) setCollapsed(false); };
+    window.addEventListener("chizzle:expand-section", on);
+    return () => window.removeEventListener("chizzle:expand-section", on);
+  }, [id, collapsed, setCollapsed]);
 
   return (
     <section className={containerClassName} data-testid={`section-${id}`}>

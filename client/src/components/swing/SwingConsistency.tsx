@@ -1,12 +1,14 @@
 // PR 3e — consistency strips (§A/§K): when the Unified Swing Engine is on, the
 // existing Do Today / Trade Plan / AI Coach panels show the SAME SwingDecision
 // status on top, so no module can contradict it. Renders nothing when the flag is off.
+import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { PRACTICE_BANNER, STATUS_LABEL, type ScanSelection } from "@shared/swingDecision";
 import { STATUS_TONE, useSwingDecision, useSwingEnabled } from "@/lib/swing";
 import { useScan } from "./SwingWorkspace";
 
 /** Status line for one symbol, read from the shared decision. */
 export function SwingStatusStrip({ symbol, context }: { symbol: string; context: string }) {
+  const statusLabel = useLiveStatusLabel();
   const on = useSwingEnabled();
   const q = useSwingDecision(symbol, "LAST5", on);
   if (!on) return null;
@@ -20,7 +22,7 @@ export function SwingStatusStrip({ symbol, context }: { symbol: string; context:
   }
   return (
     <div className={`rounded border px-2 py-1.5 mb-2 text-[11px] ${STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`} data-testid={`swing-strip-${context}`} role="status">
-      <div className="font-mono font-bold">Unified decision · {d.symbol}: {STATUS_LABEL[d.setupStatus]}</div>
+      <div className="font-mono font-bold">Unified decision · {d.symbol}: {statusLabel(d.setupStatus)}</div>
       <div className="text-soft-white/90">{q.data!.verdict.headline} — {d.nextAction}</div>
       <div className="text-[9.5px] font-mono text-slate-gray mt-0.5">This shared decision is the authority; readouts below are supporting context only. {PRACTICE_BANNER}</div>
     </div>

@@ -2,6 +2,7 @@
 // this setup?", "Why did this form?", history, settings). Mounted only when
 // ENABLE_UNIFIED_SWING_ENGINE is on (or ?unified=1). Every block reads the same
 // SwingDecision. Analysis / practice only — there is no broker button anywhere.
+import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Archive, Eye, EyeOff, Pin, PinOff, RefreshCw, RotateCcw, StickyNote, Trash2, Plus } from "lucide-react";
@@ -18,7 +19,7 @@ import {
 } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
-import { activeVersion, effectivePlan, useSelectedPlans } from "@/lib/plans";
+import { activeVersion, effectivePlan, takePendingFocus, useSelectedPlans } from "@/lib/plans";
 import { alertLevelsFor, useAlerts } from "@/lib/alerts";
 import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
@@ -41,8 +42,13 @@ function invalidateSwing() {
   queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/swing") });
 }
 
-export function StatusPill({ s }: { s: SwingDecision["setupStatus"] }) {
-  return <span className={`px-1.5 py-0.5 rounded border text-[10.5px] font-mono whitespace-nowrap ${STATUS_TONE[s] ?? ""}`} data-testid="status-setup" title={s === "SIGNAL_EXPIRED" ? "Expired: no closed 1H above the trigger in time, the setup was invalidated, or the risk never fit. Not tradeable. Resets automatically when a fresh setup forms (re-checked every closed 1H bar). Select the ticker for the exact reason." : undefined}>{STATUS_LABEL[s]}</span>;
+const SHORT_STATUS: Partial<Record<SwingDecision["setupStatus"], string>> = { SETUP_CONFIRMED: "Confirmed", SETUP_FORMING: "Forming", READY_TO_TRADE: "Ready" };
+export function StatusPill({ s, short }: { s: SwingDecision["setupStatus"]; short?: boolean }) {
+  const statusLabel = useLiveStatusLabel();
+  const full = statusLabel(s);
+  // Short form (narrow watchlist rows) keeps the same meaning: a blocked Ready reads "Practice Ready".
+  const text = short ? (s === "READY_TO_TRADE" && full !== "Ready to Trade" ? "Practice Ready" : SHORT_STATUS[s] ?? full) : full;
+  return <span className={`px-1.5 py-0.5 rounded border text-[10.5px] font-mono whitespace-nowrap ${STATUS_TONE[s] ?? ""}`} data-testid="status-setup" title={s === "SIGNAL_EXPIRED" ? "Expired: no closed 1H above the trigger in time, the setup was invalidated, or the risk never fit. Not tradeable. Resets automatically when a fresh setup forms (re-checked every closed 1H bar). Select the ticker for the exact reason." : full}>{text}</span>;
 }
 function DataPill({ s }: { s: string }) {
   return <span className={`px-1 rounded border text-[9.5px] font-mono ${DATA_TONE[s] ?? "text-slate-gray border-ink-line"}`} data-testid="status-data">{s}</span>;
@@ -127,7 +133,7 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
               <button className="text-[9.5px] px-1 rounded border border-ink-line text-slate-gray hover:text-soft-white" title="Toggle ETF / Stock"
                 onClick={() => patch.mutate({ s: x.symbol, p: { assetType: x.assetType === "ETF" ? "STOCK" : "ETF" } })} data-testid={`button-assettype-${x.symbol}`}>{x.assetType}</button>
               {dataStatus[x.symbol] && <DataPill s={dataStatus[x.symbol]} />}
-              {statusBy[x.symbol] && <span className="hidden sm:inline"><StatusPill s={statusBy[x.symbol]} /></span>}
+              {statusBy[x.symbol] && <span className="hidden sm:inline"><StatusPill s={statusBy[x.symbol]} short /></span>}
               <span className="ml-auto flex items-center">
                 <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { pinned: !x.pinned } })} aria-label={x.pinned ? "Unpin" : "Pin"} data-testid={`button-pin-${x.symbol}`}>{x.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}</button>
                 <button className={iconBtn} onClick={() => move(x, -1)} aria-label="Move up" data-testid={`button-up-${x.symbol}`}><ArrowUp className="h-3 w-3" /></button>
@@ -224,9 +230,10 @@ export function useScan(req: { selection: ScanSelection; symbols: string[]; forc
 
 // ─── "Can I practice this setup?" (§Q6) ──────────────────────────────────────
 export function PracticeCard({ d, v }: { d: SwingDecision; v: PracticeVerdict }) {
+  const statusLabel = useLiveStatusLabel();
   const tone = v.code === "A_READY" ? "border-emerald-500/60" : v.code === "B_NOT_YET" ? "border-yellow-500/60" : v.code === "C_WAIT_EXTENDED" ? "border-orange-500/60" : v.code === "D_PASS_RISK" ? "border-rose-500/60" : "border-ink-line";
   const rows: [string, string][] = [
-    ["Current status", STATUS_LABEL[d.setupStatus]], ["Entry trigger", fmt$(d.originalTrigger ?? d.entryPrice)], ["Stop", fmt$(d.structuralStop)],
+    ["Current status", statusLabel(d.setupStatus)], ["Entry trigger", fmt$(d.originalTrigger ?? d.entryPrice)], ["Stop", fmt$(d.structuralStop)],
     ["Target 1", fmt$(d.planTargets?.t1 ?? d.target1)], ["Target 2", fmt$(d.planTargets ? d.planTargets.t2 : d.target2)],
     ["R:R (T1 / T2)", d.planTargets ? `${d.planTargets.rrT1 ?? "—"}R / ${d.planTargets.rrT2 ?? "—"}R · ${d.planTargets.label}` : `${d.rewardRiskT1 ?? "—"}R / ${d.rewardRiskT2 ?? "—"}R`],
     ...(d.planTargets && d.planTargets.method !== "ENGINE" ? [["Engine structure targets (readiness)", `${fmt$(d.target1)} (${d.rewardRiskT1 ?? "—"}R) / ${fmt$(d.target2)}`] as [string, string]] : []),
@@ -276,6 +283,7 @@ const ACTIONS: { a: string; label: string; needsNote?: boolean }[] = [
 ];
 
 function WhyPanel({ d, marker }: { d: SwingDecision; marker: ChartMarker | null }) {
+  const statusLabel = useLiveStatusLabel();
   const { toast } = useToast();
   const [checks, setChecks] = useState<boolean[]>(CHECKS.map(() => false));
   const [notes, setNotes] = useState("");
@@ -291,7 +299,7 @@ function WhyPanel({ d, marker }: { d: SwingDecision; marker: ChartMarker | null 
     mutationFn: (id: number) => swingSend<any>("DELETE", `/api/swing/journal/${id}`),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/swing/journal", d.symbol] }),
   });
-  const title = `${d.symbol} — ${(marker?.setupType ?? d.setupType ?? "NO SETUP").replace(/_/g, " ")} — ${STATUS_LABEL[marker?.status ?? d.setupStatus]}`;
+  const title = `${d.symbol} — ${(marker?.setupType ?? d.setupType ?? "NO SETUP").replace(/_/g, " ")} — ${statusLabel(marker?.status ?? d.setupStatus)}`;
   const run = (x: typeof ACTIONS[number]) => {
     if (x.needsNote && !notes.trim()) { noteRef.current?.focus(); toast({ title: "Add a note first", description: "Write why in the notes box, then press the button again." }); return; }
     save.mutate(x.a);
@@ -471,6 +479,7 @@ function SettingsPanel() {
 
 // ─── Workspace ───────────────────────────────────────────────────────────────
 export default function SwingWorkspace() {
+  const statusLabel = useLiveStatusLabel();
   const [active, setActive] = usePersistentState<string>("swing-active-symbol", "SMH");
   const [tf, setTf] = usePersistentState<Tf>("swing-tf", "4H");
   const [scope, setScope] = usePersistentState<"CURRENT" | "LAST5" | "ALL">("swing-history-scope", "LAST5");
@@ -503,15 +512,23 @@ export default function SwingWorkspace() {
   const focus = (s: string) => { setActive(s); setMarker(null); };
   // Top "What should I do today?" card → focus this ticker's chart.
   useEffect(() => {
+    const go = (sym: string, target: "chart" | "why") => {
+      takePendingFocus(); // handled now
+      setActive(sym); setMarker(null);
+      const sel = target === "why" ? '[data-testid="swing-why-anchor"]' : '[data-testid="swing-chart-anchor"]';
+      const smooth = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+      // The anchor may not exist yet (section just expanded / data loading): retry briefly.
+      let tries = 0;
+      const tick = () => { const el = document.querySelector(sel); if (el) el.scrollIntoView({ behavior: smooth as ScrollBehavior, block: "start" }); else if (++tries < 40) setTimeout(tick, 100); };
+      setTimeout(tick, 80);
+    };
     const on = (e: Event) => {
       const det = (e as CustomEvent).detail;
       const sym = String((typeof det === "object" && det ? det.symbol : det) ?? "").toUpperCase();
-      if (!sym) return;
-      setActive(sym); setMarker(null);
-      const sel = typeof det === "object" && det?.target === "why" ? '[data-testid="swing-why-anchor"]' : '[data-testid="swing-chart-anchor"]';
-      const smooth = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
-      setTimeout(() => document.querySelector(sel)?.scrollIntoView({ behavior: smooth as ScrollBehavior, block: "start" }), 80);
+      if (sym) go(sym, typeof det === "object" && det?.target === "why" ? "why" : "chart");
     };
+    const pending = takePendingFocus();
+    if (pending) go(pending.symbol.toUpperCase(), pending.target);
     window.addEventListener("chizzle:focus-symbol", on);
     return () => window.removeEventListener("chizzle:focus-symbol", on);
   }, []);
@@ -535,15 +552,15 @@ export default function SwingWorkspace() {
           </CollapsibleSection>
         </div>
         <div className="space-y-3 min-w-0">
-          <div data-testid="swing-chart-anchor" />
+          <div data-testid="swing-chart-anchor" style={{ scrollMarginTop: 72 }} />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
             <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} alertLevels={alertLevelsFor(alertsQ.data?.alerts, active)} />
           </CollapsibleSection>
-          <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? STATUS_LABEL[d.setupStatus] : undefined}>
+          <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? statusLabel(d.setupStatus) : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
           </CollapsibleSection>
-          <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${STATUS_LABEL[d.setupStatus]}` : undefined}>
+          <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${statusLabel(d.setupStatus)}` : undefined}>
             {(() => { const uv = activeVersion(d, plans.data?.selected); return uv ? (
               <div className="mb-2 rounded border border-dashed border-neon-blue/60 px-2 py-1 text-[11px] text-soft-white/90" data-testid="strip-summary-plan-version">
                 <span className="font-mono font-bold text-neon-blue">PRACTICE PLAN v{uv.version} IN USE</span> — entry {fmt$(uv.result.entry)} · stop {fmt$(uv.result.stop)} · T1 {fmt$(uv.result.t1)} · T2 {fmt$(uv.result.t2)} · {uv.result.rrT1?.toFixed(2) ?? "—"}R.
@@ -551,7 +568,7 @@ export default function SwingWorkspace() {
               </div>) : null; })()}
             <TradeSummaryPanel d={d} />
           </CollapsibleSection>
-          <div ref={whyRef} data-testid="swing-why-anchor">
+          <div ref={whyRef} data-testid="swing-why-anchor" style={{ scrollMarginTop: 72 }}>
             <CollapsibleSection id="swing-why" title="Why Did This Form?" hint={marker ? marker.label : "click a marker or card"}>
               {d ? <WhyPanel d={d} marker={marker} /> : <div className="text-xs text-slate-gray">Waiting for the decision…</div>}
             </CollapsibleSection>

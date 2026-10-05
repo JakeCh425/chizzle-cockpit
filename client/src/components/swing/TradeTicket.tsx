@@ -3,6 +3,7 @@
 // nothing is firing it shows the focused symbol's potential plan in a muted style.
 // Numbers come straight from the shared SwingDecision (never recomputed), except the
 // stop-limit price, which is a simple display helper. Practice / analysis only.
+import { useLiveStatusLabel } from "@/lib/liveStatus";
 import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
 import { DataVerifyBlock, ReferenceOnlyTag, isUnverified } from "./DataStatus";
@@ -55,6 +56,7 @@ function StateLine({ d }: { d: SwingDecision }) {
 }
 
 function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void; ver: PlanVersion | null }) {
+  const statusLabel = useLiveStatusLabel();
   const rows = ticketRows(d, ver);
   const p = effectivePlan(d, ver);
   const lvl: Record<string, { type: AlertType; price: number | null }> = {
@@ -73,7 +75,7 @@ function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision
     >
       <div className="flex flex-wrap items-center gap-2 mb-1.5">
         <span className="font-mono font-bold text-[13px] text-soft-white">{d.symbol}</span>
-        <span className={`px-1.5 rounded border text-[10px] font-mono ${STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`}>{firing ? "ENGINES FIRING · " : ""}{STATUS_LABEL[d.setupStatus]}</span>
+        <span className={`px-1.5 rounded border text-[10px] font-mono ${STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`}>{firing ? "ENGINES FIRING · " : ""}{statusLabel(d.setupStatus)}</span>
         {d.setupType && <span className="text-[10.5px] text-slate-gray font-mono">{d.setupType.replace(/_/g, " ")}</span>}
         {ver && <span className="px-1.5 rounded border border-dashed border-neon-blue/70 text-neon-blue text-[10px] font-mono" data-testid={`ticket-version-${d.symbol}`}>PRACTICE PLAN v{ver.version} — USER-ADJUSTED</span>}
         <span className="ml-auto text-[10.5px] font-mono text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>

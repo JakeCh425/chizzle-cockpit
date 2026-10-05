@@ -79,8 +79,10 @@ function ActionCenterInner() {
       if (!sym) return;
       setBoxOpen(true); setDlg({ symbol: sym, mode: "view" });
     };
+    const onClose = () => setDlg(null);
     window.addEventListener("chizzle:open-card", onOpen);
-    return () => window.removeEventListener("chizzle:open-card", onOpen);
+    window.addEventListener("chizzle:close-card", onClose);
+    return () => { window.removeEventListener("chizzle:open-card", onOpen); window.removeEventListener("chizzle:close-card", onClose); };
   }, [setBoxOpen]);
   const loud = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE");
   const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE");
