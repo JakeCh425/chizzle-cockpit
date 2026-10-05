@@ -2,6 +2,7 @@
 // dialog / mobile sheet and "Adjust My Practice Plan". Everything shown comes from the shared
 // SwingDecision and the existing practice-plan math (recalcPlan); nothing here changes engine
 // readiness, and nothing here can send an order. PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
+import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -19,7 +20,7 @@ import {
   type ActionGroup, type CardTargetMethod, type PlanContext, type PlanVersion, type TargetChoice,
 } from "@shared/practicePlan";
 import { fmtCT, swingGet, swingSend } from "@/lib/swing";
-import { effectivePlan, focusSymbol, invalidatePlans, openPlanEditor, selectPlanVersion } from "@/lib/plans";
+import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEditor, selectPlanVersion } from "@/lib/plans";
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton } from "./DataStatus";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
@@ -417,12 +418,12 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
       <button className="ac-btn" onClick={() => focusSymbol(d.symbol)} data-testid={`button-ac-chart-${d.symbol}`}><LineChart className="h-4 w-4" aria-hidden /> {group === "FORMING" ? "Watch Setup" : "Open Chart"}</button>
       <button className="ac-btn" onClick={() => focusSymbol(d.symbol, "why")} data-testid={`button-ac-why-${d.symbol}`}><BookOpen className="h-4 w-4" aria-hidden /> {group === "FORMING" ? "Learn Pattern" : group === "EXTENDED" || group === "RETEST" ? "View Original Setup" : "Learn Why"}</button>
       {group !== "NO_TRADE" && (
-        <button className="ac-btn" onClick={() => openAlertDialog(defaultAlertFor(d, group, effectivePlan(d, ver)))} data-testid={`button-set-alert-${d.symbol}`}>
+        <button className="ac-btn" onClick={() => { const draft = defaultAlertFor(d, group, effectivePlan(d, ver)); inDialog ? afterCardClose(() => openAlertDialog(draft)) : openAlertDialog(draft); }} data-testid={`button-set-alert-${d.symbol}`}>
           {group === "DATA" ? "Set Data-Recovery Alert" : "Set Alert"}
         </button>
       )}
       {group === "DATA" && <RefreshDataButton symbols={[d.symbol]} />}
-      {canEditPlan(d) && <button className="ac-btn" onClick={() => openPlanEditor(d.symbol)} data-testid={`button-edit-plan-${d.symbol}`}>Advanced editor</button>}
+      {canEditPlan(d) && <button className="ac-btn" onClick={() => (inDialog ? afterCardClose(() => openPlanEditor(d.symbol)) : openPlanEditor(d.symbol))} data-testid={`button-edit-plan-${d.symbol}`}>Advanced editor</button>}
       {group === "READY" && <button className="ac-btn" onClick={journal} data-testid={`button-ac-journal-${d.symbol}`}>Save to Journal</button>}
       {saved && <span className="ac-muted" role="status" style={{ fontSize: "var(--ac-fs-xs)" }}>{saved}</span>}
     </div>
@@ -590,6 +591,7 @@ function RPicker({ id, label, sel, onChange }: { id: string; label: string; sel:
 }
 
 export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "inDialog" | "onOpen" | "onAdjust"> & { onDone: () => void }) {
+  const statusLabel = useLiveStatusLabel();
   const ctxQ = useQuery<CtxResp>({ queryKey: ["/api/swing/plan-context", d.symbol], queryFn: () => swingGet(`/api/swing/plan-context/${encodeURIComponent(d.symbol)}`), staleTime: 30_000 });
   const p = effectivePlan(d, ver);
   const cs = (ver?.chartState ?? {}) as Record<string, any>;
@@ -764,7 +766,7 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
           <ul className="space-y-0.5" style={{ fontSize: "var(--ac-fs-sm)" }}>
             <li><b>What changed:</b> {result.explain.whatChanged}</li>
             {result.messages.map((m) => <li key={m} className="ac-warn font-semibold">{m}</li>)}
-            <li className="ac-muted">This plan {result.state === "VALID" ? "meets your rules" : "does not meet every rule"}. The engine's status stays <b>{STATUS_LABEL[d.setupStatus]}</b>. A distant target does not improve setup quality or make it more likely.</li>
+            <li className="ac-muted">This plan {result.state === "VALID" ? "meets your rules" : "does not meet every rule"}. The engine's status stays <b>{statusLabel(d.setupStatus)}</b>. A distant target does not improve setup quality or make it more likely.</li>
           </ul>
         </div>
       )}

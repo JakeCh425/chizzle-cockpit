@@ -2,6 +2,7 @@
 // Bars come from /api/swing/bars; every marker, level and zone comes from the
 // shared SwingDecision.chart overlay (never computed here). Indicators (SMA/BB)
 // are plain visual overlays. Analysis / practice only.
+import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -87,6 +88,7 @@ export interface SwingChartProps {
 }
 
 export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan, alertLevels }: SwingChartProps) {
+  const statusLabel = useLiveStatusLabel();
   const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
   // Chart controls remember how you last left them (per timeframe for the range).
   const [rangeByTf, setRangeByTf] = usePersistentState<Partial<Record<Tf, typeof RANGES[number]>>>("swing-chart-range", {});
@@ -353,7 +355,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const chips = d ? [
     { k: "Weekly regime", v: d.weeklyRegime + (d.weeklyReclaimForming ? " (reclaim forming)" : "") },
     { k: "Daily regime", v: d.dailyRegime },
-    { k: "4H setup", v: d.setupType ? `${d.setupType.replace(/_/g, " ")} — ${STATUS_LABEL[d.setupStatus]}` : STATUS_LABEL[d.setupStatus] },
+    { k: "4H setup", v: d.setupType ? `${d.setupType.replace(/_/g, " ")} — ${statusLabel(d.setupStatus)}` : statusLabel(d.setupStatus) },
     { k: "1H confirmation", v: d.setupStatus === "READY_TO_TRADE" ? "Closed above trigger" : d.lastCompletedBar1H ? `Last closed 1H ${fmtCT(d.lastCompletedBar1H)}` : "—" },
   ] : [];
 
