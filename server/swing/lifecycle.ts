@@ -189,17 +189,30 @@ function levelsAbove(all: StructureLevel[], entry: number): StructureLevel[] {
   return [...m.values()].sort((a, b) => a.price - b.price).slice(0, 12);
 }
 
-/** Extension (§H): > max % above trigger OR > max ATR. The ATR leg is measured from the trigger by
- *  default (flexible), or from the daily SMA20 when extensionAtrAnchor = DAILY_SMA20 (spec-strict). */
-function extensionOf(c: Ctx, price: number, trigger: number, tfAtr: number | null) {
-  const pct = ((price - trigger) / trigger) * 100;
-  let atrExt: number | null = null, atrRef = "";
+/** Pure extension rule (exported for tests): extended when the live quote is more than maxPct % above the
+ *  reference (the plan entry) OR more than maxAtr × ATR above it. OR — either leg alone is enough. */
+export function extensionCheck(quote: number, from: number, atr: number | null, maxPct: number, maxAtr: number) {
+  const distance = quote - from;
+  const pct = (distance / from) * 100;
+  const atrMult = atr ? distance / atr : null;
+  const by: ("PCT" | "ATR")[] = [];
+  if (pct > maxPct) by.push("PCT");
+  if (atr != null && atr > 0 && distance > maxAtr * atr) by.push("ATR");
+  return { pct, atrMult, distance, extended: by.length > 0, by };
+}
+
+/** Extension (§H): live quote > max % above ENTRY OR > max ATR above it. The ATR leg is measured from the
+ *  same reference by default, or from the daily SMA20 when extensionAtrAnchor = DAILY_SMA20 (spec-strict). */
+function extensionOf(c: Ctx, price: number, ref: number, tfAtr: number | null, refLabel: "entry" | "trigger" = "entry") {
   const dAtr = c.dailyS.atr || null;
+  const atr = dAtr || tfAtr || null;
+  const pctLeg = extensionCheck(price, ref, atr, c.s.maxExtensionPct, c.s.maxExtensionAtr);
+  let atrExt = pctLeg.atrMult, atrRef = `${refLabel} (${dAtr ? "daily" : "setup-timeframe"} ATR)`, atrHit = pctLeg.by.includes("ATR");
   if ((c.s.extensionAtrAnchor ?? "TRIGGER") === "DAILY_SMA20" && c.dailyS.sma20 != null && dAtr) {
-    atrExt = (price - c.dailyS.sma20) / dAtr; atrRef = `daily SMA20 ${fx(c.dailyS.sma20)}`;
-  } else if (dAtr || tfAtr) { atrExt = (price - trigger) / (dAtr || tfAtr!); atrRef = `trigger (${dAtr ? "daily" : "setup-timeframe"} ATR)`; }
-  const ext = pct > c.s.maxExtensionPct || (atrExt != null && atrExt > c.s.maxExtensionAtr);
-  return { pct: r2(pct), atr: atrExt == null ? null : r2(atrExt), atrRef, ext };
+    atrExt = (price - c.dailyS.sma20) / dAtr; atrRef = `daily SMA20 ${fx(c.dailyS.sma20)}`; atrHit = atrExt > c.s.maxExtensionAtr;
+  }
+  const by = [...(pctLeg.by.includes("PCT") ? ["PCT" as const] : []), ...(atrHit ? ["ATR" as const] : [])];
+  return { pct: r2(pctLeg.pct), atr: atrExt == null ? null : r2(atrExt), atrRef, ext: by.length > 0, by, atrDollar: atr == null ? null : r2(atr), distance: r2(price - ref) };
 }
 
 /** Retest zone (§H, widened): from a little below the trigger to the larger of max-ext % or k·ATR above. */
@@ -379,15 +392,21 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   }
 
   // ── Current extension & feasibility (§H step 6) ────────────────────────────
-  const ex = extensionOf(c, price, trigger, tfAtr);
+  // Measured from the plan ENTRY with the LIVE quote (falls back to the last 1H close only when no quote).
+  const extRef = plan.entry ?? trigger, extRefLabel = plan.entry != null ? "entry" as const : "trigger" as const;
+  const ex = extensionOf(c, price, extRef, tfAtr, extRefLabel);
   d.extensionPercentAboveTrigger = ex.pct; d.extensionAtr = ex.atr; d.isExtended = ex.ext;
+  d.extensionCheck = { quote: r2(price), quoteAt: c.E.quote ? new Date(c.E.quote.ts * 1000).toISOString() : null, quoteIsLive: !!c.E.quote,
+    from: r2(extRef), fromLabel: extRefLabel, pct: ex.pct, maxPct: s.maxExtensionPct, atrMult: ex.atr, atrDollar: ex.atrDollar,
+    distance: ex.distance, maxAtr: s.maxExtensionAtr, atrRef: ex.atrRef, extended: ex.ext, by: ex.by };
   const zone = retestZone(c, trigger, tfAtr);
   d.retestLevel = zone;
   if (ex.ext) {
     d.riskLabel = "WATCH — EXTENDED, DO NOT CHASE";
     d.whyNotReady = [
-      `Price ${fx(price)} is ${fx(ex.pct)}% above original trigger ${fx(trigger)} (max ${s.maxExtensionPct}%)`,
-      ...(ex.atr != null ? [`${fx(ex.atr)} ATR above ${ex.atrRef} (max ${s.maxExtensionAtr})`] : []),
+      `Price ${fx(price)} is ${fx(ex.pct)}% above ${extRefLabel} ${fx(extRef)} (max ${s.maxExtensionPct}%)${ex.by.includes("PCT") ? " — over the % limit" : ""}`,
+      ...(ex.atr != null ? [`${fx(ex.atr)} ATR above ${ex.atrRef} (max ${s.maxExtensionAtr})${ex.by.includes("ATR") ? " — over the ATR limit" : ""}`] : []),
+      `Original trigger ${fx(trigger)} · entry ${fx(plan.entry)} — levels are not moved toward price.`,
       `Original signal ${fmtCT(signalEnd)} · R:R at signal ${fx(plan.rrT1)}`,
       "Wait for 1H pullback/retest and closed bullish confirmation.",
     ];
@@ -396,12 +415,12 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     return out("WATCH_EXTENDED", { earlyTrigger: early });
   }
   const postSignal = c.closed1h.filter((b) => b.t >= signalEnd);
-  const wasExtended = postSignal.some((b) => extensionOf(c, b.c, trigger, tfAtr).ext);
+  const wasExtended = postSignal.some((b) => extensionOf(c, b.c, extRef, tfAtr, extRefLabel).ext);
   const lastClose = c.closed1h[c.closed1h.length - 1]?.c ?? price;
   if (wasExtended || (!early && lastClose <= trigger)) {
     d.riskLabel = "WATCH — RETEST, NOT AN ENTRY YET";
     d.whyNotReady = [wasExtended
-      ? `Price ran ${">"}${s.maxExtensionPct}% above trigger after the signal and is back near the retest zone ${fx(zone.low)}–${fx(zone.high)}`
+      ? `Price ran ${">"}${s.maxExtensionPct}% (or ${s.maxExtensionAtr} ATR) above ${extRefLabel} after the signal and is back near the retest zone ${fx(zone.low)}–${fx(zone.high)}`
       : `Last closed 1H ${fx(lastClose)} is back at/below trigger ${fx(trigger)}`, "Needs a closed bullish 1H reversal from the retest zone."];
     d.nextAction = `Watch ${sym} retest zone ${fx(zone.low)}–${fx(zone.high)} for a closed bullish 1H candle.`;
     d.suggestedShares = 0;
@@ -428,7 +447,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     return out("NO_TRADE", { earlyTrigger: early });
   }
   d.cardGrade = g.grade; d.riskLabel = g.riskLabel;
-  d.passedRules.push(...g.passed, `not extended (${fx(ex.pct)}% / ${fx(ex.atr)} ATR)`, `R:R to T1 ${fx(plan.rrT1)} ≥ ${s.minRrT1}`);
+  d.passedRules.push(...g.passed, `not extended (${fx(ex.pct)}% / ${fx(ex.atr)} ATR above ${extRefLabel})`, `R:R to T1 ${fx(plan.rrT1)} ≥ ${s.minRrT1}`);
   d.whyNotReady = [];
   d.whyThisPrinted.push(`plan: entry ${fx(plan.entry)} · stop ${fx(plan.stop)} · T1 ${fx(plan.t1)} · T2 ${fx(plan.t2)}`, GAP_RISK_WARNING);
   // ── Data-status rules v2: DELAYED / STALE block Ready — the card and its levels stay visible ──

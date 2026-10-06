@@ -323,7 +323,8 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
 
       {group !== "NO_TRADE" && (
         <Section id={`${scope}:ready`} title="Readiness" testId={`sec-ready-${d.symbol}`}
-          summary={`${passed.length} passed · ${missing.length} missing · watch: ${group === "CONFIRMED" ? `1H close above ${$(trig)}` : d.nextAction}`}>
+          summary={`${passed.length} passed · ${missing.length} missing · ${extSummary(d)} · watch: ${group === "CONFIRMED" ? `1H close above ${$(trig)}` : d.nextAction}`}>
+          <ExtensionLine d={d} />
           <div style={autoGrid(200)}>
             <div>
               <div className="font-bold ac-good flex items-center gap-1.5" style={{ fontSize: "var(--ac-fs-sm)" }}><CheckCircle2 className="h-4 w-4" aria-hidden /> Passed</div>
@@ -405,6 +406,54 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   );
 }
 
+/** "Last bar evaluated" — the closed 1H / 4H bars the engine used, so each hourly close can be confirmed. */
+const hhmm = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" }) : "—";
+const dayTag = (iso: string | null | undefined) => {
+  if (!iso) return "";
+  const f = (x: Date) => x.toLocaleDateString("en-US", { timeZone: "America/Chicago" });
+  return f(new Date(iso)) === f(new Date()) ? "" : ` ${new Date(iso).toLocaleDateString("en-US", { timeZone: "America/Chicago", weekday: "short" })}`;
+};
+const barRange = (iso: string | null | undefined, hours: number) => {
+  if (!iso) return "—";
+  const end = new Date(iso), start = new Date(end.getTime() - hours * 3600_000);
+  return `${hhmm(start.toISOString())}–${hhmm(iso)}${dayTag(iso)}`;
+};
+export function LastBarLine({ d }: { d: SwingDecision }) {
+  const q = d.planRefresh?.quoteCheckAt;
+  return (
+    <span className="block ac-muted ac-num" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid={`text-last-bar-${d.symbol}`}
+      title="The most recent CLOSED bars the engine evaluated (times are bar start–close, CT). Entry, stop and targets only change on a closed bar.">
+      Last bar evaluated: 1H {barRange(d.lastCompletedBar1H, 1)} · 4H closed {hhmm(d.lastCompletedBar4H)}{dayTag(d.lastCompletedBar4H)}{q ? ` · status rechecked ${hhmm(q)}` : ""}
+    </span>
+  );
+}
+const signed = (n: number, digits = 2) => `${n >= 0 ? "+" : "−"}${Math.abs(n).toFixed(digits)}`;
+export function extSummary(d: SwingDecision): string {
+  const x = d.extensionCheck;
+  if (!x) return "extension: checked after 1H confirmation";
+  return `${x.extended ? "extended" : "not extended"} ${signed(x.pct)}%`;
+}
+/** Readiness checklist line: live quote vs entry on BOTH limits (OR rule). */
+export function ExtensionLine({ d }: { d: SwingDecision }) {
+  const x = d.extensionCheck;
+  const xs = { fontSize: "var(--ac-fs-sm)" } as const;
+  if (!x) return (
+    <div className="ac-muted flex items-center gap-1.5 mb-1" style={xs} data-testid={`text-extension-${d.symbol}`} data-extended="na">
+      <CircleDashed className="h-4 w-4" aria-hidden /> Not extended — checked against the live quote once a closed 1H confirms the setup.
+    </div>
+  );
+  const pctOver = x.by.includes("PCT"), atrOver = x.by.includes("ATR");
+  return (
+    <div className={`flex flex-wrap items-center gap-x-2 gap-y-0.5 mb-1 ${x.extended ? "ac-warn font-semibold" : ""}`} style={xs} data-testid={`text-extension-${d.symbol}`} data-extended={x.extended ? "yes" : "no"}>
+      {x.extended ? <AlertTriangle className="h-4 w-4" aria-hidden /> : <CheckCircle2 className="h-4 w-4 ac-good" aria-hidden />}
+      <b>{x.extended ? "Extended — do not chase" : "Not extended"}</b>
+      <span className="ac-num">{signed(x.pct)}% vs {x.fromLabel} {$(x.from)} (max {x.maxPct}%){pctOver ? " ✕" : " ✓"}</span>
+      <span className="ac-num">· {signed(x.distance)} = {x.atrMult != null ? `${x.atrMult.toFixed(2)} ATR` : "— ATR"} (max {x.maxAtr} ATR{x.atrDollar != null ? ` = $${(x.maxAtr * x.atrDollar).toFixed(2)}` : ""}){atrOver ? " ✕" : " ✓"}</span>
+      <span className="ac-muted ac-num">· {x.quoteIsLive ? "live quote" : "last 1H close"} {$(x.quote)}{x.quoteAt ? ` at ${hhmm(x.quoteAt)}` : ""} · either limit = extended</span>
+    </div>
+  );
+}
+
 function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; inDialog?: boolean; onOpen?: () => void; onAdjust?: () => void }) {
   const [saved, setSaved] = useState<string | null>(null);
   const journal = async () => {
@@ -461,6 +510,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
           <span className={badData ? "ac-bad font-semibold" : "ac-muted"}>Data {d.dataStatus}</span>
           <span className="ac-muted">· {d.dataSource ?? "—"} · {fmtCT(d.quoteTimestamp)}</span>
         </span>
+        <LastBarLine d={d} />
       </div>
       {action}
       {!open && toggle && p.entry != null && (

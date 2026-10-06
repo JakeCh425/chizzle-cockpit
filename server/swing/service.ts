@@ -441,6 +441,35 @@ export function runPlanAnalysis(trigger: RefreshTrigger): Promise<RefreshStatus>
   return rs.running;
 }
 
+// ─── Quote-only status check between bar closes ─────────────────────────────
+// Re-applies the rules to the CACHED closed bars with a fresh quote so status (e.g. Ready → Watch Extended)
+// tracks price between 1H closes. Never fetches bars, never changes entry / stop / targets (guarded), never
+// sends a Ready notification (those need a fresh-bar analysis), and skips a symbol once a new 1H bar has
+// closed (the full analysis owns that). Runs inside the existing scheduler — no extra timer.
+export const QUOTE_STATUS_EVERY_SEC = 300;
+let lastQuoteCheck = 0;
+const levelSig = (d: SwingDecision) => [d.setupType, d.setupTimeframe, d.setupTimestamp, d.originalTrigger, d.entryPrice, d.structuralStop, d.target1, d.target2].join("|");
+/** Every candidate setup's levels (the primary card may switch setup when one becomes extended — that is a
+ *  selection change, not a level change). A quote check is accepted only when no setup's levels moved. */
+const levelsSig = (r: EvalResult) => r.candidates.map((c) => levelSig(c.decision)).sort().join("\n");
+export async function quoteStatusRefresh(s: SwingSettings, now = nowSec()): Promise<{ checked: string[]; changed: string[]; skipped: string[] }> {
+  const checked: string[] = [], changed: string[] = [], skipped: string[] = [];
+  for (const w of (s.watchlist ?? []).filter((x) => !x.hidden)) {
+    const sym = w.symbol.toUpperCase(), hit = evalCache.get(sym);
+    if (!hit || inflight.has(sym) || hourPart(hit.key) !== hourPart(`${sym}|${barKey(now)}`)) { skipped.push(sym); continue; }
+    const q = await fetchQuote(sym).catch(() => null);
+    if (!q) { skipped.push(sym); continue; }
+    const before = hit.res.decision;
+    const res = runRules(sym, hit.exchange, hit.bars1h, hit.daily, { price: q.price, ts: q.ts }, hit.reference, s, now, hit.source);
+    if (levelsSig(res) !== levelsSig(hit.res)) { skipped.push(sym); continue; } // levels only move on a closed bar
+    if (evalCache.get(sym) !== hit) { skipped.push(sym); continue; }                    // a newer full analysis landed
+    res.decision.planRefresh = before.planRefresh ? { ...before.planRefresh, quoteCheckAt: new Date(now * 1000).toISOString() } : null;
+    hit.res = res; checked.push(sym);
+    if (res.decision.setupStatus !== before.setupStatus) { changed.push(sym); void writeLog(res).catch(() => {}); }
+  }
+  return { checked, changed, skipped };
+}
+
 // ─── Auto-recompute on each closed RTH hour (approved) + opt-in interval — one timer ─
 let timer: NodeJS.Timeout | null = null, lastSlot = "";
 export function startSwingScheduler() {
@@ -461,7 +490,9 @@ export function startSwingScheduler() {
       }
       // Opt-in interval refresh during regular hours. Any run (manual / hourly) resets the clock, so nothing doubles up.
       const iv = s.planAutoRefreshMin ?? 0;
-      if (iv > 0 && inSession(now) && now - rs.lastRunAt >= iv * 60) await runPlanAnalysis("INTERVAL");
+      if (iv > 0 && inSession(now) && now - rs.lastRunAt >= iv * 60) { await runPlanAnalysis("INTERVAL"); return; }
+      // Between bar closes: quote-only status check every 5 min (levels unchanged).
+      if (inSession(now) && !rs.running && now - lastQuoteCheck >= QUOTE_STATUS_EVERY_SEC) { lastQuoteCheck = now; await quoteStatusRefresh(s, now); }
     } catch (e: any) { console.warn("[swing] auto-recompute failed:", e?.message || e); }
   }, 60_000);
   timer.unref?.();
