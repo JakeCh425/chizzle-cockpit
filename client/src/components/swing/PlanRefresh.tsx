@@ -158,13 +158,20 @@ export function PlanFreshness({ d, adjusted }: { d: SwingDecision; adjusted: boo
     : r.kind === "INVALIDATED" ? "Setup invalidated — the previous levels are not reused as a new plan."
     : r.kind === "EXPIRED" ? "Setup expired — levels are history only."
     : r.kind === "NO_PLAN" ? "No plan levels for the current setup." : "Analysis complete.";
+  const on = r.changedOn && r.changedAt
+    ? `${r.changedOn.tf === "RECHECK" ? "on a same-bar recheck" : `at the ${r.changedOn.tf} close`} ${r.changedOn.barEnd ? fmtCT(r.changedOn.barEnd) : fmtCT(r.changedAt)}` : null;
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5" style={xs} data-testid={`text-plan-fresh-${d.symbol}`} data-kind={r.kind}>
       <span className={r.kind === "INVALIDATED" || r.kind === "EXPIRED" ? "ac-warn font-semibold" : "font-semibold"}>{text}</span>
       {times}
+      {on && (r.kind === "UPDATED" || r.kind === "NEW_SETUP" || r.kind === "UNCHANGED") && (
+        <span className="ac-accent ac-num" data-testid={`text-plan-changed-on-${d.symbol}`} data-tf={r.changedOn!.tf}>
+          {r.kind === "NEW_SETUP" ? "Levels set" : "Levels last changed"} {on}
+        </span>
+      )}
       {changes && (r.kind === "UPDATED" || r.kind === "UNCHANGED") && (
         <span className="ac-accent ac-num" data-testid={`text-plan-changes-${d.symbol}`}>
-          {r.kind === "UNCHANGED" ? `Last change ${fmtCT(r.changedAt)}: ` : ""}{changes}{adjusted ? " (engine plan — your adjusted plan is unchanged)" : ""}
+          {r.kind === "UNCHANGED" && !on ? `Last change ${fmtCT(r.changedAt)}: ` : on ? "— " : ""}{changes}{adjusted ? " (engine plan — your adjusted plan is unchanged)" : ""}
         </span>
       )}
     </div>

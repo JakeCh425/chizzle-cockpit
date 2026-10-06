@@ -68,7 +68,7 @@ function candidateMarkers(c: Candidate, current: boolean, latest: { t: number; e
   if ((d.setupStatus === "WATCH_EXTENDED" || d.setupStatus === "WATCH_RETEST") && current) {
     out.push({ ...base, timeframe: "1H", id: `${id}:EXTENDED`, kind: "EXTENDED", time: latest.t, barEnd: latest.end,
       price: latest.price ?? d.currentPrice ?? 0, label: "EXTENDED — AWAIT RETEST", tooltip: [
-        `${d.extensionPercentAboveTrigger ?? "—"}% / ${d.extensionAtr ?? "—"} ATR above trigger ${fx(d.originalTrigger)}.`,
+        `${d.extensionPercentAboveTrigger ?? "—"}% / ${d.extensionAtr ?? "—"} ATR above ${d.extensionCheck?.fromLabel ?? "trigger"} ${fx(d.extensionCheck?.from ?? d.originalTrigger)}.`,
         MARKER_COPY.EXTENDED, d.retestLevel ? `Retest zone ${fx(d.retestLevel.low)}–${fx(d.retestLevel.high)}` : ""].filter(Boolean) });
   }
   if (c.events.invalidated) {

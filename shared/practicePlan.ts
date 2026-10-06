@@ -548,8 +548,12 @@ export interface PlanRefreshInfo {
   failed: string[];
   /** The latest set of level changes for this setup (sticky until the next change). */
   changes: PlanFieldChange[]; changedAt: string | null;
+  /** Additive: which closed bar produced the latest level change (4H close, 1H close, or a same-bar recheck). */
+  changedOn?: { tf: "4H" | "1H" | "RECHECK"; barEnd: string | null } | null;
+  /** Additive: last quote-only status check (levels never change on these). */
+  quoteCheckAt?: string | null;
 }
-type SnapLike = PlanTargetInput & { symbol: string; setupType: string | null; setupTimeframe: string | null; setupTimestamp: string | null; planTargets?: PlanTargets | null; planRefresh?: PlanRefreshInfo | null };
+type SnapLike = PlanTargetInput & { lastCompletedBar1H?: string | null; lastCompletedBar4H?: string | null; symbol: string; setupType: string | null; setupTimeframe: string | null; setupTimestamp: string | null; planTargets?: PlanTargets | null; planRefresh?: PlanRefreshInfo | null };
 const levelsOf = (d: SnapLike) => ({
   entry: d.entryPrice, stop: d.structuralStop, stopLimit: d.structuralStop != null ? stopLimitOf(d.structuralStop) : null,
   t1: d.planTargets?.t1 ?? d.target1, t2: d.planTargets?.t2 ?? d.target2,
@@ -563,12 +567,18 @@ export function planChangeOf(prev: SnapLike | null | undefined, next: SnapLike, 
   if (next.setupStatus === "SIGNAL_EXPIRED") return { ...base, kind: "EXPIRED", changes: [], changedAt: null };
   if (!hasPlan) return { ...base, kind: prev && prev.entryPrice != null && sameSetup ? "INVALIDATED" : "NO_PLAN", changes: [], changedAt: null };
   if (!prev) return { ...base, kind: "FIRST", changes: [], changedAt: null };
-  if (!sameSetup) return { ...base, kind: "NEW_SETUP", changes: [], changedAt: at };
+  const changedOn = (): NonNullable<PlanRefreshInfo["changedOn"]> => {
+    const b4 = next.lastCompletedBar4H ?? null, b1 = next.lastCompletedBar1H ?? null;
+    if (b4 && b4 !== (prev.lastCompletedBar4H ?? null)) return { tf: "4H", barEnd: b4 };
+    if (b1 && b1 !== (prev.lastCompletedBar1H ?? null)) return { tf: "1H", barEnd: b1 };
+    return { tf: "RECHECK", barEnd: b1 };
+  };
+  if (!sameSetup) return { ...base, kind: "NEW_SETUP", changes: [], changedAt: at, changedOn: changedOn() };
   const a = levelsOf(prev), b = levelsOf(next);
   const changes: PlanFieldChange[] = (Object.keys(a) as (keyof typeof a)[])
     .filter((k) => (a[k] == null) !== (b[k] == null) || (a[k] != null && b[k] != null && Math.abs(a[k]! - b[k]!) >= 0.005))
     .map((k) => ({ field: k, from: a[k], to: b[k] }));
-  if (!changes.length) return { ...base, kind: "UNCHANGED", changes: prevInfo?.changes ?? [], changedAt: prevInfo?.changedAt ?? null };
-  return { ...base, kind: "UPDATED", changes, changedAt: at };
+  if (!changes.length) return { ...base, kind: "UNCHANGED", changes: prevInfo?.changes ?? [], changedAt: prevInfo?.changedAt ?? null, changedOn: prevInfo?.changedOn ?? null };
+  return { ...base, kind: "UPDATED", changes, changedAt: at, changedOn: changedOn() };
 }
 export const PLAN_FIELD_LABEL: Record<PlanFieldChange["field"], string> = { entry: "Entry", stop: "Stop loss", stopLimit: "Stop limit", t1: "Target 1", t2: "Target 2" };

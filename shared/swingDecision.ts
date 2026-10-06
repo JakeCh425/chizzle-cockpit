@@ -106,9 +106,12 @@ export interface SwingDecision {
   reclaimLevel: number | null;
   retestLevel: PriceZone | null;
 
+  /** % of the live quote above the plan ENTRY (falls back to the trigger when no entry). Name kept for compatibility. */
   extensionPercentAboveTrigger: number | null;
   extensionAtr: number | null;
   isExtended: boolean;
+  /** Additive: the full "Not extended" check — live quote vs entry, both limits, OR rule. */
+  extensionCheck?: ExtensionCheck | null;
   volumeCondition: VolumeCondition;
   dataMismatchReason: string | null;
 
@@ -242,6 +245,15 @@ export const FORBIDDEN_PHRASES: Record<SetupStatus, string[]> = {
 
 /** A market-structure level used by the plan math (pivot high = a bar whose high exceeds the 2 bars on each side). */
 export interface StructureLevel { price: number; timeframe: "1H" | "4H" | "1D"; time: string; kind: "pivot high" }
+
+export interface ExtensionCheck {
+  quote: number; quoteAt: string | null; quoteIsLive: boolean;
+  from: number; fromLabel: "entry" | "trigger";
+  pct: number; maxPct: number;
+  atrMult: number | null; atrDollar: number | null; distance: number; maxAtr: number; atrRef: string;
+  /** pct > maxPct OR (quote − entry) > maxAtr × ATR */
+  extended: boolean; by: ("PCT" | "ATR")[];
+}
 
 export const STATUS_LABEL: Record<SetupStatus, string> = {
   READY_TO_TRADE: "Ready to Trade",
@@ -437,7 +449,7 @@ export function practiceVerdict(d: SwingDecision): PracticeVerdict {
     case "BLOCKED_DATA_MISMATCH":
       return { ...base, code: "B_NOT_YET", headline: "NOT YET — data sources disagree", lines: [d.dataMismatchReason ?? "Data mismatch", "Markers stay visible, but READY is blocked until the data agrees."] };
     case "WATCH_EXTENDED": case "WATCH_RETEST":
-      return { ...base, code: "C_WAIT_EXTENDED", headline: `WAIT — original setup was valid, but price is ${d.extensionPercentAboveTrigger ?? "—"}% above trigger`,
+      return { ...base, code: "C_WAIT_EXTENDED", headline: `WAIT — original setup was valid, but price is ${d.extensionPercentAboveTrigger ?? "—"}% above ${d.extensionCheck?.fromLabel ?? "trigger"}`,
         lines: ["Do not chase.", d.retestLevel ? `Watch ${$(d.retestLevel.low)}–${$(d.retestLevel.high)} for a bullish 1H retest.` : "Wait for a structured pullback."] };
     case "WATCH_STOP_TOO_WIDE": case "WATCH_RR_TOO_LOW":
       return { ...base, code: "D_PASS_RISK", headline: "PASS — risk does not fit",
