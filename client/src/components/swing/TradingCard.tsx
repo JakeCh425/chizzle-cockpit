@@ -7,7 +7,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState } from 
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
-  Maximize2, MinusCircle, Pencil, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save,
+  Maximize2, MinusCircle, Pencil, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
@@ -512,6 +512,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
         </span>
         <LastBarLine d={d} />
       </div>
+      {(d.signalAge || d.earlyLook) && <div className="basis-full flex flex-wrap items-center gap-x-3"><SignalAgeLine d={d} /><EarlyLookLine d={d} /></div>}
       {action}
       {!open && toggle && p.entry != null && (
         <div className="basis-full ac-num ac-muted" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`text-card-summary-${d.symbol}`}>
@@ -523,15 +524,48 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
 }
 
 // ─── Inline stat card (collapsible, remembered per setup) ────────────────────
+/** Ready variant: "live" only when the same snapshot allows live risk; otherwise "practice". */
+export const readyVariant = (d: SwingDecision, live: LivePermission | null | undefined): "live" | "practice" | null =>
+  d.setupStatus !== "READY_TO_TRADE" ? null : live && !live.allowed ? "practice" : "live";
+export function ReadyRibbon({ d }: { d: SwingDecision }) {
+  const live = useContext(LiveCtx);
+  const v = readyVariant(d, live);
+  if (!v) return null;
+  return v === "live"
+    ? <div className="ac-ribbon ac-ribbon-live" data-testid={`ribbon-ready-${d.symbol}`} data-variant="live"><Zap className="h-3.5 w-3.5" aria-hidden /> READY TO TRADE · LIVE RISK ALLOWED BY REGIME · PRACTICE PLAN, NOT ADVICE</div>
+    : <div className="ac-ribbon ac-ribbon-practice" data-testid={`ribbon-ready-${d.symbol}`} data-variant="practice"><ShieldAlert className="h-3.5 w-3.5" aria-hidden /> PRACTICE READY · LIVE ENTRY NOT PERMITTED (CAPITAL PROTECTION)</div>;
+}
+const AGE_TXT: Record<NonNullable<NonNullable<SwingDecision["signalAge"]>["priceVsEntry"]>, string> = { ABOVE: "price above entry", AT: "price AT entry (retest)", BELOW: "price below entry" };
+const agoTxt = (iso: string) => { const m = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 60000)); return m < 60 ? `${m} min ago` : m < 1440 ? `${Math.round(m / 60)} h ago` : `${Math.round(m / 1440)} day${Math.round(m / 1440) === 1 ? "" : "s"} ago`; };
+/** Signal age: when it confirmed, how many 4H bars old vs the re-confirm limit, and price vs entry. */
+export function SignalAgeLine({ d, short }: { d: SwingDecision; short?: boolean }) {
+  const a = d.signalAge;
+  if (!a) return null;
+  const old = a.stale || (a.limit4h > 0 && a.bars4h >= a.limit4h - 1);
+  const txt = short
+    ? `${a.reconfirmed ? "Re-confirmed" : "Confirmed"} ${agoTxt(a.lastConfirmedAt)} · ${a.limit4h ? `${a.bars4h}/${a.limit4h} 4H bars` : `${a.bars4h} 4H bars`} · ${AGE_TXT[a.priceVsEntry ?? "AT"]}`
+    : `${a.reconfirmed ? `Re-confirmed ${fmtCT(a.lastConfirmedAt)} (first ${fmtCT(a.confirmedAt)})` : `Confirmed ${fmtCT(a.confirmedAt)}`} · ${agoTxt(a.lastConfirmedAt)} · ${a.bars4h} of ${a.limit4h || "∞"} closed 4H bars before it must re-confirm · ${AGE_TXT[a.priceVsEntry ?? "AT"]}`;
+  return <span className={`min-w-0 ac-num ${a.stale ? "ac-warn font-semibold" : old ? "ac-warn" : "ac-muted"}`} style={{ fontSize: "var(--ac-fs-xs)" }} data-testid={`text-signal-age-${d.symbol}`} data-stale={a.stale}><Clock className="inline h-3.5 w-3.5 mr-1 align-[-2px]" aria-hidden />{txt}</span>;
+}
+/** 30-minute heads-up (never Ready): shown while the 1H that decides is still open. */
+export function EarlyLookLine({ d }: { d: SwingDecision }) {
+  const e = d.earlyLook;
+  if (!e) return null;
+  return <span className="min-w-0 font-semibold ac-num" style={{ fontSize: "var(--ac-fs-xs)", color: "var(--ac-warn)" }} data-testid={`text-early-look-${d.symbol}`}>
+    <Eye className="inline h-3.5 w-3.5 mr-1 align-[-2px]" aria-hidden />Heads-up: 30m closed {$(e.close)} above trigger {$(e.trigger)} at {hhmm(e.barEnd)} — the 1H close at {hhmm(e.oneHourCloseAt)} decides. Not Ready yet.</span>;
+}
+
 export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void }) {
   const { d, group, setupKey, isNew, onSeen } = props;
   // Compact by default; the user's choice is remembered per setup instance.
   const [open, setOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggle = () => { setOpen(!open); onSeen(); };
   const live = useContext(LiveCtx);
+  const rv = readyVariant(d, live);
   return (
-    <article className="ac-card rounded-2xl overflow-hidden" style={{ borderLeft: `5px solid ${toneVar(TONE[group])}` }}
-      aria-label={`${d.symbol} trading card: ${statusText(d, group, live)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open}>
+    <article className={`ac-card rounded-2xl overflow-hidden ${rv ? `ac-ready-${rv}` : ""}`} style={rv ? undefined : { borderLeft: `5px solid ${toneVar(TONE[group])}` }}
+      aria-label={`${d.symbol} trading card: ${statusText(d, group, live)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open} data-ready={rv ?? "none"}>
+      <ReadyRibbon d={d} />
       {open ? (
         <>
           <div className="px-3 pt-2 sm:px-4 space-y-1 pb-1.5">
@@ -580,6 +614,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         </> : <span className="ac-muted">{d.nextAction || "No plan levels yet."}</span>}
         <span className="ac-warn font-semibold" style={xs} title="OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE." data-testid={`text-gap-risk-${d.symbol}`}>Gap risk: stops can fill below stop</span>
       </div>
+      {(d.signalAge || d.earlyLook) && <div className="pl-9 flex flex-wrap items-center gap-x-3"><SignalAgeLine d={d} short /><EarlyLookLine d={d} /></div>}
       {(warn || failed) && (
         <div className="pl-9 flex flex-wrap items-center gap-x-3 font-semibold" style={xs} role="alert" data-testid={`card-warnings-${d.symbol}`}>
           {warn && <span className="ac-bad inline-flex items-center gap-1" data-testid={`banner-levels-caution-${d.symbol}`}><XCircle className="h-3.5 w-3.5" aria-hidden /> {warn}</span>}
@@ -605,7 +640,8 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
         className="p-0 border-0 bg-transparent shadow-none max-w-5xl w-[96vw] max-h-[94vh] overflow-y-auto max-sm:w-screen max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:rounded-none"
         onCloseAutoFocus={(e) => { e.preventDefault(); returnTo.current?.focus?.(); }}
         data-testid="dialog-trading-card">
-        <div className="ac-root ac-shell rounded-2xl max-sm:rounded-none min-h-full" {...acAttrs(prefs)}>
+        <div className="ac-root ac-shell rounded-2xl max-sm:rounded-none min-h-full min-w-0" {...acAttrs(prefs)}>
+          <div className="rounded-t-2xl max-sm:rounded-none overflow-hidden pr-10"><ReadyRibbon d={d} /></div>
           <div className="px-4 pt-4 sm:px-5 space-y-1.5 pr-12">
             <DialogTitle className="sr-only">Trading Card — {d.symbol}</DialogTitle>
             <DialogDescription className="sr-only">Practice-only analysis card for {d.symbol}. Not financial advice.</DialogDescription>

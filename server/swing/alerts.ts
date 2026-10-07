@@ -161,7 +161,7 @@ export async function tickAlerts(now = new Date()): Promise<{ checked: number; f
     const s = await loadSettings();
     const sel = await selectedVersions();
     // Ready-now events (readyAlerts.ts) have their own once-per-event rule and don't use up price-alert caps.
-    const today = (await db.select({ symbol: swingAlertEvents.symbol, type: swingAlertEvents.type }).from(swingAlertEvents).where(gte(swingAlertEvents.firedAt, startOfDayCT()))).filter((t) => t.type !== "READY_NOW");
+    const today = (await db.select({ symbol: swingAlertEvents.symbol, type: swingAlertEvents.type }).from(swingAlertEvents).where(gte(swingAlertEvents.firedAt, startOfDayCT()))).filter((t) => t.type !== "READY_NOW" && t.type !== "EARLY_30M");
     let total = today.length; const perTicker: Record<string, number> = {};
     for (const t of today) perTicker[t.symbol] = (perTicker[t.symbol] ?? 0) + 1;
     const nowSec = Math.floor(now.getTime() / 1000), nowIso = now.toISOString();

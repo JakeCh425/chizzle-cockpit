@@ -506,6 +506,12 @@
 .ac-root .ac-num { font-family: var(--ac-num); font-variant-numeric: tabular-nums; }
 .ac-root.ac-shell, .ac-root .ac-shell { background: var(--ac-bg); border: 2px solid var(--ac-border-strong); box-shadow: var(--ac-shadow); }
 .ac-root .ac-card { background: var(--ac-surface); border: 1px solid var(--ac-border); box-shadow: var(--ac-shadow); }
+/* Ready cards stand apart: solid green = live risk allowed; cyan with practice stripes = practice only. */
+.ac-root .ac-card.ac-ready-live { border: 2px solid #10B981; background: linear-gradient(0deg, rgba(16,185,129,.07), rgba(16,185,129,.07)), var(--ac-surface); box-shadow: 0 0 0 3px rgba(16,185,129,.18), var(--ac-shadow); }
+.ac-root .ac-card.ac-ready-practice { border: 2px solid #22D3EE; background: linear-gradient(0deg, rgba(34,211,238,.06), rgba(34,211,238,.06)), var(--ac-surface); box-shadow: 0 0 0 3px rgba(34,211,238,.16), var(--ac-shadow); }
+.ac-root .ac-ribbon { display:flex; align-items:center; gap:.5em; padding: .2em .9em; font-family: var(--ac-num); font-weight: 800; letter-spacing: .04em; font-size: var(--ac-fs-xs); }
+.ac-root .ac-ribbon-live { background: #10B981; color: #04150F; }
+.ac-root .ac-ribbon-practice { color: #031A1F; background: repeating-linear-gradient(135deg, #22D3EE 0 14px, #67E8F9 14px 28px); }
 .ac-root .ac-tile { background: var(--ac-surface-2); border: 1px solid var(--ac-border); }
 .ac-root .ac-muted { color: var(--ac-muted); }
 .ac-root .ac-accent { color: var(--ac-accent); }
@@ -518,3 +524,28 @@
 .ac-root .ac-input { background: var(--ac-bg); color: var(--ac-text); border: 1px solid var(--ac-border); border-radius: .45rem; padding: .35em .55em; width: 100%; font-family: var(--ac-num); font-size: var(--ac-fs); }
 @media (prefers-reduced-motion: no-preference) { .ac-root .ac-card { transition: border-color .15s ease; } }
 .ac-root .ac-btn[aria-pressed="true"] { border-color: var(--ac-accent); border-width: 2px; color: var(--ac-accent); }
+
+/* ─── Ready Now "print card" — its own look so it never blends into other sections. ─── */
+.rn-root { --rn-bg:#06140F; --rn-bg-2:#0A2018; --rn-edge:#10B981; --rn-glow:rgba(16,185,129,.28); --rn-title:#6EE7B7; --rn-text:#ECFDF5; --rn-muted:#9CC9B7;
+  --rn-accent:#34D399; --rn-on-accent:#03140D; --rn-line:rgba(110,231,183,.28); --rn-chip:#22D3EE; --rn-warn:#FBBF24; --rn-bad:#FDA4AF; }
+.rn-root[data-rn-theme="carbon"]   { --rn-bg:#0B0B0C; --rn-bg-2:#16161A; --rn-edge:#D4AF37; --rn-glow:rgba(212,175,55,.25); --rn-title:#F3D77A; --rn-text:#F8F5EC; --rn-muted:#BDB49A; --rn-accent:#E5C158; --rn-on-accent:#1A1405; --rn-line:rgba(229,193,88,.28); --rn-chip:#F3D77A; }
+.rn-root[data-rn-theme="midnight"] { --rn-bg:#0B0820; --rn-bg-2:#160F38; --rn-edge:#A78BFA; --rn-glow:rgba(167,139,250,.3); --rn-title:#C4B5FD; --rn-text:#F5F3FF; --rn-muted:#B4A9DA; --rn-accent:#22D3EE; --rn-on-accent:#04141A; --rn-line:rgba(196,181,253,.3); --rn-chip:#F0ABFC; }
+.rn-root[data-rn-theme="graphite"] { --rn-bg:#111827; --rn-bg-2:#1F2937; --rn-edge:#7DD3FC; --rn-glow:rgba(125,211,252,.22); --rn-title:#BAE6FD; --rn-text:#F1F5F9; --rn-muted:#A3B3C6; --rn-accent:#7DD3FC; --rn-on-accent:#06202E; --rn-line:rgba(186,230,253,.25); --rn-chip:#E2E8F0; }
+.rn-root[data-rn-theme="terminal"] { --rn-bg:#0A0A06; --rn-bg-2:#14130A; --rn-edge:#F59E0B; --rn-glow:rgba(245,158,11,.25); --rn-title:#FCD34D; --rn-text:#FEF3C7; --rn-muted:#C9B98A; --rn-accent:#F59E0B; --rn-on-accent:#1C1203; --rn-line:rgba(252,211,77,.28); --rn-chip:#FDE68A; }
+.rn-root { color: var(--rn-text); background: radial-gradient(120% 140% at 0% 0%, var(--rn-bg-2), var(--rn-bg) 60%); border: 2px solid var(--rn-edge);
+  box-shadow: 0 0 0 4px var(--rn-glow), 0 18px 40px -18px var(--rn-glow); }
+.rn-root .rn-head { background: linear-gradient(90deg, var(--rn-glow), transparent 70%); border-bottom: 1px dashed var(--rn-line); }
+.rn-root .rn-title { color: var(--rn-title); } .rn-root .rn-muted { color: var(--rn-muted); } .rn-root .rn-chip { color: var(--rn-chip); }
+.rn-root .rn-warn { color: var(--rn-warn); } .rn-root .rn-bad { color: var(--rn-bad); border-color: var(--rn-bad); }
+.rn-root .rn-good { color: var(--rn-accent); border-color: var(--rn-accent); }
+/* Ticket rows: ticker stub | perforation | details */
+.rn-root .rn-ticket { position: relative; background: rgba(255,255,255,.035); border: 1px solid var(--rn-line); }
+.rn-root .rn-ticket[data-unread="true"] { border-color: var(--rn-edge); background: rgba(255,255,255,.06); }
+.rn-root .rn-stub { border-right: 2px dashed var(--rn-line); }
+.rn-root .rn-btn { display:inline-flex; align-items:center; gap:.4em; border-radius:.55rem; font-family: ui-monospace, monospace; border:1px solid var(--rn-line); color: var(--rn-text); background: transparent; }
+.rn-root .rn-btn:hover { border-color: var(--rn-edge); }
+.rn-root .rn-btn-primary { background: var(--rn-accent); color: var(--rn-on-accent); border-color: var(--rn-accent); font-weight: 800; }
+.rn-root .rn-btn-primary:hover { filter: brightness(1.08); }
+.rn-root .rn-btn:focus-visible { outline: 3px solid var(--rn-chip); outline-offset: 2px; }
+.rn-root .rn-swatch { width: 18px; height: 18px; border-radius: 999px; border: 2px solid rgba(255,255,255,.35); }
+.rn-root .rn-swatch[aria-pressed="true"] { border-color: var(--rn-text); box-shadow: 0 0 0 2px var(--rn-edge); }

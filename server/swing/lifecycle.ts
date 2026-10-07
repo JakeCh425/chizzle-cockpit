@@ -63,6 +63,8 @@ export interface Candidate {
 }
 export interface CandidateEvents {
   confirm1h?: { t: number; end: number; c: number };
+  /** Latest retest-and-hold re-confirmation after the original signal (closed 1H back above the trigger). */
+  reconfirm1h?: { t: number; end: number; c: number };
   invalidated?: { t: number; end: number; c: number };
   expiredAt?: number;
 }
@@ -213,6 +215,22 @@ function extensionOf(c: Ctx, price: number, ref: number, tfAtr: number | null, r
   }
   const by = [...(pctLeg.by.includes("PCT") ? ["PCT" as const] : []), ...(atrHit ? ["ATR" as const] : [])];
   return { pct: r2(pctLeg.pct), atr: atrExt == null ? null : r2(atrExt), atrRef, ext: by.length > 0, by, atrDollar: atr == null ? null : r2(atr), distance: r2(price - ref) };
+}
+
+/** Signal age (re-confirm rule). A closed 1H after the signal "re-confirms" when it closes above the trigger
+ *  after retesting it (its low, or the prior close, at/below the trigger). Age counts closed 4H bars since the
+ *  latest confirmation; at ≥ limit the Ready signal is stale until the next re-confirmation. */
+export function signalAgeOf(closed1h: { t: number; end: number; l: number; c: number }[], closed4h: { end: number }[],
+  signalEnd: number, trigger: number, limit: number) {
+  const post = closed1h.filter((b) => b.end > signalEnd);
+  let anchor = signalEnd, re: { t: number; end: number; c: number } | null = null;
+  for (let i = 0; i < post.length; i++) {
+    const b = post[i], prevC = i ? post[i - 1].c : closed1h.find((x) => x.end === signalEnd)?.c ?? Infinity;
+    if (b.c > trigger && (b.l <= trigger || prevC <= trigger)) { anchor = b.end; re = { t: b.t, end: b.end, c: b.c }; }
+  }
+  const bars1h = closed1h.filter((b) => b.end > anchor).length;
+  const bars4h = closed4h.filter((b) => b.end > anchor).length;
+  return { anchor, reconfirm: re, bars1h, bars4h, stale: limit > 0 && bars4h >= limit };
 }
 
 /** Retest zone (§H, widened): from a little below the trigger to the larger of max-ext % or k·ATR above. */
@@ -425,6 +443,27 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     d.nextAction = `Watch ${sym} retest zone ${fx(zone.low)}–${fx(zone.high)} for a closed bullish 1H candle.`;
     d.suggestedShares = 0;
     return out("WATCH_RETEST", { earlyTrigger: early });
+  }
+
+  // ── Signal age (re-confirm rule) ───────────────────────────────────────────
+  if (!early) {
+    const lim = s.reconfirmAfter4hBars ?? 4;
+    const ag = signalAgeOf(c.closed1h, c.closed4h, signalEnd, trigger, lim);
+    if (ag.reconfirm) ev.reconfirm1h = ag.reconfirm;
+    const ent = plan.entry ?? trigger, band = ent * 0.0015;
+    d.signalAge = { confirmedAt: iso(signalEnd)!, lastConfirmedAt: iso(ag.anchor)!, reconfirmed: !!ag.reconfirm, bars1h: ag.bars1h, bars4h: ag.bars4h,
+      limit4h: lim, stale: ag.stale, priceVsEntry: price > ent + band ? "ABOVE" : price < ent - band ? "BELOW" : "AT" };
+    if (ag.reconfirm) d.passedRules.push(`re-confirmed: closed 1H ${fx(ag.reconfirm.c)} back above trigger ${fx(trigger)} after a retest (${fmtCT(ag.reconfirm.end)})`);
+    if (ag.stale) {
+      d.riskLabel = "WATCH — RE-CONFIRM, SIGNAL IS OLD";
+      d.whyNotReady = [
+        `Signal is ${ag.bars4h} closed 4H bars old (limit ${lim}) — last confirmed ${fmtCT(ag.anchor)}`,
+        `Needs a fresh re-confirmation: price retests trigger ${fx(trigger)} and a 1H bar closes back above it.`,
+      ];
+      d.nextAction = `Wait for ${sym} to retest ${fx(trigger)} and close a 1H bar back above it. Levels stay the same.`;
+      d.suggestedShares = 0;
+      return out("WATCH_RETEST", { earlyTrigger: early });
+    }
   }
 
   // ── Data agreement (§M) ────────────────────────────────────────────────────

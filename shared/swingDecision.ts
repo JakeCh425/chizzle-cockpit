@@ -112,6 +112,10 @@ export interface SwingDecision {
   isExtended: boolean;
   /** Additive: the full "Not extended" check — live quote vs entry, both limits, OR rule. */
   extensionCheck?: ExtensionCheck | null;
+  /** Additive: how old the confirmation is and where price sits vs entry. */
+  signalAge?: SignalAge | null;
+  /** Additive: 30-minute heads-up while a CONFIRMED setup waits for its 1H close (never a Ready signal). */
+  earlyLook?: EarlyLook | null;
   volumeCondition: VolumeCondition;
   dataMismatchReason: string | null;
 
@@ -246,6 +250,17 @@ export const FORBIDDEN_PHRASES: Record<SetupStatus, string[]> = {
 /** A market-structure level used by the plan math (pivot high = a bar whose high exceeds the 2 bars on each side). */
 export interface StructureLevel { price: number; timeframe: "1H" | "4H" | "1D"; time: string; kind: "pivot high" }
 
+export interface SignalAge {
+  confirmedAt: string;            // closed 1H that first confirmed (bar close time)
+  lastConfirmedAt: string;        // latest confirmation: the original, or a retest-and-hold re-confirmation
+  reconfirmed: boolean;
+  bars1h: number; bars4h: number; // closed bars since lastConfirmedAt
+  limit4h: number;                // 0 = rule off
+  stale: boolean;                 // bars4h ≥ limit4h → needs a fresh re-confirmation
+  priceVsEntry: "ABOVE" | "AT" | "BELOW" | null;
+}
+export interface EarlyLook { tf: "30m"; barStart: string; barEnd: string; close: number; trigger: number; oneHourCloseAt: string }
+
 export interface ExtensionCheck {
   quote: number; quoteAt: string | null; quoteIsLive: boolean;
   from: number; fromLabel: "entry" | "trigger";
@@ -305,6 +320,8 @@ export interface SwingSettings {
   maxDollarRisk: number;
   maxExtensionPct: number;
   maxExtensionAtr: number;
+  /** A Ready signal older than this many closed 4H bars must re-confirm (retest + closed 1H back above the trigger). 0 = off. */
+  reconfirmAfter4hBars?: number;
   /** Where the ATR-extension leg is measured from. TRIGGER (default, flexible) or DAILY_SMA20 (spec-strict). */
   extensionAtrAnchor?: "TRIGGER" | "DAILY_SMA20";
   /** Retest zone = [trigger − retestBelowAtr·ATR, trigger + max(maxExtensionPct %, retestZoneAtr·ATR)]. */
@@ -402,6 +419,7 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   linkRiskToProfile: true,
   maxExtensionPct: 1.5,
   maxExtensionAtr: 1.5,
+  reconfirmAfter4hBars: 4,
   extensionAtrAnchor: "TRIGGER",
   retestZoneAtr: 0.5,
   retestBelowAtr: 0.25,
