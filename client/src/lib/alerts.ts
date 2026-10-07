@@ -8,13 +8,13 @@ import { effectivePlan, type EffectivePlan } from "@shared/practicePlan";
 import type { ActionGroup } from "@shared/practicePlan";
 
 export interface AlertEvent {
-  id: number; alertId: number | null; symbol: string; type: AlertType | "READY_NOW"; firedAt: string; price: number | null; level: number | null;
+  id: number; alertId: number | null; symbol: string; type: AlertType | "READY_NOW" | "EARLY_30M"; firedAt: string; price: number | null; level: number | null;
   dataSource: string | null; dataStatus: string | null; condition: string; planVersion: number; message: string;
   delivery: Record<string, DeliveryState | string>; acknowledged: boolean; acknowledgedAt: string | null;
 }
 /** Per-channel delivery record (Ready events add attempts / kind / label / nextAt for Telegram). */
 export interface DeliveryState { status: string; error?: string; label?: string; kind?: string; attempts?: number; attemptedAt?: string | null; nextAt?: string | null; httpStatus?: number | null }
-export const deliveryEntries = (e: AlertEvent) => Object.entries(e.delivery ?? {}).filter((x): x is [string, DeliveryState] => !!x[1] && typeof x[1] === "object");
+export const deliveryEntries = (e: AlertEvent) => Object.entries(e.delivery ?? {}).filter((x): x is [string, DeliveryState] => !!x[1] && typeof x[1] === "object" && !Array.isArray(x[1]));
 /** Open the EXISTING Action Center trading card for a symbol (no duplicate plan). */
 export const openTradingCard = (symbol: string) => window.dispatchEvent(new CustomEvent("chizzle:open-card", { detail: { symbol } }));
 export interface ContactStatus { id: number; channel: "email" | "telegram"; label: string; destination: string; verifiedAt: string | null }

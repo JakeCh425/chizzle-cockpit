@@ -3,6 +3,14 @@
 // permission (the market regime) is a separate field and only changes the WORDING shown.
 
 export const READY_EVENT_TYPE = "READY_NOW";
+/** 30-minute heads-up while a confirmed setup waits for its 1H close. In-app only; never a Ready signal. */
+export const EARLY_EVENT_TYPE = "EARLY_30M";
+export const earlyKey = (sym: string, setupType: string | null, setupTs: string | null, barEnd: string) => `EARLY|${sym}|${setupType ?? "-"}:${setupTs ?? "-"}|${barEnd}`;
+export function earlyMessage(p: { symbol: string; close: number; trigger: number; barEnd: string; oneHourCloseAt: string }) {
+  const t = (iso: string) => new Date(iso).toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit" });
+  return `HEADS-UP — ${p.symbol} closed a 30-minute bar at $${p.close.toFixed(2)}, above trigger $${p.trigger.toFixed(2)} (${t(p.barEnd)} CT). `
+    + `Not a Ready signal: the 1H bar must still close above the trigger at ${t(p.oneHourCloseAt)} CT. PRICE ALERT ONLY — VERIFY DATA AND REVIEW THE PLAN BEFORE ACTING.`;
+}
 
 /** Live-risk permission, kept separate from practice readiness. */
 export interface LivePermission { allowed: boolean; regime: string; source: string; reason: string }
@@ -42,6 +50,15 @@ export function classifyTelegram(httpStatus: number | null, description: string,
 }
 /** Limited retry with backoff: only transient failures, at most 4 attempts (1, 2, 4 min apart). */
 export const MAX_READY_ATTEMPTS = 4;
+/** Email (Resend) result → the same retry vocabulary: a missing key is config, 429 rate-limit, 5xx / fetch errors transient. */
+export function classifyEmail(error: string | undefined): TelegramKind {
+  if (!error) return "SENT";
+  if (/RESEND_API_KEY not set/i.test(error)) return "CONFIG_MISSING";
+  if (/Resend 429/.test(error)) return "RATE_LIMITED";
+  if (/Resend 40[13]/.test(error)) return "UNAUTHORIZED";
+  if (/Resend 5\d\d|fetch error/i.test(error)) return "NETWORK";
+  return "PROVIDER";
+}
 export function nextRetryAt(kind: TelegramKind, attempts: number, atMs: number, retryAfterSec?: number | null): string | null {
   if (!(kind === "RATE_LIMITED" || kind === "TIMEOUT" || kind === "NETWORK")) return null;
   if (attempts >= MAX_READY_ATTEMPTS) return null;
@@ -69,7 +86,8 @@ export function readyMessage(m: {
     "PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE",
     ...(m.url ? [m.url] : []),
   ];
-  return { text: lines.join("\n"), inApp: `${label}: ${m.symbol} ${m.setupName}${m.timeframe ? ` (${m.timeframe})` : ""}. Entry ${$(m.entry)}, stop ${$(m.stop)}, T1 ${$(m.t1)}.` };
+  const subject = `${label}: ${m.symbol} ${m.setupName}${m.timeframe ? ` (${m.timeframe})` : ""}`;
+  return { subject, lines, text: lines.join("\n"), inApp: `${label}: ${m.symbol} ${m.setupName}${m.timeframe ? ` (${m.timeframe})` : ""}. Entry ${$(m.entry)}, stop ${$(m.stop)}, T1 ${$(m.t1)}.` };
 }
 
 /** Cockpit visual priority (display only — engine statuses are unchanged). */

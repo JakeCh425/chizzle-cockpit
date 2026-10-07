@@ -36,6 +36,7 @@ export const settingsPatchSchema = z.object({
   maxDollarRisk: z.number().min(1).max(100000).optional(),
   maxExtensionPct: z.number().min(0.25).max(5).optional(),
   maxExtensionAtr: z.number().min(0.25).max(5).optional(),
+  reconfirmAfter4hBars: z.number().int().min(0).max(20).optional(),
   extensionAtrAnchor: z.enum(["TRIGGER", "DAILY_SMA20"]).optional(),
   retestZoneAtr: z.number().min(0).max(3).optional(),
   retestBelowAtr: z.number().min(0).max(2).optional(),
@@ -186,7 +187,7 @@ export function livePermission(): LivePermission {
 function qualifyingBarOf(res: EvalResult): string | null {
   const d = res.decision;
   const c = res.candidates.find((x) => x.decision === d) ?? res.candidates.find((x) => x.decision.setupType === d.setupType && x.decision.setupTimestamp === d.setupTimestamp);
-  const end = c?.events?.confirm1h?.end;
+  const end = c?.events?.reconfirm1h?.end ?? c?.events?.confirm1h?.end; // a re-confirmation is a new qualifying bar
   return end ? new Date(end * 1000).toISOString() : d.lastCompletedBar1H;
 }
 
@@ -258,7 +259,7 @@ export function cachedSwingBars(symbol: string): { daily: SwingBar[]; bars1h: Sw
 /** Decision with its chart overlay filtered to the requested history scope, plus older setups from the log. */
 export async function decisionFor(symbol: string, exchange: string, scope: HistoryScope = "LAST5", force = false): Promise<SwingDecision> {
   const { res } = await evaluateSymbol({ symbol, exchange }, { force });
-  const d: SwingDecision = { ...res.decision, chart: buildOverlay(res, { scope }) };
+  const d: SwingDecision = { ...withEarly(res.decision), chart: buildOverlay(res, { scope }) };
   if (scope !== "CURRENT") {
     const older = await historyFromLog(symbol, d.chart!.history.map((h) => h.id));
     d.chart!.history.push(...(scope === "LAST5" ? older.slice(0, Math.max(0, 5 - d.chart!.history.length)) : older));
@@ -315,7 +316,7 @@ export async function scan(sel: ScanSelection, symbols: string[] = [], statusFil
   for (const item of items) { // sequential: shares vendor rate limits with the rest of the app
     try {
       const { res } = await evaluateSymbol(item, { settings: s, force });
-      rows.push({ item, riskNote: riskNote(item.assetType), decision: { ...res.decision, chart: buildOverlay(res, { scope: "CURRENT" }) } });
+      rows.push({ item, riskNote: riskNote(item.assetType), decision: { ...withEarly(res.decision), chart: buildOverlay(res, { scope: "CURRENT" }) } });
     } catch (e: any) {
       rows.push({ item, riskNote: riskNote(item.assetType), decision: errorDecision(item, s, e?.message || "Data unavailable") });
     }
@@ -470,6 +471,46 @@ export async function quoteStatusRefresh(s: SwingSettings, now = nowSec()): Prom
   return { checked, changed, skipped };
 }
 
+// ─── 30-minute heads-up (mid-hour) ──────────────────────────────────────────
+// 1H bars run :30→:30 CT, so the first 30m half closes at :00. For a CONFIRMED setup that is still waiting
+// for its closed 1H, a closed 30m above the trigger is shown as an in-app heads-up. It never changes the
+// status, the levels, or Ready (the 1H close still decides). Yahoo 30m bars (free); inside the same scheduler.
+type EarlyHook = (d: SwingDecision, e: NonNullable<SwingDecision["earlyLook"]>) => void;
+let earlyHook: EarlyHook | null = null;
+export function onEarlyLook(fn: EarlyHook) { earlyHook = fn; }
+const earlyBy = new Map<string, NonNullable<SwingDecision["earlyLook"]> & { setup: string }>();
+const setupIdOf = (d: SwingDecision) => `${d.setupType}|${d.setupTimeframe}|${d.setupTimestamp}`;
+/** Attach a still-pending heads-up to the decision (dropped once its 1H bar has closed or the setup changed). */
+export function withEarly(d: SwingDecision): SwingDecision {
+  const e = earlyBy.get(d.symbol);
+  if (!e || e.setup !== setupIdOf(d) || d.setupStatus !== "SETUP_CONFIRMED") return d;
+  if (d.lastCompletedBar1H && d.lastCompletedBar1H >= e.oneHourCloseAt) return d;
+  const { setup, ...early } = e; return { ...d, earlyLook: early };
+}
+/** Mid-hour boundary (CT minutes) if `min` is 2–7 minutes after one (9:00 … 14:00). */
+export function midHourNear(min: number): number | null {
+  for (let b = 540; b <= 840; b += 60) if (min - b >= 2 && min - b <= 7) return b;
+  return null;
+}
+export async function earlyLook30m(s: SwingSettings, now = nowSec(), fetch30 = (sym: string) => fetchIntraday(sym, "30m")) {
+  const c = chicago(now), b = midHourNear(c.minutes), found: string[] = [];
+  if (b == null) return found;
+  const barStart = chicagoTs(c.ymd, b - 30), barEnd = chicagoTs(c.ymd, b), oneH = chicagoTs(c.ymd, b + 30);
+  for (const w of (s.watchlist ?? []).filter((x) => !x.hidden)) {
+    const sym = w.symbol.toUpperCase(), d = evalCache.get(sym)?.res.decision;
+    if (!d || d.setupStatus !== "SETUP_CONFIRMED" || d.originalTrigger == null) continue;
+    const r = await fetch30(sym).catch(() => null);
+    const bar = r?.bars.find((x) => x.t === barStart);
+    if (!bar || !(bar.c > d.originalTrigger)) continue;
+    const e = { tf: "30m" as const, barStart: new Date(barStart * 1000).toISOString(), barEnd: new Date(barEnd * 1000).toISOString(), close: Math.round(bar.c * 100) / 100,
+      trigger: d.originalTrigger, oneHourCloseAt: new Date(oneH * 1000).toISOString() };
+    earlyBy.set(sym, { ...e, setup: setupIdOf(d) }); found.push(sym);
+    try { earlyHook?.(d, e); } catch { /* never blocks the engine */ }
+  }
+  return found;
+}
+let lastEarlySlot = "";
+
 // ─── Auto-recompute on each closed RTH hour (approved) + opt-in interval — one timer ─
 let timer: NodeJS.Timeout | null = null, lastSlot = "";
 export function startSwingScheduler() {
@@ -488,6 +529,9 @@ export function startSwingScheduler() {
         lastSlot = `${c.ymd}:${b}`;
         if (s.autoRefresh1H !== false) { await runPlanAnalysis("HOURLY_CLOSE"); return; }
       }
+      // Mid-hour (:00 CT): 30-minute heads-up for confirmed setups waiting on their 1H close.
+      const mb = midHourNear(c.minutes);
+      if (mb != null && `${c.ymd}:${mb}` !== lastEarlySlot) { lastEarlySlot = `${c.ymd}:${mb}`; await earlyLook30m(s, now); }
       // Opt-in interval refresh during regular hours. Any run (manual / hourly) resets the clock, so nothing doubles up.
       const iv = s.planAutoRefreshMin ?? 0;
       if (iv > 0 && inSession(now) && now - rs.lastRunAt >= iv * 60) { await runPlanAnalysis("INTERVAL"); return; }
@@ -504,5 +548,5 @@ export function closeBoundaryNear(min: number): number | null {
   return null;
 }
 
-export const _test = { evalCache, barKey, rs, nextScheduled, inSession };
+export const _test = { evalCache, barKey, rs, nextScheduled, inSession, earlyBy };
 export { SETUP_STATUSES };

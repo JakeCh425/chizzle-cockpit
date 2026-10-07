@@ -8,10 +8,11 @@ import { db } from "../storage";
 import { swingAlertEvents } from "@shared/schema";
 import type { SwingDecision } from "@shared/swingDecision";
 import { activeVersion, effectivePlan } from "@shared/practicePlan";
-import { READY_EVENT_TYPE, TELEGRAM_KIND_LABEL, classifyTelegram, nextRetryAt, readyKey, readyMessage, type TelegramKind } from "@shared/readyAlerts";
+import { EARLY_EVENT_TYPE, READY_EVENT_TYPE, TELEGRAM_KIND_LABEL, classifyEmail, classifyTelegram, earlyKey, earlyMessage, nextRetryAt, readyKey, readyMessage, type TelegramKind } from "@shared/readyAlerts";
+import { sendEmailResend } from "../alert-dispatcher";
 import { channelAllowed } from "@shared/priceAlerts";
 import { SETUP_NAME } from "./lifecycle";
-import { livePermission, onReadyDecision } from "./service";
+import { livePermission, onEarlyLook, onReadyDecision } from "./service";
 import { alertsEnabled, contactForChannel, loadPrefs } from "./alerts";
 import { selectedVersions } from "./plans";
 
@@ -48,16 +49,17 @@ export async function sendTestTelegram() {
 
 // ─── Dependencies (injectable for tests; production uses the real DB / prefs / Telegram) ──
 const store = {
-  findByKey: async (key: string) => (await db.select({ id: swingAlertEvents.id }).from(swingAlertEvents)
-    .where(and(eq(swingAlertEvents.type, READY_EVENT_TYPE), eq(swingAlertEvents.condition, key))).limit(1))[0] ?? null,
+  findByKey: async (key: string, type: string = READY_EVENT_TYPE) => (await db.select({ id: swingAlertEvents.id }).from(swingAlertEvents)
+    .where(and(eq(swingAlertEvents.type, type), eq(swingAlertEvents.condition, key))).limit(1))[0] ?? null,
   insert: async (v: typeof swingAlertEvents.$inferInsert) => (await db.insert(swingAlertEvents).values(v).returning())[0],
   setDelivery: async (id: number, delivery: any) => { await db.update(swingAlertEvents).set({ delivery }).where(eq(swingAlertEvents.id, id)); },
   recent: async (sinceMs: number) => db.select().from(swingAlertEvents)
     .where(and(eq(swingAlertEvents.type, READY_EVENT_TYPE), gte(swingAlertEvents.firedAt, new Date(sinceMs)))).orderBy(desc(swingAlertEvents.id)).limit(50),
 };
 const deps = {
-  store, loadPrefs, contact: () => contactForChannel("telegram"), selectedVersions: () => selectedVersions(), livePermission,
-  send: (chat: string | null | undefined, text: string) => telegramSend(chat, text), enabled: alertsEnabled,
+  store, loadPrefs, contact: () => contactForChannel("telegram"), emailContact: () => contactForChannel("email"), selectedVersions: () => selectedVersions(), livePermission,
+  send: (chat: string | null | undefined, text: string) => telegramSend(chat, text),
+  sendEmail: (to: string, subject: string, html: string) => sendEmailResend(to, subject, html), enabled: alertsEnabled,
 };
 
 // ─── Ready event creation ────────────────────────────────────────────────────
@@ -76,6 +78,22 @@ async function deliverTelegram(text: string, attempts: number) {
   return r.ok
     ? { status: "sent", kind: r.kind, httpStatus: r.httpStatus, attempts: n, attemptedAt: new Date(at).toISOString() }
     : { status: "failed", kind: r.kind, label: TELEGRAM_KIND_LABEL[r.kind], httpStatus: r.httpStatus, error: r.error, attempts: n, attemptedAt: new Date(at).toISOString(), nextAt: nextRetryAt(r.kind, n, at, r.retryAfter) };
+}
+
+const escHtml = (x: string) => x.replace(/[&<>"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[ch]!));
+async function deliverEmail(subject: string, lines: string[], attempts: number) {
+  const prefs = await deps.loadPrefs();
+  if (!prefs.channels.email) return { status: "skipped", error: "Email alerts are switched off", attempts, attemptedAt: null as string | null };
+  const c = await deps.emailContact();
+  const allowed = channelAllowed("email", prefs, c ? { id: c.id, enabled: c.enabled } : null);
+  if (!allowed.ok) return { status: "skipped", error: allowed.why, attempts, attemptedAt: null as string | null };
+  const html = lines.map((l) => /^https?:\/\//.test(l) ? `<p><a href="${escHtml(l)}">Open Chizzle Cockpit</a></p>` : `<p style="margin:0 0 6px">${escHtml(l)}</p>`).join("");
+  const r = await deps.sendEmail(c!.destination, subject, html);
+  const at = Date.now(), n = attempts + 1, kind = classifyEmail(r.ok ? undefined : r.error);
+  if (!r.ok) console.warn(`[ready-alerts] email ${kind} (attempt ${n})`);
+  return r.ok
+    ? { status: "sent", kind: "SENT", attempts: n, attemptedAt: new Date(at).toISOString() }
+    : { status: "failed", kind, label: TELEGRAM_KIND_LABEL[kind], error: String(r.error ?? "").slice(0, 200), attempts: n, attemptedAt: new Date(at).toISOString(), nextAt: nextRetryAt(kind, n, at, null) };
 }
 
 export async function recordReady(d: SwingDecision, qualifyingBar: string | null): Promise<void> {
@@ -100,16 +118,35 @@ export async function recordReady(d: SwingDecision, qualifyingBar: string | null
     const row = await deps.store.insert({
       alertId: null, symbol: d.symbol, type: READY_EVENT_TYPE, price: d.currentPrice, level: plan.entry, dataSource: d.dataSource, dataStatus: d.dataStatus,
       condition: key, planVersion: v?.version ?? 0, message: msg.inApp,
-      delivery: { in_app: { status: inApp ? "delivered" : "skipped", error: inApp ? undefined : "In-app alerts are switched off" }, telegram: { status: "sending", attempts: 0 }, push: { status: prefs.channels.push ? "queued_browser" : "skipped" }, text: msg.text } as any,
+      delivery: { in_app: { status: inApp ? "delivered" : "skipped", error: inApp ? undefined : "In-app alerts are switched off" }, telegram: { status: "sending", attempts: 0 }, email: { status: "sending", attempts: 0 }, push: { status: prefs.channels.push ? "queued_browser" : "skipped" }, text: msg.text, subject: msg.subject, lines: msg.lines } as any,
       acknowledged: !inApp, acknowledgedAt: inApp ? null : new Date(),
     });
     seen.add(key);
     console.log(`[ready-alerts] READY event #${row.id} ${d.symbol} ${key}`);
-    const tg = await deliverTelegram(msg.text, 0).catch((e) => ({ status: "failed", kind: "NETWORK", error: String(e?.message ?? e).slice(0, 160), attempts: 1, attemptedAt: new Date().toISOString(), nextAt: null }));
-    await deps.store.setDelivery(row.id, { ...(row.delivery as any), telegram: tg });
+    const fail = (e: any) => ({ status: "failed", kind: "NETWORK", error: String(e?.message ?? e).slice(0, 160), attempts: 1, attemptedAt: new Date().toISOString(), nextAt: null });
+    const [tg, em] = await Promise.all([deliverTelegram(msg.text, 0).catch(fail), deliverEmail(msg.subject, msg.lines, 0).catch(fail)]);
+    await deps.store.setDelivery(row.id, { ...(row.delivery as any), telegram: tg, email: em });
   })().catch((e) => { console.error("[ready-alerts]", e?.message ?? e); }).finally(() => pending.delete(key));
   pending.set(key, p);
   return p;
+}
+
+/** 30-minute heads-up: one in-app event per setup × 30m bar. No Telegram / email (in-app only by design). */
+export async function recordEarly(d: SwingDecision, e: NonNullable<SwingDecision["earlyLook"]>): Promise<void> {
+  if (!deps.enabled()) return;
+  const key = earlyKey(d.symbol, d.setupType, d.setupTimestamp, e.barEnd);
+  if (seen.has(key)) return;
+  try {
+    if (await deps.store.findByKey(key, EARLY_EVENT_TYPE)) { seen.add(key); return; }
+    const prefs = await deps.loadPrefs();
+    if (!prefs.channels.in_app) { seen.add(key); return; }
+    const text = earlyMessage({ symbol: d.symbol, close: e.close, trigger: e.trigger, barEnd: e.barEnd, oneHourCloseAt: e.oneHourCloseAt });
+    await deps.store.insert({ alertId: null, symbol: d.symbol, type: EARLY_EVENT_TYPE, price: e.close, level: e.trigger, dataSource: "yahoo 30m", dataStatus: d.dataStatus,
+      condition: key, planVersion: 0, message: text,
+      delivery: { in_app: { status: "delivered" }, telegram: { status: "skipped", error: "Heads-ups are in-app only" }, email: { status: "skipped", error: "Heads-ups are in-app only" }, push: { status: "skipped" }, text } as any,
+      acknowledged: false, acknowledgedAt: null });
+    seen.add(key);
+  } catch (err: any) { console.error("[ready-alerts] early", err?.message ?? err); }
 }
 
 /** Retry undelivered Telegram for confirmed Ready events (transient failures only, limited backoff). */
@@ -121,13 +158,15 @@ export async function retryReadyDeliveries(now = Date.now()) {
     const rows = await deps.store.recent(now - 24 * 3600_000);
     let retried = 0;
     for (const r of rows) {
-      const del = (r.delivery ?? {}) as any, tg = del.telegram ?? {};
+      const del = (r.delivery ?? {}) as any;
       // "sending" older than 2 min = the process died mid-send; treat as a failed attempt.
-      const stuck = tg.status === "sending" && now - new Date(r.firedAt).getTime() > 120_000;
-      const due = tg.status === "failed" && tg.nextAt && new Date(tg.nextAt).getTime() <= now;
-      if (!stuck && !due) continue;
-      const next = await deliverTelegram(del.text ?? r.message, tg.attempts ?? 0);
-      await deps.store.setDelivery(r.id, { ...del, telegram: next });
+      const needs = (x: any) => !!x && ((x.status === "sending" && now - new Date(r.firedAt).getTime() > 120_000)
+        || (x.status === "failed" && x.nextAt && new Date(x.nextAt).getTime() <= now));
+      const patch: any = {};
+      if (needs(del.telegram)) patch.telegram = await deliverTelegram(del.text ?? r.message, del.telegram.attempts ?? 0);
+      if (needs(del.email)) patch.email = await deliverEmail(del.subject ?? `Chizzle: ${r.symbol}`, del.lines ?? [del.text ?? r.message], del.email.attempts ?? 0);
+      if (!Object.keys(patch).length) continue;
+      await deps.store.setDelivery(r.id, { ...del, ...patch });
       retried++;
     }
     return { retried };
@@ -138,6 +177,7 @@ let timer: NodeJS.Timeout | null = null;
 export function startReadyAlerts() {
   if (timer) return;
   onReadyDecision((d, bar) => { void recordReady(d, bar); });
+  onEarlyLook((d, e) => { void recordEarly(d, e); });
   timer = setInterval(() => { void retryReadyDeliveries().catch((e) => console.error("[ready-alerts] retry", e?.message ?? e)); }, 60_000);
   timer.unref?.();
 }

@@ -57,9 +57,9 @@ describe("telegram classification + backoff", () => {
 
 describe("ready pipeline (server-side transition → one event, idempotent)", async () => {
   const mod = await import("../../server/swing/readyAlerts");
-  let rows: any[] = [], sends: string[] = [], sendResult: any, prefs: any;
+  let rows: any[] = [], sends: string[] = [], sendResult: any, prefs: any, emails: any[] = [], emailResult: any = { ok: true };
   beforeEach(() => {
-    rows = []; sends = []; mod._test.reset();
+    rows = []; sends = []; emails = []; emailResult = { ok: true }; mod._test.reset();
     prefs = { ...DEFAULT_ALERT_PREFS, channels: { in_app: true, email: false, telegram: true, push: false }, verified: { "3": "2026-10-01T21:02:46.217Z" } };
     sendResult = { ok: true, kind: "SENT", httpStatus: 200, error: null, retryAfter: null };
     Object.assign(mod._test.deps, {
@@ -69,6 +69,8 @@ describe("ready pipeline (server-side transition → one event, idempotent)", as
       selectedVersions: async () => ({}),
       livePermission: () => BLOCKED,
       send: async (_c: string, text: string) => { sends.push(text); return sendResult; },
+      emailContact: async () => ({ id: 1, channel: "email", destination: "me@example.com", enabled: false }),
+      sendEmail: async (to: string, subject: string, html: string) => { emails.push({ to, subject, html }); return emailResult; },
       store: {
         findByKey: async (k: string) => rows.find((r) => r.condition === k) ?? null,
         insert: async (v: any) => { const r = { id: rows.length + 1, firedAt: new Date(), ...v }; rows.push(r); return r; },
@@ -145,6 +147,32 @@ describe("ready pipeline (server-side transition → one event, idempotent)", as
     await mod.recordReady(QQQ(), BAR1);
     expect(rows[0].acknowledged).toBe(true);
     expect(rows[0].delivery.in_app.status).toBe("skipped");
+  });
+  it("email: Ready sends one email when email is on + verified; failures retry; heads-ups never email", async () => {
+    prefs = { ...prefs, channels: { ...prefs.channels, email: true }, verified: { ...prefs.verified, "1": "2026-10-01T21:02:33.816Z" } };
+    emailResult = { ok: false, error: "Resend 503: busy" };
+    await mod.recordReady(QQQ(), BAR1);
+    expect(emails).toHaveLength(1);
+    expect(emails[0].subject).toContain("PRACTICE READY — LIVE ENTRY NOT PERMITTED: QQQ");
+    expect(emails[0].html).toContain("PRICE ALERT ONLY — VERIFY DATA AND REVIEW THE PLAN BEFORE ACTING.");
+    expect(rows[0].delivery.email).toMatchObject({ status: "failed", kind: "NETWORK", attempts: 1 });
+    emailResult = { ok: true };
+    await mod.retryReadyDeliveries(Date.now() + 61_000);
+    expect(emails).toHaveLength(2);
+    expect(rows[0].delivery.email.status).toBe("sent");
+    expect(rows[0].delivery.telegram.status).toBe("sent");       // telegram untouched by the email retry
+    expect(sends).toHaveLength(1);
+    await mod.recordEarly(QQQ({ setupStatus: "SETUP_CONFIRMED" }), { tf: "30m", barStart: "a", barEnd: "2026-10-07T15:00:00.000Z", close: 755.2, trigger: 754.1, oneHourCloseAt: "2026-10-07T15:30:00.000Z" });
+    await mod.recordEarly(QQQ({ setupStatus: "SETUP_CONFIRMED" }), { tf: "30m", barStart: "a", barEnd: "2026-10-07T15:00:00.000Z", close: 755.2, trigger: 754.1, oneHourCloseAt: "2026-10-07T15:30:00.000Z" });
+    const early = rows.filter((r) => r.type === "EARLY_30M");
+    expect(early).toHaveLength(1);
+    expect(early[0].delivery.telegram.status).toBe("skipped");
+    expect(emails).toHaveLength(2); expect(sends).toHaveLength(1);
+  });
+  it("email off → skipped, no contact lookup needed", async () => {
+    await mod.recordReady(QQQ(), BAR1);
+    expect(emails).toHaveLength(0);
+    expect(rows[0].delivery.email.status).toBe("skipped");
   });
   it("idempotency key includes setup instance + qualifying bar", () => {
     expect(readyKey(QQQ(), BAR1)).toBe("READY|QQQ|READY_TO_TRADE|1H|HIGHER_LOW_CONSOLIDATION:2026-10-05T16:30:00.000Z|2026-10-05T18:30:00.000Z");

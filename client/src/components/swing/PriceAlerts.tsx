@@ -11,7 +11,7 @@ import {
 import { fmtCT } from "@/lib/swing";
 import { alertApi, deliveryEntries, invalidateAlerts, openTradingCard, useAlertEvents, useAlertPrefs, useAlerts, type AlertDraft, type AlertEvent, type DeliveryState } from "@/lib/alerts";
 
-const typeLabel = (t: string) => (t === "READY_NOW" ? "Ready now" : ALERT_TYPE_LABEL[t as AlertType] ?? t);
+const typeLabel = (t: string) => (t === "READY_NOW" ? "Ready now" : t === "EARLY_30M" ? "30m heads-up" : ALERT_TYPE_LABEL[t as AlertType] ?? t);
 const deliveryText = (ch: string, v: DeliveryState) => {
   const name = CHANNEL_LABEL[ch as Channel] ?? ch;
   if (v.status === "failed") return `${name}: delivery failed — ${v.label ?? v.error ?? "unknown"}${v.attempts ? ` (attempt ${v.attempts}${v.nextAt ? `, retry ${fmtCT(v.nextAt)}` : ", no more retries"})` : ""}`;
