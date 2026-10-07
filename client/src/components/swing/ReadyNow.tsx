@@ -10,7 +10,7 @@ import { activeVersion, focusSymbol, useSelectedPlans } from "@/lib/plans";
 import { alertApi, invalidateAlerts, openTradingCard, useAlertEvents } from "@/lib/alerts";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useScan } from "./SwingWorkspace";
-import { setupName } from "./TradingCard";
+import { setupName, stopBreach } from "./TradingCard";
 
 const ctShort = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }) + " CT";
 
@@ -87,6 +87,7 @@ export default function ReadyNow() {
                 {a && <div className={`font-mono text-[11.5px] ${a.limit4h && a.bars4h >= a.limit4h - 1 ? "rn-warn" : "rn-muted"}`} data-testid={`text-ready-age-${d.symbol}`}>
                   {a.reconfirmed ? "Re-confirmed" : "Confirmed"} {ctShort(a.lastConfirmedAt)} · {a.bars4h}/{a.limit4h || "∞"} 4H bars old · {a.priceVsEntry === "AT" ? "price AT entry" : a.priceVsEntry === "BELOW" ? "price below entry" : "price above entry"}
                 </div>}
+                {(() => { const br = stopBreach(d, p.stop); return br && <div className="font-mono text-[11.5px] font-bold rn-bad" role="alert" data-testid={`text-ready-below-stop-${d.symbol}`}>{br.text}</div>; })()}
                 <div className="font-mono text-[10.5px] font-bold rn-warn">OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.</div>
               </div>
               <div className="col-span-2 sm:col-span-1 flex flex-wrap items-center gap-2 sm:justify-end pl-3 sm:pl-0">

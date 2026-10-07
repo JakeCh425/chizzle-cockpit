@@ -111,12 +111,36 @@ export function statusText(d: SwingDecision, group: ActionGroup, live: LivePermi
 }
 export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLowerCase().replace(/(^|[\s-])\w/g, (c) => c.toUpperCase()) : "No setup");
 
+/** Price vs planned stop, worded to agree with the engine status. The engine only invalidates a setup on a
+ *  CLOSED 1H bar below the stop, so a live quote below the stop is a pending warning, not "invalidated". */
+export function stopBreach(d: SwingDecision, stop: number | null): { text: string; short: string; tone: "bad" | "warn" } | null {
+  if (d.currentPrice == null || stop == null || !(d.currentPrice < stop)) return null;
+  if (d.setupStatus === "SIGNAL_EXPIRED") return { text: "This setup has ended. These levels are history only.", short: "Ended — levels are history only", tone: "bad" };
+  const nxt = nextHourClose(d.lastCompletedBar1H);
+  return {
+    text: `Price ${$(d.currentPrice)} is below the planned stop ${$(stop)}. If the ${nxt ? `${nxt} ` : "next "}1H bar closes below ${$(stop)}, this setup is cancelled. Don't use these levels until then.`,
+    short: `Price below stop ${$(stop)} — setup cancelled if the ${nxt ? `${nxt} ` : "next "}1H bar closes below it`,
+    tone: "warn",
+  };
+}
+/** Clock time of the next regular-hours 1H close after `lastIso` (2:30 → 3:00 PM; none after the close). */
+function nextHourClose(lastIso: string | null | undefined): string | null {
+  if (!lastIso) return null;
+  const t = new Date(lastIso).getTime();
+  const ct = new Date(t).toLocaleString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit", hour12: false });
+  const [h, m] = ct.split(":").map(Number), mins = h * 60 + m;
+  if (mins >= 900) return null;
+  const next = Math.min(mins + 60, 900) - mins;
+  return hhmm(new Date(t + next * 60000).toISOString());
+}
+
 /** One clear next step, always consistent with the engine status (never upgrades it). */
 export function nextStepFor(d: SwingDecision, group: ActionGroup, ver: PlanVersion | null): { text: string; tone: "good" | "warn" | "bad" | "accent" } {
   const trig = d.currentTrigger ?? d.originalTrigger;
   if (d.setupStatus === "SIGNAL_EXPIRED") return { text: "This setup is no longer valid.", tone: "bad" };
   if (group === "DATA" || BAD_DATA.includes(d.dataStatus)) return { text: "Verify the data before using any level on this card.", tone: "bad" };
-  if (d.currentPrice != null && d.structuralStop != null && d.currentPrice < d.structuralStop && d.entryPrice != null) return { text: "Price is below the stop. This plan is invalidated.", tone: "bad" };
+  const br = d.entryPrice != null ? stopBreach(d, d.structuralStop) : null;
+  if (br) return { text: br.text, tone: br.tone };
   if (ver && ver.result.state !== "VALID") return { text: "Review your adjusted risk. Your plan does not meet every rule.", tone: "warn" };
   switch (group) {
     case "READY": return { text: "Review the plan and the live data before any independent decision.", tone: "good" };
@@ -251,14 +275,15 @@ export function CriticalWarnings({ d, ver }: { d: SwingDecision; ver: PlanVersio
   const p = effectivePlan(d, ver);
   const expired = d.setupStatus === "SIGNAL_EXPIRED";
   const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
-  const invalidated = d.currentPrice != null && p.stop != null && d.currentPrice < p.stop;
+  const br = stopBreach(d, p.stop);
   const invalidPlan = ver != null && ver.result.state === "INVALID";
+  const tone = expired || badData || invalidPlan || br?.tone !== "warn" ? "bad" : "warn";
   return (
     <div className="space-y-1" data-testid={`card-warnings-${d.symbol}`}>
-      {(expired || badData || invalidated || invalidPlan) && (
-        <div className="rounded-lg px-3 py-1.5 font-semibold ac-bad flex items-center gap-2" role="alert" style={{ border: "1.5px solid var(--ac-bad)", fontSize: "var(--ac-fs-sm)" }} data-testid={`banner-levels-caution-${d.symbol}`}>
-          <XCircle className="h-4 w-4 shrink-0" aria-hidden />
-          {expired ? "Expired setup: these levels are history only." : badData ? `Data ${d.dataStatus}: don't rely on these levels until the data is verified.` : invalidated ? "Price is below the stop: this plan is invalidated." : "My Adjusted Plan is invalid: entry must be above the stop."}
+      {(expired || badData || br || invalidPlan) && (
+        <div className={`rounded-lg px-3 py-1.5 font-semibold ac-${tone} flex items-center gap-2`} role="alert" style={{ border: `1.5px solid var(--ac-${tone})`, fontSize: "var(--ac-fs-sm)" }} data-testid={`banner-levels-caution-${d.symbol}`} data-kind={expired ? "EXPIRED" : badData ? "DATA" : br ? (br.tone === "bad" ? "INVALIDATED" : "BELOW_STOP") : "INVALID_PLAN"}>
+          {tone === "bad" ? <XCircle className="h-4 w-4 shrink-0" aria-hidden /> : <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />}
+          {expired ? "Expired setup: these levels are history only." : badData ? `Data ${d.dataStatus}: don't rely on these levels until the data is verified.` : br ? br.text : "My Adjusted Plan is invalid: entry must be above the stop."}
         </div>
       )}
       <PlanFreshness d={d} adjusted={ver != null} />
@@ -588,10 +613,11 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const tone = TONE[group], Icon = ICON[group];
   const expired = d.setupStatus === "SIGNAL_EXPIRED";
   const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
-  const invalidated = d.currentPrice != null && p.stop != null && d.currentPrice < p.stop;
+  const br = stopBreach(d, p.stop);
   const invalidPlan = ver != null && ver.result.state === "INVALID";
   const failed = d.planRefresh && !d.planRefresh.ok;
-  const warn = expired ? "Expired — levels are history only" : badData ? `Data ${d.dataStatus} — verify before using levels` : invalidated ? "Price below stop — plan invalidated" : invalidPlan ? "My Adjusted Plan is invalid" : null;
+  const warn = expired ? "Expired — levels are history only" : badData ? `Data ${d.dataStatus} — verify before using levels` : br ? br.short : invalidPlan ? "My Adjusted Plan is invalid" : null;
+  const warnTone = !expired && !badData && br?.tone === "warn" ? "warn" : "bad";
   const sm = { fontSize: "var(--ac-fs-sm)" } as const, xs = { fontSize: "var(--ac-fs-xs)" } as const;
   return (
     <div className="px-3 py-2 sm:px-4 flex flex-col gap-1" data-testid={`row-compact-${d.symbol}`}>
@@ -617,7 +643,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
       {(d.signalAge || d.earlyLook) && <div className="pl-9 flex flex-wrap items-center gap-x-3"><SignalAgeLine d={d} short /><EarlyLookLine d={d} /></div>}
       {(warn || failed) && (
         <div className="pl-9 flex flex-wrap items-center gap-x-3 font-semibold" style={xs} role="alert" data-testid={`card-warnings-${d.symbol}`}>
-          {warn && <span className="ac-bad inline-flex items-center gap-1" data-testid={`banner-levels-caution-${d.symbol}`}><XCircle className="h-3.5 w-3.5" aria-hidden /> {warn}</span>}
+          {warn && <span className={`ac-${warnTone} inline-flex items-center gap-1`} data-testid={`banner-levels-caution-${d.symbol}`} data-tone={warnTone}>{warnTone === "bad" ? <XCircle className="h-3.5 w-3.5" aria-hidden /> : <AlertTriangle className="h-3.5 w-3.5" aria-hidden />} {warn}</span>}
           {failed && <span className="ac-warn inline-flex items-center gap-1" data-testid={`text-plan-fresh-${d.symbol}`} data-kind="FAILED"><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> Last confirmed snapshot · {fmtCT(d.planRefresh!.analysisAt)}</span>}
         </div>
       )}
