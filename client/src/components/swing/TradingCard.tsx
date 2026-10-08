@@ -16,7 +16,7 @@ import { STATUS_LABEL } from "@shared/swingDecision";
 import { readyStatusLabel, type LivePermission } from "@shared/readyAlerts";
 import {
   ACTION_GROUP_LABEL, canEditPlan, engineChangedSince, enginePlanSig, inputsFromCardChoice, obstacleBefore, plannedR, recalcPlan, rMultipleOf,
-  R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels,
+  R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels, suggestStops,
   type ActionGroup, type CardTargetMethod, type PlanContext, type PlanVersion, type TargetChoice,
 } from "@shared/practicePlan";
 import { fmtCT, swingGet, swingSend } from "@/lib/swing";
@@ -652,7 +652,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
 }
 
 // ─── Expanded dialog / mobile sheet ──────────────────────────────────────────
-interface CtxResp { setupId: string; context: PlanContext; maxDollarRisk: number; minRrT1: number }
+interface CtxResp { setupId: string; context: PlanContext; maxDollarRisk: number; minRrT1: number; swingLows1h?: { price: number; time: string }[]; swingLows4h?: { price: number; time: string }[] }
 
 export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Omit<CardProps, "inDialog" | "onOpen" | "onAdjust"> & {
   open: boolean; onClose: () => void; mode: "view" | "adjust"; setMode: (m: "view" | "adjust") => void;
@@ -800,6 +800,43 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
       <div className="ac-muted ac-num" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid="text-adjust-R">
         R = |entry − stop loss| = {R != null ? $(R) : "invalid (zero risk)"}. The stop-limit price is not used for R.
       </div>
+      {ctx && entry != null && (() => {
+        const sug = suggestStops(ctx.context, ctx.swingLows1h ?? [], ctx.swingLows4h ?? [], entry, ctx.maxDollarRisk);
+        if (!sug.length) return null;
+        const entryChanged = isChanged(entry, engineVal.entry);
+        const current = sug.find((x) => stop != null && Math.abs(x.stop - stop) < 0.005) ?? null;
+        return (
+          <div className="rounded-xl p-3 space-y-2" style={{ border: "1px solid var(--ac-border)", background: "var(--ac-surface-2)" }} data-testid={`panel-stop-suggest-${d.symbol}`} data-entry-changed={entryChanged}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="font-bold" style={{ fontSize: "var(--ac-fs-sm)" }}>Stop suggestions for entry {$(entry)}</span>
+              <span className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>
+                {entryChanged ? "You changed the entry. The stop does not follow it — pick a chart level below your entry, or keep the engine's." : "Chart-based levels below your entry. Pick one or type your own above."}
+              </span>
+            </div>
+            <div style={autoGrid(190)}>
+              {sug.map((x) => {
+                const active = current?.id === x.id;
+                return (
+                  <button key={x.id} type="button" aria-pressed={active} onClick={() => setRaw({ ...raw, stop: x.stop.toFixed(2), stopLimit: x.stopLimit.toFixed(2) })}
+                    className="rounded-lg p-2.5 text-left" style={{ background: "var(--ac-surface)", border: `${active ? 2 : 1}px solid ${active ? "var(--ac-accent)" : "var(--ac-border)"}` }}
+                    data-testid={`button-stop-suggest-${x.id}`} title={x.why}>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold" style={{ fontSize: "var(--ac-fs-xs)" }}>{x.label}</span>
+                      {active && <span className="ac-accent font-bold" style={{ fontSize: "var(--ac-fs-xs)" }}>in use</span>}
+                    </div>
+                    <div className="ac-num font-bold" style={{ fontSize: "calc(var(--ac-fs) * 1.15)" }}>{$(x.stop)}</div>
+                    <div className="ac-num ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>
+                      Risk {$(x.risk)}/sh · {x.shares} sh{x.buffer > 0 ? ` · low ${$(x.level)} − ${$(x.buffer)} buffer` : ""}{x.levelTime ? ` · ${fmtCT(x.levelTime)}` : ""}
+                    </div>
+                    {x.shares < 1 && <div className="ac-bad font-semibold" style={{ fontSize: "var(--ac-fs-xs)" }}>Too wide for your {$(ctx.maxDollarRisk)} max risk</div>}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>Each option sets the stop loss and a matching stop limit (0.2% below). Targets and shares then recalculate from the new R. Suggestions, not advice — the chart decides where the idea is wrong.</div>
+          </div>
+        );
+      })()}
 
       <fieldset className="rounded-xl p-3 space-y-2.5" style={{ border: "1px solid var(--ac-border)" }}>
         <legend className="font-bold px-1" style={{ fontSize: "var(--ac-fs-sm)" }}>Target Method</legend>
