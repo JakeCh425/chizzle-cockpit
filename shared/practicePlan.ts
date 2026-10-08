@@ -113,6 +113,43 @@ export function autoBuffer(level: number, atr1h: number | null): number {
   return r2(Math.max(0.05, atr1h != null && atr1h > 0 ? atr1h * 0.1 : level * 0.002));
 }
 
+
+// ─── Stop suggestions for the quick card ──────────────────────────────────────
+// Pure. Offers chart-based stops for the CURRENT entry: the engine's structural stop, and the nearest
+// closed 1H / 4H swing low below the entry (each with the same auto volatility buffer the full editor uses).
+// Suggestions never move with the entry to "fix" a ratio: every level is a real chart low.
+export interface StopSuggestion {
+  id: "STRUCTURAL" | "SWING_1H" | "SWING_4H";
+  label: string;
+  level: number;          // the chart level
+  buffer: number;         // subtracted below the level (0 for the structural stop, already buffered)
+  stop: number;
+  stopLimit: number;
+  risk: number;           // entry − stop
+  shares: number;         // floor(maxDollarRisk / risk)
+  levelTime: string | null;
+  why: string;
+}
+export function suggestStops(
+  ctx: Pick<PlanContext, "original" | "atr1h">, lows1h: { price: number; time: string }[], lows4h: { price: number; time: string }[],
+  entry: number | null, maxDollarRisk: number, stopLimitBufferPct = 0.2,
+): StopSuggestion[] {
+  if (entry == null || !Number.isFinite(entry) || entry <= 0) return [];
+  const out: StopSuggestion[] = [];
+  const push = (id: StopSuggestion["id"], label: string, level: number, buffer: number, time: string | null, why: string) => {
+    const stop = r2(level - buffer), risk = r2(entry - stop);
+    if (!(risk > 0)) return;
+    out.push({ id, label, level: r2(level), buffer: r2(buffer), stop, stopLimit: stopLimitOf(stop, stopLimitBufferPct), risk, shares: Math.floor(maxDollarRisk / risk), levelTime: time, why });
+  };
+  if (ctx.original.stop != null) push("STRUCTURAL", "Engine structural stop", ctx.original.stop, 0, null, "The level that defines this setup (already includes the engine's volatility buffer). Chart-based, so it does not move with your entry.");
+  const nearest = (xs: { price: number; time: string }[]) => xs.filter((x) => Number.isFinite(x.price) && x.price < entry).sort((a, b) => b.price - a.price)[0] ?? null;
+  const l1 = nearest(lows1h), l4 = nearest(lows4h);
+  if (l1) push("SWING_1H", "Nearest 1H swing low", l1.price, autoBuffer(l1.price, ctx.atr1h), l1.time, "Tighter: just below the most recent closed 1H swing low under your entry. Smaller risk per share, more likely to be hit by normal wiggles.");
+  if (l4 && (!l1 || Math.abs(l4.price - l1.price) >= 0.01)) push("SWING_4H", "Nearest 4H swing low", l4.price, autoBuffer(l4.price, ctx.atr1h), l4.time, "Wider: just below the most recent closed 4H swing low under your entry. Bigger risk per share, more room for the trade to breathe.");
+  // Drop exact duplicates of the structural stop.
+  return out.filter((x, i) => out.findIndex((y) => Math.abs(y.stop - x.stop) < 0.005) === i);
+}
+
 export function originalPlanStatus(ctx: Pick<PlanContext, "setupStatus" | "currentPrice" | "original">): OriginalPlanStatus {
   const s = ctx.setupStatus, o = ctx.original;
   if (o.entry == null || o.stop == null) return "NONE";
