@@ -107,7 +107,7 @@ function ActionCenterInner() {
           <Zap className="h-3.5 w-3.5" aria-hidden /> {counts.READY ?? 0} ready
         </span>
         <span className="ac-muted ac-num" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid="text-ac-counts">
-          {scan.isLoading ? "Evaluating watchlist…" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
+          {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned} (${scan.data.pending.join(", ")})… · ` : ""}{scan.isLoading ? "" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
         </span>
         <span className="font-semibold ac-warn" style={{ fontSize: "var(--ac-fs-xs)" }}>PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</span>
         {boxOpen && (

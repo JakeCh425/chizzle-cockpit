@@ -26,7 +26,7 @@ type RnTheme = (typeof RN_THEMES)[number]["id"];
 const REQ = { selection: "DEFAULT_PLUS_CUSTOM" as ScanSelection, symbols: [] as string[], force: 0 };
 
 /** Ready = the engine's READY_TO_TRADE with usable data (same rule the Action Center uses for its first group). */
-export const isReadyNow = (d: SwingDecision) => d.setupStatus === "READY_TO_TRADE" && d.dataStatus !== "STALE" && d.dataStatus !== "ERROR";
+export const isReadyNow = (d: SwingDecision) => d.setupStatus === "READY_TO_TRADE" && d.dataStatus !== "STALE" && d.dataStatus !== "ERROR" && !d.evalPending; // Part 3: never from a pending snapshot
 
 export default function ReadyNow() {
   const scan = useScan(REQ);

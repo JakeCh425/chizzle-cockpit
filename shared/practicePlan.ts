@@ -325,10 +325,11 @@ export const ACTION_GROUP_LABEL: Record<ActionGroup, string> = {
   DATA: "DATA ISSUE — VERIFY",
   NO_TRADE: "NO TRADE — NEXT CONDITION",
 };
-export function actionGroupOf(d: { setupStatus: string; dataStatus: string }): ActionGroup {
+export function actionGroupOf(d: { setupStatus: string; dataStatus: string; evalPending?: unknown }): ActionGroup {
   if (d.setupStatus === "BLOCKED_DATA_MISMATCH" || d.dataStatus === "STALE" || d.dataStatus === "ERROR") return "DATA";
   switch (d.setupStatus) {
-    case "READY_TO_TRADE": return "READY";
+    // Part 3: a saved snapshot still re-evaluating is shown as CONFIRMED-level info, never as "Ready" (no actions from stale data).
+    case "READY_TO_TRADE": return d.evalPending ? "CONFIRMED" : "READY";
     case "SETUP_CONFIRMED": return "CONFIRMED";
     case "SETUP_FORMING": return "FORMING";
     case "WATCH_RETEST": return "RETEST";

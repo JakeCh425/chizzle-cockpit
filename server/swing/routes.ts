@@ -8,7 +8,8 @@ import { swingJournal } from "@shared/schema";
 import { createJournalEntry, JOURNAL_ACTIONS, listJournal } from "./journal";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
-import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
+import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, scanNow, setFocusHint, settingsPatchSchema, startSwingScheduler } from "./service";
+import { perfSummary, recentSpans } from "./perf";
 import { sendTestTelegram, startReadyAlerts } from "./readyAlerts";
 import { ackEvent, confirmVerification, contactsWithStatus, createAlert, deleteAlert, listAlerts, listEvents, loadPrefs, savePrefs, sendVerification, setAlertActive, startAlertLoop, tickAlerts } from "./alerts";
 import { ALERT_TYPES, CHANNELS, needsLevel } from "@shared/priceAlerts";
@@ -97,9 +98,14 @@ export function registerSwingRoutes(app: Express) {
     const sel = (SELECTIONS.includes(String(req.query.selection) as ScanSelection) ? String(req.query.selection) : "DEFAULT") as ScanSelection;
     const symbols = String(req.query.symbols ?? "").split(",").map((x) => x.trim()).filter(Boolean);
     const status = String(req.query.status ?? "").split(",").filter((x) => (SETUP_STATUSES as readonly string[]).includes(x)) as SetupStatus[];
-    const out = await scan(symbols.length && sel === "DEFAULT" ? "CUSTOM_SELECTION" : sel, symbols, status, req.query.force === "1");
+    if (req.query.focus) setFocusHint(String(req.query.focus));
+    // Part 3: wait=0 → non-blocking. Returns cached / persisted rows now plus `pending` symbols still evaluating.
+    const selection = symbols.length && sel === "DEFAULT" ? "CUSTOM_SELECTION" : sel;
+    const out = req.query.wait === "0" && req.query.force !== "1" ? await scanNow(selection, symbols, status) : await scan(selection, symbols, status, req.query.force === "1");
     return { ...out, banner: PRACTICE_BANNER, rows: out.rows.map((r) => ({ ...r, verdict: practiceVerdict(r.decision) })) };
   }));
+  // Part 3: timing profile (vendor calls, queue waits, rules, scans, chart serves). In-memory, read-only.
+  app.get("/api/swing/perf", wrap(async (req) => ({ ...perfSummary(), recent: req.query.spans === "1" ? recentSpans(300) : undefined })));
   app.get("/api/swing/decision/:symbol", wrap(async (req, res) => {
     const item = await findItem(String(req.params.symbol));
     const sym = String(req.params.symbol).toUpperCase();

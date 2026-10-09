@@ -120,6 +120,9 @@ export interface SwingDecision {
    *  practice plan until the next closed 1H bar re-evaluates. Computed server-side from the engine levels;
    *  the client re-checks against "My Adjusted Plan" levels with the same helper. */
   levelsInvalid?: LevelsInvalid | null;
+  /** Part 3: this row is a placeholder while the live evaluation runs — either the last persisted decision
+   *  (labeled with its age) or an empty "Evaluating…" shell. Replaced automatically when the evaluation lands. */
+  evalPending?: { from: "decision-log" | "none"; analysisAt: string | null; ageMin: number | null } | null;
   volumeCondition: VolumeCondition;
   dataMismatchReason: string | null;
 

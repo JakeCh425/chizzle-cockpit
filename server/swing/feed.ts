@@ -1,7 +1,7 @@
 // PR 3d — data feed for the Unified Swing Engine. Reuses the existing vendor
 // fetchers (and their caches / credit guards) and normalizes to SwingBar.
 // Adds no background load when ENABLE_UNIFIED_SWING_ENGINE is off (nothing calls it).
-import { fetchTwelveDataOHLCBars, fetchYahooBarsOHLC, fetchYahooQuote, getQuote } from "../priceService";
+import { fetchTwelveDataOHLCBars, fetchYahooBarsOHLC, fetchYahooQuote, getQuote, yahooPrioritize } from "../priceService";
 import { safeHistory } from "../marketData";
 import type { SwingBar } from "./candleMath";
 import { chicago, chicagoTs } from "./bars";
@@ -26,14 +26,34 @@ export function fixTwelveDataTs(fakeUtcSec: number): number {
 
 export interface BarsResult { bars: SwingBar[]; source: string | null; error?: string }
 
-export async function fetch1H(symbol: string): Promise<BarsResult> {
+// Part 3: short memo + in-flight coalescing so a chart-first bar fetch and the evaluation that follows it a moment
+// later share ONE vendor call instead of two. 45 s is well inside a 1H bar and far below any freshness threshold.
+const BARS_MEMO_MS = 45_000;
+const barsMemo = new Map<string, { at: number; p: Promise<BarsResult> }>();
+function memoBars(key: string, fn: () => Promise<BarsResult>, priority = false): Promise<BarsResult> {
+  const hit = barsMemo.get(key);
+  if (hit && Date.now() - hit.at < BARS_MEMO_MS) {
+    // A priority caller (chart-first) joining a queued fetch pulls that fetch to the front of the Yahoo queue.
+    if (priority) { const [tf, sym] = key.split(":"); yahooPrioritize(`yahoo:${tf}:${sym}`); }
+    return hit.p;
+  }
+  const p = fn().then((r) => { if (!r.bars.length) barsMemo.delete(key); return r; }, (e) => { barsMemo.delete(key); throw e; });
+  barsMemo.set(key, { at: Date.now(), p });
+  return p;
+}
+export const _clearBarsMemo = () => barsMemo.clear();
+/** `priority` (Part 3): chart-first / focused-symbol requests jump the Yahoo queue. */
+export function fetch1H(symbol: string, opts: { priority?: boolean } = {}): Promise<BarsResult> {
+  return memoBars(`1h:${symbol.toUpperCase()}`, () => fetch1HUncached(symbol, opts), !!opts.priority);
+}
+async function fetch1HUncached(symbol: string, opts: { priority?: boolean } = {}): Promise<BarsResult> {
   const sym = symbol.toUpperCase();
   try {
     const td = await fetchTwelveDataOHLCBars(sym, "1h");
     if (td && td.length >= 40) return { bars: td.map((r) => ({ ...toBar(r), t: fixTwelveDataTs(r.time) })).filter(ok).sort((a, z) => a.t - z.t), source: "twelvedata" };
   } catch { /* fall through */ }
   try {
-    const y = await fetchYahooBarsOHLC(sym, "1h");
+    const y = await fetchYahooBarsOHLC(sym, "1h", opts);
     if (y && y.length >= 40) return { bars: y.map(toBar).filter(ok).sort((a, z) => a.t - z.t), source: "yahoo" };
   } catch { /* fall through */ }
   const d = await yahooChart(sym, "60m", 180);
@@ -41,10 +61,13 @@ export async function fetch1H(symbol: string): Promise<BarsResult> {
   return { bars: [], source: null, error: "Data unavailable" };
 }
 
-export async function fetchDaily(symbol: string): Promise<BarsResult> {
+export function fetchDaily(symbol: string, opts: { priority?: boolean } = {}): Promise<BarsResult> {
+  return memoBars(`1d:${symbol.toUpperCase()}`, () => fetchDailyUncached(symbol, opts), !!opts.priority);
+}
+async function fetchDailyUncached(symbol: string, opts: { priority?: boolean } = {}): Promise<BarsResult> {
   const sym = symbol.toUpperCase();
   try {
-    const y = await fetchYahooBarsOHLC(sym, "1d");
+    const y = await fetchYahooBarsOHLC(sym, "1d", opts);
     if (y && y.length >= 60) return { bars: y.map(toBar).filter(ok).sort((a, z) => a.t - z.t), source: "yahoo" };
   } catch { /* fall through */ }
   const d = await yahooChart(sym, "1d", 800);

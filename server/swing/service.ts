@@ -5,7 +5,8 @@ import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db, storage } from "../storage";
 import { getEffectiveRegime } from "../regimeService";
-import { addPollSymbols } from "../priceService";
+import { addPollSymbols, setVendorPerfHook } from "../priceService";
+import { mapLimit, recordSpan, timed } from "./perf";
 import { mtfWebhookEvents, swingDecisionLog, swingSettings } from "@shared/schema";
 import {
   DEFAULT_SWING_SETTINGS, STATUS_PRIORITY, SETUP_STATUSES, USER_MODES, SIGNAL_MODES, levelsInvalidOf,
@@ -200,17 +201,25 @@ async function refreshSymbol(sym: string, exchange: string, s: SwingSettings, ke
   const running = inflight.get(sym);
   if (running) return running;
   const p = (async () => {
-    const now = nowSec();
-    const [h1, d1, q] = await Promise.all([fetch1H(sym), fetchDaily(sym), fetchQuote(sym)]);
+    const now = nowSec(), t0 = Date.now();
+    const [h1, d1, q] = await Promise.all([
+      timed("vendor", "bars:1h", sym, () => fetch1H(sym), (r) => `${r.source ?? "none"} ${r.bars.length} bars`),
+      timed("vendor", "bars:daily", sym, () => fetchDaily(sym), (r) => `${r.source ?? "none"} ${r.bars.length} bars`),
+      timed("vendor", "quote", sym, () => fetchQuote(sym), (r) => r?.source ?? "none"),
+    ]);
     const lastClosed = tag1H(h1.bars, now, true).filter((b) => b.closed).pop() ?? null;
-    const reference = (await tvReference(sym, now)) ?? (h1.source ? await secondVendorReference(sym, h1.source, now, lastClosed?.end ?? null) : null);
+    const reference = await timed("vendor", "reference", sym, async () => (await tvReference(sym, now)) ?? (h1.source ? await secondVendorReference(sym, h1.source, now, lastClosed?.end ?? null) : null), (r) => r?.source ?? "none");
     const prev = evalCache.get(sym);
     // A failed vendor call keeps the last good bars instead of blanking the chart.
     const bars1h = h1.bars.length ? h1.bars : prev?.bars1h ?? [];
     const daily = d1.bars.length ? d1.bars : prev?.daily ?? [];
     const source = h1.bars.length ? h1.source : prev?.source ?? null;
+    const tr = Date.now();
     const res = runRules(sym, exchange, bars1h, daily, q ? { price: q.price, ts: q.ts } : null, reference, s, now, source);
+    recordSpan({ at: new Date(tr).toISOString(), symbol: sym, kind: "rules", label: "rules", ms: Date.now() - tr, ok: true });
     const failed = [!h1.bars.length && "1H bars", !d1.bars.length && "daily bars", !q && "quote"].filter(Boolean) as string[];
+    recordSpan({ at: new Date(t0).toISOString(), symbol: sym, kind: "eval", label: "eval:total", ms: Date.now() - t0, ok: !failed.length, note: `${source ?? "none"} · ${res.decision.setupStatus} · ${res.decision.dataStatus}${failed.length ? ` · failed: ${failed.join(", ")}` : ""}` });
+    console.log(`[swing-perf] ${sym} eval ${Date.now() - t0}ms (${source ?? "none"}, ${res.decision.dataStatus}${failed.length ? `, failed ${failed.join("/")}` : ""})`);
     // Plan analysis is "successful" only when fresh bars arrived; a quote alone never refreshes (or confirms) the plan.
     res.decision.planRefresh = planChangeOf(prev?.res.decision, res.decision, new Date(now * 1000).toISOString(), !!h1.bars.length && !!d1.bars.length, failed);
     const out: Cached = { key, res, bars1h, daily, at: Date.now(), exchange, source, reference };
@@ -313,25 +322,95 @@ export async function readLog(symbol: string | null, limit = 50) {
 }
 
 // ─── Scan (§Q2) — every selected ticker gets an outcome, never an empty list ─
-export interface ScanRow { item: WatchItem; riskNote: string; decision: SwingDecision }
-export async function scan(sel: ScanSelection, symbols: string[] = [], statusFilter: SetupStatus[] = [], force = false) {
-  const s = await loadSettings();
-  const items = selectUniverse(s.watchlist!, sel, symbols);
-  const rows: ScanRow[] = [];
-  for (const item of items) { // sequential: shares vendor rate limits with the rest of the app
-    try {
-      const { res } = await evaluateSymbol(item, { settings: s, force });
-      rows.push({ item, riskNote: riskNote(item.assetType), decision: { ...withEarly(res.decision), chart: buildOverlay(res, { scope: "CURRENT" }) } });
-    } catch (e: any) {
-      rows.push({ item, riskNote: riskNote(item.assetType), decision: errorDecision(item, s, e?.message || "Data unavailable") });
-    }
-  }
+export interface ScanRow { item: WatchItem; riskNote: string; decision: SwingDecision; pending?: boolean; snapshot?: { from: "decision-log" | "cache"; analysisAt: string | null; ageMin: number | null } }
+/** Part 3: symbols are evaluated with a small concurrency cap (the vendor queues still space the calls), in priority
+ *  order — symbols with armed/active practice trades first, then the focused symbol, then watchlist order. */
+export const SCAN_CONCURRENCY = 3;
+let priorityHook: (() => Promise<string[]>) | null = null;
+/** Part 4 registers armed/active trade symbols here so they load first. */
+export function onScanPriority(fn: () => Promise<string[]>) { priorityHook = fn; }
+let focusSymbolHint: string | null = null;
+export function setFocusHint(sym: string | null) { focusSymbolHint = sym ? sym.toUpperCase() : null; }
+async function orderItems(items: WatchItem[]): Promise<WatchItem[]> {
+  const first = new Set<string>();
+  try { for (const x of (await priorityHook?.()) ?? []) first.add(x.toUpperCase()); } catch { /* best-effort */ }
+  const rank = (w: WatchItem) => (first.has(w.symbol.toUpperCase()) ? 0 : w.symbol.toUpperCase() === focusSymbolHint ? 1 : 2);
+  return items.slice().sort((a, z) => rank(a) - rank(z) || a.order - z.order);
+}
+const rowOf = (item: WatchItem, res: EvalResult): ScanRow => ({ item, riskNote: riskNote(item.assetType), decision: { ...withEarly(res.decision), chart: buildOverlay(res, { scope: "CURRENT" }) } });
+const finishScan = (sel: ScanSelection, items: WatchItem[], rows: ScanRow[], statusFilter: SetupStatus[], pending: string[]) => {
   rows.sort((a, z) => STATUS_PRIORITY[a.decision.setupStatus] - STATUS_PRIORITY[z.decision.setupStatus] || a.item.order - z.item.order);
-  const shown = statusFilter.length ? rows.filter((r) => statusFilter.includes(r.decision.setupStatus)) : rows;
+  const shown = statusFilter.length ? rows.filter((r) => r.pending || statusFilter.includes(r.decision.setupStatus)) : rows;
   const emptyReason = !items.length ? `No tickers match “${sel}”. Add tickers or reset to the default learning universe.`
     : !shown.length ? `${rows.length} ticker(s) scanned; none match the status filter (${statusFilter.join(", ")}). Clear the filter to see all outcomes.` : null;
-  return { selection: sel, scanned: rows.length, rows: shown, emptyReason, evaluatedAt: new Date().toISOString(), livePermission: livePermission() };
+  return { selection: sel, scanned: rows.length, rows: shown, emptyReason, evaluatedAt: new Date().toISOString(), livePermission: livePermission(), pending };
+};
+export async function scan(sel: ScanSelection, symbols: string[] = [], statusFilter: SetupStatus[] = [], force = false) {
+  const t0 = Date.now();
+  const s = await loadSettings();
+  const items = await orderItems(selectUniverse(s.watchlist!, sel, symbols));
+  const rows = await mapLimit(items, SCAN_CONCURRENCY, async (item) => {
+    try { const { res } = await evaluateSymbol(item, { settings: s, force }); return rowOf(item, res); }
+    catch (e: any) { return { item, riskNote: riskNote(item.assetType), decision: errorDecision(item, s, e?.message || "Data unavailable") } as ScanRow; }
+  });
+  recordSpan({ at: new Date(t0).toISOString(), symbol: null, kind: "scan", label: `scan:${sel}`, ms: Date.now() - t0, ok: true, note: `${items.length} symbols${force ? " (forced)" : ""}` });
+  return finishScan(sel, items, rows, statusFilter, []);
 }
+/** Non-blocking scan (Part 3): return what is already known for every symbol right now — a cached evaluation, or the
+ *  last decision persisted in the decision log (labeled with its age) — and start the missing evaluations in the
+ *  background. `pending` lists symbols still being evaluated so the UI can show each one as it finishes. */
+export async function scanNow(sel: ScanSelection, symbols: string[] = [], statusFilter: SetupStatus[] = []) {
+  const s = await loadSettings();
+  const items = await orderItems(selectUniverse(s.watchlist!, sel, symbols));
+  const pending: string[] = [];
+  const rows = items.map((item) => {
+    const sym = item.symbol.toUpperCase(), hit = evalCache.get(sym);
+    const now = nowSec(), fresh = hit && hourPart(hit.key) === hourPart(`${sym}|${barKey(now)}`);
+    if (hit && !fresh) void evaluateSymbol(item, { settings: s, allowStale: true }).catch(() => {}); // same hour passed → refresh behind the scenes
+    if (hit) return rowOf(item, hit.res);
+    pending.push(sym);
+    if (!inflight.has(sym)) void evaluateSymbol(item, { settings: s }).catch(() => {});
+    const snap = bootSnapshots.get(sym);
+    if (snap) {
+      const at = snap.planRefresh?.analysisAt ?? snap.lastCompletedBar1H ?? null;
+      const snapshot = { from: "decision-log" as const, analysisAt: at, ageMin: at ? Math.max(0, Math.round((Date.now() - new Date(at).getTime()) / 60000)) : null };
+      return { item, riskNote: riskNote(item.assetType), decision: { ...withEarly(snap), evalPending: snapshot }, pending: true, snapshot } as ScanRow;
+    }
+    return { item, riskNote: riskNote(item.assetType), decision: { ...pendingDecision(item, s), evalPending: { from: "none", analysisAt: null, ageMin: null } }, pending: true } as ScanRow;
+  });
+  return finishScan(sel, items, rows, statusFilter, pending);
+}
+function pendingDecision(item: WatchItem, s: SwingSettings): SwingDecision {
+  const d = errorDecision(item, s, "evaluation in progress");
+  d.whyNotReady = [`Evaluating ${item.symbol} — fetching bars and running the rules. This row updates by itself.`];
+  d.nextAction = "Evaluating…";
+  return d;
+}
+
+// ─── Boot snapshots (Part 3): last persisted decision per symbol from swing_decision_log — no schema change.
+// Shown instantly on boot, labeled with age, and replaced as soon as the live evaluation lands.
+const bootSnapshots = new Map<string, SwingDecision>();
+export async function loadBootSnapshots(symbols: string[]): Promise<number> {
+  const t0 = Date.now();
+  try {
+    const rows = await db.select({ symbol: swingDecisionLog.symbol, decision: swingDecisionLog.decision, evaluatedAt: swingDecisionLog.evaluatedAt }).from(swingDecisionLog)
+      .where(gte(swingDecisionLog.evaluatedAt, new Date(Date.now() - 7 * 86400_000))).orderBy(desc(swingDecisionLog.evaluatedAt)).limit(400);
+    const want = new Set(symbols.map((x) => x.toUpperCase()));
+    for (const r of rows) {
+      const sym = r.symbol.toUpperCase();
+      if (!want.has(sym) || bootSnapshots.has(sym)) continue;
+      const d = r.decision as SwingDecision;
+      if (!d || !d.symbol) continue;
+      bootSnapshots.set(sym, { ...d, chart: { markers: [], levels: [], zones: [], ...(d.chart ?? {}), history: d.chart?.history ?? [] } as any });
+    }
+    recordSpan({ at: new Date(t0).toISOString(), symbol: null, kind: "boot", label: "boot:snapshots", ms: Date.now() - t0, ok: true, note: `${bootSnapshots.size}/${want.size} symbols from decision log` });
+    return bootSnapshots.size;
+  } catch (e: any) {
+    recordSpan({ at: new Date(t0).toISOString(), symbol: null, kind: "boot", label: "boot:snapshots", ms: Date.now() - t0, ok: false, note: e?.message });
+    return 0;
+  }
+}
+export const _bootSnapshots = bootSnapshots;
 
 function errorDecision(item: WatchItem, s: SwingSettings, why: string): SwingDecision {
   const res = evaluate({ symbol: item.symbol, exchange: item.exchange, bars1h: [], daily: [], settings: s, now: nowSec(), dataSource: null });
@@ -364,12 +443,21 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
     const r = await fetchIntraday(sym, tf); source = r.source; error = r.error;
     bars = extended ? r.bars : r.bars.filter((b) => { const m = chicago(b.t).minutes; return m >= 510 && m < 900; });
   } else if (tf === "1H" || tf === "4H") {
-    const { bars1h } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true });
-    const r = bars1h.length ? { bars: bars1h, source: evalCache.get(sym)?.res.decision.dataSource ?? null } : await fetch1H(sym);
+    // Part 3: bars first. Cached bars are served instantly; otherwise fetch just the bars and let the full
+    // evaluation (quote + reference + rules) finish in the background instead of blocking the chart.
+    const t0 = Date.now(), hit = evalCache.get(sym);
+    let r: { bars: SwingBar[]; source: string | null };
+    if (hit?.bars1h.length) { r = { bars: hit.bars1h, source: hit.res.decision.dataSource ?? hit.source }; void evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true }).catch(() => {}); }
+    else { r = await timed("vendor", "bars:1h", sym, () => fetch1H(sym, { priority: true }), (x) => `${x.source ?? "none"} ${x.bars.length} bars (chart-first)`); void evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true }).catch(() => {}); }
+    recordSpan({ at: new Date(t0).toISOString(), symbol: sym, kind: "chart", label: `chart:${tf}`, ms: Date.now() - t0, ok: !!r.bars.length, note: hit?.bars1h.length ? "from cache" : "cold" });
     source = r.source;
     bars = tf === "1H" ? tag1H(r.bars, now, !extended).map((b) => ({ ...b })) : aggregate4H(r.bars, now).map((b) => ({ ...b }));
   } else {
-    const { daily } = await evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true });
+    const t0 = Date.now(), hit = evalCache.get(sym);
+    let daily: SwingBar[];
+    if (hit?.daily.length) { daily = hit.daily; void evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true }).catch(() => {}); }
+    else { daily = (await timed("vendor", "bars:daily", sym, () => fetchDaily(sym, { priority: true }), (x) => `${x.source ?? "none"} ${x.bars.length} bars (chart-first)`)).bars; void evaluateSymbol({ symbol: sym, exchange }, { settings: s, allowStale: true }).catch(() => {}); }
+    recordSpan({ at: new Date(t0).toISOString(), symbol: sym, kind: "chart", label: `chart:${tf}`, ms: Date.now() - t0, ok: !!daily.length, note: hit?.daily.length ? "from cache" : "cold" });
     source = "yahoo";
     bars = tf === "D" ? daily : aggregateWeekly(daily, now).map((b) => ({ ...b }));
   }
@@ -538,8 +626,16 @@ let lastEarlySlot = "";
 let timer: NodeJS.Timeout | null = null, lastSlot = "";
 export function startSwingScheduler() {
   if (timer) return;
-  // Warm the cache right after boot so the first chart open is fast.
-  setTimeout(() => { if (isUnifiedSwingEnabled()) void scan("DEFAULT_PLUS_CUSTOM", [], [], false).catch(() => {}); }, 3000);
+  // Part 3: vendor queue profiling + boot snapshots (instant, labeled with age), then warm the cache.
+  setVendorPerfHook((ev) => {
+    const sym = ev.label.split(":")[2] ?? null;
+    recordSpan({ at: new Date(Date.now() - ev.queueWaitMs - ev.callMs).toISOString(), symbol: sym, kind: "queue", label: "yahoo:queue-wait", ms: ev.queueWaitMs, ok: true });
+  });
+  setTimeout(async () => {
+    if (!isUnifiedSwingEnabled()) return;
+    try { const s = await loadSettings(); await loadBootSnapshots((s.watchlist ?? []).map((w) => w.symbol)); } catch { /* best-effort */ }
+    void scan("DEFAULT_PLUS_CUSTOM", [], [], false).catch(() => {});
+  }, 1500);
   timer = setInterval(async () => {
     if (!isUnifiedSwingEnabled()) return;
     const now = nowSec(), c = chicago(now);
@@ -573,5 +669,5 @@ export function closeBoundaryNear(min: number): number | null {
   return null;
 }
 
-export const _test = { evalCache, barKey, rs, nextScheduled, inSession, earlyBy };
+export const _test = { evalCache, barKey, rs, nextScheduled, inSession, earlyBy, inflight };
 export { SETUP_STATUSES };

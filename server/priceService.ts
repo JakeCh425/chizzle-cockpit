@@ -249,7 +249,7 @@ export async function fetchYahooQuote(symbol: string): Promise<Quote | null> {
     const r = await fetch(url, {
       headers: {
         "Accept": "application/json",
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        "User-Agent": YAHOO_UA,
       },
       signal: AbortSignal.timeout(8000),
     });
@@ -863,21 +863,48 @@ export async function fetchTiingoDailyBars(
 // queue with a ~1s min spacing. On 429 we extend the spacing temporarily
 // rather than cooling down globally — that way we keep trying (slowly)
 // instead of black-holing every request.
-let yahooQueue: Promise<unknown> = Promise.resolve();
 let yahoo429Until = 0;
-function yahooScheduled<T>(fn: () => Promise<T>): Promise<T> {
-  const run = async () => {
-    // If we recently saw a 429, wait the remainder before the next call.
-    const remaining = yahoo429Until - Date.now();
-    if (remaining > 0) await new Promise(r => setTimeout(r, Math.min(remaining, 5000)));
-    const out = await fn();
-    // 1s gap between Yahoo calls in the normal case.
-    await new Promise(r => setTimeout(r, 1000));
-    return out;
-  };
-  const next = yahooQueue.then(run, run);
-  yahooQueue = next.catch(() => undefined);
-  return next;
+// Part 3 root cause: Yahoo's chart endpoint answers 429 to full desktop-Chrome User-Agent strings from datacenter
+// IPs (every call failed from the sandbox, and Render logged "429 — cooling 5min" all day), while the plain
+// "Mozilla/5.0" UA — already used by feed.yahooChart — gets 200 in ~100 ms. One constant for every Yahoo call.
+export const YAHOO_UA = "Mozilla/5.0";
+// 600 ms spacing: 12 symbols × (1H + daily) ≈ 14 s cold. Was 1000 ms; a 429 still adds a 5 s back-off on top.
+const YAHOO_GAP_MS = 600;
+/** Part 3: optional profiler hook — reports Yahoo queue wait and call time per request (swing engine perf). */
+let vendorPerfHook: ((ev: { vendor: "yahoo"; label: string; queueWaitMs: number; callMs: number }) => void) | null = null;
+export function setVendorPerfHook(fn: typeof vendorPerfHook) { vendorPerfHook = fn; }
+// Part 3: a real FIFO queue with a priority lane. Chart-first / focused-symbol requests (`priority: true`) go to the
+// front so a user opening a chart no longer waits behind the whole watchlist warm-up. Spacing and 429 handling unchanged.
+type YahooJob = { run: () => Promise<unknown>; resolve: (v: any) => void; reject: (e: any) => void; label: string; queuedAt: number };
+const yahooJobs: YahooJob[] = [];
+let yahooDraining = false;
+export function yahooQueueDepth() { return yahooJobs.length; }
+/** Move an already-queued Yahoo job (by label) to the front — used when a chart asks for bars a scan already queued. */
+export function yahooPrioritize(label: string): boolean {
+  const i = yahooJobs.findIndex((j) => j.label === label);
+  if (i <= 0) return i === 0;
+  const [job] = yahooJobs.splice(i, 1); yahooJobs.unshift(job); return true;
+}
+async function drainYahoo() {
+  if (yahooDraining) return; yahooDraining = true;
+  try {
+    while (yahooJobs.length) {
+      const job = yahooJobs.shift()!;
+      const remaining = yahoo429Until - Date.now();
+      if (remaining > 0) await new Promise(r => setTimeout(r, Math.min(remaining, 5000)));
+      const startedAt = Date.now();
+      try { job.resolve(await job.run()); } catch (e) { job.reject(e); }
+      vendorPerfHook?.({ vendor: "yahoo", label: job.label, queueWaitMs: startedAt - job.queuedAt, callMs: Date.now() - startedAt });
+      await new Promise(r => setTimeout(r, YAHOO_GAP_MS)); // gap between Yahoo calls (429 back-off is separate)
+    }
+  } finally { yahooDraining = false; }
+}
+function yahooScheduled<T>(fn: () => Promise<T>, label = "yahoo", priority = false): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const job: YahooJob = { run: fn, resolve, reject, label, queuedAt: Date.now() };
+    if (priority) yahooJobs.unshift(job); else yahooJobs.push(job);
+    void drainYahoo();
+  });
 }
 
 /**
@@ -905,7 +932,7 @@ export async function fetchYahooBars(
     // credential proxy. Browser UA avoids Yahoo's basic bot filter.
     const r = await fetch(url, {
       headers: {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+        "User-Agent": YAHOO_UA,
         "Accept": "application/json,text/plain,*/*",
         "Accept-Language": "en-US,en;q=0.9",
       },
@@ -1048,26 +1075,36 @@ const twelveDataDailyOHLCTTL = 60 * 60_000; // 60 min
 // don't change shape.
 export async function fetchYahooBarsOHLC(
   symbol: string,
-  interval: "1d" | "1h"
+  interval: "1d" | "1h",
+  opts: { priority?: boolean } = {}
 ): Promise<Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }> | null> {
   const to = Math.floor(Date.now() / 1000);
   const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
   const from = to - lookbackSec;
-  const host = (symbol.charCodeAt(0) % 2 === 0) ? "query1" : "query2";
-  const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
+  const hosts = (symbol.charCodeAt(0) % 2 === 0) ? ["query1", "query2"] : ["query2", "query1"];
   return yahooScheduled(async () => {
+    // Part 3: 10s timeout; on 429 back off once (5s) and retry on the other host before giving up.
+    for (let attempt = 0; attempt < 2; attempt++) {
+    const host = hosts[attempt];
+    const url = `https://${host}.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${from}&period2=${to}&interval=${interval}`;
     try {
       const r = await fetch(url, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+          "User-Agent": YAHOO_UA,
           "Accept": "application/json,text/plain,*/*",
           "Accept-Language": "en-US,en;q=0.9",
         },
-        signal: AbortSignal.timeout(8000),
+        signal: AbortSignal.timeout(10000),
       });
       if (!r.ok) {
-        if (r.status === 429) yahoo429Until = Date.now() + 5000;
         console.warn(`[yahoo-ohlc] ${symbol} ${interval} (${host}) HTTP ${r.status} ${r.statusText}`);
+        if (r.status === 429) {
+          // Retry once (other host, 5s back-off) only for the FIRST 429 of a burst; under sustained rate limiting
+          // fail fast so the fallback chain runs and the queue keeps its 5s pacing instead of doubling every wait.
+          const sustained = Date.now() < yahoo429Until;
+          yahoo429Until = Date.now() + 5000;
+          if (attempt === 0 && !sustained) { await new Promise(res => setTimeout(res, 5000)); continue; }
+        }
         return null;
       }
       const j = (await r.json()) as {
@@ -1095,7 +1132,9 @@ export async function fetchYahooBarsOHLC(
       console.warn(`[yahoo-ohlc] ${symbol} ${interval} fetch error:`, (e as Error)?.message || e);
       return null;
     }
-  });
+    }
+    return null;
+  }, `yahoo:${interval}:${symbol}`, !!opts.priority);
 }
 
 // ─── Twelve Data 4H bars ────────────────────────────────────────────────────

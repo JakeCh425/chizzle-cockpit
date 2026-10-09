@@ -112,7 +112,7 @@ const TONE_STYLES: Record<Verdict["tone"], { border: string; bg: string; text: s
 
 
 const REQ = { selection: "DEFAULT_PLUS_CUSTOM" as ScanSelection, symbols: [] as string[], force: 0 };
-const usable = (d: SwingDecision) => d.dataStatus !== "STALE" && d.dataStatus !== "ERROR";
+const usable = (d: SwingDecision) => d.dataStatus !== "STALE" && d.dataStatus !== "ERROR" && !d.evalPending; // Part 3: a saved snapshot is never "Ready now"
 
 /** Guidance from the swing engine's decisions + separate live-risk permission. Never upgrades a status. */
 function swingGuidance(rows: SwingDecision[], live: LivePermission | null): (Verdict & { primary: string | null; others: string[] }) | null {

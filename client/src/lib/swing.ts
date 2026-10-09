@@ -51,8 +51,8 @@ export function useSwingEnabled(): boolean {
 
 export interface WatchRow extends WatchItem { riskNote: string }
 export interface WatchlistResp { items: WatchRow[]; maxCustomTickers: number; categories: WatchCategory[] }
-export interface ScanRowResp { item: WatchItem; riskNote: string; decision: SwingDecision; verdict: PracticeVerdict }
-export interface ScanResp { selection: ScanSelection; scanned: number; rows: ScanRowResp[]; emptyReason: string | null; evaluatedAt: string; banner: string; livePermission?: LivePermission }
+export interface ScanRowResp { item: WatchItem; riskNote: string; decision: SwingDecision; verdict: PracticeVerdict; pending?: boolean; snapshot?: { from: "decision-log" | "cache"; analysisAt: string | null; ageMin: number | null } }
+export interface ScanResp { selection: ScanSelection; scanned: number; rows: ScanRowResp[]; emptyReason: string | null; evaluatedAt: string; banner: string; livePermission?: LivePermission; pending?: string[] }
 export interface DecisionResp { banner: string; decision: SwingDecision; verdict: PracticeVerdict; riskNote: string | null }
 export interface BarsResp {
   symbol: string; exchange: string; timeframe: string; range: string; session: "RTH" | "EXTENDED"; source: string | null; error?: string;

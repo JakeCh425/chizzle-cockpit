@@ -220,12 +220,19 @@ function ScannerPanel({ req, setReq, selected, onFocus, active }: {
 }
 
 export function useScan(req: { selection: ScanSelection; symbols: string[]; force: number }, enabled = true) {
+  // Part 3: non-blocking scan. The server answers immediately with cached / persisted rows and a `pending` list;
+  // while anything is pending we poll every 2.5 s so each symbol's status appears as it finishes.
+  const focus = typeof window !== "undefined" ? (() => { try { return JSON.parse(localStorage.getItem("chizzle/v2/swing-active-symbol") ?? "\"\""); } catch { return ""; } })() : "";
   return useQuery<ScanResp>({
     queryKey: ["/api/swing/scan", req.selection, req.symbols.join(","), req.force],
-    queryFn: () => swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : ""}`),
+    queryFn: () => swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : "&wait=0"}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`),
     enabled, staleTime: 5 * 60_000, placeholderData: (prev) => prev, retry: false,
-    // Cached (non-forced) scans only: re-check every minute while any ticker's data is not LIVE.
-    refetchInterval: (q) => (req.force ? false : ((q.state.data as ScanResp | undefined)?.rows ?? []).some((r) => r.decision.dataStatus !== "LIVE") ? 60_000 : 5 * 60_000),
+    refetchInterval: (q) => {
+      const d = q.state.data as ScanResp | undefined;
+      if (d?.pending?.length) return 2_500;
+      // Cached (non-forced) scans only: re-check every minute while any ticker's data is not LIVE.
+      return req.force ? false : (d?.rows ?? []).some((r) => r.decision.dataStatus !== "LIVE") ? 60_000 : 5 * 60_000;
+    },
   });
 }
 
