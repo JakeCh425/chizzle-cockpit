@@ -14,7 +14,7 @@ import {
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
-import { STATUS_LABEL } from "@shared/swingDecision";
+import { STATUS_LABEL, levelsInvalidOf } from "@shared/swingDecision";
 import { readyStatusLabel, type LivePermission } from "@shared/readyAlerts";
 import {
   ACTION_GROUP_LABEL, canEditPlan, engineChangedSince, enginePlanSig, inputsFromCardChoice, obstacleBefore, plannedR, recalcPlan, rMultipleOf,
@@ -115,14 +115,19 @@ export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLower
 
 /** Price vs planned stop, worded to agree with the engine status. The engine only invalidates a setup on a
  *  CLOSED 1H bar below the stop, so a live quote below the stop is a pending warning, not "invalidated". */
-export function stopBreach(d: SwingDecision, stop: number | null): { text: string; short: string; tone: "bad" | "warn" } | null {
+export function stopBreach(d: SwingDecision, stop: number | null, t1?: number | null): { text: string; short: string; tone: "bad" | "warn"; kind?: "BELOW_STOP" | "PAST_T1" } | null {
+  // Part 2: past T1 = the planned reward is gone → levels INVALID (same helper as the server uses for engine levels).
+  if (t1 != null && d.currentPrice != null && !(stop != null && d.currentPrice < stop)) {
+    const inv = levelsInvalidOf(d, { entry: d.entryPrice, stop, t1 });
+    if (inv?.kind === "PAST_T1") return { text: inv.text, short: inv.short, tone: "bad", kind: "PAST_T1" };
+  }
   if (d.currentPrice == null || stop == null || !(d.currentPrice < stop)) return null;
   if (d.setupStatus === "SIGNAL_EXPIRED") return { text: "This setup has ended. These levels are history only.", short: "Ended — levels are history only", tone: "bad" };
   const nxt = nextHourClose(d.lastCompletedBar1H);
   return {
     text: `Price ${$(d.currentPrice)} is below the planned stop ${$(stop)}. If the ${nxt ? `${nxt} ` : "next "}1H bar closes below ${$(stop)}, this setup is cancelled. Don't use these levels until then.`,
-    short: `Price below stop ${$(stop)} — setup cancelled if the ${nxt ? `${nxt} ` : "next "}1H bar closes below it`,
-    tone: "warn",
+    short: `LEVELS INVALID — price below stop ${$(stop)}; setup cancelled if the ${nxt ? `${nxt} ` : "next "}1H bar closes below it`,
+    tone: "warn", kind: "BELOW_STOP",
   };
 }
 /** Clock time of the next regular-hours 1H close after `lastIso` (2:30 → 3:00 PM; none after the close). */
@@ -141,7 +146,7 @@ export function nextStepFor(d: SwingDecision, group: ActionGroup, ver: PlanVersi
   const trig = d.currentTrigger ?? d.originalTrigger;
   if (d.setupStatus === "SIGNAL_EXPIRED") return { text: "This setup is no longer valid.", tone: "bad" };
   if (group === "DATA" || BAD_DATA.includes(d.dataStatus)) return { text: "Verify the data before using any level on this card.", tone: "bad" };
-  const br = d.entryPrice != null ? stopBreach(d, d.structuralStop) : null;
+  const br = d.entryPrice != null ? stopBreach(d, d.structuralStop, d.target1) : null;
   if (br) return { text: br.text, tone: br.tone };
   if (ver && ver.result.state !== "VALID") return { text: "Review your adjusted risk. Your plan does not meet every rule.", tone: "warn" };
   switch (group) {
@@ -277,13 +282,13 @@ export function CriticalWarnings({ d, ver }: { d: SwingDecision; ver: PlanVersio
   const p = effectivePlan(d, ver);
   const expired = d.setupStatus === "SIGNAL_EXPIRED";
   const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
-  const br = stopBreach(d, p.stop);
+  const br = stopBreach(d, p.stop, p.t1);
   const invalidPlan = ver != null && ver.result.state === "INVALID";
   const tone = expired || badData || invalidPlan || br?.tone !== "warn" ? "bad" : "warn";
   return (
     <div className="space-y-1" data-testid={`card-warnings-${d.symbol}`}>
       {(expired || badData || br || invalidPlan) && (
-        <div className={`rounded-lg px-3 py-1.5 font-semibold ac-${tone} flex items-center gap-2`} role="alert" style={{ border: `1.5px solid var(--ac-${tone})`, fontSize: "var(--ac-fs-sm)" }} data-testid={`banner-levels-caution-${d.symbol}`} data-kind={expired ? "EXPIRED" : badData ? "DATA" : br ? (br.tone === "bad" ? "INVALIDATED" : "BELOW_STOP") : "INVALID_PLAN"}>
+        <div className={`rounded-lg px-3 py-1.5 font-semibold ac-${tone} flex items-center gap-2`} role="alert" style={{ border: `1.5px solid var(--ac-${tone})`, fontSize: "var(--ac-fs-sm)" }} data-testid={`banner-levels-caution-${d.symbol}`} data-kind={expired ? "EXPIRED" : badData ? "DATA" : br ? (br.kind === "PAST_T1" ? "PAST_T1" : br.tone === "bad" ? "INVALIDATED" : "BELOW_STOP") : "INVALID_PLAN"}>
           {tone === "bad" ? <XCircle className="h-4 w-4 shrink-0" aria-hidden /> : <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden />}
           {expired ? "Expired setup: these levels are history only." : badData ? `Data ${d.dataStatus}: don't rely on these levels until the data is verified.` : br ? br.text : "My Adjusted Plan is invalid: entry must be above the stop."}
         </div>
@@ -380,7 +385,11 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
             </Badge>
             <span className="ac-muted">R = |entry − stop loss| = <b className="ac-num">{$(p.risk)}</b> (stop loss, not the stop-limit price).</span>
           </div>
-          <div style={autoGrid(150)}>
+          {(() => { const inv = stopBreach(d, p.stop, p.t1); return inv && (
+            <div className="rounded-lg px-3 py-1.5 mb-2 font-semibold ac-bad flex items-center gap-2" role="alert" style={{ border: "1.5px solid var(--ac-bad)", fontSize: "var(--ac-fs-sm)" }} data-testid={`banner-levels-invalid-${d.symbol}`} data-kind={inv.kind ?? "INVALIDATED"}>
+              <XCircle className="h-4 w-4 shrink-0" aria-hidden /> {inv.short}. Shown greyed for reference only.
+            </div>); })()}
+          <div style={{ ...autoGrid(150), ...(stopBreach(d, p.stop, p.t1) ? { opacity: 0.45, filter: "grayscale(0.6)" } : {}) }} data-levels-invalid={stopBreach(d, p.stop, p.t1) ? "yes" : "no"} data-testid={`grid-levels-${d.symbol}`}>
             <PriceTile moved={mv("entry")} testId={`tile-entry-${d.symbol}`} label="ENTRY" sub="Planned starting price, not a fill" value={$(p.entry)} tone="good" guided={guided} changed={changed.has("entry")} engineValue={$(engine.entry)} />
             <PriceTile moved={mv("stop")} testId={`tile-stop-${d.symbol}`} label="STOP LOSS" sub="Planned protective exit trigger" value={$(p.stop)} tone="bad" guided={guided} changed={changed.has("stop")} engineValue={$(engine.stop)} />
             <PriceTile moved={mv("stopLimit")} testId={`tile-stoplimit-${d.symbol}`} label="STOP LIMIT" sub="Lowest price the sell limit accepts" value={p.stopLimit != null ? $(p.stopLimit) : "Not configured"} tone="bad" guided={guided}
@@ -624,7 +633,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const tone = TONE[group], Icon = ICON[group];
   const expired = d.setupStatus === "SIGNAL_EXPIRED";
   const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
-  const br = stopBreach(d, p.stop);
+  const br = stopBreach(d, p.stop, p.t1);
   const invalidPlan = ver != null && ver.result.state === "INVALID";
   const failed = d.planRefresh && !d.planRefresh.ok;
   const warn = expired ? "Expired — levels are history only" : badData ? `Data ${d.dataStatus} — verify before using levels` : br ? br.short : invalidPlan ? "My Adjusted Plan is invalid" : null;

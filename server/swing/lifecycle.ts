@@ -581,6 +581,32 @@ function choosePrimary(vis: Candidate[]): SwingDecision | null {
   return peers.reduce((a, b) => ((a.setupTimestamp ?? "") <= (b.setupTimestamp ?? "") ? a : b));
 }
 
+const RTH_1H_ENDS = [570, 630, 690, 750, 810, 870, 900]; // CT minutes: 9:30 … 2:30, 3:00 PM
+export const BAR_CLOSE_GRACE_SEC = 7 * 60; // vendors publish a closed bar within a few minutes
+/** How many RTH 1H closes have happened since `last1hEnd` that the feed should already have (0 = current).
+ *  Outside RTH (overnight / pre-market / weekend) the expected bar is the previous session's 3:00 PM close. */
+export function closedBarFreshness(now: number, last1hEnd: number): { missed: number; expectedEnd: number } {
+  const c = chicago(now);
+  // Latest 1H close (minus grace) that should be available right now, scanning back up to 5 days.
+  let expectedEnd: number | null = null;
+  for (let d = 0; d < 6 && expectedEnd == null; d++) {
+    const dayTs = now - d * 86400, dc = chicago(dayTs);
+    if (dc.weekday < 1 || dc.weekday > 5) continue;
+    const ends = RTH_1H_ENDS.map((m) => chicagoTs(dc.ymd, m)).filter((t) => d > 0 || t + BAR_CLOSE_GRACE_SEC <= now);
+    if (ends.length) expectedEnd = ends[ends.length - 1];
+  }
+  if (expectedEnd == null || last1hEnd >= expectedEnd) return { missed: 0, expectedEnd: expectedEnd ?? last1hEnd };
+  // Count expected closes strictly after last1hEnd up to expectedEnd (RTH bars only, same or earlier days).
+  let missed = 0;
+  for (let d = 0; d < 6; d++) {
+    const dc = chicago(now - d * 86400);
+    if (dc.weekday < 1 || dc.weekday > 5) continue;
+    for (const m of RTH_1H_ENDS) { const t = chicagoTs(dc.ymd, m); if (t > last1hEnd && t <= expectedEnd) missed++; }
+  }
+  void c;
+  return { missed, expectedEnd };
+}
+
 /** Data-status rules v2: LIVE / DELAYED / STALE / MISMATCH from quote age, bar age and the chart reference.
  *  Market closed → age is measured to the last session close, so nights/weekends are not STALE. */
 export function dataHealthOf(E: EvalInput, sym: string, closed1h: Bar1H[], closed4h: Bar4H[], closedDaily: SwingBar[],
@@ -601,8 +627,17 @@ export function dataHealthOf(E: EvalInput, sym: string, closed1h: Bar1H[], close
     && (chicago(last1h).ymd !== chicago(now).ymd || now - last1h > 3600 + STALE_AFTER_SEC);
   let status: DataStatus, reason: string;
   const ageTxt = (a: number | null) => (a == null ? "unknown" : a < 120 ? `${a}s` : `${Math.round(a / 60)} min`);
+  // Part 2: without a live quote, freshness is judged per TIMEFRAME against the last bar that should have CLOSED,
+  // not against the wall clock. A 1H feed that has the latest closed 1H bar is current, even 55 min into the next bar.
+  const barFresh = !E.quote && last1h != null ? closedBarFreshness(now, last1h) : null;
   if (mm.mismatch) { status = "MISMATCH"; reason = mm.mismatch; }
   else if (quoteAge == null) { status = "ERROR"; reason = "No quote and no completed bars returned by the feed."; }
+  else if (barFresh) {
+    status = barFresh.missed === 0 ? "LIVE" : barFresh.missed === 1 ? "DELAYED" : "STALE";
+    reason = barFresh.missed === 0
+      ? `No live quote — using closed-bar data. The 1H feed is current through the ${fmtCT(last1h)} close${rth ? "; levels are re-checked at the next 1H close" : ""}.`
+      : `No live quote and the 1H feed is ${barFresh.missed} closed bar(s) behind (last ${fmtCT(last1h)}, expected ${fmtCT(barFresh.expectedEnd)}).`;
+  }
   else if (quoteAge > STALE_AFTER_SEC || barsStale) {
     status = "STALE";
     reason = barsStale ? `No new completed 1H bar since ${fmtCT(last1h)} — the bar feed has not updated for more than 2 refresh cycles.`

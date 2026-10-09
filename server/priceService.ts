@@ -55,7 +55,16 @@ export interface Quote {
 const WATCHLIST_SYMS = ["SMH", "QQQ", "SPY", "IWM", "AAPL", "META"];
 // Internal regime inputs (NOT shown in watchlist UI)
 const INTERNAL_SYMS = ["VIXY"];
-const SYMBOLS = [...WATCHLIST_SYMS, ...INTERNAL_SYMS];
+const SYMBOLS: string[] = [...WATCHLIST_SYMS, ...INTERNAL_SYMS];
+/** Part 2: the swing engine registers its universe + custom tickers (e.g. XLE, XLV) so they get the same
+ *  polled quotes as the built-in list. Without this, custom tickers fell back to per-symbol Yahoo quote
+ *  calls that 429 from datacenter IPs → no quote → STALE between 1H closes. Idempotent; additive only. */
+export function addPollSymbols(syms: string[]): string[] {
+  const added: string[] = [];
+  for (const raw of syms) { const s = raw.toUpperCase().split(":").pop()!; if (s && !SYMBOLS.includes(s)) { SYMBOLS.push(s); added.push(s); } }
+  if (added.length) console.log(`[priceService] polling added: ${added.join(", ")} (now ${SYMBOLS.length} symbols)`);
+  return added;
+}
 
 // Cadence (seconds) — staggered across the cycle to stay under provider quotas.
 // Finnhub free is 60 req/min so 5s with 7 staggered symbols = ~84 req/min (over).

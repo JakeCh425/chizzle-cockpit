@@ -4,6 +4,7 @@
 import { useEffect, useState } from "react";
 import { RefreshCw } from "lucide-react";
 import { queryClient } from "@/lib/queryClient";
+import { SyncLine } from "@/components/swing/PlanRefresh";
 
 const SYNC_LAG_MIN = 8;
 const BOUNDARIES = [570, 630, 690, 750, 810, 870, 900]; // 9:30 … 14:30, 15:00 CT (1H closes)
@@ -48,12 +49,11 @@ export default function SyncClock() {
     }, 30_000);
     return () => clearInterval(t);
   }, []);
-  const at = ct(syncedAt);
+  void syncedAt;
   return (
     <div className="flex flex-wrap items-center gap-2 text-[10px] font-mono text-slate-gray" data-testid="sync-clock" data-slot={slot}>
       <span className="h-1.5 w-1.5 rounded-full bg-signal-green animate-pulse" />
-      <span data-testid="text-sync-last">All panels synced {hm(at.min)} CT</span>
-      <span>· next sync {nextSyncLabel()}</span>
+      <SyncLine compact testId="text-sync-line-header" />
       <button
         className="inline-flex items-center gap-1 rounded border border-ink-line px-1.5 py-0 hover:text-soft-white disabled:opacity-50"
         disabled={busy}

@@ -116,6 +116,10 @@ export interface SwingDecision {
   signalAge?: SignalAge | null;
   /** Additive: 30-minute heads-up while a CONFIRMED setup waits for its 1H close (never a Ready signal). */
   earlyLook?: EarlyLook | null;
+  /** Part 2: the quote has moved past the planned stop (below) or T1 (above) — the levels are INVALID for a new
+   *  practice plan until the next closed 1H bar re-evaluates. Computed server-side from the engine levels;
+   *  the client re-checks against "My Adjusted Plan" levels with the same helper. */
+  levelsInvalid?: LevelsInvalid | null;
   volumeCondition: VolumeCondition;
   dataMismatchReason: string | null;
 
@@ -179,6 +183,21 @@ export const REFERENCE_ONLY = "REFERENCE ONLY — DATA NOT VERIFIED";
 
 // ─── Fixed copy (spec §C, §I) ───────────────────────────────────────────────
 export const PRACTICE_BANNER = "PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE";
+export interface LevelsInvalid { kind: "BELOW_STOP" | "PAST_T1"; price: number; level: number; text: string; short: string }
+const f2 = (v: number) => `$${v.toFixed(2)}`;
+/** Pure: INVALID when the quote is below the stop or at/past T1 for a setup that is still showing levels. */
+export function levelsInvalidOf(d: Pick<SwingDecision, "setupStatus" | "currentPrice">, levels: { entry: number | null; stop: number | null; t1: number | null }): LevelsInvalid | null {
+  const px = d.currentPrice;
+  if (px == null || !Number.isFinite(px) || levels.entry == null) return null;
+  if (d.setupStatus === "NO_TRADE" || d.setupStatus === "SIGNAL_EXPIRED") return null;
+  if (levels.stop != null && px < levels.stop)
+    return { kind: "BELOW_STOP", price: px, level: levels.stop, short: `LEVELS INVALID — price ${f2(px)} is below the stop ${f2(levels.stop)}`,
+      text: `Price ${f2(px)} is below the planned stop ${f2(levels.stop)}. Do not use these entry/stop/target levels. The next closed 1H bar decides whether the setup is cancelled.` };
+  if (levels.t1 != null && px >= levels.t1)
+    return { kind: "PAST_T1", price: px, level: levels.t1, short: `LEVELS INVALID — price ${f2(px)} is already past Target 1 ${f2(levels.t1)}`,
+      text: `Price ${f2(px)} has already reached Target 1 ${f2(levels.t1)}. The planned reward is gone — do not chase these levels. Wait for a new setup on a closed bar.` };
+  return null;
+}
 export const GAP_RISK_WARNING = "OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.";
 export const READY_WARNING = "PRACTICE ONLY — STOP ORDERS MAY FILL BELOW STOP PRICE, ESPECIALLY OVERNIGHT";
 export const FORMING_WARNING = "NOT TRADEABLE YET — WAIT FOR CLOSED CONFIRMATION";

@@ -1,4 +1,4 @@
-// Plan refresh — "Refresh Plan Now", opt-in Auto Refresh, freshness, and the default target method.
+// Plan refresh — "Refresh Plan Now", the one hourly sync line (Part 2), freshness, and the default target method.
 // All recalculation happens on the server from one analysis snapshot; this file only triggers and reports it.
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
@@ -12,6 +12,38 @@ export interface RefreshStatus {
   running: boolean; trigger: string | null; lastTrigger: string | null;
   lastOkAt: string | null; lastAttemptAt: string | null; lastError: string | null; failedSymbols: string[];
   intervalMin: 0 | 15 | 30 | 60; hourly: boolean; nextAt: string | null; nextKind: string | null; marketOpen: boolean; runs: number;
+  lastSyncAt: string | null; symbols: SymbolSync[]; schedule: string;
+}
+export interface SymbolSync { symbol: string; source: string | null; quoteAt: string | null; dataStatus: string; analysisAt: string | null; lastBar1H: string | null }
+export const NEXT_KIND_LABEL: Record<string, string> = { HOURLY_CLOSE: "after the 1H close", AFTER_CLOSE: "after the 3:00 PM close", PRE_MARKET: "pre-market pass", MANUAL: "manual", INTERVAL: "interval" };
+const SRC_LABEL: Record<string, string> = { twelvedata: "Twelve Data", yahoo: "Yahoo", finnhub: "Finnhub", tiingo: "Tiingo", nasdaq: "Nasdaq", tradingview: "TradingView" };
+export const sourceLabel = (s: string | null | undefined) => (s ? SRC_LABEL[s.toLowerCase()] ?? s : "—");
+
+/** Part 2 — ONE "Last sync / Next sync" line, driven by the server scheduler (no client-side clock math).
+ *  Used by the header SyncClock and the Action Center bar so every panel reports the same times. */
+export function SyncLine({ compact, showSymbols, testId = "text-sync-line" }: { compact?: boolean; showSymbols?: boolean; testId?: string }) {
+  const { data: s } = usePlanRefresh();
+  const [open, setOpen] = useState(false);
+  const last = s?.lastSyncAt ?? s?.lastOkAt ?? null;
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5" data-testid={testId}>
+      <span className="inline-flex items-center gap-1" data-testid="text-sync-last"><span className="ac-muted">Last sync</span> <b className="ac-num">{last ? fmtCT(last) : "pending"}</b>{s?.running && <span className="ac-muted">(syncing…)</span>}</span>
+      <span className="inline-flex items-center gap-1" data-testid="text-sync-next"><Clock className="h-3.5 w-3.5" aria-hidden /> <span className="ac-muted">Next sync</span> <b className="ac-num">{s?.nextAt ? fmtCT(s.nextAt) : s ? "manual only" : "…"}</b>
+        {s?.nextAt && !compact && <span className="ac-muted">({NEXT_KIND_LABEL[s.nextKind ?? ""] ?? s.nextKind}{s.marketOpen ? "" : ", market closed"})</span>}</span>
+      {showSymbols && s?.symbols?.length ? (
+        <button className="ac-btn !py-0 !px-1.5" onClick={() => setOpen((o) => !o)} aria-expanded={open} data-testid="button-sync-symbols">{open ? "Hide" : "Data by symbol"}</button>
+      ) : null}
+      {showSymbols && open && s?.symbols && (
+        <span className="basis-full flex flex-wrap gap-x-3 gap-y-0.5 ac-muted" data-testid="list-sync-symbols">
+          {s.symbols.map((x) => (
+            <span key={x.symbol} className="inline-flex items-center gap-1" data-testid={`text-sync-symbol-${x.symbol}`} data-status={x.dataStatus}>
+              <b className="ac-num">{x.symbol}</b> {sourceLabel(x.source)} · quote {x.quoteAt ? fmtCT(x.quoteAt) : "—"} · <span className={x.dataStatus === "LIVE" ? "ac-good" : x.dataStatus === "PENDING" ? "" : "ac-warn"}>{x.dataStatus}</span>
+            </span>
+          ))}
+        </span>
+      )}
+    </span>
+  );
 }
 
 /** Re-read every swing panel together so the card, chart, scanner and workspace show the same snapshot. */
@@ -49,9 +81,6 @@ export async function saveSwingSettings(p: Partial<SwingSettings>) {
 }
 export const saveTargetDefault = (t: TargetDefault) => saveSwingSettings({ targetDefault: t });
 
-const INTERVALS: { v: 0 | 15 | 30 | 60; label: string }[] = [
-  { v: 0, label: "Off" }, { v: 15, label: "15 min" }, { v: 30, label: "30 min (suggested)" }, { v: 60, label: "60 min" },
-];
 
 /** One compact row in the Action Center: refresh button, analysis time, next run, Auto Refresh, default targets. */
 export function PlanRefreshBar({ settings }: { settings: SwingSettings | undefined }) {
@@ -72,20 +101,10 @@ export function PlanRefreshBar({ settings }: { settings: SwingSettings | undefin
       <button className="ac-btn ac-btn-primary !py-1" style={xs} onClick={run} disabled={running} aria-busy={running} data-testid="button-refresh-plan">
         <RefreshCw className={`h-3.5 w-3.5 ${running ? "animate-spin" : ""}`} aria-hidden /> {running ? "Analyzing…" : "Refresh Plan"}
       </button>
-      <label className="inline-flex items-center gap-1.5">
-        <span className="font-semibold">Auto Refresh</span>
-        <select className="ac-input !w-auto !py-0.5" style={xs} value={String(settings?.planAutoRefreshMin ?? 0)} aria-label="Auto refresh interval"
-          onChange={(e) => void saveSwingSettings({ planAutoRefreshMin: Number(e.target.value) as 0 | 15 | 30 | 60 })} data-testid="select-auto-refresh">
-          {INTERVALS.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
-        </select>
-      </label>
-      <span className="inline-flex items-center gap-1" data-testid="text-last-analysis">
+      <SyncLine showSymbols />
+      <span className="inline-flex items-center gap-1" data-testid="text-last-analysis" title={s?.schedule ?? ""}>
         {s?.lastError ? <AlertTriangle className="h-3.5 w-3.5 ac-warn" aria-hidden /> : <CheckCircle2 className="h-3.5 w-3.5 ac-good" aria-hidden />}
-        <span className="ac-muted">{s?.lastError ? "Last confirmed snapshot:" : "Last successful analysis:"}</span> <b className="ac-num">{s?.lastOkAt ? fmtCT(s.lastOkAt) : "first run pending"}</b>
-      </span>
-      <span className="inline-flex items-center gap-1 ac-muted" data-testid="text-next-refresh">
-        <Clock className="h-3.5 w-3.5" aria-hidden /> Next: <b className="ac-num">{s?.nextAt ? fmtCT(s.nextAt) : "manual only"}</b>
-        {s?.nextAt && <span>({s.nextKind === "HOURLY_CLOSE" ? "after the 1H close" : `every ${s.intervalMin} min`}{s.marketOpen ? "" : ", market closed"})</span>}
+        <span className="ac-muted">{s?.lastError ? "Last confirmed snapshot:" : "Hourly sync on"}</span>{s?.lastError && <b className="ac-num">{s?.lastOkAt ? fmtCT(s.lastOkAt) : "first run pending"}</b>}
       </span>
       {(s?.lastError || msg) && (
         <span className={`basis-full ${s?.lastError ? "ac-warn font-semibold" : "ac-muted"}`} role={s?.lastError ? "alert" : "status"} data-testid="text-refresh-message">

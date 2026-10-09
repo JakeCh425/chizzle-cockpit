@@ -5,9 +5,10 @@ import { and, desc, eq, gte, lt } from "drizzle-orm";
 import { z } from "zod";
 import { db, storage } from "../storage";
 import { getEffectiveRegime } from "../regimeService";
+import { addPollSymbols } from "../priceService";
 import { mtfWebhookEvents, swingDecisionLog, swingSettings } from "@shared/schema";
 import {
-  DEFAULT_SWING_SETTINGS, STATUS_PRIORITY, SETUP_STATUSES, USER_MODES, SIGNAL_MODES,
+  DEFAULT_SWING_SETTINGS, STATUS_PRIORITY, SETUP_STATUSES, USER_MODES, SIGNAL_MODES, levelsInvalidOf,
   type ScanSelection, type SetupHistoryEntry, type SetupStatus, type SwingDecision, type SwingSettings, type WatchItem,
 } from "@shared/swingDecision";
 import { dataRulesV2, evaluate, type EvalResult, type ReferenceQuote } from "./lifecycle";
@@ -57,6 +58,8 @@ export async function loadSettings(): Promise<SwingSettings> {
   let data: Partial<SwingSettings> = {};
   try { const row = (await db.select().from(swingSettings).where(eq(swingSettings.id, 1)).limit(1))[0]; data = (row?.data as any) ?? {}; } catch { /* table missing → defaults */ }
   const v: SwingSettings = { ...DEFAULT_SWING_SETTINGS, ...data, rthOnly: true, timezone: "America/Chicago" };
+  // Part 2: every universe + custom ticker gets polled quotes (fixes STALE on XLE/XLV between 1H closes).
+  if (isUnifiedSwingEnabled() && v.watchlist?.length) addPollSymbols(v.watchlist.map((w) => w.symbol));
   v.riskLinkInfo = null;
   if (v.linkRiskToProfile !== false) {
     // Risk link: one source of truth — Settings → Risk Profile drives the swing engine.
@@ -134,6 +137,8 @@ function runRules(sym: string, exchange: string, h1: SwingBar[], d1: SwingBar[],
     res.decision.whyNotReady = [`Data unavailable for ${sym} (${!h1.length ? "1H bars" : "daily bars"}) — the card stays visible and re-checks on the next closed 1H bar.`, ...res.decision.whyNotReady];
   }
   res.decision.chart = buildOverlay(res, { scope: "ALL" });
+  const d = res.decision;
+  d.levelsInvalid = levelsInvalidOf(d, { entry: d.entryPrice, stop: d.structuralStop, t1: d.target1 });
   return res;
 }
 
@@ -381,29 +386,45 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
 }
 
 // ─── Plan analysis runs: one lock shared by manual, hourly and opt-in interval refreshes ─
-export type RefreshTrigger = "MANUAL" | "HOURLY_CLOSE" | "INTERVAL";
+// Part 2 — ONE scheduler. Triggers: each closed RTH 1H bar (2–7 min after), the after-close pass
+// (15:00 CT close) and one pre-market pass (08:00 CT). "INTERVAL" is kept only so old log rows still type-check;
+// the 15/30/60-min interval timer was removed (it conflicted with "next sync after the 1H close").
+export type RefreshTrigger = "MANUAL" | "HOURLY_CLOSE" | "AFTER_CLOSE" | "PRE_MARKET" | "INTERVAL";
+export const PRE_MARKET_MIN = 8 * 60; // 08:00 CT
+/** Per-symbol sync detail shown under the one "Last sync / Next sync" line. */
+export interface SymbolSync { symbol: string; source: string | null; quoteAt: string | null; dataStatus: string; analysisAt: string | null; lastBar1H: string | null }
 interface RefreshState { running: Promise<RefreshStatus> | null; trigger: RefreshTrigger | null; startedAt: string | null; lastRunAt: number; lastOkAt: string | null; lastAttemptAt: string | null; lastError: string | null; lastTrigger: RefreshTrigger | null; failedSymbols: string[]; runs: number }
 const rs: RefreshState = { running: null, trigger: null, startedAt: null, lastRunAt: 0, lastOkAt: null, lastAttemptAt: null, lastError: null, lastTrigger: null, failedSymbols: [], runs: 0 };
 export interface RefreshStatus {
   running: boolean; trigger: RefreshTrigger | null; lastTrigger: RefreshTrigger | null;
   lastOkAt: string | null; lastAttemptAt: string | null; lastError: string | null; failedSymbols: string[];
   intervalMin: 0 | 15 | 30 | 60; hourly: boolean; nextAt: string | null; nextKind: RefreshTrigger | null; marketOpen: boolean; runs: number;
+  /** Part 2: one sync line everywhere. lastSyncAt = newest successful analysis of any symbol. */
+  lastSyncAt: string | null; symbols: SymbolSync[]; schedule: string;
 }
 const RUN_TIMEOUT_MS = 150_000;
 const RTH_OPEN = 510, RTH_CLOSE = 900; // CT minutes (08:30–15:00)
 const inSession = (t: number) => { const c = chicago(t); return c.weekday >= 1 && c.weekday <= 5 && c.minutes >= RTH_OPEN + 2 && c.minutes <= RTH_CLOSE + 5; };
 /** Next scheduled run (interval during regular hours, or the 1H-close recompute), scanning forward by minute. */
 function nextScheduled(s: SwingSettings, nowS: number): { at: number; kind: RefreshTrigger } | null {
-  const iv = s.planAutoRefreshMin ?? 0, hourly = s.autoRefresh1H !== false;
-  if (!iv && !hourly) return null;
+  if (s.autoRefresh1H === false) return null; // manual only
   const start = Math.ceil(nowS / 60) * 60;
   for (let t = start; t < start + 5 * 86400; t += 60) {
     const c = chicago(t);
     if (!(c.weekday >= 1 && c.weekday <= 5)) continue;
-    if (hourly) { const b = closeBoundaryNear(c.minutes); if (b != null && c.minutes - b === 2) return { at: t, kind: "HOURLY_CLOSE" }; }
-    if (iv && inSession(t) && t >= rs.lastRunAt + iv * 60) return { at: t, kind: "INTERVAL" };
+    if (c.minutes === PRE_MARKET_MIN) return { at: t, kind: "PRE_MARKET" };
+    const b = closeBoundaryNear(c.minutes);
+    if (b != null && c.minutes - b === 2) return { at: t, kind: b === RTH_CLOSE ? "AFTER_CLOSE" : "HOURLY_CLOSE" };
   }
   return null;
+}
+export const SCHEDULE_TEXT = "Hourly: 2–7 min after each closed 1H bar (9:30 AM – 3:00 PM CT), plus after the close and a pre-market pass at 8:00 AM CT.";
+function symbolSyncs(s: SwingSettings): SymbolSync[] {
+  return (s.watchlist ?? []).filter((w) => !w.hidden).map((w) => {
+    const c = evalCache.get(w.symbol.toUpperCase()), d = c?.res.decision;
+    return { symbol: w.symbol.toUpperCase(), source: c?.source ?? d?.dataSource ?? null, quoteAt: d?.quoteTimestamp ?? null, dataStatus: d?.dataStatus ?? "PENDING",
+      analysisAt: d?.planRefresh?.analysisAt ?? (c ? new Date(c.at).toISOString() : null), lastBar1H: d?.lastCompletedBar1H ?? null };
+  });
 }
 export async function refreshStatus(): Promise<RefreshStatus> {
   const s = await loadSettings(); const now = nowSec(); const n = nextScheduled(s, now);
@@ -411,8 +432,10 @@ export async function refreshStatus(): Promise<RefreshStatus> {
     running: !!rs.running, trigger: rs.trigger, lastTrigger: rs.lastTrigger,
     // Latest successful analysis from any path (scheduled, manual, or a closed-bar refresh on read).
     lastOkAt: [rs.lastOkAt, ...[...evalCache.values()].map((c) => c.res.decision.planRefresh?.analysisAt ?? null)].filter(Boolean).sort().pop() ?? null, lastAttemptAt: rs.lastAttemptAt, lastError: rs.lastError,
-    failedSymbols: rs.failedSymbols, intervalMin: (s.planAutoRefreshMin ?? 0) as RefreshStatus["intervalMin"], hourly: s.autoRefresh1H !== false,
+    failedSymbols: rs.failedSymbols, intervalMin: 0 /* interval timer removed in Part 2 */, hourly: s.autoRefresh1H !== false,
     nextAt: n ? new Date(n.at * 1000).toISOString() : null, nextKind: n?.kind ?? null, marketOpen: inSession(now), runs: rs.runs,
+    lastSyncAt: [rs.lastOkAt, ...[...evalCache.values()].map((c) => c.res.decision.planRefresh?.analysisAt ?? null)].filter(Boolean).sort().pop() ?? null,
+    symbols: symbolSyncs(s), schedule: SCHEDULE_TEXT,
   };
 }
 /** Full plan recalculation for the watchlist. Overlapping callers join the run already in progress (no duplicate requests). */
@@ -523,18 +546,20 @@ export function startSwingScheduler() {
     if (!(c.weekday >= 1 && c.weekday <= 5)) return;
     try {
       const s = await loadSettings();
-      // Fire 2–7 min after each closed RTH 1H bar (09:30 … 14:30, 15:00 CT) to allow vendor latency.
+      // Fire 2–7 min after each closed RTH 1H bar (09:30 … 14:30 CT); the 15:00 close is the after-close pass.
       const b = closeBoundaryNear(c.minutes);
       if (b != null && `${c.ymd}:${b}` !== lastSlot) {
         lastSlot = `${c.ymd}:${b}`;
-        if (s.autoRefresh1H !== false) { await runPlanAnalysis("HOURLY_CLOSE"); return; }
+        if (s.autoRefresh1H !== false) { await runPlanAnalysis(b === RTH_CLOSE ? "AFTER_CLOSE" : "HOURLY_CLOSE"); return; }
+      }
+      // Pre-market pass (08:00–08:05 CT): bring every symbol current before the open.
+      if (c.minutes >= PRE_MARKET_MIN && c.minutes <= PRE_MARKET_MIN + 5 && `${c.ymd}:pre` !== lastSlot) {
+        lastSlot = `${c.ymd}:pre`;
+        if (s.autoRefresh1H !== false) { await runPlanAnalysis("PRE_MARKET"); return; }
       }
       // Mid-hour (:00 CT): 30-minute heads-up for confirmed setups waiting on their 1H close.
       const mb = midHourNear(c.minutes);
       if (mb != null && `${c.ymd}:${mb}` !== lastEarlySlot) { lastEarlySlot = `${c.ymd}:${mb}`; await earlyLook30m(s, now); }
-      // Opt-in interval refresh during regular hours. Any run (manual / hourly) resets the clock, so nothing doubles up.
-      const iv = s.planAutoRefreshMin ?? 0;
-      if (iv > 0 && inSession(now) && now - rs.lastRunAt >= iv * 60) { await runPlanAnalysis("INTERVAL"); return; }
       // Between bar closes: quote-only status check every 5 min (levels unchanged).
       if (inSession(now) && !rs.running && now - lastQuoteCheck >= QUOTE_STATUS_EVERY_SEC) { lastQuoteCheck = now; await quoteStatusRefresh(s, now); }
     } catch (e: any) { console.warn("[swing] auto-recompute failed:", e?.message || e); }

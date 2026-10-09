@@ -88,12 +88,14 @@ describe("refresh scheduling and races", async () => {
   const { rs, nextScheduled, inSession } = svc._test as any;
   const S = (o: any) => ({ autoRefresh1H: false, planAutoRefreshMin: 0, ...o });
   it("Auto Refresh is opt-in: off → no scheduled run", () => { expect(nextScheduled(S({}), chicagoTs("2026-10-02", 600))).toBeNull(); });
-  it("interval runs only during regular hours, counted from the last run of any kind", () => {
+  it("Part 2: the interval timer is gone — planAutoRefreshMin is ignored; one schedule (hourly / after-close / pre-market)", () => {
     rs.lastRunAt = chicagoTs("2026-10-02", 600);
-    const n = nextScheduled(S({ planAutoRefreshMin: 30 }), chicagoTs("2026-10-02", 601))!;
-    expect(n).toMatchObject({ kind: "INTERVAL", at: chicagoTs("2026-10-02", 630) });
-    const late = nextScheduled(S({ planAutoRefreshMin: 30 }), chicagoTs("2026-10-02", 910))!; // Fri after close → Mon open
-    expect(late.at).toBe(chicagoTs("2026-10-05", 512));
+    expect(nextScheduled(S({ planAutoRefreshMin: 30 }), chicagoTs("2026-10-02", 601))).toBeNull(); // hourly off → manual only, no interval
+    const n = nextScheduled(S({ autoRefresh1H: true, planAutoRefreshMin: 30 }), chicagoTs("2026-10-02", 601))!;
+    expect(n).toMatchObject({ kind: "HOURLY_CLOSE", at: chicagoTs("2026-10-02", 632) });
+    expect(nextScheduled(S({ autoRefresh1H: true }), chicagoTs("2026-10-02", 895))).toMatchObject({ kind: "AFTER_CLOSE", at: chicagoTs("2026-10-02", 902) });
+    const late = nextScheduled(S({ autoRefresh1H: true }), chicagoTs("2026-10-02", 910))!; // Fri after close → Mon pre-market
+    expect(late).toMatchObject({ kind: "PRE_MARKET", at: chicagoTs("2026-10-05", 480) });
     expect(inSession(chicagoTs("2026-10-03", 600))).toBe(false); // Saturday
   });
   it("the existing 1H-close recompute is reused as a scheduled run", () => {
