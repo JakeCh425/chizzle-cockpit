@@ -8,7 +8,7 @@ vi.mock("../../server/storage", () => ({ db: {} }));
 vi.mock("../../server/swing/service", () => ({
   CHART_RANGES: [], CHART_TFS: [], chartBars: vi.fn(), loadSettings: vi.fn(async () => ({ watchlist: [{ symbol: "QQQ", exchange: "NASDAQ" }] })),
   readDataEvents: vi.fn(), readLog: vi.fn(), refreshStatus: vi.fn(), runPlanAnalysis: vi.fn(), saveSettings: vi.fn(), scan: vi.fn(),
-  settingsPatchSchema: { parse: (x: any) => x }, startSwingScheduler: vi.fn(),
+  settingsPatchSchema: { parse: (x: any) => x }, startSwingScheduler: vi.fn(), onScanPriority: vi.fn(),
   decisionFor: vi.fn(async (symbol: string) => {
     if (symbol === "SLOW") await new Promise((r) => setTimeout(r, 300));
     if (symbol === "BOOM") throw new Error("Yahoo 429 Too Many Requests");

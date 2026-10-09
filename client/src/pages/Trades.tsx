@@ -2,6 +2,9 @@ import { useState, useEffect, type ReactNode } from "react";
 import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
+import { MyTrades } from "@/components/swing/MyTrades";
+import { TradeDialogHost } from "@/components/swing/ArmTrade";
+import { useSwingEnabled } from "@/lib/swing";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Settings, Trade, SetupCandidateRow } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
@@ -40,6 +43,7 @@ const LESSON_TAGS = ["patience", "sizing", "stop-mgmt", "thesis", "regime", "non
 
 export default function Trades() {
   const { toast } = useToast();
+  const swingOn = useSwingEnabled();
   const { data: settings } = useQuery<Settings>({ queryKey: ["/api/settings"] });
   const { data: trades } = useQuery<Trade[]>({ queryKey: ["/api/trades"] });
   const { data: setupsByTicker } = useQuery<Record<string, SetupCandidateRow[]>>({ queryKey: ["/api/setups"] });
@@ -157,6 +161,13 @@ export default function Trades() {
         <h1 className="font-display text-[15px] tracking-[0.2em] uppercase text-soft-white">Trades</h1>
         <span className="text-[10px] uppercase tracking-wider text-slate-gray">{openTrades.length} open · {(trades?.length ?? 0)} total</span>
       </div>
+      {/* Part 4 — My Trades (practice trades armed from the swing trading cards). Flag-gated; legacy log below is unchanged. */}
+      {swingOn && (
+        <Panel title="My Trades — Practice" hint="Armed from trading cards · one source of truth with the cockpit">
+          <MyTrades />
+          <TradeDialogHost />
+        </Panel>
+      )}
       {/* Form */}
       <Panel
         title="Log New Trade"

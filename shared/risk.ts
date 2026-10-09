@@ -92,7 +92,7 @@ export interface OpenPositionRisk {
   openShares: number;
   /** |avgFillPrice - stopPrice| × openShares. */
   riskDollars: number;
-  source: "new"; // legacy "trades" table has its own lifecycle; not included.
+  source: "new" | "swing"; // legacy "trades" table has its own lifecycle; not included. "swing" = Part 4 practice trades (flag on).
 }
 
 /** A trade plan candidate (or in-flight edit) under evaluation. */

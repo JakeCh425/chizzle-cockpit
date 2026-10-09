@@ -1036,3 +1036,49 @@ export const swingAlertPrefs = pgTable("swing_alert_prefs", {
   data: jsonb("data").notNull().default({} as any),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// ─── Part 4 — practice trades: ARM TRADE → MY TRADES (additive) ──────────────
+// Migration: scripts/part4-migrate.mjs (backup snapshot + CREATE TABLE IF NOT EXISTS); rollback: --rollback exports rows
+// then DROPs both tables. Nothing else references them. PRACTICE ONLY — rows are plans + outcomes, never broker orders.
+export const swingTrades = pgTable("swing_trades", {
+  id: serial("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  exchange: text("exchange").notNull().default(""),
+  status: text("status").notNull().default("ARMED"),      // ARMED | ACTIVE | CLOSED | CANCELLED
+  setupKey: text("setup_key"),
+  setupType: text("setup_type"),
+  timeframe: text("timeframe"),
+  entry: doublePrecision("entry").notNull(),
+  stop: doublePrecision("stop").notNull(),
+  stopLimit: doublePrecision("stop_limit"),
+  t1: doublePrecision("t1").notNull(),
+  t2: doublePrecision("t2"),
+  shares: doublePrecision("shares").notNull().default(0),
+  riskDollars: doublePrecision("risk_dollars").notNull().default(0),
+  rrT1: doublePrecision("rr_t1"),
+  notes: text("notes").notNull().default(""),
+  originalLevels: jsonb("original_levels").notNull().default({} as any),
+  decisionSnapshot: jsonb("decision_snapshot").notNull().default({} as any),
+  overrideReason: text("override_reason"),
+  fillPrice: doublePrecision("fill_price"),
+  filledAt: timestamp("filled_at", { withTimezone: true }),
+  exitPrice: doublePrecision("exit_price"),
+  exitReason: text("exit_reason"),                           // STOP | T1 | T2 | MANUAL
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  pnl: doublePrecision("pnl"),
+  rMultiple: doublePrecision("r_multiple"),
+  armedAt: timestamp("armed_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+});
+export type SwingTradeRow = typeof swingTrades.$inferSelect;
+export const swingTradeEvents = pgTable("swing_trade_events", {
+  id: serial("id").primaryKey(),
+  tradeId: integer("trade_id").notNull(),
+  kind: text("kind").notNull(),                              // ARMED | EDITED | FILLED | CLOSED | CANCELLED
+  before: jsonb("before"),
+  after: jsonb("after"),
+  note: text("note").notNull().default(""),
+  at: timestamp("at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SwingTradeEventRow = typeof swingTradeEvents.$inferSelect;

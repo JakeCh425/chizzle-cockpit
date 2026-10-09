@@ -6,6 +6,8 @@
 import { useQuery } from "@tanstack/react-query";
 import type { Trade, EquityHistory, ActiveSetup } from "@shared/schema";
 import { TermTooltip } from "@/components/TermTooltip";
+import { useTradesSummary } from "@/lib/swingTrades";
+import type { Settings } from "@shared/schema";
 
 function ymd(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -27,6 +29,9 @@ export default function PnLHeader() {
   const tradesQ = useQuery<Trade[]>({ queryKey: ["/api/trades"], refetchInterval: 30_000 });
   const equityQ = useQuery<EquityHistory[]>({ queryKey: ["/api/equity-history"], refetchInterval: 60_000 });
   const setupsQ = useQuery<ActiveSetup[]>({ queryKey: ["/api/active-setups"], refetchInterval: 30_000 });
+  // Part 4: practice trades (ARMED/ACTIVE risk, CLOSED P&L) join the header when the swing engine is on. Query is disabled otherwise.
+  const swing = useTradesSummary().data;
+  const settingsQ = useQuery<Settings>({ queryKey: ["/api/settings"] });
 
   // Daily P&L = sum of realized PnL from trades closed today
   const trades = tradesQ.data ?? [];
@@ -38,15 +43,19 @@ export default function PnLHeader() {
   const closedTrades = trades.filter((t: any) => t.status === "closed" && (t.closedAt || t.closed_at));
   const todayPnl = closedTrades
     .filter((t: any) => String(t.closedAt ?? t.closed_at).slice(0, 10) === today)
-    .reduce((sum, t: any) => sum + Number(t.pnl ?? 0), 0);
+    .reduce((sum, t: any) => sum + Number(t.pnl ?? 0), 0) + (swing?.dailyPnl ?? 0);
   const weekPnl = closedTrades
     .filter((t: any) => String(t.closedAt ?? t.closed_at).slice(0, 10) >= weekStart)
-    .reduce((sum, t: any) => sum + Number(t.pnl ?? 0), 0);
+    .reduce((sum, t: any) => sum + Number(t.pnl ?? 0), 0) + (swing?.weeklyPnl ?? 0);
 
   // Open risk = sum of (entry - stop) * shares for planned/active setups.
   // We don't have shares here — approximate as sum of riskPercent for active items.
   const activeSetups = (setupsQ.data ?? []).filter((s) => s.status === "planned" || s.status === "active");
-  const openRiskPct = activeSetups.reduce((sum, s) => sum + Number(s.riskPercent ?? 0), 0);
+  const swingOpen = (swing?.armed ?? 0) + (swing?.active ?? 0);
+  const swingEquity = settingsQ.data?.equity ?? 0;
+  const swingRiskPct = swing && swingEquity > 0 ? (swing.openRiskDollars / swingEquity) * 100 : 0;
+  const openRiskPct = activeSetups.reduce((sum, s) => sum + Number(s.riskPercent ?? 0), 0) + swingRiskPct;
+  const openCount = activeSetups.length + swingOpen;
 
   // Drawdown from peak equity
   const equity = equityQ.data ?? [];
@@ -98,7 +107,8 @@ export default function PnLHeader() {
             }`}
             data-testid="text-open-risk"
           >
-            {activeSetups.length === 0 ? "None" : `${openRiskPct.toFixed(2)}% · ${activeSetups.length}`}
+            {openCount === 0 ? "None" : `${openRiskPct.toFixed(2)}% · ${openCount}`}
+            {swing && swingOpen > 0 && <span className="ml-1 text-[10px] font-normal text-slate-gray" data-testid="text-open-risk-swing">(${swing.openRiskDollars.toFixed(0)} practice)</span>}
           </div>
         </div>
         <div>

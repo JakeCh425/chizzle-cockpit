@@ -72,6 +72,7 @@ import { alignFlexResult } from "./swing/flexAlign";
 import { fetch1H as swingFetch1H } from "./swing/feed";
 import { aggregate4H as swingAggregate4H } from "./swing/bars";
 import { isUnifiedSwingEnabled } from "./featureFlags";
+import { closedUnifiedRows, openPositionRisks } from "./swing/trades";
 import { computeSmhRegime } from "./smhRegime";
 import { computeRegimeV2 } from "./regimeEngineV2";
 import { scanProximity } from "./proximityEngine";
@@ -2823,7 +2824,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const dateRe = /^\d{4}-\d{2}-\d{2}$/;
       const from = dateRe.test(fromRaw) ? fromRaw : undefined;
       const to   = dateRe.test(toRaw)   ? toRaw   : undefined;
-      const rows = await storage.listUnifiedClosedTrades({ from, to });
+      const rows: any[] = await storage.listUnifiedClosedTrades({ from, to });
+      // Part 4: CLOSED practice trades join the unified feed (flag on only) so header Daily/Weekly P&L stays in sync.
+      if (isUnifiedSwingEnabled()) { try { rows.push(...(await closedUnifiedRows(from, to))); } catch (e: any) { console.warn("[analytics] swing trades skipped:", e?.message); } }
       res.json(rows);
     } catch (e: any) {
       console.error("[analytics] listUnifiedClosedTrades failed:", e);
@@ -2838,7 +2841,9 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // happens server-side.
   app.get("/api/risk/open-positions", async (_req, res) => {
     try {
-      const rows = await storage.listOpenPositionRisks();
+      const rows: any[] = await storage.listOpenPositionRisks();
+      // Part 4: ACTIVE practice trades count toward Open Risk (flag on only).
+      if (isUnifiedSwingEnabled()) { try { rows.push(...(await openPositionRisks())); } catch (e: any) { console.warn("[risk] swing trades skipped:", e?.message); } }
       res.json(rows);
     } catch (e: any) {
       console.error("[risk] listOpenPositionRisks failed:", e);

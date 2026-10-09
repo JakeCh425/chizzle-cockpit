@@ -32,6 +32,8 @@ import ActionCenter from "@/components/swing/ActionCenter";
 import ReadyNow from "@/components/swing/ReadyNow";
 import { PlanEditorHost } from "@/components/swing/PlanEditor";
 import { AlertDialogHost } from "@/components/swing/PriceAlerts";
+import { TradeDialogHost } from "@/components/swing/ArmTrade";
+import { MyTrades } from "@/components/swing/MyTrades";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
 import CockpitWorkspace from "@/components/CockpitWorkspace";
 import LegacyPipeline, { PENDING_PREFILL_KEY } from "@/components/LegacyPipeline";
@@ -76,7 +78,16 @@ export default function PipelineCockpit() {
             <ActionCenter />
             <PlanEditorHost />
             <AlertDialogHost />
+            <TradeDialogHost />
           </ErrorBoundary>
+        )}
+      </UnifiedSwingMount>
+      {/* Part 4 — My Trades: practice trades armed from the cards (same rows as the Trades page and the header). */}
+      <UnifiedSwingMount>
+        {() => (
+          <CollapsibleSection id="my-trades" title="My Trades" hint="Practice plans · ARMED → ACTIVE → CLOSED">
+            <ErrorBoundary label="My Trades"><MyTrades /></ErrorBoundary>
+          </CollapsibleSection>
         )}
       </UnifiedSwingMount>
       <DoTodayCard />

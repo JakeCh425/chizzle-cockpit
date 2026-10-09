@@ -8,7 +8,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
+  AlertTriangle, BookOpen, Crosshair, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +26,7 @@ import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEd
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton } from "./DataStatus";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
+import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 
 // ─── Appearance (scoped to the Action Center + cards) ────────────────────────
 export const AC_THEMES = [
@@ -505,8 +506,18 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
   const busy = useRef(false); // synchronous double-click guard (isPending re-renders too late for a rapid second click)
   const saveJournal = () => { if (busy.current) return; busy.current = true; journal.mutate(undefined, { onSettled: () => { busy.current = false; } }); };
   const saved = journal.isPending ? "Saving…" : journal.isSuccess ? `Saved #${journal.data.entry.id}` : journal.isError ? "Save failed" : null;
+  // Part 4: Arm Trade → My Trades. Primary only when READY; other actionable groups must name an override reason.
+  const live = useContext(LiveCtx);
+  const tradesQ = useSwingTrades();
+  const openTrade = openTradeFor(tradesQ.data?.trades, d.symbol);
+  const canArm = !openTrade && !d.evalPending && group !== "NO_TRADE" && group !== "DATA" && d.entryPrice != null && d.structuralStop != null;
+  const arm = () => { const run = () => openTradeDialog({ mode: "arm", decision: d, plan: effectivePlan(d, ver), liveAllowed: live ? live.allowed : null, overrideRequired: group !== "READY" }); inDialog ? afterCardClose(run) : run(); };
+  const editTrade = () => { if (!openTrade) return; const run = () => openTradeDialog({ mode: "edit", trade: openTrade, decision: d }); inDialog ? afterCardClose(run) : run(); };
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {canArm && group === "READY" && <button className="ac-btn ac-btn-primary" onClick={arm} data-testid={`button-arm-trade-${d.symbol}`}><Crosshair className="h-4 w-4" aria-hidden /> Arm Trade</button>}
+      {canArm && group !== "READY" && <button className="ac-btn" onClick={arm} title="Not Ready to Trade — arming requires a reason" data-testid={`button-arm-override-${d.symbol}`}><Crosshair className="h-4 w-4" aria-hidden /> Arm anyway…</button>}
+      {openTrade && <button className="ac-btn" onClick={editTrade} data-testid={`button-edit-trade-${d.symbol}`}><Pencil className="h-4 w-4" aria-hidden /> Edit trade #{openTrade.id} <span className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>({openTrade.status})</span></button>}
       {!inDialog && onOpen && <button className="ac-btn ac-btn-primary" onClick={onOpen} data-testid={`button-open-card-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button>}
       {canEditPlan(d) && onAdjust && <button className={`ac-btn ${inDialog ? "ac-btn-primary" : ""}`} onClick={onAdjust} data-testid={`button-adjust-plan-${d.symbol}`}><Pencil className="h-4 w-4" aria-hidden /> Adjust My Practice Plan</button>}
       <button className="ac-btn" onClick={() => focusSymbol(d.symbol)} data-testid={`button-ac-chart-${d.symbol}`}><LineChart className="h-4 w-4" aria-hidden /> {group === "FORMING" ? "Watch Setup" : "Open Chart"}</button>

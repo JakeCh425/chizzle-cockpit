@@ -10,6 +10,9 @@ import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, typ
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, scanNow, setFocusHint, settingsPatchSchema, startSwingScheduler } from "./service";
 import { perfSummary, recentSpans } from "./perf";
+import { TradeError, armTrade, cancelTrade, closeTrade, configureTrades, editTrade, fillTrade, getTrade, listEvents as listTradeEvents, listTrades, openTradeSymbols, tradesSummary } from "./trades";
+import { onScanPriority } from "./service";
+import { TRADE_STATUSES, PRACTICE_TRADE_NOTE, type TradeStatus } from "@shared/swingTrades";
 import { sendTestTelegram, startReadyAlerts } from "./readyAlerts";
 import { ackEvent, confirmVerification, contactsWithStatus, createAlert, deleteAlert, listAlerts, listEvents, loadPrefs, savePrefs, sendVerification, setAlertActive, startAlertLoop, tickAlerts } from "./alerts";
 import { ALERT_TYPES, CHANNELS, needsLevel } from "@shared/priceAlerts";
@@ -29,6 +32,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
   try { const out = await fn(req, res); if (!res.headersSent) res.json(out); }
   catch (e: any) {
     if (e instanceof WatchlistError) return res.status(e.code).json({ error: e.message });
+    if (e instanceof TradeError) return res.status(e.status).json({ error: e.message });
     if (e instanceof z.ZodError) return res.status(400).json({ error: "Invalid input", issues: e.issues });
     console.error("[swing]", e); res.status(500).json({ error: e?.message || "Swing engine error" });
   }
@@ -210,6 +214,23 @@ export function registerSwingRoutes(app: Express) {
   app.post("/api/swing/journal", wrap(async (req) => createJournalEntry(req.body, {
     decision: async (symbol) => { const item = await findItem(symbol); return decisionFor(symbol.toUpperCase(), item?.exchange ?? "", "CURRENT"); },
   })));
+  // ── Part 4: practice trades (ARM TRADE → MY TRADES). PRACTICE ONLY — no broker/order endpoints exist or will. ──
+  configureTrades({ decision: async (symbol) => { const item = await findItem(symbol); return decisionFor(symbol.toUpperCase(), item?.exchange ?? "", "CURRENT"); } });
+  onScanPriority(openTradeSymbols);
+  const tradeId = (req: Request, res: Response): number | null => { const id = Number(req.params.id); if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid id" }); return null; } return id; };
+  app.get("/api/swing/trades", wrap(async (req) => {
+    const status = String(req.query.status ?? "").split(",").filter((x) => (TRADE_STATUSES as readonly string[]).includes(x)) as TradeStatus[];
+    return { banner: PRACTICE_BANNER, note: PRACTICE_TRADE_NOTE, trades: await listTrades({ status, symbol: req.query.symbol ? String(req.query.symbol) : undefined }) };
+  }));
+  app.get("/api/swing/trades/summary", wrap(async () => tradesSummary()));
+  app.get("/api/swing/trades/:id", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { trade: await getTrade(id), events: await listTradeEvents(id) }; }));
+  app.get("/api/swing/trades/:id/events", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { events: await listTradeEvents(id) }; }));
+  app.post("/api/swing/trades", wrap(async (req) => ({ ok: true, trade: await armTrade(req.body) })));
+  app.patch("/api/swing/trades/:id", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { ok: true, trade: await editTrade(id, req.body) }; }));
+  app.post("/api/swing/trades/:id/fill", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { ok: true, trade: await fillTrade(id, req.body) }; }));
+  app.post("/api/swing/trades/:id/close", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { ok: true, trade: await closeTrade(id, req.body) }; }));
+  app.post("/api/swing/trades/:id/cancel", wrap(async (req, res) => { const id = tradeId(req, res); if (id == null) return; return { ok: true, trade: await cancelTrade(id, req.body) }; }));
+
   app.delete("/api/swing/journal/:id", wrap(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid id" }); return; }
