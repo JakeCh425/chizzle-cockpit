@@ -39,7 +39,7 @@ export function SwingDoToday() {
   return (
     <div className="rounded-lg border border-ink-line bg-ink-panel px-3 py-2" data-testid="swing-do-today">
       <div className="text-[10px] font-mono uppercase tracking-wide text-slate-gray mb-1">Do today · Unified Swing Engine</div>
-      {scan.isLoading && <div className="text-xs text-slate-gray">Evaluating SMH, QQQ, SPY…</div>}
+      {scan.isLoading && <div className="text-xs text-slate-gray">Evaluating SMH, QQQ, SPY, XLE, XLV…</div>}
       {scan.data?.emptyReason && <div className="text-xs text-signal-amber">{scan.data.emptyReason}</div>}
       <ul className="space-y-0.5">
         {rows.map((r) => (

@@ -30,6 +30,7 @@ import SwingWorkspace from "@/components/swing/SwingWorkspace";
 import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import ActionCenter from "@/components/swing/ActionCenter";
 import ReadyNow from "@/components/swing/ReadyNow";
+import { DEFAULT_UNIVERSE_HINT } from "@shared/swingDecision";
 import { PlanEditorHost } from "@/components/swing/PlanEditor";
 import { AlertDialogHost } from "@/components/swing/PriceAlerts";
 import { TradeDialogHost } from "@/components/swing/ArmTrade";
@@ -96,7 +97,7 @@ export default function PipelineCockpit() {
       <UnifiedSwingMount>
         {() => (
           <>
-            <CollapsibleSection id="unified-swing" title="Unified Swing Engine" hint="SMH · QQQ · SPY + custom">
+            <CollapsibleSection id="unified-swing" title="Unified Swing Engine" hint={DEFAULT_UNIVERSE_HINT}>
               <ErrorBoundary label="Unified Swing Engine">
                 <SwingWorkspace />
               </ErrorBoundary>

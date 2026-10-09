@@ -94,8 +94,8 @@ describe("scanner buckets", () => {
 });
 
 describe("defaults (spec §A, §D, approved decisions)", () => {
-  it("universe is SMH, QQQ, SPY exchange-qualified", () => {
-    expect(DEFAULT_UNIVERSE).toEqual(["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY"]);
+  it("universe is SMH, QQQ, SPY, XLE, XLV exchange-qualified (XLE/XLV added in Part 6)", () => {
+    expect(DEFAULT_UNIVERSE).toEqual(["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY", "AMEX:XLE", "AMEX:XLV"]);
     expect(splitSymbol("AMEX:SPY")).toEqual({ exchange: "AMEX", symbol: "SPY" });
   });
   it("Learn mode + Flexible, $100 risk, 1.0% / 1.25 ATR extension, RTH, Chicago, auto 1H refresh", () => {

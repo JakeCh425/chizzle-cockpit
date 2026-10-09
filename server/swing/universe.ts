@@ -89,8 +89,18 @@ export class WatchlistError extends Error { constructor(msg: string, public code
 export function normalizeList(list: WatchItem[] | undefined | null): WatchItem[] {
   const out: WatchItem[] = [];
   const src = list && list.length ? list : DEFAULT_WATCHLIST;
-  for (const d of DEFAULT_WATCHLIST) if (!src.some((x) => x.symbol === d.symbol)) out.push({ ...d, order: -1 }); // defaults are permanent
-  for (const x of src) if (!out.some((o) => o.symbol === x.symbol)) out.push({ ...x, isDefault: DEFAULT_WATCHLIST.some((d) => d.symbol === x.symbol) });
+  for (const x of src) {
+    const def = DEFAULT_WATCHLIST.find((d) => d.symbol === x.symbol);
+    // A default the user once added as a custom keeps its order/pin/hidden/notes but drops the CUSTOM tag.
+    out.push(def ? { ...x, isDefault: true, name: x.name || def.name, categories: Array.from(new Set([...def.categories, ...x.categories.filter((c) => c !== "CUSTOM")])) } : { ...x, isDefault: false });
+  }
+  // Defaults are permanent. A default missing from a saved list (e.g. XLE/XLV added in Part 6) is inserted right after
+  // the last default the user already has, so their custom order and pins are untouched.
+  const missing = DEFAULT_WATCHLIST.filter((d) => !src.some((x) => x.symbol === d.symbol));
+  if (missing.length) {
+    const lastDefault = out.filter((o) => o.isDefault).reduce((m, o) => Math.max(m, o.order), -1);
+    missing.forEach((d, i) => out.push({ ...d, order: lastDefault + (i + 1) / (missing.length + 1) }));
+  }
   return sortList(out);
 }
 export const sortList = (l: WatchItem[]) => l.slice().sort((a, z) => (Number(z.pinned) - Number(a.pinned)) || a.order - z.order).map((x, i) => ({ ...x, order: i }));
@@ -137,7 +147,7 @@ export function patchItem(list: WatchItem[], symbol: string, p: WatchPatch): Wat
 
 export function restoreDefaults(list: WatchItem[]): WatchItem[] {
   const customs = normalizeList(list).filter((x) => !x.isDefault);
-  return sortList([...DEFAULT_WATCHLIST.map((d) => ({ ...d })), ...customs.map((c, i) => ({ ...c, order: 3 + i }))]);
+  return sortList([...DEFAULT_WATCHLIST.map((d) => ({ ...d })), ...customs.map((c, i) => ({ ...c, order: DEFAULT_WATCHLIST.length + i }))]);
 }
 
 /** §Q2 — which symbols a scan covers. Hidden/archived tickers are skipped unless explicitly selected. */

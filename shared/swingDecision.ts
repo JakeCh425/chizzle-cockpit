@@ -367,7 +367,7 @@ export interface SwingSettings {
   planAutoRefreshMin?: 0 | 15 | 30 | 60;
 }
 
-export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY"];
+export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY", "AMEX:XLE", "AMEX:XLV"];
 
 // ─── Watchlist (spec §Q1) ───────────────────────────────────────────────────
 export type AssetType = "ETF" | "STOCK";
@@ -389,7 +389,12 @@ export const DEFAULT_WATCHLIST: WatchItem[] = [
   { symbol: "SMH", exchange: "NASDAQ", name: "VanEck Semiconductor ETF", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "SEMICONDUCTOR"], isDefault: true, hidden: false, pinned: false, order: 0 },
   { symbol: "QQQ", exchange: "NASDAQ", name: "Invesco QQQ Trust", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "GROWTH_TECH"], isDefault: true, hidden: false, pinned: false, order: 1 },
   { symbol: "SPY", exchange: "AMEX", name: "SPDR S&P 500 ETF", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS", "BROAD_MARKET"], isDefault: true, hidden: false, pinned: false, order: 2 },
+  // Part 6 — sector ETFs for learning sector rotation (NYSE Arca = TradingView "AMEX", same as SPY).
+  { symbol: "XLE", exchange: "AMEX", name: "Energy Select Sector SPDR Fund", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS"], isDefault: true, hidden: false, pinned: false, order: 3 },
+  { symbol: "XLV", exchange: "AMEX", name: "Health Care Select Sector SPDR Fund", assetType: "ETF", categories: ["DEFAULT_LEARNING", "ETFS"], isDefault: true, hidden: false, pinned: false, order: 4 },
 ];
+/** Header text for the default learning universe (Part 6). */
+export const DEFAULT_UNIVERSE_HINT = `${DEFAULT_WATCHLIST.map((d) => d.symbol).join(" · ")} + custom`;
 export const DEFAULT_UNIVERSE_LABEL = "DEFAULT LEARNING UNIVERSE";
 export const SINGLE_STOCK_RISK = "SINGLE-STOCK EVENT RISK — verify earnings date and news before swing planning.";
 export const ETF_RISK = "ETF — diversified but may still have sector or top-holding concentration risk.";

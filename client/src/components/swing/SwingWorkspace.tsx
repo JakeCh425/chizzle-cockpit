@@ -86,7 +86,7 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
   });
   const restore = useMutation({
     mutationFn: () => swingSend<any>("POST", "/api/swing/watchlist/restore-defaults"),
-    onSuccess: () => { invalidateSwing(); toast({ title: "Default learning universe restored", description: "SMH, QQQ and SPY are visible again." }); },
+    onSuccess: () => { invalidateSwing(); toast({ title: "Default learning universe restored", description: "SMH, QQQ, SPY, XLE and XLV are visible again." }); },
   });
 
   const items = wl.data?.items ?? [];
