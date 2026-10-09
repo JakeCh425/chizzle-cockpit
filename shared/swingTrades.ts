@@ -129,3 +129,21 @@ export function editedFields(t: Pick<SwingTrade, "entry" | "stop" | "stopLimit" 
   return out;
 }
 export const PRACTICE_TRADE_NOTE = "PRACTICE ONLY — this records a practice plan and its outcome. It does not place, send or manage any broker order.";
+
+// ─── Part 5 — locked cards: the engine never overwrites a trade's levels; it only reports what it now says. ──────
+export interface EngineNowSays { changed: ("entry" | "stop" | "t1" | "t2")[]; engine: { entry: number | null; stop: number | null; t1: number | null; t2: number | null }; text: string | null }
+/** Compare the locked trade levels to the engine's current plan. `text` is the info-chip wording, null when nothing differs. */
+export function engineNowSays(t: Pick<SwingTrade, "entry" | "stop" | "t1" | "t2">, engine: { entry: number | null; stop: number | null; t1: number | null; t2: number | null } | null): EngineNowSays {
+  const e = engine ?? { entry: null, stop: null, t1: null, t2: null };
+  const changed = (["entry", "stop", "t1", "t2"] as const).filter((k) => e[k] != null && t[k] != null && Math.abs((e[k] as number) - (t[k] as number)) > 0.005);
+  const lbl: Record<string, string> = { entry: "entry", stop: "stop", t1: "T1", t2: "T2" };
+  const text = changed.length ? `Engine now says ${changed.map((k) => `${lbl[k]} $${(e[k] as number).toFixed(2)}`).join(" · ")} — your locked levels are unchanged.` : null;
+  return { changed, engine: e, text };
+}
+/** Collapsed-row warning for a locked trade: price past the stop or through T1 must stay visible even when collapsed. */
+export function lockedPriceWarning(t: Pick<SwingTrade, "status" | "entry" | "stop" | "t1" | "fillPrice">, price: number | null): string | null {
+  if (price == null) return null;
+  if (price <= t.stop) return `Price ${price.toFixed(2)} is at or below your stop ${t.stop.toFixed(2)} — review the trade.`;
+  if (price >= t.t1) return `Price ${price.toFixed(2)} is at or above your T1 ${t.t1.toFixed(2)} — review the plan.`;
+  return null;
+}

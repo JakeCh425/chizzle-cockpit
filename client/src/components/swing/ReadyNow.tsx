@@ -2,6 +2,7 @@
 // Reads the SAME scan + selected plan versions as the Action Center (no second source of
 // readiness). Hidden entirely when nothing is ready. Buttons open the EXISTING trading card or
 // chart; acknowledging only marks the alert read — it never changes the setup's status.
+import { openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { CheckCircle2, Check, LineChart, Maximize2, Palette, ShieldAlert, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision } from "@shared/swingDecision";
 import { effectivePlan, setupIdOf } from "@shared/practicePlan";
@@ -32,6 +33,7 @@ export default function ReadyNow() {
   const scan = useScan(REQ);
   const plans = useSelectedPlans();
   const events = useAlertEvents();
+  const tradesQ = useSwingTrades(); // before any early return (hooks order)
   const [acked, setAcked] = usePersistentState<string[]>("ready-now-acked", []);
   const [theme, setTheme] = usePersistentState<RnTheme>("ready-now-theme", "signal");
   const ready = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision)).filter(isReadyNow);
@@ -68,6 +70,7 @@ export default function ReadyNow() {
       <ul className="space-y-2 px-3 py-2 sm:px-4">
         {ready.map((d) => {
           const p = effectivePlan(d, activeVersion(d, sel));
+          const lockedTrade = openTradeFor(tradesQ.data?.trades, d.symbol);
           const isAcked = acked.includes(setupIdOf(d)) && !unreadFor(d.symbol).length;
           const a = d.signalAge;
           return (
@@ -80,6 +83,7 @@ export default function ReadyNow() {
                 <div className="flex flex-wrap items-baseline gap-x-2">
                   <span className="rn-title font-mono text-[12px] font-bold" data-testid={`text-ready-status-${d.symbol}`}>{readyStatusLabel(d.setupStatus, live)}</span>
                   <span className="text-[12.5px]">{setupName(d.setupType)}{d.setupTimeframe && <span className="rn-chip"> • {d.setupTimeframe}</span>}{p.source === "USER" && <span className="rn-chip"> • My Plan v{p.version}</span>}</span>
+                  {lockedTrade && <span className="rn-chip font-mono text-[11px] font-bold" data-testid={`chip-ready-locked-${d.symbol}`}>• {lockedTrade.status} practice trade #{lockedTrade.id} — levels locked in My Trades</span>}
                 </div>
                 <div className="font-mono text-[13px] flex flex-wrap gap-x-3" data-testid={`text-ready-levels-${d.symbol}`}>
                   <span>Entry <b>{$(p.entry)}</b></span><span>Stop <b>{$(p.stop)}</b></span><span>T1 <b>{$(p.t1)}</b></span><span>Risk/sh <b>{$(p.risk)}</b></span>

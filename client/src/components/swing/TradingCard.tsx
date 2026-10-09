@@ -8,7 +8,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, Crosshair, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
+  AlertTriangle, BookOpen, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
@@ -519,7 +519,8 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
       {canArm && group !== "READY" && <button className="ac-btn" onClick={arm} title="Not Ready to Trade — arming requires a reason" data-testid={`button-arm-override-${d.symbol}`}><Crosshair className="h-4 w-4" aria-hidden /> Arm anyway…</button>}
       {openTrade && <button className="ac-btn" onClick={editTrade} data-testid={`button-edit-trade-${d.symbol}`}><Pencil className="h-4 w-4" aria-hidden /> Edit trade #{openTrade.id} <span className="ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>({openTrade.status})</span></button>}
       {!inDialog && onOpen && <button className="ac-btn ac-btn-primary" onClick={onOpen} data-testid={`button-open-card-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button>}
-      {canEditPlan(d) && onAdjust && <button className={`ac-btn ${inDialog ? "ac-btn-primary" : ""}`} onClick={onAdjust} data-testid={`button-adjust-plan-${d.symbol}`}><Pencil className="h-4 w-4" aria-hidden /> Adjust My Practice Plan</button>}
+      {openTrade && <span className="inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 font-bold" style={{ fontSize: "var(--ac-fs-xs)", color: "var(--ac-accent)", border: "1.5px solid var(--ac-accent)" }} data-testid={`badge-card-locked-${d.symbol}`}><Lock className="h-3.5 w-3.5" aria-hidden /> Locked — {openTrade.status} trade #{openTrade.id} · levels read-only</span>}
+      {!openTrade && canEditPlan(d) && onAdjust && <button className={`ac-btn ${inDialog ? "ac-btn-primary" : ""}`} onClick={onAdjust} data-testid={`button-adjust-plan-${d.symbol}`}><Pencil className="h-4 w-4" aria-hidden /> Adjust My Practice Plan</button>}
       <button className="ac-btn" onClick={() => focusSymbol(d.symbol)} data-testid={`button-ac-chart-${d.symbol}`}><LineChart className="h-4 w-4" aria-hidden /> {group === "FORMING" ? "Watch Setup" : "Open Chart"}</button>
       <button className="ac-btn" onClick={() => focusSymbol(d.symbol, "why")} data-testid={`button-ac-why-${d.symbol}`}><BookOpen className="h-4 w-4" aria-hidden /> {group === "FORMING" ? "Learn Pattern" : group === "EXTENDED" || group === "RETEST" ? "View Original Setup" : "Learn Why"}</button>
       {group !== "NO_TRADE" && (
@@ -528,9 +529,24 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
         </button>
       )}
       {group === "DATA" && <RefreshDataButton symbols={[d.symbol]} />}
-      {canEditPlan(d) && <button className="ac-btn" onClick={() => (inDialog ? afterCardClose(() => openPlanEditor(d.symbol)) : openPlanEditor(d.symbol))} data-testid={`button-edit-plan-${d.symbol}`}>Advanced editor</button>}
+      {!openTrade && canEditPlan(d) && <button className="ac-btn" onClick={() => (inDialog ? afterCardClose(() => openPlanEditor(d.symbol)) : openPlanEditor(d.symbol))} data-testid={`button-edit-plan-${d.symbol}`}>Advanced editor</button>}
       {group === "READY" && <button className="ac-btn" disabled={journal.isPending} onClick={saveJournal} data-testid={`button-ac-journal-${d.symbol}`}>{journal.isPending ? "Saving…" : "Save to Journal"}</button>}
       {saved && <span className="ac-muted" role="status" data-testid={`status-journal-${d.symbol}`} style={{ fontSize: "var(--ac-fs-xs)" }}>{saved}</span>}
+    </div>
+  );
+}
+
+/** Part 5: a symbol with an ARMED/ACTIVE practice trade shows its card read-only — the engine's levels are information, the trade's levels are the plan. */
+export function LockedNotice({ symbol }: { symbol: string }) {
+  const tradesQ = useSwingTrades();
+  const t = openTradeFor(tradesQ.data?.trades, symbol);
+  if (!t) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2.5 py-1.5" style={{ fontSize: "var(--ac-fs-xs)", border: "1.5px solid var(--ac-accent)" }} role="note" data-testid={`notice-card-locked-${symbol}`}>
+      <span className="font-bold inline-flex items-center gap-1 ac-accent"><Lock className="h-3.5 w-3.5" aria-hidden /> Locked — {t.status} practice trade #{t.id}</span>
+      <span className="ac-num">Your levels: entry {$(t.entry)} · stop {$(t.stop)} · T1 {$(t.t1)}{t.t2 != null ? ` · T2 ${$(t.t2)}` : ""} · {t.shares} sh</span>
+      <span className="ac-muted">The engine levels below are read-only information and never overwrite your trade.</span>
+      <button className="ac-btn !py-0.5 ml-auto" onClick={() => afterCardClose(() => openTradeDialog({ mode: "edit", trade: t }))} data-testid={`button-locked-notice-edit-${symbol}`}><Pencil className="h-3.5 w-3.5" aria-hidden /> Edit trade</button>
     </div>
   );
 }
@@ -712,6 +728,7 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
             <DialogDescription className="sr-only">Practice-only analysis card for {d.symbol}. Not financial advice.</DialogDescription>
             <CardHeader d={d} group={props.group} ver={props.ver} />
             <CriticalWarnings d={d} ver={props.ver} />
+            <LockedNotice symbol={d.symbol} />
           </div>
           {mode === "adjust" && canEditPlan(d)
             ? <AdjustPlan {...props} onDone={() => setMode("view")} />

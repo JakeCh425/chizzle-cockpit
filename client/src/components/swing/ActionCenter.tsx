@@ -14,6 +14,8 @@ import { useScan } from "./SwingWorkspace";
 import { AlertsPanel } from "./PriceAlerts";
 import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
 import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
+import { LockedTradeCard } from "./LockedCard";
+import { useSwingTrades } from "@/lib/swingTrades";
 
 const DEFAULT_TITLE = "Action Center";
 
@@ -48,6 +50,11 @@ function ActionCenterInner() {
   const req = { selection: "DEFAULT_PLUS_CUSTOM" as ScanSelection, symbols: [], force: 0 };
   const scan = useScan(req);
   const plans = useSelectedPlans();
+  // Part 5: symbols with an ARMED/ACTIVE practice trade are pinned above scanner results as locked cards.
+  const tradesQ = useSwingTrades();
+  const openTrades = (tradesQ.data?.trades ?? []).filter((t) => t.status === "ARMED" || t.status === "ACTIVE");
+  const lockedSyms = new Set(openTrades.map((t) => t.symbol));
+  const { data: prices } = useQuery<Record<string, { price: number }>>({ queryKey: ["/api/prices"], refetchInterval: 30_000, enabled: openTrades.length > 0 });
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
   const [prefs, setPrefs] = useAcPrefs();
   const all = useDisclosureAll();
@@ -84,8 +91,8 @@ function ActionCenterInner() {
     window.addEventListener("chizzle:close-card", onClose);
     return () => { window.removeEventListener("chizzle:open-card", onOpen); window.removeEventListener("chizzle:close-card", onClose); };
   }, [setBoxOpen]);
-  const loud = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE");
-  const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE");
+  const loud = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE" && !lockedSyms.has(d.symbol));
+  const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE" && !lockedSyms.has(d.symbol));
   const counts = rows.reduce<Record<string, number>>((m, d) => { const g = actionGroupOf(d); m[g] = (m[g] ?? 0) + 1; return m; }, {});
   const sel = plans.data?.selected;
   const equity = settings.data?.riskLinkInfo?.equity ?? null;
@@ -146,9 +153,20 @@ function ActionCenterInner() {
       <PlanRefreshBar settings={settings.data} />
       {appOpen && <div id="ac-appearance" data-testid="sec-appearance" data-open="true"><AppearanceControls prefs={prefs} set={setPrefs} /></div>}
       {scan.data?.emptyReason && <div className="ac-warn flex items-center gap-1.5" style={{ fontSize: "var(--ac-fs-sm)" }}><AlertTriangle className="h-4 w-4" aria-hidden /> {scan.data.emptyReason}</div>}
-      {!scan.isLoading && !loud.length && (
+      {!scan.isLoading && !loud.length && !openTrades.length && (
         <div className="ac-tile rounded-xl px-4 py-3" style={{ fontSize: "var(--ac-fs)" }} data-testid="text-ac-nothing">
           Nothing ready, confirmed or forming right now. That is a valid answer: no trade is a position. Next conditions are listed below.
+        </div>
+      )}
+      {openTrades.length > 0 && (
+        <div className="space-y-2" data-testid="sec-pinned-trades">
+          <div className="flex flex-wrap items-center gap-2 pl-1" style={{ fontSize: "var(--ac-fs-xs)" }}>
+            <span className="font-bold tracking-wider">MY TRADES — PINNED</span>
+            <span className="ac-muted">{openTrades.length} locked card{openTrades.length === 1 ? "" : "s"} · levels come from your practice trade, not the scanner</span>
+          </div>
+          {openTrades.map((t) => { const d = rows.find((x) => x.symbol === t.symbol) ?? null; return (
+            <LockedTradeCard key={t.id} trade={t} d={d} ver={d ? activeVersion(d, sel) : null} price={prices?.[t.symbol]?.price ?? null} onOpen={d ? () => setDlg({ symbol: t.symbol, mode: "view" }) : undefined} />
+          ); })}
         </div>
       )}
       <div className="space-y-3">
