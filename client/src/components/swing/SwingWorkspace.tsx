@@ -17,6 +17,7 @@ import {
   DATA_TONE, STATUS_TONE, fmt$, fmtCT, swingGet, swingSend, useSwingDecision,
   type ScanResp, type WatchlistResp, type WatchRow,
 } from "@/lib/swing";
+import { addJournalEntry, snapshotOf } from "@/lib/journal";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import TradeTicketBar from "./TradeTicket";
 import { activeVersion, effectivePlan, takePendingFocus, useSelectedPlans } from "@/lib/plans";
@@ -291,8 +292,9 @@ function WhyPanel({ d, marker }: { d: SwingDecision; marker: ChartMarker | null 
   useEffect(() => { setChecks(CHECKS.map(() => false)); }, [d.symbol, d.setupStatus]);
   const journal = useQuery<any[]>({ queryKey: ["/api/swing/journal", d.symbol], queryFn: () => swingGet(`/api/swing/journal?symbol=${d.symbol}`) });
   const save = useMutation({
-    mutationFn: (a: string) => swingSend<any>("POST", "/api/swing/journal", { action: a, symbol: d.symbol, notes: notes || undefined }),
-    onSuccess: (_r, a) => { setNotes(""); queryClient.invalidateQueries({ queryKey: ["/api/swing/journal", d.symbol] }); toast({ title: "Saved to practice journal", description: `${d.symbol} — ${ACTIONS.find((x) => x.a === a)?.label}` }); },
+    // One journal write path (Part 1): shared helper invalidates the per-symbol and global lists.
+    mutationFn: (a: string) => addJournalEntry({ action: a, symbol: d.symbol, notes: notes || undefined, snapshot: snapshotOf(d) }),
+    onSuccess: (_r, a) => { setNotes(""); toast({ title: "Saved to practice journal", description: `${d.symbol} — ${ACTIONS.find((x) => x.a === a)?.label}` }); },
     onError: (e: any) => toast({ title: "Not saved", description: e?.body?.error ?? e.message, variant: "destructive" }),
   });
   const remove = useMutation({

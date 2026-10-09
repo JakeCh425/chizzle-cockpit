@@ -4,7 +4,9 @@
 // readiness, and nothing here can send an order. PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
 import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
   AlertTriangle, BookOpen, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
   Maximize2, MinusCircle, Pencil, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
@@ -480,11 +482,20 @@ export function ExtensionLine({ d }: { d: SwingDecision }) {
 }
 
 function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; inDialog?: boolean; onOpen?: () => void; onAdjust?: () => void }) {
-  const [saved, setSaved] = useState<string | null>(null);
-  const journal = async () => {
-    try { await swingSend("POST", "/api/swing/journal", { action: "PRACTICE_TRADE", symbol: d.symbol, notes: `Saved from trading card (${ver ? `My Adjusted Plan v${ver.version}` : "Engine Plan"}, practice only, not an order).` }); setSaved("Saved to journal"); }
-    catch (e: any) { setSaved(e?.message ?? "Save failed"); }
-  };
+  const { toast } = useToast();
+  // Part 1 fix: real mutation (no double-submit), success/error toast, and cache invalidation so the entry shows up.
+  const journal = useMutation({
+    mutationFn: () => addJournalEntry({
+      action: "PRACTICE_TRADE", symbol: d.symbol,
+      notes: `Saved from trading card (${ver ? `My Adjusted Plan v${ver.version}` : "Engine Plan"}, practice only, not an order).`,
+      levels: levelsOf(effectivePlan(d, ver)), snapshot: snapshotOf(d),
+    }),
+    onSuccess: (r) => toast({ title: `Saved to practice journal — ${d.symbol}`, description: `Entry #${r.entry.id} · ${ver ? `My Adjusted Plan v${ver.version}` : "Engine Plan"} · open Journal → Practice Journal to review. Practice only, not an order.` }),
+    onError: (e: any) => toast({ title: `Not saved — ${d.symbol}`, description: e?.body?.error ?? e?.message ?? "Journal save failed", variant: "destructive" }),
+  });
+  const busy = useRef(false); // synchronous double-click guard (isPending re-renders too late for a rapid second click)
+  const saveJournal = () => { if (busy.current) return; busy.current = true; journal.mutate(undefined, { onSettled: () => { busy.current = false; } }); };
+  const saved = journal.isPending ? "Saving…" : journal.isSuccess ? `Saved #${journal.data.entry.id}` : journal.isError ? "Save failed" : null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       {!inDialog && onOpen && <button className="ac-btn ac-btn-primary" onClick={onOpen} data-testid={`button-open-card-${d.symbol}`}><Maximize2 className="h-4 w-4" aria-hidden /> Open Trading Card</button>}
@@ -498,8 +509,8 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
       )}
       {group === "DATA" && <RefreshDataButton symbols={[d.symbol]} />}
       {canEditPlan(d) && <button className="ac-btn" onClick={() => (inDialog ? afterCardClose(() => openPlanEditor(d.symbol)) : openPlanEditor(d.symbol))} data-testid={`button-edit-plan-${d.symbol}`}>Advanced editor</button>}
-      {group === "READY" && <button className="ac-btn" onClick={journal} data-testid={`button-ac-journal-${d.symbol}`}>Save to Journal</button>}
-      {saved && <span className="ac-muted" role="status" style={{ fontSize: "var(--ac-fs-xs)" }}>{saved}</span>}
+      {group === "READY" && <button className="ac-btn" disabled={journal.isPending} onClick={saveJournal} data-testid={`button-ac-journal-${d.symbol}`}>{journal.isPending ? "Saving…" : "Save to Journal"}</button>}
+      {saved && <span className="ac-muted" role="status" data-testid={`status-journal-${d.symbol}`} style={{ fontSize: "var(--ac-fs-xs)" }}>{saved}</span>}
     </div>
   );
 }

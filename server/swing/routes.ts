@@ -5,6 +5,7 @@ import { z } from "zod";
 import { desc, eq } from "drizzle-orm";
 import { db } from "../storage";
 import { swingJournal } from "@shared/schema";
+import { createJournalEntry, JOURNAL_ACTIONS, listJournal } from "./journal";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
 import { isUnifiedSwingEnabled } from "../featureFlags";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, settingsPatchSchema, startSwingScheduler } from "./service";
@@ -16,7 +17,7 @@ import { ENTRY_METHODS, STOP_METHODS, TARGET_METHODS } from "@shared/practicePla
 import { addItem, patchItem, removeItem, resolveSymbol, restoreDefaults, riskNote, WatchlistError, yahooSearch } from "./universe";
 
 const SELECTIONS: ScanSelection[] = ["DEFAULT", "DEFAULT_PLUS_CUSTOM", "ETFS", "STOCKS", "SEMICONDUCTOR", "BROAD_MARKET", "CUSTOM_SELECTION"];
-export const JOURNAL_ACTIONS = ["PRACTICE_TRADE", "WATCH", "OBSERVED", "MISSED", "DO_NOT_TAKE", "NOTE"] as const;
+export { JOURNAL_ACTIONS };
 
 export function swingGate(req: Request): boolean {
   return isUnifiedSwingEnabled() || req.query.unified === "1";
@@ -197,22 +198,12 @@ export function registerSwingRoutes(app: Express) {
   app.post("/api/swing/alerts/test-telegram", wrap(async () => sendTestTelegram()));
 
   // ── Practice journal (§Q5 buttons) — stores the shared decision snapshot ──
-  app.get("/api/swing/journal", wrap(async (req) => {
-    const q = db.select().from(swingJournal);
-    return (req.query.symbol ? q.where(eq(swingJournal.symbol, String(req.query.symbol).toUpperCase())) : q).orderBy(desc(swingJournal.createdAt)).limit(200);
-  }));
-  app.post("/api/swing/journal", wrap(async (req) => {
-    const b = z.object({ action: z.enum(JOURNAL_ACTIONS), symbol: z.string().min(1).max(16), notes: z.string().max(4000).optional(), lesson: z.string().max(4000).optional() }).parse(req.body ?? {});
-    const item = await findItem(b.symbol);
-    const d = await decisionFor(b.symbol.toUpperCase(), item?.exchange ?? "", "CURRENT");
-    const row = (await db.insert(swingJournal).values({
-      action: b.action, symbol: d.symbol, setupType: d.setupType, grade: d.cardGrade,
-      timeframes: [d.setupTimeframe, "1H"].filter(Boolean).join("/"), entry: d.entryPrice, stop: d.structuralStop,
-      target1: d.target1, target2: d.target2, plannedRisk: d.riskPerShare != null && d.suggestedShares ? d.riskPerShare * d.suggestedShares : null,
-      notes: b.notes ?? null, lesson: b.lesson ?? null, decision: d as any,
-    }).returning())[0];
-    return { ok: true, entry: row };
-  }));
+  app.get("/api/swing/journal", wrap(async (req) => listJournal(req.query.symbol ? String(req.query.symbol) : undefined)));
+  // Part 1 fix: the insert no longer depends on a live vendor call succeeding. The engine decision is
+  // best-effort (time-budgeted); the card's own snapshot/levels are the fallback. See ./journal.ts.
+  app.post("/api/swing/journal", wrap(async (req) => createJournalEntry(req.body, {
+    decision: async (symbol) => { const item = await findItem(symbol); return decisionFor(symbol.toUpperCase(), item?.exchange ?? "", "CURRENT"); },
+  })));
   app.delete("/api/swing/journal/:id", wrap(async (req, res) => {
     const id = Number(req.params.id);
     if (!Number.isInteger(id) || id < 1) { res.status(400).json({ error: "Invalid id" }); return; }

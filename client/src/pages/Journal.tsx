@@ -6,6 +6,8 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import type { Trade, ChizzleScore, EquityHistory, JournalEntry } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { detectLeaks, fmtR } from "@/lib/engine";
+import { PracticeJournal } from "@/components/swing/PracticeJournal";
+import { useSwingEnabled } from "@/lib/swing";
 
 function startOfWeek(d = new Date()): Date {
   const x = new Date(d);
@@ -29,26 +31,29 @@ function endOfMonth(d = new Date()): Date {
 }
 
 export default function Journal() {
-  const [tab, setTab] = usePersistentState<"weekly" | "monthly" | "per-trade">("journal-tab", "weekly");
+  const [tab, setTab] = usePersistentState<"weekly" | "monthly" | "per-trade" | "practice">("journal-tab", "weekly");
+  const unifiedOn = useSwingEnabled();
+  const tabs = unifiedOn ? (["practice", "weekly", "monthly", "per-trade"] as const) : (["weekly", "monthly", "per-trade"] as const);
+  const active = !unifiedOn && tab === "practice" ? "weekly" : tab;
   return (
     <div className="p-3 md:p-4 space-y-4">
       <div className="flex items-baseline gap-3 pb-1 border-b border-ink-line/60">
         <h1 className="font-display text-[15px] tracking-[0.2em] uppercase text-soft-white">Journal</h1>
-        <span className="text-[10px] uppercase tracking-wider text-slate-gray">Weekly · Monthly · Per-Trade</span>
+        <span className="text-[10px] uppercase tracking-wider text-slate-gray">{unifiedOn ? "Practice · " : ""}Weekly · Monthly · Per-Trade</span>
       </div>
       <div className="flex gap-1 border-b border-ink-line">
-        {(["weekly", "monthly", "per-trade"] as const).map(t => (
+        {tabs.map(t => (
           <button
             key={t}
             data-testid={`tab-${t}`}
             onClick={() => setTab(t)}
-            className={`px-4 py-2 text-[11px] uppercase tracking-widest font-display border-b-2 ${tab === t ? "border-neon-blue text-neon-blue" : "border-transparent text-slate-gray hover:text-soft-white"}`}
+            className={`px-4 py-2 text-[11px] uppercase tracking-widest font-display border-b-2 ${active === t ? "border-neon-blue text-neon-blue" : "border-transparent text-slate-gray hover:text-soft-white"}`}
           >
-            {t === "per-trade" ? "Per-Trade Reflection" : `${t} Review`}
+            {t === "per-trade" ? "Per-Trade Reflection" : t === "practice" ? "Practice Journal" : `${t} Review`}
           </button>
         ))}
       </div>
-      {tab === "weekly" ? <WeeklyReview /> : tab === "monthly" ? <MonthlyReview /> : <PerTradeReflection />}
+      {active === "practice" ? <PracticeJournal /> : active === "weekly" ? <WeeklyReview /> : active === "monthly" ? <MonthlyReview /> : <PerTradeReflection />}
     </div>
   );
 }
