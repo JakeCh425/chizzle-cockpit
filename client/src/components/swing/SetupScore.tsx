@@ -59,10 +59,68 @@ export function ScoreSection({ d, scope }: { d: SwingDecision; scope: string }) 
             <span className="ac-muted">{s.status}</span>
           </div>
         )}
+        <div style={xs} data-testid={`text-score-legend-${d.symbol}`}><b>Key:</b> 80–100 PRIORITY · 60–79 WATCH · 0–59 PASS (skip for now) · full key on the Setup Priority Board.</div>
         <ul className="ac-muted list-disc pl-5" style={xs}>{s.notes.map((n) => <li key={n}>{n}</li>)}</ul>
         <div className="ac-muted" style={xs}>
           Setup Board rules: Hammer or Bullish Engulfing near the 10/20 EMA in the last {R.TRIGGER_LOOKBACK} closed {s.timeframe} bars · score entry = trigger high · score stop = pattern low − {R.STOP_ATR_MULT}×ATR(14).
           The score's entry/stop are for scoring only; the card's plan levels above are the engine's. {SCORE_NOTE}
+        </div>
+      </div>
+    </Section>
+  );
+}
+
+const GRADES: { band: string; grade: string; tone: string; text: string }[] = [
+  { band: "80–100", grade: "PRIORITY", tone: "var(--ac-good)", text: "Most rules met — trend aligned, strong trigger volume, and room to the ceiling. Review these first." },
+  { band: "60–79", grade: "WATCH", tone: "var(--ac-accent)", text: "Solid, but one piece is weak or missing. Keep it on the list and wait for the missing piece." },
+  { band: "0–59", grade: "PASS", tone: "var(--ac-muted)", text: "PASS means skip for now — not \"passed\". Too many pieces missing to rank it high." },
+  { band: "n/a", grade: "DATA", tone: "var(--ac-bad)", text: "Not enough closed bars to score. It re-checks on the next refresh." },
+];
+const STATUSES: [string, string][] = [
+  ["NO SETUP", "No Hammer / Bullish Engulfing near the EMAs in the last 5 closed bars. Only trend points count (max 40)."],
+  ["AWAITING BREAK", "Trigger candle found. Its high is the score entry; nothing has closed above it yet."],
+  ["TRIGGERED", "A close is already above the trigger high. Don't chase if price is extended."],
+  ["TARGET REACHED", "Price already reached the ceiling — little reward left in this setup."],
+  ["INVALIDATED", "A close fell below the score stop. R:R points are set to 0."],
+];
+
+/** "How to read the score" key — grades, points, trigger statuses, and how to use the board. */
+export function ScoreKey() {
+  const box = { border: "1px solid var(--ac-border)" } as const;
+  return (
+    <Section id="priority-board:key" title="Score Key — how to read and use it" def={false} testId="sec-score-key"
+      summary="80–100 PRIORITY · 60–79 WATCH · 0–59 PASS (skip for now) · Trend 40 + Volume 30 + R:R 30">
+      <div className="grid gap-3" style={{ ...sm, gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))" }}>
+        <div className="rounded-xl p-3 space-y-1.5" style={box} data-testid="key-grades">
+          <div className="font-bold">What each score means</div>
+          {GRADES.map((g) => (
+            <div key={g.grade} className="flex gap-2 items-start" data-testid={`key-grade-${g.grade}`}>
+              <span className="ac-num font-bold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ ...xs, color: g.tone, border: `1.5px solid ${g.tone}` }}>{g.band} {g.grade}</span>
+              <span>{g.text}</span>
+            </div>
+          ))}
+        </div>
+        <div className="rounded-xl p-3 space-y-1.5" style={box} data-testid="key-points">
+          <div className="font-bold">How the 100 points add up</div>
+          <div><b>Trend · {R.TREND_MAX}</b> — last closed <b>Daily</b> close above the 10 and 20 EMA, with the 10 above the 20. Partial: EMAs stacked but close under the 10 = 20; close above the 20 only = 10.</div>
+          <div><b>Volume · {R.VOLUME_MAX}</b> — trigger candle volume ≥ {R.VOL_MULT_REQ}× its prior 20-bar average. From 1.0× to {R.VOL_MULT_REQ}× scales 0 → {R.VOLUME_MAX}.</div>
+          <div><b>Reward-to-risk · {R.RR_MAX}</b> — (ceiling − score entry) ÷ (score entry − score stop) ≥ {R.RR_REQ} : 1. From 1.0 to {R.RR_REQ} scales 0 → {R.RR_MAX}. No ceiling found = 0.</div>
+          <div className="ac-muted">Score stop = pattern low − {R.STOP_ATR_MULT} × ATR(14). Ceiling = nearest daily swing high above entry (else the 52-week high). <b>Strict</b> makes each block all-or-nothing, so scores land on 0, 30, 40, 60, 70 or 100.</div>
+        </div>
+        <div className="rounded-xl p-3 space-y-1.5" style={box} data-testid="key-statuses">
+          <div className="font-bold">Trigger status</div>
+          {STATUSES.map(([k, v]) => <div key={k}><b className="ac-num">{k}</b> — {v}</div>)}
+        </div>
+        <div className="rounded-xl p-3 space-y-1.5" style={box} data-testid="key-howto">
+          <div className="font-bold">How to use the board</div>
+          <ol className="list-decimal pl-5 space-y-1">
+            <li>Start at <b>RANK #1 SEED</b> and press <b>Card</b> to open it.</li>
+            <li>Check the card's engine status. <b>Ready still comes from the engine</b> — a high score alone is not Ready.</li>
+            <li>Open <b>Setup Score</b> on the card to see what's missing (for example Volume 0/30 = a light trigger candle).</li>
+            <li><b>Trigger timeframe:</b> Daily is the slower swing view. 4H and 1H find earlier triggers with tighter stops, so scores can be higher; trend is always judged on Daily.</li>
+            <li>A 40 with no trigger means the trend is good but there's no entry candle yet — wait for one.</li>
+          </ol>
+          <div className="ac-muted" style={xs}>Scores use closed candles only and are not predictions or guaranteed targets. PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.</div>
         </div>
       </div>
     </Section>
@@ -88,6 +146,7 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
             <span>Strict scoring (all-or-nothing)</span></label>
           <span className="ac-muted">Trend {R.TREND_MAX} · Volume ≥{R.VOL_MULT_REQ}× → {R.VOLUME_MAX} · R:R ≥{R.RR_REQ}:1 → {R.RR_MAX} · trend always Daily · closed candles only</span>
         </div>
+        <ScoreKey />
         <div className="overflow-x-auto">
           <table className="w-full ac-num" style={sm} data-testid="table-priority-board">
             <thead className="ac-muted text-left" style={xs}>
