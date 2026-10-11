@@ -15,6 +15,7 @@ import { AlertsPanel } from "./PriceAlerts";
 import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
 import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
 import { LockedTradeCard } from "./LockedCard";
+import { PriorityBoard } from "./SetupScore";
 import { useSwingTrades } from "@/lib/swingTrades";
 
 const DEFAULT_TITLE = "Action Center";
@@ -169,6 +170,7 @@ function ActionCenterInner() {
           ); })}
         </div>
       )}
+      <PriorityBoard rows={rows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
       <div className="space-y-3">
         {loud.map((d) => {
           const ver = activeVersion(d, sel);

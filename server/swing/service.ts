@@ -15,10 +15,11 @@ import {
 import { dataRulesV2, evaluate, type EvalResult, type ReferenceQuote } from "./lifecycle";
 import { buildOverlay, type HistoryScope } from "./markers";
 import { fetch1H, fetchDaily, fetchIntraday, fetchQuote, secondVendorReference } from "./feed";
-import { aggregate4H, aggregateWeekly, chicago, chicagoTs, tag1H } from "./bars";
+import { aggregate4H, aggregateWeekly, chicago, chicagoTs, dailyClosed, tag1H } from "./bars";
+import { scoreSetup, type SetupScore } from "@shared/setupScore";
 import type { SwingBar } from "./candleMath";
 import { normalizeList, riskNote, selectUniverse } from "./universe";
-import { isUnifiedSwingEnabled } from "../featureFlags";
+import { isSetupScoreEnabled, isUnifiedSwingEnabled } from "../featureFlags";
 import { planChangeOf, targetDefaultError } from "@shared/practicePlan";
 import type { LivePermission } from "@shared/readyAlerts";
 
@@ -51,6 +52,8 @@ export const settingsPatchSchema = z.object({
   targetDefault: z.object({ method: z.enum(["FIXED_R", "ENGINE", "STRUCTURE"]), t1R: z.number().positive().max(20), t2R: z.number().positive().max(20) })
     .refine((t) => !targetDefaultError(t), (t) => ({ message: targetDefaultError(t) ?? "Invalid target default" })).optional(),
   planAutoRefreshMin: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
+  scoreTimeframe: z.enum(["Daily", "4H", "1H"]).optional(),
+  scoreStrict: z.boolean().optional(),
 }).strict();
 
 let settingsCache: { v: SwingSettings; at: number } | null = null;
@@ -140,7 +143,18 @@ function runRules(sym: string, exchange: string, h1: SwingBar[], d1: SwingBar[],
   res.decision.chart = buildOverlay(res, { scope: "ALL" });
   const d = res.decision;
   d.levelsInvalid = levelsInvalidOf(d, { entry: d.entryPrice, stop: d.structuralStop, t1: d.target1 });
+  if (isSetupScoreEnabled()) d.setupScore = setupScoreFor(h1, d1, s, now);
   return res;
+}
+
+/** Setup Board score on CLOSED bars (same math as chizzle_setup_board.py). Never touches the decision's status/levels. */
+export function setupScoreFor(h1: SwingBar[], d1: SwingBar[], s: SwingSettings, now: number): SetupScore | null {
+  try {
+    const tf = s.scoreTimeframe ?? "Daily";
+    const daily = d1.slice().sort((a, z) => a.t - z.t).filter((b) => dailyClosed(b, now));
+    const bars = tf === "4H" ? aggregate4H(h1, now).filter((b) => b.closed) : tf === "1H" ? tag1H(h1, now, true).filter((b) => b.closed) : daily;
+    return scoreSetup(daily, bars, tf, !!s.scoreStrict);
+  } catch { return null; }
 }
 
 // ─── Data recovery (v2): bounded-backoff retries + an in-memory event log (no schema change) ─
@@ -363,6 +377,10 @@ export async function scanNow(sel: ScanSelection, symbols: string[] = [], status
   const s = await loadSettings();
   const items = await orderItems(selectUniverse(s.watchlist!, sel, symbols));
   const pending: string[] = [];
+  // Settings changed since the cached evaluation (reeval flag): re-apply rules to the cached bars first — no new
+  // bar fetch — so a settings change (score mode, target default…) shows on the very next scan.
+  await Promise.all(items.map((item) => { const h = evalCache.get(item.symbol.toUpperCase());
+    return h?.reeval ? evaluateSymbol(item, { settings: s, allowStale: true }).catch(() => null) : null; }));
   const rows = items.map((item) => {
     const sym = item.symbol.toUpperCase(), hit = evalCache.get(sym);
     const now = nowSec(), fresh = hit && hourPart(hit.key) === hourPart(`${sym}|${barKey(now)}`);

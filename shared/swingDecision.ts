@@ -120,6 +120,8 @@ export interface SwingDecision {
    *  practice plan until the next closed 1H bar re-evaluates. Computed server-side from the engine levels;
    *  the client re-checks against "My Adjusted Plan" levels with the same helper. */
   levelsInvalid?: LevelsInvalid | null;
+  /** Setup Board score (ENABLE_SETUP_SCORE). Information only — never changes setupStatus, Ready, or levels. */
+  setupScore?: import("./setupScore").SetupScore | null;
   /** Part 3: this row is a placeholder while the live evaluation runs — either the last persisted decision
    *  (labeled with its age) or an empty "Evaluating…" shell. Replaced automatically when the evaluation lands. */
   evalPending?: { from: "decision-log" | "none"; analysisAt: string | null; ageMin: number | null } | null;
@@ -365,6 +367,9 @@ export interface SwingSettings {
   targetDefault?: TargetDefault;
   /** Opt-in plan auto refresh during regular hours (minutes; 0 = off). Shares the existing scheduler. */
   planAutoRefreshMin?: 0 | 15 | 30 | 60;
+  /** Setup Score: trigger timeframe (trend is always Daily) and all-or-nothing scoring. */
+  scoreTimeframe?: "Daily" | "4H" | "1H";
+  scoreStrict?: boolean;
 }
 
 export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY", "AMEX:XLE", "AMEX:XLV"];
@@ -461,6 +466,8 @@ export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   autoRefresh1H: true,
   targetDefault: { method: "FIXED_R", t1R: 2, t2R: 3 },
   planAutoRefreshMin: 0,
+  scoreTimeframe: "Daily",
+  scoreStrict: false,
 };
 
 /** Signal mode each user mode defaults to when the user switches modes. */

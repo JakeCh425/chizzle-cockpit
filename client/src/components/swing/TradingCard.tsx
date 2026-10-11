@@ -11,6 +11,7 @@ import {
   AlertTriangle, BookOpen, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, Hourglass, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
+import { ScoreChip, ScoreSection } from "./SetupScore";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
@@ -421,6 +422,8 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
         </Section>
       )}
 
+      <ScoreSection d={d} scope={scope} />
+
       <Section id={`${scope}:explain`} title="Explanations" def={guided} testId={`sec-explain-${d.symbol}`} summary="What each number means">
         <ul className="space-y-1 leading-snug" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`list-rr-explain-${d.symbol}`}>
           <li>{STATUS_EXPLAIN[d.setupStatus] ?? d.nextAction}</li>
@@ -582,6 +585,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
       </Badge>
       {isNew && <span className="rounded-full px-2.5 py-0.5 font-bold" style={{ fontSize: "var(--ac-fs-xs)", background: "var(--ac-accent-2)", color: "var(--ac-bg)" }} data-testid={`badge-new-plan-${d.symbol}`}>NEW PLAN</span>}
       <PendingChip d={d} />
+      <ScoreChip d={d} />
       <div className="ml-auto text-right" data-testid={`text-card-data-${d.symbol}`}>
         <span className="ac-num font-bold" style={{ fontSize: "calc(var(--ac-fs) * 1.2)" }}>{$(d.currentPrice)}</span>
         <span className="flex items-center gap-1 justify-end" style={{ fontSize: "var(--ac-fs-xs)" }}>
@@ -680,6 +684,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         <span className="ac-num font-extrabold leading-none tracking-tight" style={{ fontSize: "calc(var(--ac-ticker) * 0.85)" }} data-testid={`text-card-ticker-${d.symbol}`}>{d.symbol}</span>
         <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{statusText(d, group, live)}</Badge>
         <PendingChip d={d} />
+        <ScoreChip d={d} />
         <span className="font-semibold" style={sm}>{setupName(d.setupType)}{d.setupTimeframe && <span className="ac-accent"> · {d.setupTimeframe}</span>}</span>
         {p.source === "USER" && <Badge tone="accent" Icon={Pencil} testId={`text-ac-plan-source-${d.symbol}`}>My Plan v{p.version}</Badge>}
         {isNew && <span className="rounded-full px-2 py-0.5 font-bold" style={{ ...xs, background: "var(--ac-accent-2)", color: "var(--ac-bg)" }} data-testid={`badge-new-plan-${d.symbol}`}>NEW</span>}

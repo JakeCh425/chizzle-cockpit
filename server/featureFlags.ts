@@ -24,6 +24,12 @@ export function isUnifiedSwingEnabled(): boolean {
   return envFlag("ENABLE_UNIFIED_SWING_ENGINE");
 }
 
+/** Setup Score — the Swing Setup Board's 0–100 score on cockpit cards + Priority Board. Information only;
+ *  never changes Ready or levels. Requires the unified engine. */
+export function isSetupScoreEnabled(): boolean {
+  return envFlag("ENABLE_SETUP_SCORE") && isUnifiedSwingEnabled();
+}
+
 /** All flags — snapshot for the /api/feature-flags endpoint. */
 export function allFlags(): Record<string, boolean> {
   return {
