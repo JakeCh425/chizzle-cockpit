@@ -370,6 +370,8 @@ export interface SwingSettings {
   /** Setup Score: trigger timeframe (trend is always Daily) and all-or-nothing scoring. */
   scoreTimeframe?: "Daily" | "4H" | "1H";
   scoreStrict?: boolean;
+  /** Funding profile for whole-share sizing (manual values; no broker connection exists). Shared by every card. */
+  funding?: import("./positionSizing").FundingProfile;
 }
 
 export const DEFAULT_UNIVERSE = ["NASDAQ:SMH", "NASDAQ:QQQ", "AMEX:SPY", "AMEX:XLE", "AMEX:XLV"];

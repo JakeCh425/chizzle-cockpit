@@ -12,6 +12,7 @@ import {
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import { ScoreChip, ScoreSection } from "./SetupScore";
+import { FundingPanel, useCardSizing } from "./FundingPanel";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
@@ -317,6 +318,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const needsChoice = ver != null && engineMoved.length > 0 && acks[String(ver.id)] !== enginePlanSig(d);
   const [review, setReview] = useState(false);
   const step = nextStepFor(d, group, ver);
+  const sz = useCardSizing(d, ver);
   const shares = p.shares;
   const posValue = shares != null && p.entry != null ? shares * p.entry : null;
   const totalRisk = shares != null && p.risk != null ? shares * p.risk : null;
@@ -408,19 +410,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
         </div>
       )}
 
-      {populated && (
-        <Section id={`${scope}:risk`} title="Risk & Position Size" testId={`sec-risk-${d.symbol}`}
-          summary={`${shares ?? "—"} sh · risk ${$(totalRisk)} · ${acctPct != null ? `${acctPct.toFixed(2)}% of account` : "account % n/a"} · ${$(p.risk)}/sh`}>
-          <div style={autoGrid(130)}>
-            <Stat testId={`stat-shares-${d.symbol}`} guided={guided} k="Practice shares" v={shares != null ? String(shares) : "—"} explain="Sized to your risk budget." />
-            <Stat testId={`stat-value-${d.symbol}`} guided={guided} k="Position value" v={$(posValue)} explain="Shares × entry." />
-            <Stat testId={`stat-rps-${d.symbol}`} guided={guided} k="Risk per share" v={$(p.risk)} explain="Entry − stop loss." />
-            <Stat testId={`stat-risk-${d.symbol}`} guided={guided} k="Planned dollar risk" v={$(totalRisk)} explain="If all shares exit at the stop." />
-            <Stat testId={`stat-acct-${d.symbol}`} guided={guided} k="Account risk" v={acctPct != null ? `${acctPct.toFixed(2)}%` : "Not available"} explain={!equity ? "Set equity in Settings → Risk Profile." : totalRisk == null ? "Shown once shares are sized." : `Dollar risk ÷ equity (${$(equity)}).`} />
-            <Stat testId={`stat-rr-${d.symbol}`} guided={guided} k="Reward-to-risk" v={p.rrT1 != null ? `T1 ${rTxt(p.rrT1)}\nT2 ${rTxt(p.rrT2) ?? "—"}` : "Not calculated yet"} explain="Separate scenarios." />
-          </div>
-        </Section>
-      )}
+      {populated && <FundingPanel d={d} ver={ver} scope={scope} sz={sz} />}
 
       <ScoreSection d={d} scope={scope} />
 
@@ -441,7 +431,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
         <span className="font-bold ac-muted" style={{ fontSize: "var(--ac-fs-xs)" }}>NEXT STEP</span>
         <span className="font-bold" style={{ fontSize: "calc(var(--ac-fs) * 1.1)", color: toneVar(step.tone) }} data-testid={`text-next-step-${d.symbol}`}>{step.text}</span>
       </div>
-      <CardActions d={d} group={group} ver={ver} inDialog={inDialog} onOpen={onOpen} onAdjust={onAdjust} />
+      <CardActions d={d} group={group} ver={ver} inDialog={inDialog} onOpen={onOpen} onAdjust={onAdjust} sizedShares={sz.sizing.ok && !sz.override ? sz.sizing.shares : null} />
     </div>
   );
 }
@@ -494,7 +484,7 @@ export function ExtensionLine({ d }: { d: SwingDecision }) {
   );
 }
 
-function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; inDialog?: boolean; onOpen?: () => void; onAdjust?: () => void }) {
+function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, sizedShares = null }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; inDialog?: boolean; onOpen?: () => void; onAdjust?: () => void; sizedShares?: number | null }) {
   const { toast } = useToast();
   // Part 1 fix: real mutation (no double-submit), success/error toast, and cache invalidation so the entry shows up.
   const journal = useMutation({
@@ -514,7 +504,7 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust }: { d: SwingDe
   const tradesQ = useSwingTrades();
   const openTrade = openTradeFor(tradesQ.data?.trades, d.symbol);
   const canArm = !openTrade && !d.evalPending && group !== "NO_TRADE" && group !== "DATA" && d.entryPrice != null && d.structuralStop != null;
-  const arm = () => { const run = () => openTradeDialog({ mode: "arm", decision: d, plan: effectivePlan(d, ver), liveAllowed: live ? live.allowed : null, overrideRequired: group !== "READY" }); inDialog ? afterCardClose(run) : run(); };
+  const arm = () => { const run = () => openTradeDialog({ mode: "arm", decision: d, plan: sizedShares != null ? { ...effectivePlan(d, ver), shares: sizedShares } : effectivePlan(d, ver), liveAllowed: live ? live.allowed : null, overrideRequired: group !== "READY" }); inDialog ? afterCardClose(run) : run(); };
   const editTrade = () => { if (!openTrade) return; const run = () => openTradeDialog({ mode: "edit", trade: openTrade, decision: d }); inDialog ? afterCardClose(run) : run(); };
   return (
     <div className="flex flex-wrap items-center gap-2">

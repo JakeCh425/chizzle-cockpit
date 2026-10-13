@@ -54,6 +54,14 @@ export const settingsPatchSchema = z.object({
   planAutoRefreshMin: z.union([z.literal(0), z.literal(15), z.literal(30), z.literal(60)]).optional(),
   scoreTimeframe: z.enum(["Daily", "4H", "1H"]).optional(),
   scoreStrict: z.boolean().optional(),
+  funding: z.object({
+    equityMode: z.enum(["RISK_PROFILE", "MANUAL"]),
+    manualEquity: z.number().positive().max(1e9).nullable(), equityUpdatedAt: z.string().datetime().nullable(),
+    cash: z.number().min(0).max(1e9).nullable(), cashUpdatedAt: z.string().datetime().nullable(),
+    riskPct: z.number().positive().max(100).nullable(),
+    reservedOpen: z.number().min(0).max(1e9), reservedPending: z.number().min(0).max(1e9), cashIncludesReservations: z.boolean(),
+    feePerTrade: z.number().min(0).max(1e6), bufferPct: z.number().min(0).max(25),
+  }).optional(),
 }).strict();
 
 let settingsCache: { v: SwingSettings; at: number } | null = null;

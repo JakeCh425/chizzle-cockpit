@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { invalidateSwing } from "@/components/swing/PlanRefresh";
 import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
@@ -109,7 +110,7 @@ function BrandingPanel() {
         brandFont: font,
         brandIconSvg: svg.trim() || null,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
       toast({ title: "Branding saved" });
     } catch (e) {
       toast({ title: "Save failed", description: errMsg(e) });
@@ -244,7 +245,7 @@ function SidebarLabelsPanel() {
   const save = async () => {
     try {
       await apiRequest("PATCH", "/api/settings", { sidebarLabels: JSON.stringify(labels) });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
       toast({ title: "Sidebar labels saved" });
     } catch (e) {
       toast({ title: "Save failed", description: errMsg(e) });
@@ -312,7 +313,7 @@ function VehicleStylePanel() {
         vehicleTickerScale: scale,
         vehicleBodyColor: color,
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
       toast({ title: "Vehicle style saved" });
     } catch (e) {
       toast({ title: "Save failed", description: errMsg(e) });
@@ -488,7 +489,7 @@ export default function SettingsPage() {
       ...(eq > 0 ? { maxDailyLossAmount: daily, maxWeeklyLossAmount: weekly } : {}),
       maxDrawdownPercent: p.dd, scaleDownDrawdownPercent: p.scaleDD,
     });
-    queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
     queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/swing") });
     toast({ title: `${p.label} preset applied`, description: "Saved. Every field is still editable — tweak anything below." });
   };
@@ -528,7 +529,7 @@ export default function SettingsPage() {
       scaleUpMinExpectancy: Number(scaleUpExp),
       scaleDownDrawdownPercent: Number(scaleDownDD),
     });
-    queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+    queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
     queryClient.invalidateQueries({ predicate: (q) => String(q.queryKey[0] ?? "").startsWith("/api/swing") });
     toast({ title: "Settings saved", description: "Swing engine $ risk follows these values when linked." });
   };
@@ -904,7 +905,7 @@ function RegimeEnginePanel() {
       await apiRequest("POST", "/api/regime/recompute", {});
       queryClient.invalidateQueries({ queryKey: ["/api/regime"] });
       queryClient.invalidateQueries({ queryKey: ["/api/regime/history"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
       toast({ title: "Regime recomputed", description: "Pulled fresh Yahoo data and reclassified." });
     } catch (e: unknown) {
       toast({ title: "Recompute failed", description: errMsg(e), variant: "destructive" });
@@ -920,7 +921,7 @@ function RegimeEnginePanel() {
     try {
       await apiRequest("POST", "/api/regime/override", { enabled, regime });
       queryClient.invalidateQueries({ queryKey: ["/api/regime"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] }); void invalidateSwing(); // card equity/shares re-read the new Risk Profile
       toast({ title: enabled ? `Manual override → ${label}` : "Override disabled", description: enabled ? "Auto-engine continues classifying in the background." : "Effective regime now follows the auto-engine." });
     } catch (e: unknown) {
       toast({ title: "Override failed", description: errMsg(e), variant: "destructive" });

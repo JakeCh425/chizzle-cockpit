@@ -16,6 +16,7 @@ import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
 import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
+import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades } from "@/lib/swingTrades";
 
 const DEFAULT_TITLE = "Action Center";
@@ -96,7 +97,9 @@ function ActionCenterInner() {
   const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE" && !lockedSyms.has(d.symbol));
   const counts = rows.reduce<Record<string, number>>((m, d) => { const g = actionGroupOf(d); m[g] = (m[g] ?? 0) + 1; return m; }, {});
   const sel = plans.data?.selected;
-  const equity = settings.data?.riskLinkInfo?.equity ?? null;
+  // One account snapshot for every card: the same equity the Funding panel and Arm Trade use.
+  const acct = useAccountSnapshot();
+  const equity = acct.equity;
   const expiryBars = settings.data?.expiryBars4h ?? 2;
   const minRr = settings.data?.minRrT1 ?? null;
   const markSeen = (k: string) => { if (!seen.includes(k)) setSeen([...seen.slice(-199), k]); };
