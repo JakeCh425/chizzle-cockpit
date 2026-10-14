@@ -697,3 +697,19 @@ export function closeBoundaryNear(min: number): number | null {
 
 export const _test = { evalCache, barKey, rs, nextScheduled, inSession, earlyBy, inflight };
 export { SETUP_STATUSES };
+
+// ─── Chart Ecosystem Part 1 — read-only accessors for the shared market context (no behavior change) ──
+/** The cached engine snapshot (bars + rules result) for a symbol, or null. Never triggers a fetch. */
+export function cachedEvalFor(symbol: string): { res: EvalResult; bars1h: SwingBar[]; daily: SwingBar[]; at: number; source: string | null } | null {
+  const c = evalCache.get(symbol.toUpperCase());
+  return c ? { res: c.res, bars1h: c.bars1h, daily: c.daily, at: c.at, source: c.source } : null;
+}
+/** The exact decision object the scan rows serve for this result (same as rowOf). */
+export function scanDecisionOf(res: EvalResult): SwingDecision {
+  return { ...withEarly(res.decision), chart: buildOverlay(res, { scope: "CURRENT" }) };
+}
+/** Last persisted decision from the boot snapshot (shown while the live evaluation runs). */
+export function bootSnapshotOf(symbol: string): SwingDecision | null {
+  const s = bootSnapshots.get(symbol.toUpperCase());
+  return s ? withEarly(s) : null;
+}

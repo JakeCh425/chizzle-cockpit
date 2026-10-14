@@ -16,6 +16,7 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { expiredExplainer } from "@shared/tradeSummary";
 import { hasPlan, stopLimitFor } from "./TradeTicket";
 import type { PlanVersion } from "@shared/practicePlan";
+import { isContextTf, useContextUiEnabled, useMarketContext } from "@/lib/marketContext";
 
 export const TFS = ["15m", "30m", "1H", "4H", "D", "W"] as const;
 export type Tf = typeof TFS[number];
@@ -141,6 +142,19 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const chartRef = useRef<IChartApi | null>(null);
   const mainRef = useRef<ISeriesApi<any> | null>(null);
   const data = bars.data?.bars ?? [];
+  // Part 1 — indicator values come from the shared market context (same bars, same formulas) when it
+  // matches the bars on screen; otherwise the chart keeps its previous local math. Visuals are identical.
+  const [ctxUi] = useContextUiEnabled();
+  const ctxQ = useMarketContext(symbol, tf, { series: true, stamp: decision?.evaluatedAt ?? null, enabled: ctxUi && !ov.ext && isContextTf(tf) });
+  const ctxSeries = useMemo(() => {
+    const c = ctxQ.data, sr = c?.series;
+    if (!c || !sr || !data.length || ov.ext || !isContextTf(tf)) return null;
+    const lb = data[data.length - 1], cb = c.bars?.[c.bars.length - 1];
+    if (!cb || cb.t !== lb.t || Math.abs(cb.c - lb.c) > 1e-9) return null; // different snapshot → local math
+    const idx = new Map<number, number>(); sr.t.forEach((t, i) => idx.set(t, i));
+    return { idx, sr };
+  }, [ctxQ.data, data, ov.ext, tf]);
+  const ctxUsedRef = useRef<"ctx" | "local">("local");
   const intraday = tf === "15m" || tf === "30m" || tf === "1H" || tf === "4H";
 
   // Markers snapped to the nearest displayed bar at or before the marker's bar time.
@@ -194,9 +208,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
     const smaSeries: { key: SmaKey; s: ISeriesApi<any> }[] = [];
     const last: Partial<Record<SmaKey, number>> = {};
+    const fromCtx = (vals: (number | null)[], key: "sma20" | "sma50" | "sma200" | "bbU" | "bbL") => {
+      if (!ctxSeries) return vals;
+      return vals.map((v, i) => { if (v == null) return v; const j = ctxSeries.idx.get(data[i].t); const cv = j == null ? null : ctxSeries.sr[key][j]; return cv ?? v; });
+    };
+    ctxUsedRef.current = ctxSeries ? "ctx" : "local";
     for (const m of SMA_META) {
       if (!ov[m.key]) continue;
-      const vals = sma(closes, m.n);
+      const vals = fromCtx(sma(closes, m.n), m.key);
       const sr = chart.addSeries(LineSeries, { color: m.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, crosshairMarkerRadius: 3, title: "" });
       sr.setData(vals.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
       smaSeries.push({ key: m.key, s: sr });
@@ -216,7 +235,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       }
       setSmaHover({ vals, hit, x: p.point.x, y: p.point.y });
     });
-    if (ov.bb) { const b = bb(closes); line(b.map((x) => x?.u ?? null), "#64748b", LineStyle.Dotted); line(b.map((x) => x?.l ?? null), "#64748b", LineStyle.Dotted); }
+    if (ov.bb) { const b = bb(closes); line(fromCtx(b.map((x) => x?.u ?? null), "bbU"), "#64748b", LineStyle.Dotted); line(fromCtx(b.map((x) => x?.l ?? null), "bbL"), "#64748b", LineStyle.Dotted); }
 
     const overlay = decision?.chart;
     const vis = showRef.current;
@@ -337,7 +356,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const tm = setTimeout(safeDraw, 60);
     return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv]);
+  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries]);
 
   // Toggle plan info without rebuilding the chart.
   useEffect(() => {
@@ -434,7 +453,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
         {data.length > 0 && SMA_META.some((m) => ov[m.key]) && (
-          <div className="absolute top-1.5 left-2 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" data-testid="legend-sma">
+          <div className="absolute top-1.5 left-2 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" data-testid="legend-sma" data-indicator-source={ctxSeries ? "context" : "local"}>
             {SMA_META.filter((m) => ov[m.key]).map((m) => {
               const v = smaHover?.vals[m.key] ?? smaLast[m.key];
               const on = smaHover?.hit === m.key;

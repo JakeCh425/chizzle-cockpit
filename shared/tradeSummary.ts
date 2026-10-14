@@ -46,7 +46,10 @@ export function harmonizeCoach(status: SwingDecision["setupStatus"], coach: Coac
   return { headline, bullets };
 }
 
-export function buildTradeSummary(d: SwingDecision, coachRaw?: CoachInput | null): TradeSummary {
+/** Optional plan levels from the Shared Market Context (Part 1). When given, the summary prints the SAME
+ *  entry/stop/targets the card, ticket and alerts use; omitted = the previous engine-level wording. */
+export interface SummaryPlan { entry: number | null; stop: number | null; t1: number | null; t2: number | null; risk: number | null; rrT1: number | null; rrT2: number | null; label: string }
+export function buildTradeSummary(d: SwingDecision, coachRaw?: CoachInput | null, plan?: SummaryPlan | null): TradeSummary {
   const label = STATUS_LABEL[d.setupStatus];
   const printed = d.setupStatus === "READY_TO_TRADE";
   const coach = harmonizeCoach(d.setupStatus, coachRaw);
@@ -84,7 +87,19 @@ export function buildTradeSummary(d: SwingDecision, coachRaw?: CoachInput | null
     ],
   });
 
-  if (hasPlan) {
+  if (hasPlan && plan && plan.entry != null && plan.stop != null) {
+    const engineDiff = (plan.t1 != null && d.target1 != null && Math.abs(plan.t1 - d.target1) >= 0.005) || (plan.t2 != null && d.target2 != null && Math.abs(plan.t2 - d.target2) >= 0.005);
+    sections.push({
+      title: printed ? "The practice plan" : "Plan levels (reference until confirmed)",
+      lines: [
+        `${plan.label}: entry ${$(plan.entry)}${d.originalTrigger != null && d.originalTrigger !== plan.entry ? ` (trigger ${$(d.originalTrigger)})` : ""} · stop ${$(plan.stop)} · risk ${$(plan.risk)}/share.`,
+        `Target 1 ${$(plan.t1)} (${plan.rrT1 ?? "—"}R) · Target 2 ${$(plan.t2)} (${plan.rrT2 ?? "—"}R).`,
+        ...(engineDiff ? [`Engine structure targets (used for the readiness check): T1 ${$(d.target1)} (${d.rewardRiskT1 ?? "—"}R) · T2 ${$(d.target2)}.`] : []),
+        ...(d.suggestedShares != null ? [`Sizing reference: ${d.suggestedShares} shares keeps risk inside your $${d.maxDollarRisk} max (informational only).`] : []),
+        "Management reference: at T1 trim about half and move the stop to breakeven; let the rest work toward T2 or trail the 20-SMA.",
+      ],
+    });
+  } else if (hasPlan) {
     sections.push({
       title: printed ? "The practice plan" : "Plan levels (reference until confirmed)",
       lines: [
@@ -110,8 +125,10 @@ export function buildTradeSummary(d: SwingDecision, coachRaw?: CoachInput | null
 
   const brokerStep = printed && hasPlan ? [
     `This card has printed. If you decide to act, open your broker and enter the order yourself — this app never places orders.`,
-    `Re-check the live price first: only consider it near ${$(entry)}; if price has run well past the trigger, skip it rather than chase.`,
-    `Reference bracket: buy near ${$(entry)}, protective stop ${$(d.structuralStop)}, profit target ${$(d.target1)} (T1)${d.target2 != null ? `, runner toward ${$(d.target2)} (T2)` : ""}.`,
+    `Re-check the live price first: only consider it near ${$(plan?.entry ?? entry)}; if price has run well past the trigger, skip it rather than chase.`,
+    plan && plan.entry != null && plan.stop != null
+      ? `Reference bracket: buy near ${$(plan.entry)}, protective stop ${$(plan.stop)}, profit target ${$(plan.t1)} (T1)${plan.t2 != null ? `, runner toward ${$(plan.t2)} (T2)` : ""}.`
+      : `Reference bracket: buy near ${$(entry)}, protective stop ${$(d.structuralStop)}, profit target ${$(d.target1)} (T1)${d.target2 != null ? `, runner toward ${$(d.target2)} (T2)` : ""}.`,
     `After you place it, save it here as a Practice Trade Plan so the outcome lands in your journal.`,
   ] : null;
 

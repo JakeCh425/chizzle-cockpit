@@ -30,6 +30,13 @@ export function isSetupScoreEnabled(): boolean {
   return envFlag("ENABLE_SETUP_SCORE") && isUnifiedSwingEnabled();
 }
 
+/** Chart Ecosystem Part 1 — Shared Market Context endpoint (/api/swing/context). Default ON; set
+ *  ENABLE_MARKET_CONTEXT=false to turn it off (panels then fall back to their existing sources). */
+export function isMarketContextEnabled(): boolean {
+  const v = (process.env.ENABLE_MARKET_CONTEXT || "").trim().toLowerCase();
+  return !(v === "0" || v === "false" || v === "no" || v === "off");
+}
+
 /** All flags — snapshot for the /api/feature-flags endpoint. */
 export function allFlags(): Record<string, boolean> {
   return {

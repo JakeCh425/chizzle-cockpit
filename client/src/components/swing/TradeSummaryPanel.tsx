@@ -9,6 +9,8 @@ import { swingGet, type BarsResp } from "@/lib/swing";
 import { coachRead } from "@/components/AITradeCoach";
 import { buildTradeSummary, type TradeSummary } from "@shared/tradeSummary";
 import type { SwingDecision } from "@shared/swingDecision";
+import { useContextUiEnabled, useMarketContext } from "@/lib/marketContext";
+import { activeVersion, effectivePlan, useSelectedPlans } from "@/lib/plans";
 
 export function useTradeSummary(d: SwingDecision | undefined): TradeSummary | null {
   const bars = useQuery<BarsResp>({
@@ -21,12 +23,19 @@ export function useTradeSummary(d: SwingDecision | undefined): TradeSummary | nu
     queryFn: async () => (await apiRequest("GET", "/api/regime-v2")).json(),
     staleTime: 60_000,
   });
+  // Part 1 — plan levels come from the shared market context, so the summary matches the card/ticket/alerts.
+  const [ctxUi] = useContextUiEnabled();
+  const ctx = useMarketContext(d?.symbol, "D", { stamp: d?.evaluatedAt ?? null, enabled: ctxUi && !!d });
+  const sel = useSelectedPlans();
+  // Until the context arrives, use the same plan function the card uses (never a flash of other targets).
+  const local = ctxUi && d ? (() => { const v = activeVersion(d, sel.data?.selected); const ep = effectivePlan(d, v); return { ...ep, label: ep.source === "USER" ? `My Adjusted Plan v${ep.version}` : "Engine Plan" }; })() : null;
+  const plan = ctxUi && ctx.data && d && ctx.data.decision.evaluatedAt === d.evaluatedAt ? { ...ctx.data.plan } : local;
   return useMemo(() => {
     if (!d) return null;
     const b = bars.data?.bars?.filter((x) => x.closed !== false).map((x) => ({ date: String(x.t), open: x.o, high: x.h, low: x.l, close: x.c, volume: x.v }));
     const coach = b && b.length >= 50 ? coachRead(d.symbol, b, regime.data?.day_class || "UNKNOWN") : null;
-    return buildTradeSummary(d, coach);
-  }, [d, bars.data, regime.data]);
+    return buildTradeSummary(d, coach, plan);
+  }, [d, bars.data, regime.data, plan?.entry, plan?.stop, plan?.t1, plan?.t2, plan?.label]);
 }
 
 export function BrokerStep({ s, compact = false }: { s: TradeSummary; compact?: boolean }) {

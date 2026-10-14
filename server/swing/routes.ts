@@ -7,7 +7,8 @@ import { db } from "../storage";
 import { swingJournal } from "@shared/schema";
 import { createJournalEntry, JOURNAL_ACTIONS, listJournal } from "./journal";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
-import { isUnifiedSwingEnabled } from "../featureFlags";
+import { isMarketContextEnabled, isUnifiedSwingEnabled } from "../featureFlags";
+import { contextStats, getMarketContext } from "./context";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, scanNow, setFocusHint, settingsPatchSchema, startSwingScheduler } from "./service";
 import { perfSummary, recentSpans } from "./perf";
 import { TradeError, armTrade, cancelTrade, closeTrade, configureTrades, editTrade, fillTrade, getTrade, listEvents as listTradeEvents, listTrades, openTradeSymbols, tradesSummary } from "./trades";
@@ -127,6 +128,17 @@ export function registerSwingRoutes(app: Express) {
     if (!item) { res.status(404).json({ error: "Not on the watchlist" }); return; }
     return chartBars(item.symbol, item.exchange, tf as any, range as any, req.query.extended === "1");
   }));
+  // Chart Ecosystem Part 1 — one shared market context per symbol + timeframe (read-only).
+  app.get("/api/swing/context/:symbol", wrap(async (req, res) => {
+    if (!isMarketContextEnabled()) { res.status(404).json({ enabled: false, message: "Shared market context is off (ENABLE_MARKET_CONTEXT=false)." }); return; }
+    const item = await findItem(String(req.params.symbol));
+    if (!item) { res.status(404).json({ error: "Not on the watchlist" }); return; }
+    const t0 = Date.now();
+    const ctx = await getMarketContext(item.symbol, item.exchange, String(req.query.tf ?? "D"), { series: req.query.series === "1" });
+    res.setHeader("X-Context-Ms", String(Date.now() - t0));
+    return ctx;
+  }));
+  app.get("/api/swing/context-stats", wrap(async () => ({ enabled: isMarketContextEnabled(), ...contextStats() })));
   app.get("/api/swing/data-events", wrap(async (req) => ({ events: readDataEvents(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 100) })));
   app.get("/api/swing/log", wrap(async (req) => readLog(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 50)));
 

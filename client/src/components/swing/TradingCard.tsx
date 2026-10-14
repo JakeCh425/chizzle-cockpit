@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { ScoreChip, ScoreSection } from "./SetupScore";
 import { FundingPanel, useCardSizing } from "./FundingPanel";
+import { MarketContextSection } from "./MarketContextSection";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
@@ -413,6 +414,8 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
       {populated && <FundingPanel d={d} ver={ver} scope={scope} sz={sz} />}
 
       <ScoreSection d={d} scope={scope} />
+
+      <MarketContextSection d={d} p={p} scope={scope} />
 
       <Section id={`${scope}:explain`} title="Explanations" def={guided} testId={`sec-explain-${d.symbol}`} summary="What each number means">
         <ul className="space-y-1 leading-snug" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`list-rr-explain-${d.symbol}`}>
