@@ -13,6 +13,7 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useScan } from "./SwingWorkspace";
 import { AlertsPanel } from "./PriceAlerts";
 import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
+import { CardStyleSection } from "./CardStyle";
 import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
@@ -156,6 +157,7 @@ function ActionCenterInner() {
       {boxOpen && <div id="ac-body" className="space-y-2">
       <PlanRefreshBar settings={settings.data} />
       {appOpen && <div id="ac-appearance" data-testid="sec-appearance" data-open="true"><AppearanceControls prefs={prefs} set={setPrefs} /></div>}
+      {appOpen && <CardStyleSection />}
       {scan.data?.emptyReason && <div className="ac-warn flex items-center gap-1.5" style={{ fontSize: "var(--ac-fs-sm)" }}><AlertTriangle className="h-4 w-4" aria-hidden /> {scan.data.emptyReason}</div>}
       {!scan.isLoading && !loud.length && !openTrades.length && (
         <div className="ac-tile rounded-xl px-4 py-3" style={{ fontSize: "var(--ac-fs)" }} data-testid="text-ac-nothing">

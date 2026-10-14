@@ -3,6 +3,7 @@
 // Collapsed by default to one line; the choice is remembered (chizzle/v2/ via the Action Center disclosure store).
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
 import { ChevronDown, ChevronRight, Info, LineChart, Lock, Maximize2, Pencil, AlertTriangle } from "lucide-react";
+import { useCardBg } from "./CardStyle";
 import { Link } from "wouter";
 import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
@@ -27,8 +28,9 @@ export function LockedTradeCard({ trade: t, d, ver, price, onOpen }: { trade: Sw
   const edited = editedFields(t);
   const tone = t.status === "ACTIVE" ? "var(--ac-good)" : "var(--ac-accent)";
   const sm = { fontSize: "var(--ac-fs-sm)" } as const, xs = { fontSize: "var(--ac-fs-xs)" } as const;
+  const cb = useCardBg("ACTIVE"); // Part 4 — visual only
   return (
-    <article className="ac-card rounded-2xl overflow-hidden" style={{ borderLeft: `5px solid ${tone}` }} aria-label={`${t.symbol} locked practice trade (${t.status})`}
+    <article className="ac-card rounded-2xl overflow-hidden" style={{ ...cb.style, borderLeft: `5px solid ${tone}` }} {...cb.attrs} aria-label={`${t.symbol} locked practice trade (${t.status})`}
       data-testid={`card-locked-${t.symbol}`} data-status={t.status} data-open={open}>
       {/* One-line row: ticker · badge · entry · stop · T1 · price · unrealized R */}
       <div className="px-3 py-2 sm:px-4 flex flex-wrap items-center gap-x-2.5 gap-y-1" data-testid={`row-locked-${t.symbol}`}>
