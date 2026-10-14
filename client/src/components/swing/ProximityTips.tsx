@@ -6,6 +6,7 @@ import { useEffect, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Lightbulb, BellOff, Bell, HelpCircle } from "lucide-react";
 import { useMarketContext, useContextUiEnabled } from "@/lib/marketContext";
+import { useLiveAllowed } from "@/lib/liveStatus";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { swingGet } from "@/lib/swing";
 import { focusSymbol } from "@/lib/plans";
@@ -32,10 +33,11 @@ export function useProximityTips(symbol: string | undefined, stamp?: string | nu
   const [ui] = useContextUiEnabled();
   const [prefs] = useTipPrefs();
   const mode = useTipMode();
+  const liveAllowed = useLiveAllowed(); // same regime source as every other status label
   const sym = (symbol ?? "").toUpperCase();
   const muted = prefs.muted.includes(sym);
   const q = useMarketContext(sym || undefined, "1H", { stamp: stamp ?? null, enabled: ui && prefs.on && !!sym });
-  const tips = useMemo(() => (q.data && q.data.symbol === sym && prefs.on ? proximityTips(q.data, prefs.cfg, mode) : []), [q.data, sym, prefs.on, JSON.stringify(prefs.cfg), mode]);
+  const tips = useMemo(() => (q.data && q.data.symbol === sym && prefs.on ? proximityTips(q.data, prefs.cfg, mode, undefined, liveAllowed) : []), [q.data, sym, prefs.on, JSON.stringify(prefs.cfg), mode, liveAllowed]);
   return { tips: muted ? [] : tips, hidden: muted ? tips.length : 0, muted, mode, ctx: q.data };
 }
 

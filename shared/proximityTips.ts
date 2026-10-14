@@ -67,8 +67,13 @@ export function tipTextAllowed(status: SetupStatus, line: string): boolean {
   return true;
 }
 
-function words(c: MarketContext, a: TradingArea, zone: TipZone, side: "above" | "below" | "at", distPct: number, also: string[]) {
-  const sym = c.symbol, st = c.decision.setupStatus, ready = st === "READY_TO_TRADE";
+/** Same vocabulary as the cockpit (client/src/lib/liveStatus.ts): never "Ready to Trade" while live risk is blocked. */
+export const PRACTICE_READY_TIP_LABEL = "Practice Ready — live entry not permitted";
+export const tipStatusLabel = (c: MarketContext, liveAllowed: boolean | null) =>
+  c.decision.setupStatus === "READY_TO_TRADE" && liveAllowed === false ? PRACTICE_READY_TIP_LABEL : c.panel.statusLabel;
+
+function words(c: MarketContext, a: TradingArea, zone: TipZone, side: "above" | "below" | "at", distPct: number, also: string[], liveAllowed: boolean | null) {
+  const sym = c.symbol, st = c.decision.setupStatus, ready = st === "READY_TO_TRADE", blocked = ready && liveAllowed === false;
   const dist = `${Math.abs(distPct).toFixed(1)}%`;
   const near = also.length ? ` near ${also.join(" and ")}` : "";
   const ind = c.indicators, fading = ind.macd && ind.histPrev != null && Math.abs(ind.macd.hist) < Math.abs(ind.histPrev);
@@ -79,7 +84,7 @@ function words(c: MarketContext, a: TradingArea, zone: TipZone, side: "above" | 
   switch (a.kind) {
     case "ENTRY": case "TRIGGER": case "RETEST":
       watch = ready
-        ? (zone === "THROUGH" && side === "below" ? "Price slipped back under the entry area; check whether the 1H closes back above it before relying on the plan." : "The engine lists this setup as Ready. Review the plan levels and your risk on the card before you decide anything.")
+        ? (zone === "THROUGH" && side === "below" ? "Price slipped back under the entry area; check whether the 1H closes back above it before relying on the plan." : (blocked ? "The engine lists this setup as Practice Ready only — live entry is not permitted (Capital Protection). Review the plan levels on the card as practice." : "The engine lists this setup as Ready. Review the plan levels and your risk on the card before you decide anything."))
         : zone === "THROUGH" && side === "above"
           ? "A newer quote alone does not confirm the setup. Wait for a closed 1H above it before treating this as confirmed."
           : "Wait for a closed 1H above it before treating this as confirmed.";
@@ -111,13 +116,13 @@ function words(c: MarketContext, a: TradingArea, zone: TipZone, side: "above" | 
     zone === "APPROACHING" ? `Price is within ${dist} of this area (the "close" band is the larger of your % setting and half an ATR).` : zone === "AT_LEVEL" ? "Price is inside the level's inner band right now." : "The last closed bar was on the other side of this level, so price has moved through it intraday.",
     a.extra ? `This level: ${a.extra}.` : "",
     vol ? `Right now ${vol}.` : "",
-    `Engine status stays ${c.panel.statusLabel}; a tip never changes it.`,
+    `Engine status stays ${tipStatusLabel(c, liveAllowed)}; a tip never changes it.`,
   ].filter(Boolean).join(" ");
   return { what: a.kind === "DRAWING" || zone === "AT_LEVEL" ? what2 : what, watch, risk, learn };
 }
 
 /** Tips for one symbol from ONE context. Pure: same context + config → same tips. */
-export function proximityTips(c: MarketContext, cfg: TipConfig = DEFAULT_TIP_CONFIG, mode: TipMode = "PRACTICE", atr?: number | null): ProximityTip[] {
+export function proximityTips(c: MarketContext, cfg: TipConfig = DEFAULT_TIP_CONFIG, mode: TipMode = "PRACTICE", atr?: number | null, liveAllowed: boolean | null = null): ProximityTip[] {
   const price = c.quote.price; if (price == null || !(price > 0)) return [];
   const a14 = atr ?? c.indicators.atr ?? null;
   const ref = c.lastClosed?.c ?? null, st = c.decision.setupStatus;
@@ -137,10 +142,10 @@ export function proximityTips(c: MarketContext, cfg: TipConfig = DEFAULT_TIP_CON
     hits.forEach((o, j) => { if (!used.has(j) && Math.abs(o.a.price - h.a.price) <= Math.max(0.0015 * h.a.price, 0.01)) { used.add(j); also.push(o.a.kind === "STOP" ? "your stop" : o.a.name); } });
     const distPct = ((price - h.a.price) / h.a.price) * 100;
     const side = h.zone === "AT_LEVEL" ? "at" : price > h.a.price ? "above" : "below";
-    const w = words(c, h.a, h.zone, side, distPct, also);
+    const w = words(c, h.a, h.zone, side, distPct, also, liveAllowed);
     const headline = `${ZONE_LABEL[h.zone]} · ${h.a.name}`;
     const full = [w.what, w.watch, w.risk].filter(Boolean);
-    if (![headline, ...full, w.learn].every((x) => tipTextAllowed(st, x))) continue; // never shown if it could contradict
+    if (![headline, ...full, w.learn].every((x) => tipTextAllowed(st, x) && !(liveAllowed === false && (SIZING.test(x) || /ready to trade/i.test(x))))) continue; // never shown if it could contradict
     const text = mode === "DISCIPLINED" ? `${w.what} ${w.watch}` : mode === "LEARN" ? `${full.join(" ")} ${w.learn}` : full.join(" ");
     tips.push({
       key: `${c.symbol}|${h.a.kind}|${h.a.price.toFixed(2)}|${c.lastClosedBar ?? ""}`, symbol: c.symbol, zone: h.zone, area: h.a, also,

@@ -4,7 +4,7 @@ import { describe, it, expect } from "vitest";
 process.env.DATABASE_URL ||= "postgres://x:y@127.0.0.1:1/none";
 import { buildMarketContext, dayLevels, sanitizeParams, vwapSeries, priceVsDay, DEFAULT_INDICATORS, ctParts, type CtxBar, type MarketContext } from "@shared/marketContext";
 import { drawingInput, drawingPatch, distToSegment, fibLevels, logicalToTime, timeToLogical, toContextDrawings, visibleOn, type ChartDrawing } from "@shared/chartDrawings";
-import { DEFAULT_TIP_CONFIG, newTips, proximityTips, tipTextAllowed, tradingAreas, zoneOf } from "@shared/proximityTips";
+import { DEFAULT_TIP_CONFIG, PRACTICE_READY_TIP_LABEL, newTips, tipStatusLabel, proximityTips, tipTextAllowed, tradingAreas, zoneOf } from "@shared/proximityTips";
 import { CARD_BGS, bgContrast, bgFor, cardBgStyle, contrast, DEFAULT_CARD_STYLE } from "@shared/cardStyles";
 import { FORBIDDEN_PHRASES, SETUP_STATUSES, type SetupStatus, type SwingDecision } from "@shared/swingDecision";
 import { FORBIDDEN_ALERT_WORDS } from "@shared/priceAlerts";
@@ -205,6 +205,22 @@ describe("Part 5 — proximity tips", () => {
       }
     }
     expect(n).toBeGreaterThan(100);
+  });
+  it("NO-CONTRADICTION (live risk): a READY setup under Capital Protection never says \"Ready to Trade\" and gives no sizing words", () => {
+    const c = withStatus(c0, "READY_TO_TRADE" as SetupStatus); let n = 0;
+    for (const a of tradingAreas(c)) for (const [px, ref] of [[a.price * 0.997, a.price * 0.99], [a.price, a.price * 0.99], [a.price * 1.003, a.price * 0.99]]) {
+      for (const mode of ["LEARN", "PRACTICE", "DISCIPLINED"] as const) {
+        for (const t of proximityTips(withPrice(c, px, ref), { ...DEFAULT_TIP_CONFIG, maxTips: 5 }, mode, 0.01, false)) {
+          n++; const all = [t.headline, t.text, t.what, t.watch, t.risk, t.learn].join(" ");
+          expect(all).not.toMatch(/ready to trade/i);
+          expect(all).not.toMatch(/shares|position size|size up|full size/i);
+          if (mode === "LEARN") expect(all).toMatch(/Practice Ready/);
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(5);
+    expect(tipStatusLabel(c, false)).toBe(PRACTICE_READY_TIP_LABEL);
+    expect(tipStatusLabel(c, true)).not.toBe(PRACTICE_READY_TIP_LABEL);
   });
   it("tips are deterministic: same context → identical tips", () => {
     const e = c0.plan.entry!;
