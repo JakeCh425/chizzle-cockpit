@@ -9,6 +9,8 @@ import {
   type AlertPrefs, type AlertType, type Channel, type ExpiryMode, type Frequency,
 } from "@shared/priceAlerts";
 import { fmtCT } from "@/lib/swing";
+import { TipsAlertsBlock } from "./ProximityTips";
+import { useSwingTrades } from "@/lib/swingTrades";
 import { alertApi, deliveryEntries, invalidateAlerts, openTradingCard, useAlertEvents, useAlertPrefs, useAlerts, type AlertDraft, type AlertEvent, type DeliveryState } from "@/lib/alerts";
 
 const typeLabel = (t: string) => (t === "READY_NOW" ? "Ready now" : t === "EARLY_30M" ? "30m heads-up" : ALERT_TYPE_LABEL[t as AlertType] ?? t);
@@ -196,6 +198,10 @@ export function AlertsPanel(props: { open?: boolean; onOpenChange?: (o: boolean)
     topSeen.current = Math.max(topSeen.current ?? 0, top);
   }, [events]);
   // Opening the card is an intentional read; it never changes the setup's status.
+  // Part 5 — tips for the focused symbol, open practice trades and symbols with active alerts.
+  const tradesQ = useSwingTrades();
+  const focusSym = (() => { try { return JSON.parse(localStorage.getItem("chizzle/v2/swing-active-symbol") ?? "\"\"") as string; } catch { return ""; } })();
+  const tipSymbols = [focusSym, ...(tradesQ.data?.trades ?? []).filter((t) => t.status === "ARMED" || t.status === "ACTIVE").map((t) => t.symbol), ...active.map((a) => a.symbol)].filter(Boolean);
   const openCard = (e: AlertEvent) => { openTradingCard(e.symbol); if (!e.acknowledged) void act(() => alertApi.ack(e.id)); };
 
   return (
@@ -218,6 +224,7 @@ export function AlertsPanel(props: { open?: boolean; onOpenChange?: (o: boolean)
       </div>
       {open && <div id="alerts-panel-body">
       <p className="text-[10.5px] font-mono font-bold text-signal-amber mt-0.5">{ALERT_SAFETY}</p>
+      <TipsAlertsBlock symbols={tipSymbols} />
 
       {shown.length > 0 && (
         <ul className="mt-2 space-y-1.5" data-testid="list-alert-events">

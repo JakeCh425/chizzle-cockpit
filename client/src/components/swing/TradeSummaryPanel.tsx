@@ -11,6 +11,7 @@ import { buildTradeSummary, type TradeSummary } from "@shared/tradeSummary";
 import type { SwingDecision } from "@shared/swingDecision";
 import { useContextUiEnabled, useMarketContext } from "@/lib/marketContext";
 import { activeVersion, effectivePlan, useSelectedPlans } from "@/lib/plans";
+import { ProximityTips } from "./ProximityTips";
 
 export function useTradeSummary(d: SwingDecision | undefined): TradeSummary | null {
   const bars = useQuery<BarsResp>({
@@ -61,6 +62,7 @@ export default function TradeSummaryPanel({ d }: { d: SwingDecision | undefined 
   };
   return (
     <div className="space-y-2.5" data-testid={`trade-summary-${s.symbol}`}>
+      <ProximityTips symbol={s.symbol} stamp={d?.evaluatedAt ?? null} variant="cockpit" />
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm font-bold text-soft-white" data-testid="text-summary-headline">{s.headline}</div>
         <button onClick={copy} className="shrink-0 text-[10.5px] px-2 py-1 rounded border border-ink-line text-slate-gray hover:text-soft-white hover:border-neon-blue flex items-center gap-1" data-testid="button-copy-summary">

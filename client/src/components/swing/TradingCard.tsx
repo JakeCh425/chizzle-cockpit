@@ -30,6 +30,8 @@ import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton } from "./DataStatus";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
+import { useCardBg } from "./CardStyle";
+import { ProximityTips } from "./ProximityTips";
 
 // ─── Appearance (scoped to the Action Center + cards) ────────────────────────
 export const AC_THEMES = [
@@ -415,6 +417,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
 
       <ScoreSection d={d} scope={scope} />
 
+      <ProximityTips symbol={d.symbol} stamp={d.evaluatedAt} variant="card" />
       <MarketContextSection d={d} p={p} scope={scope} />
 
       <Section id={`${scope}:explain`} title="Explanations" def={guided} testId={`sec-explain-${d.symbol}`} summary="What each number means">
@@ -638,8 +641,12 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const toggle = () => { setOpen(!open); onSeen(); };
   const live = useContext(LiveCtx);
   const rv = readyVariant(d, live);
+  // Part 4 — Card Style background (visual only; Default = no inline style, existing look unchanged).
+  const trades = useSwingTrades();
+  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : group === "READY" ? "READY" : "WATCH");
+  const cbStyle = rv ? { ...cb.style, border: undefined, boxShadow: undefined } : cb.style;
   return (
-    <article className={`ac-card rounded-2xl overflow-hidden ${rv ? `ac-ready-${rv}` : ""}`} style={rv ? undefined : { borderLeft: `5px solid ${toneVar(TONE[group])}` }}
+    <article className={`ac-card rounded-2xl overflow-hidden ${rv ? `ac-ready-${rv}` : ""}`} style={rv ? cbStyle : { ...cb.style, borderLeft: `5px solid ${toneVar(TONE[group])}` }} {...cb.attrs}
       aria-label={`${d.symbol} trading card: ${statusText(d, group, live)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open} data-ready={rv ?? "none"}>
       <ReadyRibbon d={d} />
       {open ? (
@@ -713,13 +720,15 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
   const returnTo = useRef<HTMLElement | null>(null);
   useEffect(() => { if (open) returnTo.current = document.activeElement as HTMLElement | null; }, [open]);
   const { d, prefs } = props;
+  const trades = useSwingTrades();
+  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : props.group === "READY" ? "READY" : "WATCH");
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent
         className="p-0 border-0 bg-transparent shadow-none max-w-5xl w-[96vw] max-h-[94vh] overflow-y-auto max-sm:w-screen max-sm:max-w-none max-sm:h-[100dvh] max-sm:max-h-[100dvh] max-sm:rounded-none"
         onCloseAutoFocus={(e) => { e.preventDefault(); returnTo.current?.focus?.(); }}
         data-testid="dialog-trading-card">
-        <div className="ac-root ac-shell rounded-2xl max-sm:rounded-none min-h-full min-w-0" {...acAttrs(prefs)}>
+        <div className="ac-root ac-shell rounded-2xl max-sm:rounded-none min-h-full min-w-0" {...acAttrs(prefs)} style={cb.style} {...cb.attrs}>
           <div className="rounded-t-2xl max-sm:rounded-none overflow-hidden pr-10"><ReadyRibbon d={d} /></div>
           <div className="px-4 pt-4 sm:px-5 space-y-1.5 pr-12">
             <DialogTitle className="sr-only">Trading Card — {d.symbol}</DialogTitle>
