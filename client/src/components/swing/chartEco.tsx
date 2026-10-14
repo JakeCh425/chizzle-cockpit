@@ -22,7 +22,7 @@ import {
 // ─── Part 2: day-level chips ────────────────────────────────────────────────
 export type DayOv = { hodlod: boolean; pdhpdl: boolean; pre: boolean };
 export const DAY_DEFAULT: DayOv = { hodlod: true, pdhpdl: true, pre: false };
-export const DAY_COLORS = { HOD: "#f59e0b", LOD: "#f59e0b", PDH: "#a78bfa", PDL: "#a78bfa", PMH: "#94a3b8", PML: "#94a3b8" } as const;
+export const DAY_COLORS = { HOD: "#f59e0b", LOD: "#f59e0b", PDH: "#7dd3fc", PDL: "#7dd3fc", PMH: "#94a3b8", PML: "#94a3b8" } as const;
 export function useDayOverlays() {
   const [v, set] = usePersistentState<DayOv>("swing-chart-daylevels", DAY_DEFAULT);
   const ov = { ...DAY_DEFAULT, ...v };

@@ -3,6 +3,7 @@
 // nothing is firing it shows the focused symbol's potential plan in a muted style.
 // Numbers come straight from the shared SwingDecision (never recomputed), except the
 // stop-limit price, which is a simple display helper. Practice / analysis only.
+import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { useFreshness } from "@/lib/freshness";
 import { useLiveStatusLabel } from "@/lib/liveStatus";
 import type { SwingDecision } from "@shared/swingDecision";
@@ -93,6 +94,7 @@ function Ticket({ d, firing: engineFiring, active, onFocus, onHover, ver }: { d:
             <Pencil className="h-3 w-3" aria-hidden /> Edit Practice Plan
           </button>
         )}
+        {active && <LiveTickerCornerBadge symbol={d.symbol} compact />}
       </div>
       <div className="space-y-1 mb-1.5">
         <StateLine d={d} />

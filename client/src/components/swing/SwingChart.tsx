@@ -18,7 +18,9 @@ import { hasPlan, stopLimitFor } from "./TradeTicket";
 import type { PlanVersion } from "@shared/practicePlan";
 import { isContextTf, useContextUiEnabled, useMarketContext } from "@/lib/marketContext";
 import { atrOf, macdSeries, rsiSeries, vwapSeries } from "@shared/marketContext";
-import { dayLevelsApply, dimColor, FOCUS_FADE_MS, focusView, mergeNearbyLevels, mergeTolerance, PANE_MIN_H, srLabel } from "@shared/chartFocus";
+import { dayChipText, dayRaySpan, dimColor, FOCUS_FADE_MS, focusView, isIntradayTf, layoutGutter, mergeNearbyLevels, mergeTolerance, PANE_MIN_H, srBandAlpha, srLabel, touchesAny } from "@shared/chartFocus";
+import { ctParts } from "@shared/marketContext";
+import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
 import {
   DAY_COLORS, DrawingEditor, DrawingPrimitive, DrawingToolbar, IndicatorsMenu, POINTS_NEEDED, TOOLBAR_W, paramsFor, useDayOverlays, useDrawings, useIndicatorSettings, visibleOn, type Tool,
@@ -133,6 +135,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const fv = focusView({ focus, revealed, pinLevels, highlight: !!highlight, lockedPlan: !!lockedPlan, planOn: ov.plan });
   const fvRef = useRef(fv); fvRef.current = fv;
   const hoverRef = useRef(false); hoverRef.current = hoverChart;
+  const revealRef = useRef(false); revealRef.current = revealed;
   const showInfo = fv.plan;
   const gutterOnPlan = ov.plan && (hasPlan(decision) || !!userPlan || !!alertLevels?.length);
   const userLevels = useMemo(() => {
@@ -165,13 +168,17 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
   /** Focus mode: lines hidden while the chart is clean (day levels, far S/R, zone edges) and faint-able series. */
-  const focusLinesRef = useRef<{ line: any; nearest?: boolean; width?: number }[]>([]);
+  const focusLinesRef = useRef<{ line: any; nearest?: boolean; width?: number; color?: string; touching?: boolean }[]>([]);
+  /** Day range active (HOD/LOD or PDH/PDL on) → non-touching S/R dims to 20 % until you hover the chart. */
+  const dayOnRef = useRef(false);
   const dimRef = useRef<{ s: ISeriesApi<any>; color: string; width: number }[]>([]);
   /** Apply the current Focus view to every focus-aware line / series (used on build and on hover change). */
   const applyFocus = () => {
     const f = fvRef.current;
     for (const p of focusLinesRef.current) {
-      try { p.line.applyOptions(p.nearest ? { lineVisible: true, lineWidth: f.full ? (p.width ?? 1) : 1 } : { lineVisible: f.full }); } catch { /* chart rebuilt */ }
+      const dimSr = p.color != null && dayOnRef.current && !revealRef.current && !p.touching;
+      const color = p.color != null ? (dimSr ? dimColor(p.color, 0.2) : p.color) : undefined;
+      try { p.line.applyOptions({ ...(p.nearest ? { lineVisible: true, lineWidth: f.full ? (p.width ?? 1) : 1 } : { lineVisible: f.full }), ...(color ? { color } : {}) }); } catch { /* chart rebuilt */ }
     }
     for (const x of dimRef.current) {
       try { x.s.applyOptions({ color: f.dimIndicators ? dimColor(x.color) : x.color, lineWidth: (f.dimIndicators ? 1 : x.width) as any }); } catch { /* chart rebuilt */ }
@@ -213,16 +220,17 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const dayCtx = (ctxQ.data && ctxQ.data.symbol === symbol ? ctxQ.data : null) ?? (dayQ.data && dayQ.data.symbol === symbol ? dayQ.data : null);
   const day = dayCtx?.day ?? null;
   const dayLines = useMemo(() => {
-    const out: { key: string; price: number; color: string; text: string }[] = [];
-    if (!day || !dayLevelsApply(tf)) return out; // clean-up rule: day levels are for intraday charts
+    const out: { key: string; price: number; color: string; text: string; high?: boolean }[] = [];
+    if (!day) return out; // intraday: session-bounded rays · Daily/Weekly: short right-anchored brackets
     const live = day.state === "LIVE" ? " · live" : "";
-    if (dayOv.hodlod && day.hod != null) out.push({ key: "HOD", price: day.hod, color: DAY_COLORS.HOD, text: `HOD $${day.hod.toFixed(2)}${live}` });
+    if (dayOv.hodlod && day.hod != null) out.push({ key: "HOD", price: day.hod, color: DAY_COLORS.HOD, text: `HOD $${day.hod.toFixed(2)}${live}`, high: true });
     if (dayOv.hodlod && day.lod != null) out.push({ key: "LOD", price: day.lod, color: DAY_COLORS.LOD, text: `LOD $${day.lod.toFixed(2)}${live}` });
-    if (dayOv.pdhpdl && day.pdh != null) out.push({ key: "PDH", price: day.pdh, color: DAY_COLORS.PDH, text: `PDH $${day.pdh.toFixed(2)}` });
+    if (dayOv.pdhpdl && day.pdh != null) out.push({ key: "PDH", price: day.pdh, color: DAY_COLORS.PDH, text: `PDH $${day.pdh.toFixed(2)}`, high: true });
     if (dayOv.pdhpdl && day.pdl != null) out.push({ key: "PDL", price: day.pdl, color: DAY_COLORS.PDL, text: `PDL $${day.pdl.toFixed(2)}` });
     if (dayOv.pre && day.premarket) { out.push({ key: "PMH", price: day.premarket.high, color: DAY_COLORS.PMH, text: `PM high $${day.premarket.high.toFixed(2)}` }); out.push({ key: "PML", price: day.premarket.low, color: DAY_COLORS.PML, text: `PM low $${day.premarket.low.toFixed(2)}` }); }
     return out;
-  }, [JSON.stringify(day), dayOv.hodlod, dayOv.pdhpdl, dayOv.pre, tf]);
+  }, [JSON.stringify(day), dayOv.hodlod, dayOv.pdhpdl, dayOv.pre]);
+  dayOnRef.current = dayLines.some((l) => l.key === "HOD" || l.key === "LOD" || l.key === "PDH" || l.key === "PDL");
   // Auto S/R (top 3 above / below) from the context for THIS timeframe (pivots + PDH/PDL + your lines).
   const srCtx = ctxQ.data && ctxQ.data.symbol === symbol && ctxQ.data.tf === tf ? ctxQ.data.sr : null;
   const srClear = ind.sr.style !== "minimal";
@@ -380,13 +388,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     setIndLast({ atr: atrNow, rsi: rsv.length ? lastNum(rsv) : null, hist: mdH.length ? lastNum(mdH) : null, vwap: vw.length ? lastNum(vw) : null });
     // Part 2 — day levels + auto S/R: dashed lines, labels always shown in the gutter.
     const fv0 = fvRef.current;
-    for (const l of dayLines) focusLinesRef.current.push({ line: main.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, lineVisible: fv0.full, title: "" }) });
+    // Day levels are drawn as bounded DOM rays in drawBands (never a full-width price line).
+    const dayPrices = dayLines.map((l) => l.price);
     for (const l of srLines) {
       const width = srClear && (l.nearest || l.grade === "Strong") ? 2 : 1;
       const pl = main.createPriceLine(srClear
         ? { price: l.price, color: l.color, lineWidth: fv0.full ? width : 1, lineStyle: l.nearest ? LineStyle.Solid : l.grade === "Light" ? LineStyle.Dotted : LineStyle.Dashed, axisLabelVisible: l.nearest, lineVisible: fv0.full || l.nearest, title: "" }
         : { price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, lineVisible: fv0.full || l.nearest, title: "" });
-      focusLinesRef.current.push({ line: pl, nearest: l.nearest, width });
+      focusLinesRef.current.push({ line: pl, nearest: l.nearest, width, color: l.color, touching: touchesAny(l.price, dayPrices, srAtr) });
     }
     // Part 3 — drawing layer (custom series primitive; anchored to price + time on every timeframe).
     if (drawOn) { const pr = new DrawingPrimitive(); pr.times = data.map((b) => b.t); main.attachPrimitive(pr); primRef.current = pr; const L = layerRef.current; pr.drawings = L.visDrawings; pr.selected = L.selId; pr.hidden = L.hideDr; } else primRef.current = null;
@@ -454,13 +463,42 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           const y1 = main.priceToCoordinate(hi + half), y2 = main.priceToCoordinate(lo - half), yc = main.priceToCoordinate(l.price);
           if (y1 == null || y2 == null || yc == null || yc < 0 || yc > paneH) continue;
           const top = Math.max(0, Math.min(y1, y2)), h = Math.max(4, Math.min(paneH, Math.max(y1, y2)) - top);
-          const rgb = l.side === "R" ? "248,113,113" : "74,222,128", a = (0.07 + (l.strength / 100) * 0.13 + (l.nearest ? 0.05 : 0)).toFixed(3);
+          const rgb = l.side === "R" ? "248,113,113" : "74,222,128", a = srBandAlpha(Number((0.07 + (l.strength / 100) * 0.13 + (l.nearest ? 0.05 : 0)).toFixed(3)), { dayFocus: dayOnRef.current && !revealRef.current, touching: touchesAny(l.price, dayPrices, srAtr) }).toFixed(3);
           const b = document.createElement("div");
           b.setAttribute("data-testid", "sr-band"); b.setAttribute("data-side", l.side); b.setAttribute("data-grade", l.grade); b.setAttribute("data-nearest", l.nearest ? "1" : "0");
           b.style.cssText = `position:absolute;left:0;right:56px;top:${top}px;height:${h}px;background:rgba(${rgb},${a});${l.nearest ? `border-top:1px solid rgba(${rgb},.55);border-bottom:1px solid rgba(${rgb},.55);` : ""}pointer-events:none`;
           host.appendChild(b);
         }
         // Clean-up rule: the plain-English tags moved off the candles into the right-hand label gutter.
+      }
+      // Day levels: intraday → dashed ray across the active session only; Daily/Weekly → short bracket
+      // over the last few candles next to the price scale. Never a full-width line through history.
+      if (dayLines.length) {
+        const span = dayRaySpan(tf, data.map((b) => b.t), day?.sessionDate ?? null, (t) => ctParts(t).ymd);
+        if (span) {
+          const ts = chart.timeScale();
+          let bs = 6; try { bs = (ts.options() as any).barSpacing ?? 6; } catch { /* */ }
+          const xa = ts.timeToCoordinate(times[span.fromIdx]), xb = ts.timeToCoordinate(times[span.toIdx]);
+          let paneH2 = host.clientHeight; try { paneH2 = chart.panes()[0].getHeight(); } catch { /* single pane */ }
+          if (xb != null) {
+            const x2 = xb + bs / 2 + (span.bounded === "BRACKET" ? 6 : 2), x1 = Math.max(0, span.bounded === "BRACKET" ? Math.min((xa ?? 0) - bs / 2, x2 - 28) : (xa ?? 0) - bs / 2);
+            for (const l of dayLines) {
+              const y = main.priceToCoordinate(l.price);
+              if (y == null || y < 0 || y > paneH2) continue;
+              const r = document.createElement("div");
+              r.setAttribute("data-testid", "day-ray"); r.setAttribute("data-key", l.key); r.setAttribute("data-bounded", span.bounded);
+              r.style.cssText = span.bounded === "BRACKET"
+                ? `position:absolute;left:${x1}px;width:${Math.max(28, x2 - x1)}px;top:${y - 1}px;height:0;border-top:2px solid ${l.color};pointer-events:none;box-shadow:0 0 0 1px rgba(5,10,19,.6)`
+                : `position:absolute;left:${x1}px;width:${Math.max(4, x2 - x1)}px;top:${y}px;height:0;border-top:1px dashed ${l.color};pointer-events:none`;
+              if (span.bounded === "BRACKET") { // small end cap so it reads as a bracket, not a stray line
+                const cap = document.createElement("div");
+                cap.style.cssText = `position:absolute;left:0;top:${l.high ? -1 : -6}px;width:0;height:6px;border-left:2px solid ${l.color}`;
+                r.appendChild(cap);
+              }
+              host.appendChild(r);
+            }
+          }
+        }
       }
     };
     // Right-hand label gutter: plan labels sit beside the price scale (never on candles),
@@ -479,24 +517,22 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       if (hit) hit.bell = true;
       else (gLevels as any[]).push({ price: a.price, color: "#38bdf8", text: `Alert $${a.price.toFixed(2)}`, dashed: true, bell: true });
     }
-    const allDay = dayLines.map((l) => ({ price: l.price, color: l.color, text: l.text, dashed: true, kind: "day" }));
+    const allDay = dayLines.map((l) => ({ price: l.price, color: l.color, text: l.text, dashed: true, kind: "day", dayHigh: !!l.high, key: l.key }));
     const allSr = srLines.map((l) => ({ price: l.price, color: l.color, text: l.text, dashed: true, kind: "sr", nearest: l.nearest }));
     const drawGutter = () => {
       const g = gutterRef.current; if (!g) return;
       g.innerHTML = "";
       // Focus mode (clean): only the nearest support / resistance label; everything else returns on hover.
-      const always = fvRef.current.full ? [...allDay, ...allSr] : allSr.filter((l) => l.nearest);
+      const always = fvRef.current.full ? [...allDay, ...allSr] : [...allDay, ...allSr.filter((l) => l.nearest)];
       const lv = [...(showRef.current ? gLevels : []), ...always] as typeof gLevels;
       if (!lv.length) return;
       let H0 = g.clientHeight; try { H0 = Math.min(H0, chart.panes()[0].getHeight() + 26); } catch { /* */ }
-      const H = H0, W = g.clientWidth, ROW = 17, LEAD = 14;
+      const H = H0, W = g.clientWidth, LEAD = 14;
       const pts = lv.map((l) => ({ ...l, y: main.priceToCoordinate(l.price) as number | null }))
         .filter((l) => l.y != null && (l.y as number) > -40 && (l.y as number) < H + 40)
         .sort((a, b) => (a.y as number) - (b.y as number)) as (typeof gLevels[number] & { y: number })[];
-      const pos = pts.map((p) => Math.min(Math.max(p.y, ROW / 2 + 2), H - 26 - ROW / 2));
-      for (let i = 1; i < pos.length; i++) if (pos[i] - pos[i - 1] < ROW) pos[i] = pos[i - 1] + ROW;
-      const over = pos.length ? pos[pos.length - 1] - (H - 26 - ROW / 2) : 0;
-      if (over > 0) for (let i = pos.length - 1; i >= 0; i--) { pos[i] -= over; if (i && pos[i] - pos[i - 1] >= ROW) break; }
+      // ≥18 px between every label; a day high/low within 0.25 ATR of another level steps above/below it.
+      const pos = layoutGutter(pts.map((p) => ({ price: p.price, y: p.y, kind: ((p as any).kind ?? "plan") as any, dayHigh: (p as any).dayHigh })), { H, atr: srAtr });
       const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
       svg.setAttribute("width", String(W)); svg.setAttribute("height", String(H));
       svg.style.cssText = "position:absolute;left:0;top:0;pointer-events:none";
@@ -513,6 +549,11 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           ? `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:14px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:${p.color};background:#050a13;border:1px dashed ${p.color}`
           : `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
         if ((p as any).dashed) d.setAttribute("data-testid", (p as any).kind === "day" ? "gutter-label-day" : (p as any).kind === "sr" ? "gutter-label-sr" : "gutter-label-user");
+        if ((p as any).kind === "day") { // solid pill: gold text on dark (HOD/LOD), sky text on navy (PDH/PDL)
+          const k = (p as any).key as string;
+          d.style.background = k === "PDH" || k === "PDL" ? "#0b1a33" : k === "HOD" || k === "LOD" ? "#1c1406" : "#0b1220";
+          d.style.borderStyle = "solid"; d.style.fontWeight = "700"; d.setAttribute("data-key", k);
+        }
         if ((p as any).nearest) { d.style.borderStyle = "solid"; d.style.fontWeight = "800"; d.setAttribute("data-nearest", "1"); }
         if ((p as any).bell) {
           // Bell = an active practice price alert sits on this level (not an order).
@@ -626,7 +667,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     if (disposedRef.current) return;
     applyFocus();
     try { drawRef.current(); } catch { /* chart rebuilding */ }
-  }, [fv.full, fv.dimIndicators]);
+  }, [fv.full, fv.dimIndicators, revealed]);
 
   // "C" while the pointer is over the chart: switch Focus ↔ Full (ignored while typing).
   useEffect(() => {
@@ -665,6 +706,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         {(d?.dataStatus || b?.dataStatus) && (
           <span className={`px-1.5 rounded border ${DATA_TONE[d?.dataStatus ?? b!.dataStatus] ?? ""}`} data-testid="badge-chart-data">{d?.dataStatus ?? b?.dataStatus}</span>
         )}
+        {symbol && <LiveTickerCornerBadge symbol={symbol} showDayRange className="ml-auto" />}
       </div>
       {chips.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5" data-testid="swing-context-chips">
@@ -703,8 +745,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         </span>
         <span className="w-px h-4 bg-ink-line mx-1" />
         {([["hodlod", "HOD/LOD", "Today's high / low (live in RTH, fixed at the 15:00 CT close)"], ["pdhpdl", "PDH/PDL", "Prior-day high / low"], ["pre", "Pre-market", "Pre-market high / low (extended hours; RTH stays the default)"]] as const).map(([k, label, title]) => (
-          <button key={k} className={`${btn(dayOv[k])} inline-flex items-center gap-1`} onClick={() => setDayOv({ [k]: !dayOv[k] })} aria-pressed={dayOv[k]} title={dayLevelsApply(tf) ? title : `${title} — shown on intraday charts (15m–4H) only`} data-testid={`toggle-day-${k}`}>
-            <span className="inline-block w-2.5 border-t border-dashed" style={{ borderColor: k === "hodlod" ? DAY_COLORS.HOD : k === "pdhpdl" ? DAY_COLORS.PDH : DAY_COLORS.PMH }} />{label}
+          <button key={k} className={`${btn(dayOv[k])} inline-flex items-center gap-1`} onClick={() => setDayOv({ [k]: !dayOv[k] })} aria-pressed={dayOv[k]} title={title} data-testid={`toggle-day-${k}`}>
+            {dayOv[k] && <span className="inline-block w-2.5 border-t border-dashed" style={{ borderColor: k === "hodlod" ? DAY_COLORS.HOD : k === "pdhpdl" ? DAY_COLORS.PDH : DAY_COLORS.PMH }} />}
+            <span data-testid={`text-day-chip-${k}`} style={dayOv[k] && k !== "pre" ? { color: k === "hodlod" ? DAY_COLORS.HOD : DAY_COLORS.PDH, fontWeight: 700 } : undefined}>{dayChipText(k, dayOv[k], day, !!(ctxQ.isFetching || dayQ.isFetching))}</span>
           </button>
         ))}
         {dayOv.pre && day && !day.premarket && <span className="text-[10px] text-slate-gray font-mono" data-testid="text-premarket-none">no pre-market bars</span>}

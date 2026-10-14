@@ -6,6 +6,7 @@
 //
 // All logic here is rule-based. Change the rules → change the coach.
 
+import LiveTickerCornerBadge from "@/components/swing/LiveTickerCornerBadge";
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
@@ -140,6 +141,7 @@ export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
           <span className="text-[9px] font-mono uppercase tracking-wider px-1 py-0.5 rounded bg-neon-blue/10 text-neon-blue border border-neon-blue/30">{timeframe}</span>
         )}
         <span className="text-[9px] text-slate-gray ml-auto italic">Deterministic · rule-based</span>
+        {ticker && <LiveTickerCornerBadge symbol={ticker} compact />}
       </div>
       <div className="p-3 space-y-2">
         <div className={`rounded border px-2 py-1.5 text-[11px] font-semibold ${alignColor}`}>

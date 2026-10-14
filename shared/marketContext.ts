@@ -115,9 +115,11 @@ export interface DayLevels {
   state: "LIVE" | "FIXED" | "NONE";
   source: string;
   priorDate: string | null; pdh: number | null; pdl: number | null;
+  /** Prior session close (live ticker badges compute the session change from it). */
+  priorClose?: number | null;
   premarket: { high: number; low: number } | null;
 }
-export function dayLevels(bars1h: Pick<CtxBar, "t" | "h" | "l">[], daily: Pick<CtxBar, "t" | "h" | "l">[], quote: { price: number; ts: number | null } | null, now: number, extended1h?: Pick<CtxBar, "t" | "h" | "l">[]): DayLevels {
+export function dayLevels(bars1h: Pick<CtxBar, "t" | "h" | "l">[], daily: (Pick<CtxBar, "t" | "h" | "l"> & { c?: number })[], quote: { price: number; ts: number | null } | null, now: number, extended1h?: Pick<CtxBar, "t" | "h" | "l">[]): DayLevels {
   const nowCt = ctParts(now);
   const rth = bars1h.filter((b) => { const p = ctParts(b.t); return p.minutes >= RTH_OPEN && p.minutes < RTH_CLOSE; });
   const days = [...new Set(daily.map((d) => dailyBarYmd(d.t)))].sort();
@@ -136,7 +138,7 @@ export function dayLevels(bars1h: Pick<CtxBar, "t" | "h" | "l">[], daily: Pick<C
   } else if (dBar) { out.hod = dBar.h; out.lod = dBar.l; out.state = closed ? "FIXED" : "LIVE"; out.source = "daily bar"; }
   const prior = days.filter((d) => d < sessionDate).pop() ?? null;
   const pBar = prior ? daily.find((d) => dailyBarYmd(d.t) === prior) : null;
-  if (pBar) { out.priorDate = prior; out.pdh = pBar.h; out.pdl = pBar.l; }
+  if (pBar) { out.priorDate = prior; out.pdh = pBar.h; out.pdl = pBar.l; if (pBar.c != null && isFinite(pBar.c)) out.priorClose = Math.round(pBar.c * 100) / 100; }
   for (const k of ["hod", "lod", "pdh", "pdl"] as const) if (out[k] != null) out[k] = Math.round((out[k] as number) * 100) / 100; // vendor floats → cents
   const pre = (extended1h ?? []).filter((b) => { const p = ctParts(b.t); return p.ymd === sessionDate && p.minutes < RTH_OPEN; });
   if (pre.length) out.premarket = { high: Math.round(Math.max(...pre.map((b) => b.h)) * 100) / 100, low: Math.round(Math.min(...pre.map((b) => b.l)) * 100) / 100 };

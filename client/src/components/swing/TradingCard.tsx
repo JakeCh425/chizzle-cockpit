@@ -2,6 +2,7 @@
 // dialog / mobile sheet and "Adjust My Practice Plan". Everything shown comes from the shared
 // SwingDecision and the existing practice-plan math (recalcPlan); nothing here changes engine
 // readiness, and nothing here can send an order. PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
+import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
@@ -659,6 +660,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
       <PendingChip d={d} />
       <ScoreChip d={d} />
       <div className="ml-auto text-right" data-testid={`text-card-data-${d.symbol}`}>
+        <div className="flex justify-end mb-0.5"><LiveTickerCornerBadge symbol={d.symbol} compact /></div>
         <span className="ac-num font-bold" style={{ fontSize: "calc(var(--ac-fs) * 1.2)" }}>{$(d.currentPrice)}</span>
         <span className="flex items-center gap-1 justify-end" style={{ fontSize: "var(--ac-fs-xs)" }}>
           {badData ? <AlertTriangle className="h-3.5 w-3.5 ac-bad" aria-hidden /> : <Clock className="h-3.5 w-3.5 ac-muted" aria-hidden />}

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Archive, Eye, EyeOff, Pin, PinOff, RefreshCw, RotateCcw, StickyNote, Trash2, Plus } from "lucide-react";
 import CollapsibleSection from "@/components/CollapsibleSection";
+import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -571,7 +572,7 @@ export default function SwingWorkspace() {
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? statusLabel(d.setupStatus) : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
           </CollapsibleSection>
-          <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${statusLabel(d.setupStatus)}` : undefined}>
+          <CollapsibleSection id="swing-summary" title="Trade Summary · AI Coach" hint={d ? `${d.symbol} · ${statusLabel(d.setupStatus)}` : undefined} action={d ? <LiveTickerCornerBadge symbol={d.symbol} /> : undefined}>
             {(() => { const uv = activeVersion(d, plans.data?.selected); return uv ? (
               <div className="mb-2 rounded border border-dashed border-neon-blue/60 px-2 py-1 text-[11px] text-soft-white/90" data-testid="strip-summary-plan-version">
                 <span className="font-mono font-bold text-neon-blue">PRACTICE PLAN v{uv.version} IN USE</span> — entry {fmt$(uv.result.entry)} · stop {fmt$(uv.result.stop)} · T1 {fmt$(uv.result.t1)} · T2 {fmt$(uv.result.t2)} · {uv.result.rrT1?.toFixed(2) ?? "—"}R.
