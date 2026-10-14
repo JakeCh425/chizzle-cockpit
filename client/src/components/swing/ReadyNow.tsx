@@ -12,6 +12,8 @@ import { alertApi, invalidateAlerts, openTradingCard, useAlertEvents } from "@/l
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { useScan } from "./SwingWorkspace";
 import { setupName, stopBreach } from "./TradingCard";
+import { emptyStateText, useFreshness } from "@/lib/freshness";
+import { openTradeFor as lockedFor } from "@/lib/swingTrades";
 
 const ctShort = (iso: string) => new Date(iso).toLocaleString("en-US", { timeZone: "America/Chicago", weekday: "short", hour: "numeric", minute: "2-digit" }) + " CT";
 
@@ -36,11 +38,37 @@ export default function ReadyNow() {
   const tradesQ = useSwingTrades(); // before any early return (hooks order)
   const [acked, setAcked] = usePersistentState<string[]>("ready-now-acked", []);
   const [theme, setTheme] = usePersistentState<RnTheme>("ready-now-theme", "signal");
-  const ready = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision)).filter(isReadyNow);
-  if (!ready.length) return null;
+  const fresh = useFreshness();
+  const sel = plans.data?.selected;
+  const all = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
+  // Readiness filter (Part 3): the engine's Ready AND the live freshness check (live R:R ≥ min, price within the
+  // entry buffer, signal not stale). An untradeable setup never appears here and is never styled green.
+  const fOf = (d: SwingDecision) => fresh(d, activeVersion(d, sel));
+  const ready = all.filter(isReadyNow).filter((d) => fOf(d).isTradeable);
   const live = scan.data?.livePermission ?? null;
   const blocked = !!live && !live.allowed;
-  const sel = plans.data?.selected;
+  if (!ready.length) {
+    const older = all.filter((d) => !lockedFor(tradesQ.data?.trades, d.symbol))
+      .map((d) => ({ d, f: fOf(d) }))
+      .filter(({ d, f }) => f.hasLevels && !f.isTradeable && (d.setupStatus === "READY_TO_TRADE" || f.state === "MISSED_ENTRY" || f.state === "STALE"))
+      .map(({ d, f }) => ({ symbol: d.symbol, f }));
+    const txt = emptyStateText(older);
+    if (!txt) return null;
+    return (
+      <section className="rounded-2xl px-3 py-2 sm:px-4 flex flex-wrap items-center gap-x-3 gap-y-1 bg-amber-50 text-amber-900 dark:bg-ink-panel dark:text-soft-white" style={{ border: "1.5px solid rgba(245,158,11,0.55)" }}
+        aria-label="Ready now" data-testid="section-ready-now" data-count={0} data-empty="true">
+        <span className="font-mono text-[13px] font-bold text-amber-800 dark:text-amber-300" data-testid="text-ready-now-empty">{txt}</span>
+        <span className="flex flex-wrap gap-1.5">
+          {older.map((o) => (
+            <button key={o.symbol} className="rounded-full border border-amber-600/50 px-2 py-0.5 font-mono text-[11px] text-amber-800 dark:border-amber-400/50 dark:text-amber-200 hover:bg-amber-400/10" onClick={() => openTradingCard(o.symbol)} title={o.f.displayStatus} data-testid={`chip-ready-older-${o.symbol}`}>
+              {o.symbol} · {o.f.reasonSummary}
+            </button>
+          ))}
+        </span>
+        <span className="ml-auto font-mono text-[10.5px] font-bold text-amber-800 dark:text-amber-300/90">PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</span>
+      </section>
+    );
+  }
   const unreadFor = (sym: string) => (events.data?.events ?? []).filter((e) => e.type === "READY_NOW" && e.symbol === sym && !e.acknowledged);
   const ack = async (d: SwingDecision) => {
     const k = setupIdOf(d);

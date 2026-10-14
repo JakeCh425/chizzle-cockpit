@@ -6,7 +6,7 @@ import { buildMarketContext, dayLevels, sanitizeParams, vwapSeries, priceVsDay, 
 import { drawingInput, drawingPatch, distToSegment, fibLevels, logicalToTime, timeToLogical, toContextDrawings, visibleOn, type ChartDrawing } from "@shared/chartDrawings";
 import { DEFAULT_TIP_CONFIG, PRACTICE_READY_TIP_LABEL, newTips, tipStatusLabel, proximityTips, tipTextAllowed, tradingAreas, zoneOf } from "@shared/proximityTips";
 import { CARD_BGS, bgContrast, bgFor, cardBgStyle, contrast, DEFAULT_CARD_STYLE } from "@shared/cardStyles";
-import { FORBIDDEN_PHRASES, SETUP_STATUSES, type SetupStatus, type SwingDecision } from "@shared/swingDecision";
+import { FORBIDDEN_PHRASES, phraseHit, SETUP_STATUSES, type SetupStatus, type SwingDecision } from "@shared/swingDecision";
 import { FORBIDDEN_ALERT_WORDS } from "@shared/priceAlerts";
 import { evaluate } from "../../server/swing/lifecycle";
 import { buildOverlay } from "../../server/swing/markers";
@@ -195,7 +195,7 @@ describe("Part 5 — proximity tips", () => {
             n++;
             expect(t.status).toBe(st);
             const all = [t.headline, t.text, t.what, t.watch, t.risk, t.learn].join(" ");
-            for (const p of FORBIDDEN_PHRASES[st] ?? []) expect(all.toLowerCase()).not.toContain(p.toLowerCase());
+            for (const p of FORBIDDEN_PHRASES[st] ?? []) expect(phraseHit(all, p)).toBe(false);
             for (const r of FORBIDDEN_ALERT_WORDS) expect(r.test(all)).toBe(false);
             expect(all).not.toMatch(/buy now|sell now|place (an )?order|guaranteed/i);
             if (st !== "READY_TO_TRADE") expect(all).not.toMatch(/shares|position size|size up|full size/i);

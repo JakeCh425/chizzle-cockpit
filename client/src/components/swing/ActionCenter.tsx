@@ -19,6 +19,8 @@ import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades } from "@/lib/swingTrades";
+import { useFreshness } from "@/lib/freshness";
+import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
 const DEFAULT_TITLE = "Action Center";
 
@@ -94,7 +96,14 @@ function ActionCenterInner() {
     window.addEventListener("chizzle:close-card", onClose);
     return () => { window.removeEventListener("chizzle:open-card", onOpen); window.removeEventListener("chizzle:close-card", onClose); };
   }, [setBoxOpen]);
-  const loud = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE" && !lockedSyms.has(d.symbol));
+  const fresh = useFreshness();
+  const [cpRaw, setCp] = usePersistentState<CollapsePref>(COLLAPSE_KEY, { section: true, cards: {} });
+  const cp: CollapsePref = { section: cpRaw?.section ?? true, cards: cpRaw?.cards ?? {} };
+  const setCard = (k: string, collapsed: boolean) => setCp({ ...cp, cards: { ...Object.fromEntries(Object.entries(cp.cards).slice(-199)), [k]: collapsed } });
+  const loudAll = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE" && !lockedSyms.has(d.symbol));
+  const fOf = (d: SwingDecision) => fresh(d, activeVersion(d, plans.data?.selected));
+  const { older, active: loud } = splitOlder(loudAll, setupIdOf, fOf, cp, { locked: lockedSyms, tradeStatusOf: (d) => openTrades.find((t) => t.symbol === d.symbol)?.status ?? null });
+  const readyCount = rows.filter((d) => actionGroupOf(d) === "READY" && !lockedSyms.has(d.symbol) && fOf(d).isTradeable).length;
   const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE" && !lockedSyms.has(d.symbol));
   const counts = rows.reduce<Record<string, number>>((m, d) => { const g = actionGroupOf(d); m[g] = (m[g] ?? 0) + 1; return m; }, {});
   const sel = plans.data?.selected;
@@ -115,9 +124,10 @@ function ActionCenterInner() {
           {boxOpen ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
         </button>
         <EditableTitle value={title} onChange={setTitle} />
-        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ac-num ${counts.READY ? "" : "ac-muted"}`} style={{ fontSize: "var(--ac-fs-xs)", border: `1.5px solid ${counts.READY ? "var(--ac-good)" : "var(--ac-border)"}`, color: counts.READY ? "var(--ac-good)" : undefined }} data-testid="text-ac-ready-count">
-          <Zap className="h-3.5 w-3.5" aria-hidden /> {counts.READY ?? 0} ready
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ac-num ${readyCount ? "" : "ac-muted"}`} style={{ fontSize: "var(--ac-fs-xs)", border: `1.5px solid ${readyCount ? "var(--ac-good)" : "var(--ac-border)"}`, color: readyCount ? "var(--ac-good)" : undefined }} data-testid="text-ac-ready-count" title="Fresh, tradeable practice setups (live R:R meets your minimum, price within the entry buffer)">
+          <Zap className="h-3.5 w-3.5" aria-hidden /> {readyCount} fresh
         </span>
+        {older.length > 0 && <span className="ac-num font-semibold" style={{ fontSize: "var(--ac-fs-xs)", color: "var(--ac-warn)" }} data-testid="text-ac-older-count">{older.length} older / not tradeable</span>}
         <span className="ac-muted ac-num" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid="text-ac-counts">
           {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned} (${scan.data.pending.join(", ")})… · ` : ""}{scan.isLoading ? "" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
         </span>
@@ -161,7 +171,7 @@ function ActionCenterInner() {
       {scan.data?.emptyReason && <div className="ac-warn flex items-center gap-1.5" style={{ fontSize: "var(--ac-fs-sm)" }}><AlertTriangle className="h-4 w-4" aria-hidden /> {scan.data.emptyReason}</div>}
       {!scan.isLoading && !loud.length && !openTrades.length && (
         <div className="ac-tile rounded-xl px-4 py-3" style={{ fontSize: "var(--ac-fs)" }} data-testid="text-ac-nothing">
-          Nothing ready, confirmed or forming right now. That is a valid answer: no trade is a position. Next conditions are listed below.
+          {older.length ? `No fresh setups right now. ${older.length} older setup${older.length === 1 ? " is" : "s are"} listed under "Older / not tradeable" below — each shows what resets it.` : "Nothing ready, confirmed or forming right now. That is a valid answer: no trade is a position. Next conditions are listed below."}
         </div>
       )}
       {openTrades.length > 0 && (
@@ -188,10 +198,35 @@ function ActionCenterInner() {
                 setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)}
                 onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} />
               {stale && <div className="ac-muted mt-1 pl-1" style={{ fontSize: "var(--ac-fs-xs)" }} data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</div>}
+              {fOf(d).shouldCollapse && <button className="ac-btn !py-0.5 mt-1" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => setCard(key, true)} data-testid={`button-move-older-${d.symbol}`}><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Move to Older / not tradeable</button>}
             </div>
           );
         })}
       </div>
+      {older.length > 0 && (
+        <div className="rounded-xl" style={{ border: "1px dashed var(--ac-border)" }} data-testid="sec-older" data-open={cp.section}>
+          <button className="w-full flex items-center gap-2 px-3 py-1.5 font-bold text-left" style={{ fontSize: "var(--ac-fs-sm)" }} onClick={() => setCp({ ...cp, section: !cp.section })} aria-expanded={cp.section} data-testid="button-toggle-older">
+            {cp.section ? <ChevronDown className="h-4 w-4" aria-hidden /> : <ChevronRight className="h-4 w-4" aria-hidden />}
+            Older / not tradeable ({older.length})
+            <span className="ac-muted font-normal" style={{ fontSize: "var(--ac-fs-xs)" }}>auto-collapsed: missed entry, stale, invalidated or expired · your trades and armed plans are never collapsed</span>
+          </button>
+          {cp.section && (
+            <ul className="px-3 pb-2 space-y-1">
+              {older.map((d) => { const f = fOf(d), k = setupIdOf(d), tone = `var(--ac-${STATE_TONE[f.state] === "good" ? "warn" : STATE_TONE[f.state]})`; return (
+                <li key={d.symbol} className="flex flex-wrap items-center gap-x-2 gap-y-0.5 ac-num" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`row-older-${d.symbol}`} data-state={f.state}>
+                  <ChevronRight className="h-4 w-4 ac-muted" aria-hidden />
+                  <span className="font-extrabold">{d.symbol}</span><span className="ac-muted">·</span>
+                  <span className="rounded-full px-2 py-0.5 font-bold" style={{ fontSize: "var(--ac-fs-xs)", color: tone, border: `1.5px solid ${tone}`, background: `color-mix(in srgb, ${tone} 12%, transparent)` }} data-testid={`badge-older-state-${d.symbol}`}>{STATE_LABEL[f.state]}</span>
+                  <span className="ac-muted">·</span><span data-testid={`text-older-reason-${d.symbol}`}>{f.reasonSummary}</span>
+                  {f.resetConditionText && <><span className="ac-muted">·</span><span className="ac-muted" data-testid={`text-older-reset-${d.symbol}`}>Resets: {f.resetConditionText}</span></>}
+                  <span className="ac-muted">·</span>
+                  <button className="ac-btn !py-0.5" style={{ fontSize: "var(--ac-fs-xs)" }} onClick={() => setCard(k, false)} data-testid={`button-older-expand-${d.symbol}`}><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand</button>
+                </li>
+              ); })}
+            </ul>
+          )}
+        </div>
+      )}
       <div className="grid gap-2 lg:grid-cols-2 items-start">
       {quiet.length > 0 && (
         <Section id="quiet" title="Watch / No-trade list" def={false} testId="sec-quiet" summary={`${quiet.length} symbol${quiet.length === 1 ? "" : "s"}: ${quiet.map((d) => d.symbol).join(", ")}`}>

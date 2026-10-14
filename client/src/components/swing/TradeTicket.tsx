@@ -3,6 +3,7 @@
 // nothing is firing it shows the focused symbol's potential plan in a muted style.
 // Numbers come straight from the shared SwingDecision (never recomputed), except the
 // stop-limit price, which is a simple display helper. Practice / analysis only.
+import { useFreshness } from "@/lib/freshness";
 import { useLiveStatusLabel } from "@/lib/liveStatus";
 import type { SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
@@ -55,8 +56,13 @@ function StateLine({ d }: { d: SwingDecision }) {
   return null;
 }
 
-function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void; ver: PlanVersion | null }) {
-  const statusLabel = useLiveStatusLabel();
+function Ticket({ d, firing: engineFiring, active, onFocus, onHover, ver }: { d: SwingDecision; firing: boolean; active: boolean; onFocus: (s: string) => void; onHover: (s: string | null) => void; ver: PlanVersion | null }) {
+  const liveLabel = useLiveStatusLabel();
+  const f = useFreshness()(d, ver);
+  // Never green / "firing" once the live plan is not tradeable (entry missed, live R:R below min, stale).
+  const notTradeable = engineFiring && !f.isTradeable;
+  const firing = engineFiring && f.isTradeable;
+  const statusLabel = (st: SwingDecision["setupStatus"]) => (notTradeable ? f.displayStatus : liveLabel(st));
   const rows = ticketRows(d, ver);
   const p = effectivePlan(d, ver);
   const lvl: Record<string, { type: AlertType; price: number | null }> = {
@@ -70,12 +76,12 @@ function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision
       role="button" tabIndex={0}
       onClick={() => onFocus(d.symbol)} onKeyDown={(e) => { if (e.key === "Enter") onFocus(d.symbol); }}
       onMouseEnter={() => onHover(d.symbol)} onMouseLeave={() => onHover(null)} onFocus={() => onHover(d.symbol)} onBlur={() => onHover(null)}
-      className={`rounded border px-2.5 py-2 cursor-pointer transition-colors ${firing ? "border-emerald-500/70 bg-emerald-500/[0.07] hover:bg-emerald-500/[0.12]" : "border-ink-line bg-ink-deep/60 hover:border-neon-blue/50"} ${active ? "ring-1 ring-neon-blue/60" : ""}`}
+      className={`rounded border px-2.5 py-2 cursor-pointer transition-colors ${firing ? "border-emerald-500/70 bg-emerald-500/[0.07] hover:bg-emerald-500/[0.12]" : notTradeable ? "border-amber-500/60 bg-amber-500/[0.06] hover:bg-amber-500/[0.1]" : "border-ink-line bg-ink-deep/60 hover:border-neon-blue/50"} ${active ? "ring-1 ring-neon-blue/60" : ""}`}
       data-testid={`ticket-${d.symbol}`}
     >
       <div className="flex flex-wrap items-center gap-2 mb-1.5">
         <span className="font-mono font-bold text-[13px] text-soft-white">{d.symbol}</span>
-        <span className={`px-1.5 rounded border text-[10px] font-mono ${STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`}>{firing ? "ENGINES FIRING · " : ""}{statusLabel(d.setupStatus)}</span>
+        <span className={`px-1.5 rounded border text-[10px] font-mono ${notTradeable ? "border-amber-500/60 text-amber-600 dark:text-amber-300" : STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`} data-testid={`ticket-status-${d.symbol}`}>{firing ? "ENGINES FIRING · " : ""}{statusLabel(d.setupStatus)}</span>
         {d.setupType && <span className="text-[10.5px] text-slate-gray font-mono">{d.setupType.replace(/_/g, " ")}</span>}
         {ver && <span className="px-1.5 rounded border border-dashed border-neon-blue/70 text-neon-blue text-[10px] font-mono" data-testid={`ticket-version-${d.symbol}`}>PRACTICE PLAN v{ver.version} — USER-ADJUSTED</span>}
         <span className="ml-auto text-[10.5px] font-mono text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>
@@ -90,6 +96,8 @@ function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision
       </div>
       <div className="space-y-1 mb-1.5">
         <StateLine d={d} />
+        {notTradeable && <div className="text-[10.5px] font-mono" data-testid={`ticket-fresh-${d.symbol}`}><span className="font-bold text-amber-600 dark:text-amber-300">{f.displayStatus}.</span>{" "}
+          <span className="text-slate-gray">Live R:R {f.liveRr != null ? `${f.liveRr.toFixed(2)}R` : "—"} (planned {f.plannedRr.toFixed(1)}R) · live risk/share ${f.liveRiskPerShare.toFixed(2)} (was ${f.plannedRiskPerShare.toFixed(2)}){f.resetConditionText ? ` · resets when: ${f.resetConditionText}` : ""}.</span></div>}
         <DataVerifyBlock d={d} />
         {unverified && <ReferenceOnlyTag />}
       </div>
@@ -112,8 +120,8 @@ function Ticket({ d, firing, active, onFocus, onHover, ver }: { d: SwingDecision
         ))}
       </div>
       <div className="mt-1.5 text-[10.5px]" style={{ color: firing ? "#6ee7b7" : "#cbd5e1" }} data-testid={`ticket-next-${d.symbol}`}>
-        {firing ? "Setup confirmed on closed bars — if you practice it, place the order yourself in your broker. " : d.setupStatus === "SIGNAL_EXPIRED" ? "Expired — not a trade. " : "Potential trade — not ready yet. "}
-        <span className="text-slate-gray">{d.nextAction}</span>
+        {firing ? "Setup confirmed on closed bars — if you practice it, place the order yourself in your broker. " : notTradeable ? "Not tradeable yet — don't chase. " : d.setupStatus === "SIGNAL_EXPIRED" ? "Expired — not a trade. " : "Potential trade — not ready yet. "}
+        <span className="text-slate-gray">{notTradeable ? (f.aiTip ?? d.nextAction) : d.nextAction}</span>
       </div>
     </div>
   );

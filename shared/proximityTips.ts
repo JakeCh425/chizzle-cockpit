@@ -4,7 +4,7 @@
 // Wording rules: no "buy now"/"sell now", no order language, no sizing words unless the engine says READY
 // (same contract as harmonizeCoach + FORBIDDEN_PHRASES). Analysis / practice only.
 import type { MarketContext } from "./marketContext";
-import { FORBIDDEN_PHRASES, type SetupStatus } from "./swingDecision";
+import { FORBIDDEN_PHRASES, phraseHit, type SetupStatus } from "./swingDecision";
 import { FORBIDDEN_ALERT_WORDS } from "./priceAlerts";
 
 export type TipZone = "APPROACHING" | "AT_LEVEL" | "THROUGH";
@@ -61,7 +61,7 @@ export function zoneOf(price: number, level: number, refClose: number | null, to
 /** True when a line is safe for this status (the harmonizeCoach contract + alert wording rules). */
 export function tipTextAllowed(status: SetupStatus, line: string): boolean {
   const banned = FORBIDDEN_PHRASES[status] ?? [];
-  if (banned.some((p) => line.toLowerCase().includes(p.toLowerCase()))) return false;
+  if (banned.some((p) => phraseHit(line, p))) return false;
   if (FORBIDDEN_ALERT_WORDS.some((r) => r.test(line))) return false;
   if (status !== "READY_TO_TRADE" && SIZING.test(line)) return false;
   return true;

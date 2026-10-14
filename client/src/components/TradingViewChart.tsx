@@ -658,7 +658,7 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
 
     return () => {
       ro.disconnect();
-      chart.remove();
+      try { chart.remove(); } catch (err) { console.warn("Chart disposal safely intercepted:", err); }
       chartRef.current = null;
       priceSeriesRef.current = null;
       overlaySeriesRef.current.clear();

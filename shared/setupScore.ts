@@ -102,6 +102,18 @@ export const scoreVolume = (ratio: number, strict: boolean) =>
 export const scoreRr = (rr: number, strict: boolean) =>
   rr >= R.RR_REQ ? R.RR_MAX : strict ? 0 : R.RR_MAX * clamp01((rr - R.RR_PARTIAL_FLOOR) / (R.RR_REQ - R.RR_PARTIAL_FLOOR));
 export const gradeOf = (score: number): ScoreGrade => (score >= 80 ? "PRIORITY" : score >= 60 ? "WATCH" : "PASS");
+/** Display bands (Part 2 vocabulary). The internal ScoreGrade enum above is unchanged for API stability — the UI
+ *  never renders it; every badge reads this label instead. */
+export type ScoreBand = "MEETS" | "CLOSE" | "NOT_YET";
+export const SCORE_BANDS: { band: ScoreBand; range: string; min: number; label: string; text: string }[] = [
+  { band: "MEETS", range: "75–100", min: 75, label: "Meets requirements", text: "Most rules met — trend aligned, strong trigger volume, and room to the ceiling. Review these first (the card's engine status still decides)." },
+  { band: "CLOSE", range: "60–74", min: 60, label: "Close — 1–2 requirements missing", text: "Solid, but one or two pieces are weak or missing. Keep it on the list and wait for the missing piece." },
+  { band: "NOT_YET", range: "0–59", min: 0, label: "Doesn't pass requirements yet", text: "Too many pieces are missing to rank it high. Skip it for now and let it re-check on the next refresh." },
+];
+export const scoreBandOf = (score: number): ScoreBand => (score >= 75 ? "MEETS" : score >= 60 ? "CLOSE" : "NOT_YET");
+export const scoreLabel = (score: number): string => SCORE_BANDS.find((b) => b.band === scoreBandOf(score))!.label;
+/** "Score 40 · Doesn't pass requirements yet" */
+export const scoreBadgeText = (score: number): string => `Score ${score} · ${scoreLabel(score)}`;
 
 /** Score one symbol. `daily` and `bars` must be CLOSED bars, oldest first (`bars` = the trigger timeframe). */
 export function scoreSetup(daily: ScoreBar[], bars: ScoreBar[], timeframe: ScoreTimeframe = "Daily", strict = false): SetupScore {

@@ -149,6 +149,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const layerRef = useRef({ visDrawings, selId, hideDr }); layerRef.current = { visDrawings, selId, hideDr };
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
+  // Part 5 lifecycle guard: true while no live chart instance exists (before mount / after cleanup), so async
+  // callbacks (rAF, ResizeObserver, hover/drawing effects) never touch a removed chart ("Object is disposed").
+  const disposedRef = useRef(true);
   const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
   const drawRef = useRef<() => void>(() => {});
 
@@ -250,6 +253,8 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       crosshair: { mode: 0 },
     });
     chartRef.current = chart;
+    let isDisposed = false;
+    disposedRef.current = false;
     const closes = data.map((b) => b.c);
     const times = data.map((b) => b.t as UTCTimestamp);
     let main: ISeriesApi<any>;
@@ -485,20 +490,31 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
     drawRef.current = () => { drawBands(); drawGutter(); };
     chart.timeScale().fitContent();
-    const raf = () => requestAnimationFrame(() => { try { drawBands(); drawGutter(); } catch { /* disposed */ } });
+    const raf = () => { if (isDisposed) return; requestAnimationFrame(() => { if (isDisposed) return; try { drawBands(); drawGutter(); } catch { /* disposed */ } }); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(raf);
     const ro = new ResizeObserver(raf); ro.observe(el);
     let alive = true;
-    const safeDraw = () => { if (alive) { try { drawBands(); drawGutter(); } catch { /* chart already disposed */ } } };
+    const safeDraw = () => { if (alive && !isDisposed) { try { drawBands(); drawGutter(); } catch { /* chart already disposed */ } } };
     const tm = setTimeout(safeDraw, 60);
-    return () => { alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
+    return () => {
+      isDisposed = true; disposedRef.current = true;
+      alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect();
+      try { chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); } catch { /* already disposed */ }
+      try {
+        if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
+      } catch (err) {
+        console.warn("Chart disposal safely intercepted:", err);
+        chartRef.current = null;
+      }
+      mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn, srClear, srAtr]);
 
   // Part 3 — keep the drawing layer in sync without rebuilding the chart.
   useEffect(() => {
-    const pr = primRef.current; if (!pr) return;
-    pr.drawings = visDrawings; pr.selected = selId; pr.hidden = hideDr; pr.update();
+    const pr = primRef.current; if (!pr || disposedRef.current) return;
+    pr.drawings = visDrawings; pr.selected = selId; pr.hidden = hideDr;
+    try { pr.update(); } catch (err) { console.warn("Chart disposal safely intercepted:", err); }
   }, [visDrawings, selId, hideDr, data]);
   useEffect(() => { setSelId(null); setTool("select"); draftRef.current = null; setTextAt(null); }, [symbol]);
   // Pointer handling: capture-phase on the chart box so a drag on a drawing never pans the chart.
@@ -557,6 +573,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
 
   // Toggle plan info without rebuilding the chart.
   useEffect(() => {
+    if (disposedRef.current) return;
     for (const p of planLinesRef.current) {
       try { p.line.applyOptions({ lineVisible: showInfo, axisLabelVisible: showInfo && p.axis, title: showInfo ? p.title : "" }); } catch { /* chart rebuilt */ }
     }

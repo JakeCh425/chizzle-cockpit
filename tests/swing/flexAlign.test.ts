@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 process.env.DATABASE_URL ||= "postgres://x:y@127.0.0.1:1/none";
 describe("flex ↔ unified alignment (PR 3f)", async () => {
   const { alignCard } = await import("../../server/swing/flexAlign");
-  const { SETUP_STATUSES, FORBIDDEN_PHRASES } = await import("../../shared/swingDecision");
+  const { SETUP_STATUSES, FORBIDDEN_PHRASES, phraseHit } = await import("../../shared/swingDecision");
   const legacy: any = { state: "STANDBY", ticker: "SMH", pinned: true, vehicle_class: "GROWTH_TECH", permission: "NO_LONG", setup: "No trade",
     readiness_score: 55, distance_to_ready: [], trend: "t", structure: "s", trigger: "Blocked: Severely extended", entry_zone: { low: null, high: null, note: "" },
     stop: { price: null, reason: "" }, target_1: { price: null, r_multiple: null }, risk_grade: "NO TRADE",
@@ -20,7 +20,7 @@ describe("flex ↔ unified alignment (PR 3f)", async () => {
       expect(c.legacy.hard_blocks.length).toBe(1);
       expect(c.unified.status).toBe(st);
       const text = [c.action, c.trigger, c.unified.label, c.risk_grade].join(" | ");
-      for (const f of FORBIDDEN_PHRASES[st as keyof typeof FORBIDDEN_PHRASES]) expect(text).not.toContain(f);
+      for (const f of FORBIDDEN_PHRASES[st as keyof typeof FORBIDDEN_PHRASES]) expect(phraseHit(text, f), f).toBe(false);
     });
   }
   it("READY maps to a ready state with unified levels; forming maps to watch, not stand down", () => {

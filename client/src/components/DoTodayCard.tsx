@@ -14,6 +14,9 @@
 //   6. FLEX_WATCH count > 0         -> alerts only, don't front-run
 //   7. otherwise                    -> quiet day, no new risk
 
+import { emptyStateText, useFreshness } from "@/lib/freshness";
+import type { FreshnessResult } from "@shared/cardFreshness";
+import { activeVersion, useSelectedPlans } from "@/lib/plans";
 import { useQuery } from "@tanstack/react-query";
 import { Compass, ExternalLink } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
@@ -115,10 +118,19 @@ const REQ = { selection: "DEFAULT_PLUS_CUSTOM" as ScanSelection, symbols: [] as 
 const usable = (d: SwingDecision) => d.dataStatus !== "STALE" && d.dataStatus !== "ERROR" && !d.evalPending; // Part 3: a saved snapshot is never "Ready now"
 
 /** Guidance from the swing engine's decisions + separate live-risk permission. Never upgrades a status. */
-function swingGuidance(rows: SwingDecision[], live: LivePermission | null): (Verdict & { primary: string | null; others: string[] }) | null {
+function swingGuidance(rows: SwingDecision[], live: LivePermission | null, fOf?: (d: SwingDecision) => FreshnessResult): (Verdict & { primary: string | null; others: string[] }) | null {
   const sorted = sortForCockpit(rows);
-  const ready = sorted.filter((d) => d.setupStatus === "READY_TO_TRADE" && usable(d));
+  const readyAll = sorted.filter((d) => d.setupStatus === "READY_TO_TRADE" && usable(d));
+  // Readiness filter: only fresh, tradeable setups count (live R:R ≥ min, price within the entry buffer).
+  const ready = fOf ? readyAll.filter((d) => fOf(d).isTradeable) : readyAll;
   const blocked = !!live && !live.allowed;
+  if (!ready.length && fOf) {
+    const older = sorted.map((d) => ({ symbol: d.symbol, f: fOf(d), d }))
+      .filter(({ d, f }) => f.hasLevels && !f.isTradeable && (d.setupStatus === "READY_TO_TRADE" || f.state === "MISSED_ENTRY" || f.state === "STALE"));
+    const txt = emptyStateText(older);
+    if (txt) return { tone: "amber", primary: older[0].symbol, others: older.slice(1).map((o) => o.symbol), headline: txt.replace(/^⚡ /, ""),
+      detail: older[0].f.resetConditionText ? `${older[0].symbol} resets when: ${older[0].f.resetConditionText}. Don't chase.` : "Don't chase — wait for a fresh setup." };
+  }
   if (ready.length) {
     const p = ready[0];
     return {
@@ -144,7 +156,9 @@ export default function DoTodayCard() {
     staleTime: 60_000, enabled: !swingOn,
   });
   const scan = useScan(REQ, swingOn);
-  const g = swingOn ? swingGuidance((scan.data?.rows ?? []).map((r) => r.decision), scan.data?.livePermission ?? null) : null;
+  const fresh = useFreshness();
+  const plans = useSelectedPlans();
+  const g = swingOn ? swingGuidance((scan.data?.rows ?? []).map((r) => r.decision), scan.data?.livePermission ?? null, (d) => fresh(d, activeVersion(d, plans.data?.selected))) : null;
   const v: Verdict & { primary?: string | null; others?: string[] } = g ?? pickVerdict(regimeQ.data, flexQ.data);
   const style = TONE_STYLES[v.tone];
   return (

@@ -11,7 +11,7 @@
 //  • Every summary carries the practice banner + overnight gap-risk warning.
 
 import {
-  FORBIDDEN_PHRASES, GAP_RISK_WARNING, PRACTICE_BANNER, STATUS_LABEL,
+  FORBIDDEN_PHRASES, phraseHit, GAP_RISK_WARNING, PRACTICE_BANNER, STATUS_LABEL,
   type SwingDecision,
 } from "./swingDecision";
 
@@ -39,7 +39,7 @@ export function harmonizeCoach(status: SwingDecision["setupStatus"], coach: Coac
   if (!coach) return null;
   const banned = FORBIDDEN_PHRASES[status] ?? [];
   const ok = (line: string) =>
-    !banned.some((p) => line.toLowerCase().includes(p.toLowerCase())) &&
+    !banned.some((p) => phraseHit(line, p)) &&
     (status === "READY_TO_TRADE" || !SIZING_WORDS.test(line));
   const bullets = coach.bullets.filter(ok);
   const headline = ok(coach.headline) ? coach.headline : `${coach.headline.split(" — ")[0]} — see unified status`;

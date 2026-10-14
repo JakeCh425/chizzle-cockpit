@@ -258,18 +258,31 @@ export function bucketOf(s: SetupStatus): ScannerBucket {
 // Every adapter maps status → label through here. Contract tests assert no
 // panel can render a forbidden phrase for a given status.
 export const FORBIDDEN_PHRASES: Record<SetupStatus, string[]> = {
-  READY_TO_TRADE:        ["No Active Setup", "No Trade", "Hard Block", "Stand down"],
-  SETUP_CONFIRMED:       ["No Active Setup", "Ready to Trade", "Hard Block", "Long"],
-  SETUP_FORMING:         ["No Active Setup", "Ready to Trade", "Hard Block", "Long"],
-  WATCH_RETEST:          ["No Active Setup", "Ready to Trade", "Hard Block", "Long"],
-  WATCH_EXTENDED:        ["No Active Setup", "Ready to Trade", "Hard Block", "Long", "Full size"],
-  WATCH_STOP_TOO_WIDE:   ["Ready to Trade", "Hard Block", "Long"],
-  WATCH_RR_TOO_LOW:      ["Ready to Trade", "Hard Block", "Long"],
-  BLOCKED_DATA_MISMATCH: ["Ready to Trade", "Hard Block", "Long"],
-  SIGNAL_EXPIRED:        ["Ready to Trade", "Hard Block", "Long"],
-  NO_SETUP:              ["Ready to Trade", "Hard Block", "Long"],
-  NO_TRADE:              ["Ready to Trade", "Hard Block", "Long"],
+  READY_TO_TRADE:        ["No Active Setup", "No Trade", "Hard Block", "Stand down", "PASS"],
+  SETUP_CONFIRMED:       ["No Active Setup", "Ready to Trade", "Hard Block", "Long", "PASS"],
+  SETUP_FORMING:         ["No Active Setup", "Ready to Trade", "Hard Block", "Long", "PASS"],
+  WATCH_RETEST:          ["No Active Setup", "Ready to Trade", "Hard Block", "Long", "PASS"],
+  WATCH_EXTENDED:        ["No Active Setup", "Ready to Trade", "Hard Block", "Long", "Full size", "PASS"],
+  WATCH_STOP_TOO_WIDE:   ["Ready to Trade", "Hard Block", "Long", "PASS"],
+  WATCH_RR_TOO_LOW:      ["Ready to Trade", "Hard Block", "Long", "PASS"],
+  BLOCKED_DATA_MISMATCH: ["Ready to Trade", "Hard Block", "Long", "PASS"],
+  SIGNAL_EXPIRED:        ["Ready to Trade", "Hard Block", "Long", "PASS"],
+  NO_SETUP:              ["Ready to Trade", "Hard Block", "Long", "PASS"],
+  NO_TRADE:              ["Ready to Trade", "Hard Block", "Long", "PASS"],
 };
+
+/** Forbidden-phrase match. All-caps entries ("PASS") match case-sensitively as whole words, so "passed",
+ *  "bypass" or "Doesn't pass requirements yet" stay allowed; every other entry keeps the existing
+ *  case-insensitive substring rule. */
+/** The one approved use of the word: the negated status "DOESN'T PASS REQUIREMENTS (YET)" can't be misread as "passed". */
+export const APPROVED_PASS_PHRASES = [/doesn['’]t pass requirements/gi];
+export function phraseHit(text: string, phrase: string): boolean {
+  if (/^[A-Z ]+$/.test(phrase) && phrase === phrase.toUpperCase()) {
+    const t = phrase === "PASS" ? APPROVED_PASS_PHRASES.reduce((acc, r) => acc.replace(r, ""), text) : text;
+    return new RegExp(`\\b${phrase}\\b`).test(t);
+  }
+  return text.toLowerCase().includes(phrase.toLowerCase());
+}
 
 /** A market-structure level used by the plan math (pivot high = a bar whose high exceeds the 2 bars on each side). */
 export interface StructureLevel { price: number; timeframe: "1H" | "4H" | "1D"; time: string; kind: "pivot high" }
@@ -506,7 +519,7 @@ export function practiceVerdict(d: SwingDecision): PracticeVerdict {
       return { ...base, code: "C_WAIT_EXTENDED", headline: `WAIT — original setup was valid, but price is ${d.extensionPercentAboveTrigger ?? "—"}% above ${d.extensionCheck?.fromLabel ?? "trigger"}`,
         lines: ["Do not chase.", d.retestLevel ? `Watch ${$(d.retestLevel.low)}–${$(d.retestLevel.high)} for a bullish 1H retest.` : "Wait for a structured pullback."] };
     case "WATCH_STOP_TOO_WIDE": case "WATCH_RR_TOO_LOW":
-      return { ...base, code: "D_PASS_RISK", headline: "PASS — risk does not fit",
+      return { ...base, code: "D_PASS_RISK", headline: "NOT TRADEABLE YET — Risk doesn't fit",
         lines: [`A structural stop below ${$(d.structuralStop)} makes risk per share ${$(d.riskPerShare)}, and Target 1 offers only ${d.rewardRiskT1 ?? "—"}R.`, "Wait for a better structure."] };
     default:
       return { ...base, code: "E_NO_SETUP", headline: d.setupStatus === "SIGNAL_EXPIRED" ? "NO SETUP — last signal expired" : "NO SETUP",

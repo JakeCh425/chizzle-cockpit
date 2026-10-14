@@ -32,6 +32,69 @@ import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { useCardBg } from "./CardStyle";
 import { ProximityTips } from "./ProximityTips";
+import { useFreshness } from "@/lib/freshness";
+import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessResult } from "@shared/cardFreshness";
+
+// ─── Freshness (Part 3) ──────────────────────────────────────────────────────
+/** Status pill. Not tradeable → amber background + border (never green). */
+function StatusPill({ d, f, tone, Icon, text }: { d: SwingDecision; f: FreshnessResult; tone: string; Icon?: typeof CheckCircle2; text: string }) {
+  const nt = overridesStatus(d, f);
+  return (
+    <span className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 font-bold whitespace-nowrap max-w-full overflow-hidden text-ellipsis" data-testid={`text-ac-status-${d.symbol}`}
+      data-tradeable={f.isTradeable} data-freshness={f.state} title={nt ? f.displayStatus : undefined}
+      style={{ fontSize: "var(--ac-fs-xs)", color: toneVar(tone), border: `1.5px solid ${toneVar(tone)}`, background: nt ? `color-mix(in srgb, ${toneVar(tone)} 14%, transparent)` : undefined }}>
+      {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />}{text}
+    </span>
+  );
+}
+const rr1 = (n: number | null) => (n == null ? "—" : `${n.toFixed(1)}R`);
+/** Planned vs live comparison: struck-through original plan, 4-box grid, ✓/✗ diagnostics, reset condition, tip.
+ *  Warnings — never hidden by Compact View. */
+export function FreshnessPanel({ d, f, p }: { d: SwingDecision; f: FreshnessResult; p: { entry: number | null; stop: number | null; t1: number | null } }) {
+  const nt = !f.isTradeable;
+  const xs = { fontSize: "var(--ac-fs-xs)" } as const, sm = { fontSize: "var(--ac-fs-sm)" } as const;
+  const stTone = toneVar(STATE_TONE[f.state] === "good" && nt ? "warn" : STATE_TONE[f.state]);
+  const rrLow = f.liveRr == null || f.liveRr < f.minRr;
+  const riskUp = f.liveRiskPerShare > f.plannedRiskPerShare + 0.005;
+  const box = (k: string, v: React.ReactNode, warn: boolean, id: string, color?: string) => (
+    <div className="rounded-lg px-2.5 py-1.5 min-w-0" style={{ border: `1.5px solid ${color ?? (warn ? "var(--ac-warn)" : "var(--ac-border)")}`, background: warn || color ? `color-mix(in srgb, ${color ?? "var(--ac-warn)"} 9%, transparent)` : undefined }} data-testid={`fresh-box-${id}-${d.symbol}`} data-warn={warn}>
+      <div className="ac-muted font-semibold uppercase tracking-wide" style={xs}>{k}</div>
+      <div className="ac-num font-bold" style={{ ...sm, color: color ?? (warn ? "var(--ac-warn)" : undefined) }}>{v}</div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl p-2.5 space-y-2" style={{ border: `1.5px solid ${nt ? "var(--ac-warn)" : "var(--ac-border)"}` }} data-testid={`panel-freshness-${d.symbol}`} data-state={f.state} data-tradeable={f.isTradeable}>
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <span className="ac-num ac-muted" style={xs} data-testid={`text-confirmed-at-${d.symbol}`}><Clock className="inline h-3.5 w-3.5 mr-1 align-[-2px]" aria-hidden />{f.confirmedAtText} · {f.ageBarsUsed}/{f.ageBarsTotal} 4H bars</span>
+        {f.sessionTag && <span className="rounded-full px-2 py-0.5 font-semibold ac-muted" style={{ ...xs, border: "1px solid var(--ac-border)" }} data-testid={`text-session-tag-${d.symbol}`}>{f.sessionTag}</span>}
+      </div>
+      {nt && (
+        <div className="ac-num flex flex-wrap items-baseline gap-x-2 gap-y-0.5" style={sm} data-testid={`text-original-plan-${d.symbol}`}>
+          <span className="ac-muted" style={{ textDecoration: "line-through", opacity: 0.7 }}>Original plan: Entry {$(p.entry)} · Stop {$(p.stop)} · T1 {$(p.t1)}</span>
+          <span className="ac-muted">|</span>
+          <span className="font-semibold" data-testid={`text-retest-zone-${d.symbol}`}>Retest zone: {$(f.retestZone.low)} – {$(f.retestZone.high)}</span>
+        </div>
+      )}
+      <div className="grid gap-2" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 150px), 1fr))" }}>
+        {box("Planned R:R", rr1(f.plannedRr), false, "planned-rr")}
+        {box("Live R:R", <>{rrText(f.liveRr, f.minRr)}R{rrLow && <span className="font-semibold" style={xs}> · below {f.minRr.toFixed(0)}R min</span>}</>, rrLow, "live-rr")}
+        {box("Live risk / share", <>{$(f.liveRiskPerShare)} <span className="font-semibold" style={xs}>(was {$(f.plannedRiskPerShare)})</span></>, riskUp, "live-risk")}
+        {box("Freshness", STATE_LABEL[f.state], false, "state", stTone)}
+      </div>
+      <div className="rounded-lg px-2.5 py-1.5 space-y-0.5" style={{ border: "1px solid var(--ac-border)" }} data-testid={`box-diagnostics-${d.symbol}`}>
+        {f.checklist.map((c) => (
+          <div key={c.label} className="flex flex-wrap items-baseline gap-x-2" style={sm} data-testid={`check-fresh-${d.symbol}`} data-passed={c.passed}>
+            <span className="font-bold" style={{ color: c.passed ? "var(--ac-good)" : "var(--ac-bad)" }} aria-label={c.passed ? "met" : "not met"}>{c.passed ? "✓" : "✗"}</span>
+            <span className="font-semibold">{c.label}</span>
+            {c.valueText && <span className="ac-muted ac-num" style={xs}>{c.valueText}</span>}
+          </div>
+        ))}
+        {f.resetConditionText && <div className="pt-0.5 font-semibold" style={sm} data-testid={`text-resets-when-${d.symbol}`}><span className="ac-accent">Resets when:</span> {f.resetConditionText}.</div>}
+      </div>
+      {f.aiTip && <div className="rounded-lg px-2.5 py-1.5" style={{ ...sm, background: "color-mix(in srgb, var(--ac-accent) 10%, transparent)" }} data-testid={`text-ai-tip-${d.symbol}`}>{f.aiTip}</div>}
+    </div>
+  );
+}
 
 // ─── Appearance (scoped to the Action Center + cards) ────────────────────────
 export const AC_THEMES = [
@@ -114,9 +177,16 @@ const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
 /** Live-risk permission (market regime) — kept separate from the engine's practice readiness. */
 export const LiveCtx = createContext<LivePermission | null>(null);
 /** Status wording: never "Ready to Trade" while the same snapshot says live risk is blocked. */
-export function statusText(d: SwingDecision, group: ActionGroup, live: LivePermission | null): string {
+export function statusText(d: SwingDecision, group: ActionGroup, live: LivePermission | null, f?: FreshnessResult | null): string {
+  if (f && overridesStatus(d, f)) return f.displayStatus;
   return readyStatusLabel(d.setupStatus, live) || STATUS_LABEL[d.setupStatus] || ACTION_GROUP_LABEL[group];
 }
+/** Freshness wording replaces the engine label when the engine says Ready but the live plan is not tradeable,
+ *  or when the setup has gone stale / missed / invalid. Never upgrades a status. */
+export const overridesStatus = replacesEngineStatus;
+/** Status tone: a non-tradeable card is never green. */
+export const freshTone = (d: SwingDecision, group: ActionGroup, f?: FreshnessResult | null): "good" | "warn" | "bad" | "accent" | "muted" =>
+  f && overridesStatus(d, f) ? (STATE_TONE[f.state] === "good" ? "warn" : STATE_TONE[f.state]) : TONE[group];
 export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLowerCase().replace(/(^|[\s-])\w/g, (c) => c.toUpperCase()) : "No setup");
 
 /** Price vs planned stop, worded to agree with the engine status. The engine only invalidates a setup on a
@@ -320,7 +390,10 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const engineMoved = engineChangedSince(ver, d);
   const needsChoice = ver != null && engineMoved.length > 0 && acks[String(ver.id)] !== enginePlanSig(d);
   const [review, setReview] = useState(false);
-  const step = nextStepFor(d, group, ver);
+  const fr = useFreshness()(d, ver);
+  const step0 = nextStepFor(d, group, ver);
+  const step = overridesStatus(d, fr) && step0.tone === "good"
+    ? { text: fr.resetConditionText ? `Don't chase. Resets when: ${fr.resetConditionText}.` : "Not tradeable yet. Wait for a fresh setup.", tone: "warn" as const } : step0;
   const sz = useCardSizing(d, ver);
   const shares = p.shares;
   const posValue = shares != null && p.entry != null ? shares * p.entry : null;
@@ -334,6 +407,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
 
   return (
     <div className={`space-y-2.5 ${inDialog ? "p-4 sm:p-5" : "px-3 pb-3 sm:px-4"}`}>
+      {fr.hasLevels && (overridesStatus(d, fr) || d.setupStatus === "READY_TO_TRADE") && <FreshnessPanel d={d} f={fr} p={p} />}
       {guided && (
         <p className="ac-muted" style={{ fontSize: "var(--ac-fs-sm)" }} data-testid={`text-card-status-explain-${d.symbol}`}>{STATUS_EXPLAIN[d.setupStatus] ?? d.nextAction}</p>
       )}
@@ -560,7 +634,8 @@ export function PendingChip({ d }: { d: SwingDecision }) {
 function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDecision; group: ActionGroup; ver: PlanVersion | null; isNew?: boolean; open?: boolean; toggle?: () => void; action?: React.ReactNode }) {
   const p = effectivePlan(d, ver);
   const live = useContext(LiveCtx);
-  const tone = TONE[group], Icon = ICON[group];
+  const f = useFreshness()(d, ver);
+  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group];
   const badData = BAD_DATA.includes(d.dataStatus);
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
@@ -574,7 +649,8 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
         {d.setupType ? d.setupType.replace(/_/g, " ").toLowerCase().replace(/^\w/, (c) => c.toUpperCase()) : "No setup"}
         {d.setupTimeframe && <span className="ac-accent"> · {d.setupTimeframe}</span>}
       </span>
-      <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{statusText(d, group, live)}</Badge>
+      <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
+      {f.sessionTag && overridesStatus(d, f) && <Badge tone="muted" Icon={Clock} testId={`badge-session-tag-${d.symbol}`}>{f.sessionTag}</Badge>}
       <Badge tone="muted" testId={`badge-classification-${d.symbol}`}>Class: {CLASS_LABEL[d.cardGrade] ?? d.cardGrade}</Badge>
       <Badge tone={p.source === "USER" ? "accent" : "muted"} Icon={p.source === "USER" ? Pencil : undefined} testId={`text-ac-plan-source-${d.symbol}`}>
         {p.source === "USER" ? `My Adjusted Plan v${p.version}` : "Engine Plan"}
@@ -604,12 +680,15 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: { d: SwingDe
 
 // ─── Inline stat card (collapsible, remembered per setup) ────────────────────
 /** Ready variant: "live" only when the same snapshot allows live risk; otherwise "practice". */
-export const readyVariant = (d: SwingDecision, live: LivePermission | null | undefined): "live" | "practice" | null =>
-  d.setupStatus !== "READY_TO_TRADE" ? null : live && !live.allowed ? "practice" : "live";
-export function ReadyRibbon({ d }: { d: SwingDecision }) {
+export const readyVariant = (d: SwingDecision, live: LivePermission | null | undefined, f?: FreshnessResult | null): "live" | "practice" | null =>
+  d.setupStatus !== "READY_TO_TRADE" || (f && !f.isTradeable) ? null : live && !live.allowed ? "practice" : "live";
+export function ReadyRibbon({ d, ver = null }: { d: SwingDecision; ver?: PlanVersion | null }) {
   const live = useContext(LiveCtx);
-  const v = readyVariant(d, live);
-  if (!v) return null;
+  const f = useFreshness()(d, ver);
+  const v = readyVariant(d, live, f);
+  if (!v) return overridesStatus(d, f)
+    ? <div className="ac-ribbon" style={{ background: "color-mix(in srgb, var(--ac-warn) 16%, transparent)", color: "var(--ac-warn)", borderBottom: "1px solid var(--ac-warn)" }} data-testid={`ribbon-not-tradeable-${d.symbol}`} data-state={f.state}><AlertTriangle className="h-3.5 w-3.5" aria-hidden /> {f.displayStatus} · PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</div>
+    : null;
   return v === "live"
     ? <div className="ac-ribbon ac-ribbon-live" data-testid={`ribbon-ready-${d.symbol}`} data-variant="live"><Zap className="h-3.5 w-3.5" aria-hidden /> READY TO TRADE · LIVE RISK ALLOWED BY REGIME · PRACTICE PLAN, NOT ADVICE</div>
     : <div className="ac-ribbon ac-ribbon-practice" data-testid={`ribbon-ready-${d.symbol}`} data-variant="practice"><ShieldAlert className="h-3.5 w-3.5" aria-hidden /> PRACTICE READY · LIVE ENTRY NOT PERMITTED (CAPITAL PROTECTION)</div>;
@@ -640,15 +719,18 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const [open, setOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggle = () => { setOpen(!open); onSeen(); };
   const live = useContext(LiveCtx);
-  const rv = readyVariant(d, live);
+  const f = useFreshness()(d, props.ver);
+  const rv = readyVariant(d, live, f);
+  const notTradeable = overridesStatus(d, f);
   // Part 4 — Card Style background (visual only; Default = no inline style, existing look unchanged).
   const trades = useSwingTrades();
-  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : group === "READY" ? "READY" : "WATCH");
+  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : group === "READY" && !notTradeable ? "READY" : "WATCH");
   const cbStyle = rv ? { ...cb.style, border: undefined, boxShadow: undefined } : cb.style;
   return (
-    <article className={`ac-card rounded-2xl overflow-hidden ${rv ? `ac-ready-${rv}` : ""}`} style={rv ? cbStyle : { ...cb.style, borderLeft: `5px solid ${toneVar(TONE[group])}` }} {...cb.attrs}
-      aria-label={`${d.symbol} trading card: ${statusText(d, group, live)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open} data-ready={rv ?? "none"}>
-      <ReadyRibbon d={d} />
+    <article className={`ac-card rounded-2xl overflow-hidden ${rv ? `ac-ready-${rv}` : ""}`} style={rv ? cbStyle : { ...cb.style, borderLeft: `5px solid ${toneVar(freshTone(d, group, f))}` }} {...cb.attrs}
+      aria-label={`${d.symbol} trading card: ${statusText(d, group, live, f)}`} data-testid={`card-ac-${d.symbol}`} data-group={group} data-open={open} data-ready={rv ?? "none"}
+      data-freshness={f.state} data-tradeable={f.isTradeable}>
+      <ReadyRibbon d={d} ver={props.ver} />
       {open ? (
         <>
           <div className="px-3 pt-2 sm:px-4 space-y-1 pb-1.5">
@@ -668,7 +750,8 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const { d, group, ver, isNew, onSeen, toggle } = props;
   const live = useContext(LiveCtx);
   const p = effectivePlan(d, ver);
-  const tone = TONE[group], Icon = ICON[group];
+  const f = useFreshness()(d, ver);
+  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group];
   const expired = d.setupStatus === "SIGNAL_EXPIRED";
   const badData = BAD_DATA.includes(d.dataStatus) || d.setupStatus === "BLOCKED_DATA_MISMATCH";
   const br = stopBreach(d, p.stop, p.t1);
@@ -682,7 +765,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
         <button className="ac-btn !px-1.5 !py-0.5" onClick={toggle} aria-expanded={false} aria-label={`Expand ${d.symbol} card`} data-testid={`button-collapse-card-${d.symbol}`}><ChevronRight className="h-4 w-4" aria-hidden /></button>
         <span className="ac-num font-extrabold leading-none tracking-tight" style={{ fontSize: "calc(var(--ac-ticker) * 0.85)" }} data-testid={`text-card-ticker-${d.symbol}`}>{d.symbol}</span>
-        <Badge tone={tone} Icon={Icon} testId={`text-ac-status-${d.symbol}`}>{statusText(d, group, live)}</Badge>
+        <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
         <PendingChip d={d} />
         <ScoreChip d={d} />
         <span className="font-semibold" style={sm}>{setupName(d.setupType)}{d.setupTimeframe && <span className="ac-accent"> · {d.setupTimeframe}</span>}</span>
@@ -721,7 +804,8 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
   useEffect(() => { if (open) returnTo.current = document.activeElement as HTMLElement | null; }, [open]);
   const { d, prefs } = props;
   const trades = useSwingTrades();
-  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : props.group === "READY" ? "READY" : "WATCH");
+  const fd = useFreshness()(d, props.ver);
+  const cb = useCardBg(openTradeFor(trades.data?.trades, d.symbol) ? "ACTIVE" : props.group === "READY" && !overridesStatus(d, fd) ? "READY" : "WATCH");
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent
@@ -729,7 +813,7 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
         onCloseAutoFocus={(e) => { e.preventDefault(); returnTo.current?.focus?.(); }}
         data-testid="dialog-trading-card">
         <div className="ac-root ac-shell rounded-2xl max-sm:rounded-none min-h-full min-w-0" {...acAttrs(prefs)} style={cb.style} {...cb.attrs}>
-          <div className="rounded-t-2xl max-sm:rounded-none overflow-hidden pr-10"><ReadyRibbon d={d} /></div>
+          <div className="rounded-t-2xl max-sm:rounded-none overflow-hidden pr-10"><ReadyRibbon d={d} ver={props.ver} /></div>
           <div className="px-4 pt-4 sm:px-5 space-y-1.5 pr-12">
             <DialogTitle className="sr-only">Trading Card — {d.symbol}</DialogTitle>
             <DialogDescription className="sr-only">Practice-only analysis card for {d.symbol}. Not financial advice.</DialogDescription>

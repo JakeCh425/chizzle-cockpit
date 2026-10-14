@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { buildTradeSummary, harmonizeCoach } from "../../shared/tradeSummary";
-import { SETUP_STATUSES, FORBIDDEN_PHRASES, GAP_RISK_WARNING, PRACTICE_BANNER } from "../../shared/swingDecision";
+import { SETUP_STATUSES, FORBIDDEN_PHRASES, phraseHit, GAP_RISK_WARNING, PRACTICE_BANNER } from "../../shared/swingDecision";
 
 const dec = (st: string): any => ({ symbol: "SPY", setupStatus: st, setupType: "RECLAIM", cardGrade: st === "READY_TO_TRADE" ? "A3_SWING" : "WATCH",
   setupTimeframe: "4H", setupTimestamp: "2026-09-24T18:00:00Z", userMode: "PRACTICE", signalMode: "FLEXIBLE",
@@ -15,7 +15,7 @@ describe("trade summary (unified + coach)", () => {
   for (const st of SETUP_STATUSES) {
     it(`${st}: no forbidden phrases, always carries practice + gap warnings`, () => {
       const s = buildTradeSummary(dec(st), coach);
-      for (const f of FORBIDDEN_PHRASES[st as keyof typeof FORBIDDEN_PHRASES]) expect(s.text).not.toContain(f);
+      for (const f of FORBIDDEN_PHRASES[st as keyof typeof FORBIDDEN_PHRASES]) expect(phraseHit(s.text, f), f).toBe(false);
       expect(s.text).toContain(PRACTICE_BANNER); expect(s.text).toContain(GAP_RISK_WARNING);
       expect(s.printed).toBe(st === "READY_TO_TRADE");
       expect(s.brokerStep != null).toBe(st === "READY_TO_TRADE");

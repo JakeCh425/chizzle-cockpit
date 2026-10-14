@@ -3,13 +3,16 @@
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
 import { Gauge, Maximize2 } from "lucide-react";
 import type { SwingDecision, SwingSettings } from "@shared/swingDecision";
-import { rankScores, SCORE_RULES as R, type SetupScore } from "@shared/setupScore";
+import { rankScores, SCORE_RULES as R, SCORE_BANDS, scoreBandOf, scoreBadgeText, scoreLabel, type SetupScore } from "@shared/setupScore";
+import { freshnessOf } from "@shared/cardFreshness";
 import { Section } from "./TradingCard";
 import { saveSwingSettings } from "./PlanRefresh";
 
 const $ = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const xs = { fontSize: "var(--ac-fs-xs)" } as const, sm = { fontSize: "var(--ac-fs-sm)" } as const;
-const toneOf = (s: SetupScore) => (s.error ? "var(--ac-bad)" : s.grade === "PRIORITY" ? "var(--ac-good)" : s.grade === "WATCH" ? "var(--ac-accent)" : "var(--ac-muted)");
+// Never bright green: a high score alone is not Ready (the card's freshness + engine status decide).
+const BAND_TONE = { MEETS: "var(--ac-accent)", CLOSE: "var(--ac-warn)", NOT_YET: "var(--ac-muted)" } as const;
+const toneOf = (s: SetupScore) => (s.error ? "var(--ac-bad)" : BAND_TONE[scoreBandOf(s.score)]);
 const pts = (v: number, max: number) => `${Math.round(v)}/${max}`;
 export const SCORE_NOTE = "Score ranks setups only — Ready still comes from the engine's rules.";
 
@@ -22,7 +25,7 @@ export function ScoreChip({ d }: { d: SwingDecision }) {
     <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-bold ac-num whitespace-nowrap" style={{ ...xs, color: tone, border: `1.5px solid ${tone}` }}
       title={`Setup Score ${s.score}/100 — Trend ${pts(s.trendPts, R.TREND_MAX)} · Volume ${pts(s.volumePts, R.VOLUME_MAX)} · R:R ${pts(s.rrPts, R.RR_MAX)}. ${SCORE_NOTE}`}
       data-testid={`chip-score-${d.symbol}`} data-score={s.score}>
-      <Gauge className="h-3.5 w-3.5" aria-hidden /> {s.error ? "Score n/a" : `Score ${s.score} · ${s.grade}`}
+      <Gauge className="h-3.5 w-3.5" aria-hidden /> {s.error ? "Score n/a" : scoreBadgeText(s.score)}
     </span>
   );
 }
@@ -42,7 +45,7 @@ export function ScoreSection({ d, scope }: { d: SwingDecision; scope: string }) 
   const tone = toneOf(s);
   return (
     <Section id={`${scope}:score`} title="Setup Score" def={false} testId={`sec-score-${d.symbol}`}
-      summary={s.error ? `n/a — ${s.error}` : `${s.score}/100 · ${s.grade} · Trend ${pts(s.trendPts, R.TREND_MAX)} · Volume ${pts(s.volumePts, R.VOLUME_MAX)} · R:R ${pts(s.rrPts, R.RR_MAX)}`}>
+      summary={s.error ? `n/a — ${s.error}` : `${s.score}/100 · ${scoreLabel(s.score)} · Trend ${pts(s.trendPts, R.TREND_MAX)} · Volume ${pts(s.volumePts, R.VOLUME_MAX)} · R:R ${pts(s.rrPts, R.RR_MAX)}`}>
       <div className="space-y-2" style={sm}>
         <div className="grid gap-x-4 gap-y-1" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 220px), 1fr))" }}>
           <div><b>Trend (Daily)</b> <Bar v={s.trendPts} max={R.TREND_MAX} tone={tone} /> <span className="ac-num">{pts(s.trendPts, R.TREND_MAX)}</span>
@@ -59,7 +62,7 @@ export function ScoreSection({ d, scope }: { d: SwingDecision; scope: string }) 
             <span className="ac-muted">{s.status}</span>
           </div>
         )}
-        <div style={xs} data-testid={`text-score-legend-${d.symbol}`}><b>Key:</b> 80–100 PRIORITY · 60–79 WATCH · 0–59 PASS (skip for now) · full key on the Setup Priority Board.</div>
+        <div style={xs} data-testid={`text-score-legend-${d.symbol}`}><b>Key:</b> 75–100 Meets requirements · 60–74 Close — 1–2 requirements missing · 0–59 Doesn't pass requirements yet · full key on the Setup Priority Board.</div>
         <ul className="ac-muted list-disc pl-5" style={xs}>{s.notes.map((n) => <li key={n}>{n}</li>)}</ul>
         <div className="ac-muted" style={xs}>
           Setup Board rules: Hammer or Bullish Engulfing near the 10/20 EMA in the last {R.TRIGGER_LOOKBACK} closed {s.timeframe} bars · score entry = trigger high · score stop = pattern low − {R.STOP_ATR_MULT}×ATR(14).
@@ -71,10 +74,8 @@ export function ScoreSection({ d, scope }: { d: SwingDecision; scope: string }) 
 }
 
 const GRADES: { band: string; grade: string; tone: string; text: string }[] = [
-  { band: "80–100", grade: "PRIORITY", tone: "var(--ac-good)", text: "Most rules met — trend aligned, strong trigger volume, and room to the ceiling. Review these first." },
-  { band: "60–79", grade: "WATCH", tone: "var(--ac-accent)", text: "Solid, but one piece is weak or missing. Keep it on the list and wait for the missing piece." },
-  { band: "0–59", grade: "PASS", tone: "var(--ac-muted)", text: "PASS means skip for now — not \"passed\". Too many pieces missing to rank it high." },
-  { band: "n/a", grade: "DATA", tone: "var(--ac-bad)", text: "Not enough closed bars to score. It re-checks on the next refresh." },
+  ...SCORE_BANDS.map((b) => ({ band: b.range, grade: b.label, tone: BAND_TONE[b.band], text: b.text })),
+  { band: "n/a", grade: "Not enough data", tone: "var(--ac-bad)", text: "Not enough closed bars to score. It re-checks on the next refresh." },
 ];
 const STATUSES: [string, string][] = [
   ["NO SETUP", "No Hammer / Bullish Engulfing near the EMAs in the last 5 closed bars. Only trend points count (max 40)."],
@@ -89,12 +90,12 @@ export function ScoreKey() {
   const box = { border: "1px solid var(--ac-border)" } as const;
   return (
     <Section id="priority-board:key" title="Score Key — how to read and use it" def={false} testId="sec-score-key"
-      summary="80–100 PRIORITY · 60–79 WATCH · 0–59 PASS (skip for now) · Trend 40 + Volume 30 + R:R 30">
+      summary="75–100 Meets requirements · 60–74 Close · 0–59 Doesn't pass requirements yet · Trend 40 + Volume 30 + R:R 30">
       <div className="grid gap-3" style={{ ...sm, gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 420px), 1fr))" }}>
         <div className="rounded-xl p-3 space-y-1.5" style={box} data-testid="key-grades">
           <div className="font-bold">What each score means</div>
           {GRADES.map((g) => (
-            <div key={g.grade} className="flex gap-2 items-start" data-testid={`key-grade-${g.grade}`}>
+            <div key={g.grade} className="flex gap-2 items-start" data-testid={`key-grade-${g.band}`}>
               <span className="ac-num font-bold rounded-full px-2 py-0.5 whitespace-nowrap" style={{ ...xs, color: g.tone, border: `1.5px solid ${g.tone}` }}>{g.band} {g.grade}</span>
               <span>{g.text}</span>
             </div>
@@ -157,13 +158,17 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
                 <tr key={d.symbol} className="border-t" style={{ borderColor: "var(--ac-border)" }} data-testid={`row-priority-${d.symbol}`}>
                   <td className="py-1.5 pr-3 font-bold whitespace-nowrap" data-testid={`text-rank-${d.symbol}`}>RANK #{i + 1} SEED</td>
                   <td className="pr-3 font-extrabold">{d.symbol}</td>
-                  <td className="pr-3 whitespace-nowrap"><Bar v={s.score} max={100} tone={tone} /> <b style={{ color: tone }}>{s.error ? "n/a" : s.score}</b> <span className="ac-muted" style={xs}>{s.error ? s.error : s.grade}</span></td>
+                  <td className="pr-3 whitespace-nowrap"><Bar v={s.score} max={100} tone={tone} /> <b style={{ color: tone }}>{s.error ? "n/a" : s.score}</b> <span className="ac-muted" style={xs}>{s.error ? s.error : scoreLabel(s.score)}</span></td>
                   <td className="pr-3">{pts(s.trendPts, R.TREND_MAX)}</td>
                   <td className="pr-3 whitespace-nowrap">{pts(s.volumePts, R.VOLUME_MAX)}{s.volRatio != null && <span className="ac-muted" style={xs}> {s.volRatio.toFixed(2)}×</span>}</td>
                   <td className="pr-3 whitespace-nowrap">{pts(s.rrPts, R.RR_MAX)}{s.rr != null && <span className="ac-muted" style={xs}> {s.rr.toFixed(2)}:1</span>}</td>
-                  <td className="pr-3 whitespace-nowrap">{s.trigger ?? "—"}{s.trigger && <span className="ac-muted" style={xs}> · {s.status}</span>}</td>
+                  <td className="pr-3 min-w-[150px] leading-snug">{s.trigger ?? "—"}{s.trigger && <span className="ac-muted" style={xs}> · {s.status}</span>}</td>
                   <td className="pr-3 whitespace-nowrap">{s.entry != null ? `${$(s.entry)} / ${$(s.stop)}` : "—"}</td>
-                  <td className="pr-3 ac-muted whitespace-nowrap" style={xs}>{d.setupStatus.replace(/_/g, " ").toLowerCase()}</td>
+                  <td className="pr-3 min-w-[180px] max-w-[260px] leading-snug" style={xs} data-testid={`text-priority-status-${d.symbol}`}>{(() => {
+                    const f = freshnessOf(d, { minRrT1: settings?.minRrT1 ?? 2, expiryBars4h: settings?.expiryBars4h ?? 2 });
+                    if (f.isTradeable || !f.hasLevels && d.setupStatus === "NO_SETUP") return <span className="ac-muted">{d.setupStatus.replace(/_/g, " ").toLowerCase()}</span>;
+                    return <span className="font-semibold" style={{ color: "var(--ac-warn)" }} title={f.displayStatus}>{f.displayStatus.replace(/^NOT TRADEABLE( YET)?/, (m) => m === "NOT TRADEABLE YET" ? "Not tradeable yet" : "Not tradeable")}</span>;
+                  })()}</td>
                   <td><button className="ac-btn !py-0.5" style={xs} onClick={() => onOpen(d.symbol)} data-testid={`button-priority-open-${d.symbol}`}><Maximize2 className="h-3.5 w-3.5" aria-hidden /> Card</button></td>
                 </tr>
               ); })}
