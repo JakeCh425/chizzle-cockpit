@@ -44,6 +44,12 @@ export const MARKER_COLOR: Record<ChartMarker["kind"], string> = {
   FORMING: "#facc15", CONFIRMED: "#3b82f6", READY: "#22c55e", EXTENDED: "#f97316", INVALIDATED: "#f87171", EXPIRED: "#94a3b8",
 };
 const GUTTER_W = 132;
+// Clear S/R (beginner wording): Strong ≥ 75, Medium ≥ 50, else Light.
+type SrGrade = "Strong" | "Medium" | "Light";
+const srGrade = (n: number): SrGrade => (n >= 75 ? "Strong" : n >= 50 ? "Medium" : "Light");
+const SR_DOTS: Record<SrGrade, string> = { Strong: "●●●", Medium: "●●○", Light: "●○○" };
+const srWhy = (l: { source: string; touches: number; strength: number; label: string }) =>
+  `${l.source === "PDH" ? "Yesterday's high" : l.source === "PDL" ? "Yesterday's low" : l.source === "DRAWING" ? `Your line${l.label ? ` "${l.label}"` : ""}` : l.source === "ENGINE_ZONE" ? "Engine zone" : `Swing pivot · ${l.label}`} · strength ${l.strength}/100`;
 const LEVEL_COLOR: Record<ChartLevel["kind"], string> = { ENTRY: "#22c55e", STOP: "#ef4444", T1: "#14b8a6", T2: "#a855f7" };
 const ZONE_COLOR: Record<ChartZone["kind"], string> = { RETEST: "rgba(56,189,248,0.14)", SUPPORT: "rgba(34,197,94,0.08)", RESISTANCE: "rgba(248,113,113,0.08)" };
 const ZONE_EDGE: Record<ChartZone["kind"], string> = { RETEST: "#38bdf8", SUPPORT: "#22c55e", RESISTANCE: "#f87171" };
@@ -188,10 +194,22 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   }, [JSON.stringify(day), dayOv.hodlod, dayOv.pdhpdl, dayOv.pre]);
   // Auto S/R (top 3 above / below) from the context for THIS timeframe (pivots + PDH/PDL + your lines).
   const srCtx = ctxQ.data && ctxQ.data.symbol === symbol && ctxQ.data.tf === tf ? ctxQ.data.sr : null;
-  const srLines = useMemo(() => !ind.sr.on || !srCtx ? [] : [
-    ...srCtx.above.slice(0, 3).map((l) => ({ price: l.price, color: "#f87171", text: `R $${l.price.toFixed(2)} · ${l.strength}`, src: l.source })),
-    ...srCtx.below.slice(0, 3).map((l) => ({ price: l.price, color: "#4ade80", text: `S $${l.price.toFixed(2)} · ${l.strength}`, src: l.source })),
-  ], [JSON.stringify(srCtx), ind.sr.on]);
+  const srClear = ind.sr.style !== "minimal";
+  const srLines = useMemo(() => {
+    if (!ind.sr.on || !srCtx) return [];
+    const n = Math.min(3, Math.max(1, ind.sr.count || 3));
+    if (!srClear) return [ // "Minimal lines": the original look
+      ...srCtx.above.slice(0, n).map((l) => ({ price: l.price, color: "#f87171", text: `R $${l.price.toFixed(2)} · ${l.strength}`, src: l.source, side: "R" as const, strength: l.strength, grade: srGrade(l.strength), nearest: false, touches: l.touches, why: srWhy(l) })),
+      ...srCtx.below.slice(0, n).map((l) => ({ price: l.price, color: "#4ade80", text: `S $${l.price.toFixed(2)} · ${l.strength}`, src: l.source, side: "S" as const, strength: l.strength, grade: srGrade(l.strength), nearest: false, touches: l.touches, why: srWhy(l) })),
+    ];
+    const ab = srCtx.above.slice(0, n), be = srCtx.below.slice(0, n);
+    const nA = ab.length ? Math.min(...ab.map((l) => l.price)) : null, nB = be.length ? Math.max(...be.map((l) => l.price)) : null;
+    return [
+      ...ab.map((l) => ({ price: l.price, color: "#f87171", text: `Res $${l.price.toFixed(2)} ${SR_DOTS[srGrade(l.strength)]}`, src: l.source, side: "R" as const, strength: l.strength, grade: srGrade(l.strength), nearest: l.price === nA, touches: l.touches, why: srWhy(l) })),
+      ...be.map((l) => ({ price: l.price, color: "#4ade80", text: `Sup $${l.price.toFixed(2)} ${SR_DOTS[srGrade(l.strength)]}`, src: l.source, side: "S" as const, strength: l.strength, grade: srGrade(l.strength), nearest: l.price === nB, touches: l.touches, why: srWhy(l) })),
+    ];
+  }, [JSON.stringify(srCtx), ind.sr.on, ind.sr.count, srClear]);
+  const srAtr = ctxQ.data && ctxQ.data.symbol === symbol && ctxQ.data.tf === tf ? ctxQ.data.indicators.atr : null;
   const panes = (ind.macd.on ? 1 : 0) + (ind.rsi.on ? 1 : 0);
   const chartH = 380 + panes * PANE_H;
   const [indLast, setIndLast] = useState<{ atr: number | null; rsi: number | null; hist: number | null; vwap: number | null }>({ atr: null, rsi: null, hist: null, vwap: null });
@@ -320,7 +338,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     setIndLast({ atr: atrNow, rsi: rsv.length ? lastNum(rsv) : null, hist: mdH.length ? lastNum(mdH) : null, vwap: vw.length ? lastNum(vw) : null });
     // Part 2 — day levels + auto S/R: dashed lines, labels always shown in the gutter.
     for (const l of dayLines) main.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
-    for (const l of srLines) main.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title: "" });
+    for (const l of srLines) main.createPriceLine(srClear
+      ? { price: l.price, color: l.color, lineWidth: l.nearest || l.grade === "Strong" ? 2 : 1, lineStyle: l.nearest ? LineStyle.Solid : l.grade === "Light" ? LineStyle.Dotted : LineStyle.Dashed, axisLabelVisible: l.nearest, title: "" }
+      : { price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title: "" });
     // Part 3 — drawing layer (custom series primitive; anchored to price + time on every timeframe).
     if (drawOn) { const pr = new DrawingPrimitive(); pr.times = data.map((b) => b.t); main.attachPrimitive(pr); primRef.current = pr; const L = layerRef.current; pr.drawings = L.visDrawings; pr.selected = L.selId; pr.hidden = L.hideDr; } else primRef.current = null;
 
@@ -375,6 +395,33 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         const d = document.createElement("div");
         d.style.cssText = `position:absolute;left:0;right:56px;top:${Math.min(y1, y2)}px;height:${Math.max(2, Math.abs(y2 - y1))}px;background:${ZONE_COLOR[z.kind]};pointer-events:none`;
         host.appendChild(d);
+      }
+      // Clear S/R: a shaded band per level (darker = stronger) + a plain-English tag on the chart.
+      if (srClear && srLines.length) {
+        let paneH = host.clientHeight; try { paneH = chart.panes()[0].getHeight(); } catch { /* single pane */ }
+        const tags: { y: number; el: HTMLDivElement; pri: number }[] = [];
+        for (const l of srLines) {
+          const half = Math.max(l.price * 0.0012, (srAtr ?? 0) * 0.1);
+          const y1 = main.priceToCoordinate(l.price + half), y2 = main.priceToCoordinate(l.price - half), yc = main.priceToCoordinate(l.price);
+          if (y1 == null || y2 == null || yc == null || yc < 0 || yc > paneH) continue;
+          const top = Math.max(0, Math.min(y1, y2)), h = Math.max(4, Math.min(paneH, Math.max(y1, y2)) - top);
+          const rgb = l.side === "R" ? "248,113,113" : "74,222,128", a = (0.07 + (l.strength / 100) * 0.13 + (l.nearest ? 0.05 : 0)).toFixed(3);
+          const b = document.createElement("div");
+          b.setAttribute("data-testid", "sr-band"); b.setAttribute("data-side", l.side); b.setAttribute("data-grade", l.grade); b.setAttribute("data-nearest", l.nearest ? "1" : "0");
+          b.style.cssText = `position:absolute;left:0;right:56px;top:${top}px;height:${h}px;background:rgba(${rgb},${a});${l.nearest ? `border-top:1px solid rgba(${rgb},.55);border-bottom:1px solid rgba(${rgb},.55);` : ""}pointer-events:none`;
+          host.appendChild(b);
+          const t = document.createElement("div");
+          t.setAttribute("data-testid", "sr-tag"); t.title = l.why;
+          t.textContent = `${l.nearest ? (l.side === "R" ? "Nearest resistance" : "Nearest support") : l.side === "R" ? "Resistance" : "Support"} $${l.price.toFixed(2)} · ${l.grade}${l.touches > 1 ? ` · ${l.touches} touches` : ""}`;
+          t.style.cssText = `position:absolute;left:8px;top:${yc - 9}px;height:17px;line-height:15px;padding:0 6px;border-radius:4px;font:${l.nearest ? 700 : 600} 10.5px ui-monospace,monospace;white-space:nowrap;color:rgb(${rgb});background:rgba(5,10,19,.86);border:1px solid rgba(${rgb},${l.nearest ? ".8" : ".45"});pointer-events:none`;
+          tags.push({ y: yc, el: t, pri: (l.nearest ? 1000 : 0) + l.strength });
+        }
+        // Keep tags readable: skip any that would overlap a higher-priority tag or the SMA legend at the top.
+        const placed: number[] = [];
+        for (const g of tags.sort((x, y) => y.pri - x.pri)) {
+          if (g.y < 46 || g.y > paneH - 10 || placed.some((p) => Math.abs(p - g.y) < 19)) continue;
+          placed.push(g.y); host.appendChild(g.el);
+        }
       }
     };
     // Right-hand label gutter: plan labels sit beside the price scale (never on candles),
@@ -446,7 +493,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const tm = setTimeout(safeDraw, 60);
     return () => { alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn]);
+  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn, srClear, srAtr]);
 
   // Part 3 — keep the drawing layer in sync without rebuilding the chart.
   useEffect(() => {
@@ -608,7 +655,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
           onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
         <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
-        <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0 }} />
+        <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, zIndex: 3 }} data-testid="chart-band-layer" />
         {textAt && (
           <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
             onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
@@ -682,6 +729,13 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
       </div>
+      {srClear && srLines.length > 0 && (
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-gray" data-testid="text-sr-key">
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "rgba(74,222,128,.35)", border: "1px solid rgba(74,222,128,.7)" }} /><span className="text-soft-white">Support</span> — where buyers stepped in before (price bounced up)</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "rgba(248,113,113,.35)", border: "1px solid rgba(248,113,113,.7)" }} /><span className="text-soft-white">Resistance</span> — where sellers stepped in before (price turned down)</span>
+          <span>Darker band / ●●● = stronger (more touches, more recent). Solid line = nearest level. Reference areas, not promises.</span>
+        </p>
+      )}
       <p className="text-[11px] text-slate-gray" data-testid="text-tf-guide"><span className="text-soft-white font-mono">{TF_LABEL[tf]} guide:</span> {TF_GUIDE[tf]}</p>
       {/* Accessible marker list — every chart marker is also a keyboard-reachable button */}
       {ov.markers && (decision?.chart?.markers.length ?? 0) > 0 && (

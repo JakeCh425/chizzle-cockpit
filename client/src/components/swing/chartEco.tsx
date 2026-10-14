@@ -36,7 +36,7 @@ export interface IndSettings {
   rsi: { on: boolean; n: number; color: string };
   vwap: { on: boolean; color: string };
   atr: { on: boolean; n: number };
-  sr: { on: boolean };
+  sr: { on: boolean; style: "clear" | "minimal"; count: number };
 }
 export const IND_DEFAULT: IndSettings = {
   macd: { on: false, fast: 12, slow: 26, signal: 9, cMacd: "#38bdf8", cSignal: "#f97316", cUp: "#22c55e", cDown: "#ef4444" },
@@ -44,7 +44,7 @@ export const IND_DEFAULT: IndSettings = {
   rsi: { on: false, n: 14, color: "#c084fc" },
   vwap: { on: false, color: "#eab308" },
   atr: { on: true, n: 14 },
-  sr: { on: true },
+  sr: { on: true, style: "clear", count: 3 },
 };
 const mergeInd = (s: Partial<IndSettings> | undefined): IndSettings => {
   const o: any = { ...IND_DEFAULT };
@@ -130,8 +130,15 @@ export function IndicatorsMenu({ s, set, bbOn, onBb, intraday, onClose }: { s: I
         {reset("atr")}
       </div>
       <div className={row} data-testid="ind-row-sr">
-        {tog(s.sr.on, () => set({ ...s, sr: { on: !s.sr.on } }), "sr", "Auto S/R")}
-        <span className="text-[10px] text-[#94a3b8]">Top 3 above / below from pivots, PDH/PDL and your lines · strength 0–100</span>
+        {tog(s.sr.on, () => set({ ...s, sr: { ...s.sr, on: !s.sr.on } }), "sr", "Auto S/R")}
+        <L t="style" /><select className={inp + " !w-auto"} value={s.sr.style} onChange={(e) => set({ ...s, sr: { ...s.sr, style: e.target.value === "minimal" ? "minimal" : "clear" } })} aria-label="Support and resistance style" data-testid="select-sr-style">
+          <option value="clear">Clear bands</option><option value="minimal">Minimal lines</option>
+        </select>
+        <L t="per side" /><select className={inp + " !w-auto"} value={s.sr.count} onChange={(e) => set({ ...s, sr: { ...s.sr, count: num(e.target.value, 1, 3, s.sr.count) } })} aria-label="Levels per side" data-testid="select-sr-count">
+          {[1, 2, 3].map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {reset("sr")}
+        <span className="basis-full text-[10px] text-[#94a3b8]">Nearest levels above / below from pivots, PDH/PDL and your lines. Darker band = stronger level (more touches, more recent).</span>
       </div>
       <p className="pt-1 text-[10px] text-[#94a3b8]">Visual analysis only. Changing a period never changes the engine's decision.</p>
     </div>
