@@ -17,6 +17,12 @@ import { expiredExplainer } from "@shared/tradeSummary";
 import { hasPlan, stopLimitFor } from "./TradeTicket";
 import type { PlanVersion } from "@shared/practicePlan";
 import { isContextTf, useContextUiEnabled, useMarketContext } from "@/lib/marketContext";
+import { atrOf, macdSeries, rsiSeries, vwapSeries } from "@shared/marketContext";
+import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
+import {
+  DAY_COLORS, DrawingEditor, DrawingPrimitive, DrawingToolbar, IndicatorsMenu, POINTS_NEEDED, TOOLBAR_W, paramsFor, useDayOverlays, useDrawings, useIndicatorSettings, visibleOn, type Tool,
+} from "./chartEco";
+const PANE_H = 110;
 
 export const TFS = ["15m", "30m", "1H", "4H", "D", "W"] as const;
 export type Tf = typeof TFS[number];
@@ -107,7 +113,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [hoverChart, setHoverChart] = useState(false);
   const [pinLevels, setPinLevels] = usePersistentState<boolean>("swing-chart-pin-levels", false);
   const showInfo = ov.plan && (hoverChart || !!highlight || pinLevels);
-  const gutterOn = ov.plan && (hasPlan(decision) || !!userPlan || !!alertLevels?.length);
+  const gutterOnPlan = ov.plan && (hasPlan(decision) || !!userPlan || !!alertLevels?.length);
   const userLevels = useMemo(() => {
     const r = userPlan?.result; if (!r) return [];
     const v = userPlan!.version;
@@ -117,6 +123,24 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   }, [userPlan?.id]);
   const alertKey = JSON.stringify(alertLevels ?? []);
   const alertLv = useMemo(() => (alertLevels ?? []).filter((a) => Number.isFinite(a.price)), [alertKey]);
+  // Chart Ecosystem Parts 2–3 — day levels, indicator settings, drawings (all additive toggles).
+  const [dayOv, setDayOv] = useDayOverlays();
+  const [ind, setInd] = useIndicatorSettings(tf);
+  const [indOpen, setIndOpen] = useState(false);
+  const [drawUi] = usePersistentState<boolean>("chart-drawings", true);
+  const dr = useDrawings(symbol, drawUi);
+  const drawOn = drawUi && dr.enabled;
+  const [tool, setTool] = useState<Tool>("select");
+  const [selId, setSelId] = useState<number | null>(null);
+  const [hideDr, setHideDr] = usePersistentState<boolean>("chart-drawings-hidden", false);
+  const [textAt, setTextAt] = useState<{ x: number; y: number; pt: DrawingPoint } | null>(null);
+  const [textVal, setTextVal] = useState("");
+  const primRef = useRef<DrawingPrimitive | null>(null);
+  const draftRef = useRef<{ type: Tool; points: DrawingPoint[] } | null>(null);
+  const visDrawings = useMemo(() => dr.list.filter((x) => visibleOn(x, tf)), [dr.list, tf]);
+  const selected = visDrawings.find((x) => x.id === selId) ?? null;
+  const drRef = useRef(dr); drRef.current = dr;
+  const layerRef = useRef({ visDrawings, selId, hideDr }); layerRef.current = { visDrawings, selId, hideDr };
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
   const markerRef = useRef<{ plugin: any; full: SeriesMarker<Time>[]; bare: SeriesMarker<Time>[] } | null>(null);
@@ -145,7 +169,32 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   // Part 1 — indicator values come from the shared market context (same bars, same formulas) when it
   // matches the bars on screen; otherwise the chart keeps its previous local math. Visuals are identical.
   const [ctxUi] = useContextUiEnabled();
-  const ctxQ = useMarketContext(symbol, tf, { series: true, stamp: decision?.evaluatedAt ?? null, enabled: ctxUi && !ov.ext && isContextTf(tf) });
+  const indParams = paramsFor(ind);
+  const ctxQ = useMarketContext(symbol, tf, { series: true, stamp: decision?.evaluatedAt ?? null, enabled: ctxUi && !ov.ext && isContextTf(tf), params: indParams });
+  // Day levels on 15m/30m (or extended view) come from the lean 1H context — same server numbers.
+  const dayQ = useMarketContext(symbol, "1H", { stamp: decision?.evaluatedAt ?? null, enabled: ctxUi && (!isContextTf(tf) || ov.ext) });
+  const dayCtx = (ctxQ.data && ctxQ.data.symbol === symbol ? ctxQ.data : null) ?? (dayQ.data && dayQ.data.symbol === symbol ? dayQ.data : null);
+  const day = dayCtx?.day ?? null;
+  const dayLines = useMemo(() => {
+    const out: { key: string; price: number; color: string; text: string }[] = [];
+    if (!day) return out;
+    const live = day.state === "LIVE" ? " · live" : "";
+    if (dayOv.hodlod && day.hod != null) out.push({ key: "HOD", price: day.hod, color: DAY_COLORS.HOD, text: `HOD $${day.hod.toFixed(2)}${live}` });
+    if (dayOv.hodlod && day.lod != null) out.push({ key: "LOD", price: day.lod, color: DAY_COLORS.LOD, text: `LOD $${day.lod.toFixed(2)}${live}` });
+    if (dayOv.pdhpdl && day.pdh != null) out.push({ key: "PDH", price: day.pdh, color: DAY_COLORS.PDH, text: `PDH $${day.pdh.toFixed(2)}` });
+    if (dayOv.pdhpdl && day.pdl != null) out.push({ key: "PDL", price: day.pdl, color: DAY_COLORS.PDL, text: `PDL $${day.pdl.toFixed(2)}` });
+    if (dayOv.pre && day.premarket) { out.push({ key: "PMH", price: day.premarket.high, color: DAY_COLORS.PMH, text: `PM high $${day.premarket.high.toFixed(2)}` }); out.push({ key: "PML", price: day.premarket.low, color: DAY_COLORS.PML, text: `PM low $${day.premarket.low.toFixed(2)}` }); }
+    return out;
+  }, [JSON.stringify(day), dayOv.hodlod, dayOv.pdhpdl, dayOv.pre]);
+  // Auto S/R (top 3 above / below) from the context for THIS timeframe (pivots + PDH/PDL + your lines).
+  const srCtx = ctxQ.data && ctxQ.data.symbol === symbol && ctxQ.data.tf === tf ? ctxQ.data.sr : null;
+  const srLines = useMemo(() => !ind.sr.on || !srCtx ? [] : [
+    ...srCtx.above.slice(0, 3).map((l) => ({ price: l.price, color: "#f87171", text: `R $${l.price.toFixed(2)} · ${l.strength}`, src: l.source })),
+    ...srCtx.below.slice(0, 3).map((l) => ({ price: l.price, color: "#4ade80", text: `S $${l.price.toFixed(2)} · ${l.strength}`, src: l.source })),
+  ], [JSON.stringify(srCtx), ind.sr.on]);
+  const panes = (ind.macd.on ? 1 : 0) + (ind.rsi.on ? 1 : 0);
+  const chartH = 380 + panes * PANE_H;
+  const [indLast, setIndLast] = useState<{ atr: number | null; rsi: number | null; hist: number | null; vwap: number | null }>({ atr: null, rsi: null, hist: null, vwap: null });
   const ctxSeries = useMemo(() => {
     const c = ctxQ.data, sr = c?.series;
     if (!c || !sr || !data.length || ov.ext || !isContextTf(tf)) return null;
@@ -156,6 +205,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   }, [ctxQ.data, data, ov.ext, tf]);
   const ctxUsedRef = useRef<"ctx" | "local">("local");
   const intraday = tf === "15m" || tf === "30m" || tf === "1H" || tf === "4H";
+  const gutterOn = gutterOnPlan || dayLines.length > 0 || srLines.length > 0;
 
   // Markers snapped to the nearest displayed bar at or before the marker's bar time.
   const snapped = useMemo(() => {
@@ -235,7 +285,44 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       }
       setSmaHover({ vals, hit, x: p.point.x, y: p.point.y });
     });
-    if (ov.bb) { const b = bb(closes); line(fromCtx(b.map((x) => x?.u ?? null), "bbU"), "#64748b", LineStyle.Dotted); line(fromCtx(b.map((x) => x?.l ?? null), "bbL"), "#64748b", LineStyle.Dotted); }
+    if (ov.bb) { const b = bb(closes, ind.bb.n, ind.bb.k); line(fromCtx(b.map((x) => x?.u ?? null), "bbU"), ind.bb.color, LineStyle.Dotted); line(fromCtx(b.map((x) => x?.l ?? null), "bbL"), ind.bb.color, LineStyle.Dotted); }
+    // Part 3 — VWAP (intraday only), MACD + RSI sub-panes, ATR readout. Context series when they match the
+    // bars on screen; otherwise the same shared formulas run on the displayed bars (labelled "local").
+    const pick = (key: "macd" | "signal" | "hist" | "rsi" | "vwap", local: (number | null)[]) => {
+      const arr = ctxSeries?.sr[key] as (number | null)[] | undefined;
+      if (!ctxSeries || !arr) return local;
+      return data.map((b, i) => { const j = ctxSeries.idx.get(b.t); return j == null ? local[i] : (arr[j] ?? null); });
+    };
+    const lastNum = (a: (number | null)[]) => { for (let i = a.length - 1; i >= 0; i--) if (a[i] != null) return a[i] as number; return null; };
+    let vw: (number | null)[] = [], mdH: (number | null)[] = [], rsv: (number | null)[] = [];
+    if (ind.vwap.on && intraday) { vw = pick("vwap", vwapSeries(data)); line(vw, ind.vwap.color, LineStyle.Solid); }
+    let pane = 1;
+    if (ind.macd.on) {
+      const lm = macdSeries(closes, ind.macd.fast, ind.macd.slow, ind.macd.signal);
+      const mL = pick("macd", lm.map((x) => x?.macd ?? null)), sL = pick("signal", lm.map((x) => x?.signal ?? null)); mdH = pick("hist", lm.map((x) => x?.hist ?? null));
+      const hs = chart.addSeries(HistogramSeries, { priceLineVisible: false, lastValueVisible: false, title: "" }, pane);
+      hs.setData(mdH.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v, color: v >= 0 ? ind.macd.cUp + "99" : ind.macd.cDown + "99" })) as any);
+      const ms = chart.addSeries(LineSeries, { color: ind.macd.cMacd, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane);
+      ms.setData(mL.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
+      const ss = chart.addSeries(LineSeries, { color: ind.macd.cSignal, lineWidth: 1, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false }, pane);
+      ss.setData(sL.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
+      pane++;
+    }
+    if (ind.rsi.on) {
+      rsv = pick("rsi", rsiSeries(closes, ind.rsi.n));
+      const rs = chart.addSeries(LineSeries, { color: ind.rsi.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false }, pane);
+      rs.setData(rsv.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
+      for (const g of [70, 30]) rs.createPriceLine({ price: g, color: "#475569", lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: true, title: "" });
+      pane++;
+    }
+    try { const ps = chart.panes(); for (let i = 1; i < ps.length; i++) ps[i].setHeight(PANE_H); } catch { /* single pane */ }
+    const atrNow = ind.atr.on ? (ctxSeries && !indParams && dayCtx?.tf === tf ? dayCtx.indicators.atr : atrOf(data.filter((b) => b.closed), ind.atr.n)) : null;
+    setIndLast({ atr: atrNow, rsi: rsv.length ? lastNum(rsv) : null, hist: mdH.length ? lastNum(mdH) : null, vwap: vw.length ? lastNum(vw) : null });
+    // Part 2 — day levels + auto S/R: dashed lines, labels always shown in the gutter.
+    for (const l of dayLines) main.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.Dashed, axisLabelVisible: false, title: "" });
+    for (const l of srLines) main.createPriceLine({ price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, title: "" });
+    // Part 3 — drawing layer (custom series primitive; anchored to price + time on every timeframe).
+    if (drawOn) { const pr = new DrawingPrimitive(); pr.times = data.map((b) => b.t); main.attachPrimitive(pr); primRef.current = pr; const L = layerRef.current; pr.drawings = L.visDrawings; pr.selected = L.selId; pr.hidden = L.hideDr; } else primRef.current = null;
 
     const overlay = decision?.chart;
     const vis = showRef.current;
@@ -306,12 +393,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       if (hit) hit.bell = true;
       else (gLevels as any[]).push({ price: a.price, color: "#38bdf8", text: `Alert $${a.price.toFixed(2)}`, dashed: true, bell: true });
     }
+    const always = [...dayLines.map((l) => ({ price: l.price, color: l.color, text: l.text, dashed: true, kind: "day" })), ...srLines.map((l) => ({ price: l.price, color: l.color, text: l.text, dashed: true, kind: "sr" }))];
     const drawGutter = () => {
       const g = gutterRef.current; if (!g) return;
       g.innerHTML = "";
-      if (!showRef.current || !gLevels.length) return;
-      const H = g.clientHeight, W = g.clientWidth, ROW = 17, LEAD = 14;
-      const pts = gLevels.map((l) => ({ ...l, y: main.priceToCoordinate(l.price) as number | null }))
+      const lv = [...(showRef.current ? gLevels : []), ...always] as typeof gLevels;
+      if (!lv.length) return;
+      let H0 = g.clientHeight; try { H0 = Math.min(H0, chart.panes()[0].getHeight() + 26); } catch { /* */ }
+      const H = H0, W = g.clientWidth, ROW = 17, LEAD = 14;
+      const pts = lv.map((l) => ({ ...l, y: main.priceToCoordinate(l.price) as number | null }))
         .filter((l) => l.y != null && (l.y as number) > -40 && (l.y as number) < H + 40)
         .sort((a, b) => (a.y as number) - (b.y as number)) as (typeof gLevels[number] & { y: number })[];
       const pos = pts.map((p) => Math.min(Math.max(p.y, ROW / 2 + 2), H - 26 - ROW / 2));
@@ -333,7 +423,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         d.style.cssText = (p as any).dashed
           ? `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:14px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:${p.color};background:#050a13;border:1px dashed ${p.color}`
           : `position:absolute;left:${LEAD}px;right:2px;top:${pos[i] - 8}px;height:16px;line-height:16px;padding:0 4px;border-radius:3px;font:600 10px ui-monospace,monospace;white-space:nowrap;overflow:hidden;color:#050a13;background:${p.color}`;
-        if ((p as any).dashed) d.setAttribute("data-testid", "gutter-label-user");
+        if ((p as any).dashed) d.setAttribute("data-testid", (p as any).kind === "day" ? "gutter-label-day" : (p as any).kind === "sr" ? "gutter-label-sr" : "gutter-label-user");
         if ((p as any).bell) {
           // Bell = an active practice price alert sits on this level (not an order).
           const b = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -354,9 +444,69 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     let alive = true;
     const safeDraw = () => { if (alive) { try { drawBands(); drawGutter(); } catch { /* chart already disposed */ } } };
     const tm = setTimeout(safeDraw, 60);
-    return () => { alive = false; clearTimeout(tm); drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
+    return () => { alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect(); chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); chart.remove(); chartRef.current = null; mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries]);
+  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn]);
+
+  // Part 3 — keep the drawing layer in sync without rebuilding the chart.
+  useEffect(() => {
+    const pr = primRef.current; if (!pr) return;
+    pr.drawings = visDrawings; pr.selected = selId; pr.hidden = hideDr; pr.update();
+  }, [visDrawings, selId, hideDr, data]);
+  useEffect(() => { setSelId(null); setTool("select"); draftRef.current = null; setTextAt(null); }, [symbol]);
+  // Pointer handling: capture-phase on the chart box so a drag on a drawing never pans the chart.
+  useEffect(() => {
+    const el = boxRef.current; if (!el || !drawOn) return;
+    const rel = (e: MouseEvent) => { const r = el.getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top }; };
+    let drag: { id: number; handle: number | null; start: DrawingPoint; orig: ChartDrawing } | null = null;
+    const down = (e: MouseEvent) => {
+      const pr = primRef.current; if (!pr || e.button !== 0) return;
+      const { x, y } = rel(e);
+      if (tool !== "select") {
+        e.stopPropagation(); e.preventDefault();
+        const pt = pr.pointAt(x, y); if (!pt) return;
+        if (tool === "TEXT") { setTextAt({ x, y, pt }); setTextVal(""); return; }
+        const need = POINTS_NEEDED[tool];
+        const draft = draftRef.current && draftRef.current.type === tool ? draftRef.current : { type: tool, points: [] as DrawingPoint[] };
+        draft.points = [...draft.points, pt];
+        if (draft.points.length >= need) {
+          draftRef.current = null; pr.preview = null; pr.update();
+          void drRef.current.create({ symbol: symbol!, type: tool, points: draft.points.slice(0, need), color: tool === "RECT" ? "#38bdf8" : tool === "FIB" ? "#f59e0b" : "#e2e8f0", style: { width: 1, dash: "solid" }, label: "", tfVisibility: ["ALL"], locked: false })
+            .then((c) => { if (c) setSelId(c.id); });
+          setTool("select");
+        } else { draftRef.current = draft; pr.preview = { type: tool, points: [pt, pt], color: "#e2e8f0" }; pr.update(); }
+        return;
+      }
+      const h = pr.hit(x, y);
+      if (!h) { setSelId(null); return; }
+      e.stopPropagation(); e.preventDefault();
+      setSelId(h.id);
+      const orig = pr.drawings.find((q) => q.id === h.id); const start = pr.pointAt(x, y);
+      if (orig && start && !orig.locked) drag = { id: h.id, handle: h.handle, start, orig };
+    };
+    const move = (e: MouseEvent) => {
+      const pr = primRef.current; if (!pr) return;
+      const { x, y } = rel(e);
+      if (draftRef.current && pr.preview) { const pt = pr.pointAt(x, y); if (pt) { pr.preview = { ...pr.preview, points: [draftRef.current.points[0], pt] }; pr.update(); } return; }
+      if (!drag) return;
+      const pt = pr.pointAt(x, y); if (!pt) return;
+      const dp = pt.price - drag.start.price, dt = pt.time - drag.start.time;
+      const pts = drag.orig.points.map((q, i) => drag!.handle == null ? { price: Math.round((q.price + dp) * 100) / 100, time: drag!.orig.type === "HLINE" ? q.time : q.time + dt } : i === drag!.handle ? pt : q);
+      pr.drawings = pr.drawings.map((q) => (q.id === drag!.id ? { ...q, points: pts } : q)); pr.update();
+    };
+    const up = () => {
+      const pr = primRef.current; if (!drag || !pr) { drag = null; return; }
+      const now = pr.drawings.find((q) => q.id === drag!.id);
+      if (now && JSON.stringify(now.points) !== JSON.stringify(drag.orig.points)) void drRef.current.update(drag.id, { points: drag.orig.points }, { points: now.points });
+      drag = null;
+    };
+    const key = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (e.key === "Escape") { draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } setTool("select"); setTextAt(null); }
+    };
+    el.addEventListener("mousedown", down, true); window.addEventListener("mousemove", move); window.addEventListener("mouseup", up); window.addEventListener("keydown", key);
+    return () => { el.removeEventListener("mousedown", down, true); window.removeEventListener("mousemove", move); window.removeEventListener("mouseup", up); window.removeEventListener("keydown", key); };
+  }, [tool, drawOn, symbol]);
 
   // Toggle plan info without rebuilding the chart.
   useEffect(() => {
@@ -420,6 +570,17 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             {OVERLAY_LABEL[k]}
           </button>
         ))}
+        <span className="relative inline-flex">
+          <button className={`${btn(indOpen || ind.macd.on || ind.rsi.on || ind.vwap.on)} inline-flex items-center gap-1`} onClick={() => setIndOpen(!indOpen)} aria-expanded={indOpen} data-testid="button-indicators-menu">Indicators +</button>
+          {indOpen && <div className="absolute left-0 top-full"><IndicatorsMenu s={ind} set={setInd} bbOn={ov.bb} onBb={(v) => setOv({ ...ov, bb: v })} intraday={intraday} onClose={() => setIndOpen(false)} /></div>}
+        </span>
+        <span className="w-px h-4 bg-ink-line mx-1" />
+        {([["hodlod", "HOD/LOD", "Today's high / low (live in RTH, fixed at the 15:00 CT close)"], ["pdhpdl", "PDH/PDL", "Prior-day high / low"], ["pre", "Pre-market", "Pre-market high / low (extended hours; RTH stays the default)"]] as const).map(([k, label, title]) => (
+          <button key={k} className={`${btn(dayOv[k])} inline-flex items-center gap-1`} onClick={() => setDayOv({ [k]: !dayOv[k] })} aria-pressed={dayOv[k]} title={title} data-testid={`toggle-day-${k}`}>
+            <span className="inline-block w-2.5 border-t border-dashed" style={{ borderColor: k === "hodlod" ? DAY_COLORS.HOD : k === "pdhpdl" ? DAY_COLORS.PDH : DAY_COLORS.PMH }} />{label}
+          </button>
+        ))}
+        {dayOv.pre && day && !day.premarket && <span className="text-[10px] text-slate-gray font-mono" data-testid="text-premarket-none">no pre-market bars</span>}
         {ov.plan && (
           <button className={`${btn(pinLevels)} inline-flex items-center gap-1`} onClick={() => setPinLevels(!pinLevels)} aria-pressed={pinLevels} data-testid="toggle-pin-levels"
             title="Off = clean chart; levels show only while you hover the chart or its trade card.">
@@ -441,19 +602,31 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           {b?.visualOnlyNote ?? "15m / 30m are visual only — they never confirm a setup unless Intraday Learning Mode is on."}
         </div>
       )}
-      <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: 380 }}
-        onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area">
-        <div ref={boxRef} className="absolute inset-y-0 left-0" style={{ right: gutterOn ? GUTTER_W : 0 }} />
-        <div ref={bandRef} className="absolute inset-y-0 left-0 pointer-events-none" style={{ right: gutterOn ? GUTTER_W : 0 }} />
+      <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: chartH }}
+        onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area" data-panes={panes}>
+        {drawOn && <DrawingToolbar tool={tool} setTool={(t) => { setTool(t); draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } }} api={dr} selected={selected} hidden={hideDr} setHidden={setHideDr}
+          onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
+          onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
+        <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
+        <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0 }} />
+        {textAt && (
+          <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
+            onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
+            <input autoFocus className="w-40 rounded border border-neon-blue bg-[#0b1220] px-1.5 py-0.5 text-[11px] text-[#f1f5f9]" placeholder="Note text, Enter to save" maxLength={80} value={textVal} onChange={(e) => setTextVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setTextAt(null); setTool("select"); } }} data-testid="input-drawing-text" />
+          </form>
+        )}
+        {selected && tool === "select" && <DrawingEditor d={selected} tf={tf} price={decision?.currentPrice ?? null} api={dr} onClose={() => setSelId(null)} right={(gutterOn ? GUTTER_W : 0) + 62} />}
+        {drawOn && !dr.ready && !dr.loading && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[9.5px] font-mono text-slate-gray" style={{ left: TOOLBAR_W + 6 }} data-testid="text-drawings-not-ready">Drawings storage not set up</div>}
+        {dr.err && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[10px] font-mono text-rose-300" style={{ left: (drawOn ? TOOLBAR_W : 0) + 6 }} role="alert" data-testid="text-drawing-error">{dr.err}</div>}
         {gutterOn && (
           <div className="absolute inset-y-0 right-0 border-l border-ink-line bg-[#050a13]" style={{ width: GUTTER_W }} data-testid="chart-label-gutter">
             <div ref={gutterRef} className="absolute inset-0 pointer-events-none" />
             {showInfo && <div className="absolute inset-x-1 bottom-1 text-center text-[9px] font-mono" style={{ color: "#64748b" }}>Practice only · not advice</div>}
-            {!showInfo && <div data-testid="chart-hover-hint" className="absolute inset-x-1 top-1/2 -translate-y-1/2 text-center text-[9.5px] font-mono leading-snug" style={{ color: "#64748b" }}>Hover chart for entry · stop · targets</div>}
+            {!showInfo && gutterOnPlan && <div data-testid="chart-hover-hint" className={`absolute inset-x-1 ${dayLines.length || srLines.length ? "bottom-1" : "top-1/2 -translate-y-1/2"} text-center text-[9.5px] font-mono leading-snug`} style={{ color: "#64748b" }}>Hover chart for entry · stop · targets</div>}
           </div>
         )}
         {data.length > 0 && SMA_META.some((m) => ov[m.key]) && (
-          <div className="absolute top-1.5 left-2 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" data-testid="legend-sma" data-indicator-source={ctxSeries ? "context" : "local"}>
+          <div className="absolute top-1.5 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" style={{ left: (drawOn ? TOOLBAR_W : 0) + 8 }} data-testid="legend-sma" data-indicator-source={ctxSeries ? "context" : "local"}>
             {SMA_META.filter((m) => ov[m.key]).map((m) => {
               const v = smaHover?.vals[m.key] ?? smaLast[m.key];
               const on = smaHover?.hit === m.key;
@@ -466,6 +639,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
                 </span>
               );
             })}
+          </div>
+        )}
+        {data.length > 0 && (ind.atr.on || ind.macd.on || ind.rsi.on || (ind.vwap.on && intraday)) && (
+          <div className="absolute z-10 rounded bg-[#050a13]/85 px-2 py-0.5 text-[10.5px] font-mono pointer-events-none flex gap-x-3" style={{ left: (drawOn ? TOOLBAR_W : 0) + 8, top: SMA_META.some((m) => ov[m.key]) ? 28 : 6 }} data-testid="legend-indicators" data-indicator-source={ctxSeries ? "context" : "local"}>
+            {ind.atr.on && <span data-testid="legend-atr"><span style={{ color: "#94a3b8" }}>ATR({ind.atr.n})</span> <span style={{ color: "#f1f5f9" }}>{indLast.atr != null ? indLast.atr.toFixed(2) : "—"}</span></span>}
+            {ind.vwap.on && intraday && <span style={{ color: ind.vwap.color }} data-testid="legend-vwap">VWAP {indLast.vwap != null ? indLast.vwap.toFixed(2) : "—"}</span>}
+            {ind.macd.on && <span data-testid="legend-macd"><span style={{ color: ind.macd.cMacd }}>MACD({ind.macd.fast},{ind.macd.slow},{ind.macd.signal})</span> <span style={{ color: "#f1f5f9" }}>hist {indLast.hist != null ? (indLast.hist >= 0 ? "+" : "") + indLast.hist.toFixed(3) : "—"}</span></span>}
+            {ind.rsi.on && <span data-testid="legend-rsi"><span style={{ color: ind.rsi.color }}>RSI({ind.rsi.n})</span> <span style={{ color: "#f1f5f9" }}>{indLast.rsi != null ? indLast.rsi.toFixed(1) : "—"}</span></span>}
+            <span style={{ color: "#64748b" }}>{ctxSeries ? "src context" : "src local"}</span>
           </div>
         )}
         {smaHover?.hit && (() => {

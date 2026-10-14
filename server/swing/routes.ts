@@ -7,7 +7,8 @@ import { db } from "../storage";
 import { swingJournal } from "@shared/schema";
 import { createJournalEntry, JOURNAL_ACTIONS, listJournal } from "./journal";
 import { PRACTICE_BANNER, SETUP_STATUSES, WATCH_CATEGORIES, practiceVerdict, type ScanSelection, type SetupStatus } from "@shared/swingDecision";
-import { isMarketContextEnabled, isUnifiedSwingEnabled } from "../featureFlags";
+import { isChartDrawingsEnabled, isMarketContextEnabled, isUnifiedSwingEnabled } from "../featureFlags";
+import { DrawingError, createDrawing, deleteDrawing, drawingsTablePresent, listDrawings, updateDrawing } from "./drawings";
 import { contextStats, getMarketContext } from "./context";
 import { CHART_RANGES, CHART_TFS, chartBars, decisionFor, loadSettings, readDataEvents, readLog, refreshStatus, runPlanAnalysis, saveSettings, scan, scanNow, setFocusHint, settingsPatchSchema, startSwingScheduler } from "./service";
 import { perfSummary, recentSpans } from "./perf";
@@ -34,6 +35,7 @@ const wrap = (fn: (req: Request, res: Response) => Promise<any>) => async (req: 
   catch (e: any) {
     if (e instanceof WatchlistError) return res.status(e.code).json({ error: e.message });
     if (e instanceof TradeError) return res.status(e.status).json({ error: e.message });
+    if (e instanceof DrawingError) return res.status(e.status).json({ error: e.message });
     if (e instanceof z.ZodError) return res.status(400).json({ error: "Invalid input", issues: e.issues });
     console.error("[swing]", e); res.status(500).json({ error: e?.message || "Swing engine error" });
   }
@@ -134,11 +136,25 @@ export function registerSwingRoutes(app: Express) {
     const item = await findItem(String(req.params.symbol));
     if (!item) { res.status(404).json({ error: "Not on the watchlist" }); return; }
     const t0 = Date.now();
-    const ctx = await getMarketContext(item.symbol, item.exchange, String(req.query.tf ?? "D"), { series: req.query.series === "1" });
+    let params: unknown = undefined;
+    if (typeof req.query.params === "string" && req.query.params.length < 400) { try { params = JSON.parse(req.query.params); } catch { params = undefined; } }
+    const ctx = await getMarketContext(item.symbol, item.exchange, String(req.query.tf ?? "D"), { series: req.query.series === "1", params });
     res.setHeader("X-Context-Ms", String(Date.now() - t0));
     return ctx;
   }));
   app.get("/api/swing/context-stats", wrap(async () => ({ enabled: isMarketContextEnabled(), ...contextStats() })));
+  // Chart Ecosystem Part 3 — user drawings (price + time anchored). Behind ENABLE_CHART_DRAWINGS (default ON).
+  const drawingsGate = async (res: Response) => {
+    if (!isChartDrawingsEnabled()) { res.status(404).json({ enabled: false, message: "Chart drawings are off (ENABLE_CHART_DRAWINGS=false)." }); return false; }
+    return true;
+  };
+  app.get("/api/swing/drawings/:symbol", wrap(async (req, res) => {
+    if (!(await drawingsGate(res))) return;
+    return { enabled: true, ready: await drawingsTablePresent(), drawings: await listDrawings(String(req.params.symbol)) };
+  }));
+  app.post("/api/swing/drawings", wrap(async (req, res) => { if (!(await drawingsGate(res))) return; return { ok: true, drawing: await createDrawing(req.body) }; }));
+  app.put("/api/swing/drawings/:id", wrap(async (req, res) => { if (!(await drawingsGate(res))) return; return { ok: true, drawing: await updateDrawing(Number(req.params.id), req.body) }; }));
+  app.delete("/api/swing/drawings/:id", wrap(async (req, res) => { if (!(await drawingsGate(res))) return; return deleteDrawing(Number(req.params.id)); }));
   app.get("/api/swing/data-events", wrap(async (req) => ({ events: readDataEvents(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 100) })));
   app.get("/api/swing/log", wrap(async (req) => readLog(req.query.symbol ? String(req.query.symbol) : null, Number(req.query.limit) || 50)));
 

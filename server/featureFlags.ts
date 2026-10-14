@@ -37,6 +37,13 @@ export function isMarketContextEnabled(): boolean {
   return !(v === "0" || v === "false" || v === "no" || v === "off");
 }
 
+/** Chart Ecosystem Part 3 — user chart drawings (chart_drawings table). Default ON; ENABLE_CHART_DRAWINGS=false
+ *  turns the endpoints off (the chart then hides its drawing toolbar). Not listed in allFlags (regression endpoint). */
+export function isChartDrawingsEnabled(): boolean {
+  const v = (process.env.ENABLE_CHART_DRAWINGS || "").trim().toLowerCase();
+  return !(v === "0" || v === "false" || v === "no" || v === "off");
+}
+
 /** All flags — snapshot for the /api/feature-flags endpoint. */
 export function allFlags(): Record<string, boolean> {
   return {
