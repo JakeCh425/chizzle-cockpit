@@ -17,13 +17,17 @@ export function useContextUiEnabled(): [boolean, (v: boolean) => void] {
   return usePersistentState<boolean>("market-context", true);
 }
 
-export function useMarketContext(symbol: string | undefined, tf: string = "D", opts: { series?: boolean; stamp?: string | null; enabled?: boolean } = {}) {
+export function useMarketContext(symbol: string | undefined, tf: string = "D", opts: { series?: boolean; stamp?: string | null; enabled?: boolean; params?: unknown } = {}) {
   const sym = (symbol ?? "").toUpperCase();
   const ok = !!sym && isContextTf(tf) && opts.enabled !== false;
+  // Part 3: custom indicator params (only sent when they differ from defaults — default URL is unchanged).
+  const pj = opts.params ? JSON.stringify(opts.params) : "";
   return useQuery<MarketContext>({
-    queryKey: ["/api/swing/context", sym, tf, opts.series ? "series" : "lean", opts.stamp ?? ""],
-    queryFn: () => swingGet<MarketContext>(`/api/swing/context/${sym}?tf=${tf}${opts.series ? "&series=1" : ""}`),
+    queryKey: ["/api/swing/context", sym, tf, opts.series ? "series" : "lean", opts.stamp ?? "", pj],
+    queryFn: () => swingGet<MarketContext>(`/api/swing/context/${sym}?tf=${tf}${opts.series ? "&series=1" : ""}${pj ? `&params=${encodeURIComponent(pj)}` : ""}`),
     enabled: ok, staleTime: 60_000, retry: 1,
+    // Part 2: day levels move with the quote during RTH → refresh every 60 s while the session is live.
+    refetchInterval: (q) => ((q.state.data as MarketContext | undefined)?.day?.state === "LIVE" ? 60_000 : false),
     placeholderData: (prev, q) => (q?.queryKey?.[1] === sym && q?.queryKey?.[2] === tf ? prev : undefined),
   });
 }

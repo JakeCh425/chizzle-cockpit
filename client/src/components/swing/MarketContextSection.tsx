@@ -5,6 +5,7 @@
 import type { SwingDecision } from "@shared/swingDecision";
 import type { EffectivePlan } from "@shared/practicePlan";
 import { useMarketContext, useContextUiEnabled, type MarketContext } from "@/lib/marketContext";
+import { priceVsDay } from "@shared/marketContext";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { fmtCT } from "@/lib/swing";
 import { Section } from "./TradingCard";
@@ -45,7 +46,8 @@ export function MarketContextSection({ d, p, scope }: { d: SwingDecision; p: Eff
   const c = q.data, sym = d.symbol;
   const ind = c?.indicators, day = c?.day;
   const mism = contextMismatch(c, d, p);
-  const summary = c ? `${TF_LABEL[tf]} · HOD ${$(day?.hod)} · LOD ${$(day?.lod)} · ATR ${f2(ind?.atrDaily)} · RSI ${ind?.rsi != null ? ind.rsi.toFixed(0) : "—"}` : q.isError ? "Context unavailable" : "Loading…";
+  const pvd = c ? priceVsDay(c.quote.price, day) : null;
+  const summary = c ? `${pvd ? `${pvd.text.split(" · ").slice(0, 2).join(" · ")} · ` : ""}${TF_LABEL[tf]} · HOD ${$(day?.hod)} · LOD ${$(day?.lod)} · ATR ${f2(ind?.atrDaily)} · RSI ${ind?.rsi != null ? ind.rsi.toFixed(0) : "—"}` : q.isError ? "Context unavailable" : "Loading…";
   return (
     <Section id={`${scope}:context`} title="Market Context" def={false} testId={`sec-context-${sym}`} summary={summary}>
       <div className="space-y-2">
@@ -70,6 +72,10 @@ export function MarketContextSection({ d, p, scope }: { d: SwingDecision; p: Eff
             <div style={grid(170)}>
               <Tile label={`Today's range (${day.state === "LIVE" ? "live" : day.state === "FIXED" ? "fixed at close" : "—"})`} testId={`ctx-day-${sym}`}>
                 HOD <b data-testid={`ctx-hod-${sym}`}>{$(day.hod)}</b> · LOD <b data-testid={`ctx-lod-${sym}`}>{$(day.lod)}</b>
+              </Tile>
+              <Tile label="Price vs HOD/LOD" testId={`ctx-pvd-${sym}`}>
+                <span data-testid={`ctx-pvd-text-${sym}`}>{pvd ? pvd.text : "—"}</span>
+                {pvd?.pos != null && <div className="mt-1 h-1.5 rounded-full relative" style={{ background: "var(--ac-border)" }} aria-hidden><span className="absolute top-1/2 -translate-y-1/2 h-2.5 w-1 rounded" style={{ left: `calc(${pvd.pos}% - 2px)`, background: "var(--ac-accent)" }} /></div>}
               </Tile>
               <Tile label={`Prior day${day.priorDate ? ` (${day.priorDate})` : ""}`} testId={`ctx-prior-${sym}`}>
                 PDH <b data-testid={`ctx-pdh-${sym}`}>{$(day.pdh)}</b> · PDL <b data-testid={`ctx-pdl-${sym}`}>{$(day.pdl)}</b>

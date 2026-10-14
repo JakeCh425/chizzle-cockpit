@@ -73,6 +73,16 @@ export function rsiSeries(closes: number[], period = 14): (number | null)[] {
   }
   return out;
 }
+/** Session VWAP for intraday bars: Σ(typical·vol)/Σvol, reset at each Chicago session date. */
+export function vwapSeries(bars: Pick<CtxBar, "t" | "h" | "l" | "c" | "v">[]): (number | null)[] {
+  let day = "", pv = 0, vv = 0;
+  return bars.map((b) => {
+    const d = ctParts(b.t).ymd;
+    if (d !== day) { day = d; pv = 0; vv = 0; }
+    const v = b.v ?? 0; pv += ((b.h + b.l + b.c) / 3) * v; vv += v;
+    return vv > 0 ? pv / vv : null;
+  });
+}
 /** Engine ATR (candleMath.atr): mean of the last `period` true ranges of the given bars. */
 export function atrOf(bars: Pick<CtxBar, "h" | "l" | "c">[], period = 14): number | null {
   if (bars.length < 2) return null;
@@ -173,21 +183,41 @@ export interface IndicatorSnapshot {
   macd: { macd: number; signal: number; hist: number } | null;
   rsi: number | null; atr: number | null; atrDaily: number | null;
   volume: number | null; volAvg: number | null; volRatio: number | null;
+  /** Part 3/5 — previous MACD histogram (to read "fading") and session VWAP (intraday timeframes). */
+  histPrev?: number | null; vwap?: number | null;
 }
 export interface IndicatorSeries {
   t: number[]; sma20: (number | null)[]; sma50: (number | null)[]; sma200: (number | null)[];
   bbU: (number | null)[]; bbM: (number | null)[]; bbL: (number | null)[];
   macd: (number | null)[]; signal: (number | null)[]; hist: (number | null)[]; rsi: (number | null)[];
+  vwap?: (number | null)[];
 }
 export interface ContextLevel { kind: string; price: number; label: string; source: "PLAN" | "TRADE" | "ALERT" | "DAY" | "SR" | "DRAWING" }
 export interface ContextTrade { id: number; status: string; entry: number; stop: number; stopLimit: number | null; t1: number; t2: number | null; shares: number }
 export interface ContextDrawing { id: number; type: string; label: string; price: number | null; priceHigh?: number | null }
+/** Indicator params from a request (clamped to sane integer ranges; anything invalid → default). */
+export function sanitizeParams(raw: unknown): IndicatorParams {
+  const d = DEFAULT_INDICATORS, o = (raw && typeof raw === "object" ? raw : {}) as any;
+  const int = (v: unknown, lo: number, hi: number, def: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) && n >= lo && n <= hi ? n : def; };
+  const num = (v: unknown, lo: number, hi: number, def: number) => { const n = Number(v); return Number.isFinite(n) && n >= lo && n <= hi ? Math.round(n * 100) / 100 : def; };
+  const sma = Array.isArray(o.sma) && o.sma.length === 3 ? o.sma.map((v: unknown, i: number) => int(v, 2, 400, d.sma[i])) as [number, number, number] : d.sma;
+  const fast = int(o.macd?.fast, 2, 100, d.macd.fast), slow = int(o.macd?.slow, 3, 200, d.macd.slow);
+  return {
+    sma, bb: { n: int(o.bb?.n, 2, 200, d.bb.n), k: num(o.bb?.k, 0.5, 5, d.bb.k) },
+    macd: fast < slow ? { fast, slow, signal: int(o.macd?.signal, 2, 100, d.macd.signal) } : d.macd,
+    rsi: int(o.rsi, 2, 100, d.rsi), atr: int(o.atr, 2, 100, d.atr), volAvg: int(o.volAvg, 2, 200, d.volAvg),
+  };
+}
 export interface MarketContext {
   v: number; symbol: string; tf: ContextTf; builtAt: string;
   /** Identity of the engine snapshot this was built from — the same one the scan, card and alerts read. */
   snapshot: { evaluatedAt: string; analysisAt: string | null; dataStatus: string; source: string | null };
   quote: { price: number | null; ts: string | null };
   barsSig: string; lastClosedBar: string | null;
+  /** Close of the last CLOSED bar on this timeframe (proximity tips read "through" against it). */
+  lastClosed?: { t: number; c: number } | null;
+  /** Indicator params these numbers were computed with (default unless the chart asked otherwise). */
+  params?: IndicatorParams;
   day: DayLevels;
   indicators: IndicatorSnapshot;
   sr: { above: SrLevel[]; below: SrLevel[] };
@@ -226,11 +256,14 @@ export function computeIndicators(bars: CtxBar[], dailyClosedBars: Pick<CtxBar, 
     t: bars.map((x) => x.t), sma20: s20, sma50: s50, sma200: s200,
     bbU: bb.map((x) => x?.u ?? null), bbM: bb.map((x) => x?.m ?? null), bbL: bb.map((x) => x?.l ?? null),
     macd: md.map((x) => x?.macd ?? null), signal: md.map((x) => x?.signal ?? null), hist: md.map((x) => x?.hist ?? null), rsi: rs,
+    vwap: vwapSeries(bars),
   };
+  const hists = md.map((x) => x?.hist ?? null).filter((v): v is number => v != null);
   const snap: IndicatorSnapshot = {
     sma20: lastOf(s20), sma50: lastOf(s50), sma200: lastOf(s200), bb: lastOf(bb), macd: lastOf(md), rsi: lastOf(rs),
     atr: atrOf(closedBars, p.atr), atrDaily: atrOf(dailyClosedBars, 14),
     volume, volAvg, volRatio: volAvg && volume != null ? volume / volAvg : null,
+    histPrev: hists.length >= 2 ? hists[hists.length - 2] : null, vwap: lastOf(series.vwap!),
   };
   return { snap, series };
 }
@@ -241,13 +274,15 @@ export interface BuildInput {
   decision: SwingDecision; selected?: Record<string, PlanVersion>;
   trades?: ContextTrade[]; alerts?: { active: boolean; symbol: string; type: string; level: number | null; levelHigh: number | null }[];
   drawings?: ContextDrawing[]; params?: IndicatorParams; withSeries?: boolean;
+  /** Extended-hours 1H bars (pre-market high/low only; RTH stays the default everywhere else). */
+  extended1h?: Pick<CtxBar, "t" | "h" | "l">[];
 }
 /** The one builder. Deterministic: same inputs → identical context. */
 export function buildMarketContext(x: BuildInput): MarketContext {
   const d = x.decision, sym = x.symbol.toUpperCase();
   const { snap, series } = computeIndicators(x.bars, x.dailyClosedBars, x.params);
   const qTs = d.quoteTimestamp ? Math.floor(new Date(d.quoteTimestamp).getTime() / 1000) : null;
-  const day = dayLevels(x.bars1h, x.daily, d.currentPrice != null ? { price: d.currentPrice, ts: qTs } : null, x.now);
+  const day = dayLevels(x.bars1h, x.daily, d.currentPrice != null ? { price: d.currentPrice, ts: qTs } : null, x.now, x.extended1h);
   const ver = activeVersion(d, x.selected);
   const ep = effectivePlan(d, ver);
   const plan = { ...ep, label: ep.source === "USER" ? `My Adjusted Plan v${ep.version}` : "Engine Plan" };
@@ -258,7 +293,10 @@ export function buildMarketContext(x: BuildInput): MarketContext {
   const extra: { price: number; source: SrLevel["source"]; label: string }[] = [];
   if (day.pdh != null) extra.push({ price: day.pdh, source: "PDH", label: "Prior-day high" });
   if (day.pdl != null) extra.push({ price: day.pdl, source: "PDL", label: "Prior-day low" });
-  for (const dr of drawings) if (dr.price != null) extra.push({ price: dr.price, source: "DRAWING", label: dr.label || "Your line" });
+  for (const dr of drawings) {
+    if (dr.price != null) extra.push({ price: dr.price, source: "DRAWING", label: dr.label || (dr.priceHigh != null ? "Your zone (low)" : "Your line") });
+    if (dr.priceHigh != null) extra.push({ price: dr.priceHigh, source: "DRAWING", label: dr.label ? `${dr.label} (top)` : "Your zone (top)" });
+  }
   const sr = srLevels(x.bars, d.currentPrice, extra);
   const levels: ContextLevel[] = [];
   const push = (kind: string, price: number | null | undefined, label: string, source: ContextLevel["source"]) => { if (price != null && Number.isFinite(price)) levels.push({ kind, price, label, source }); };
@@ -269,7 +307,7 @@ export function buildMarketContext(x: BuildInput): MarketContext {
   for (const a of alerts) push(`ALERT_${a.type}`, a.price, "Alert", "ALERT");
   push("HOD", day.hod, "HOD", "DAY"); push("LOD", day.lod, "LOD", "DAY"); push("PDH", day.pdh, "PDH", "DAY"); push("PDL", day.pdl, "PDL", "DAY");
   for (const l of [...sr.above, ...sr.below]) if (l.source === "PIVOT") push(l.side === "RESISTANCE" ? "RES" : "SUP", l.price, `${l.side === "RESISTANCE" ? "R" : "S"} ${l.strength}`, "SR");
-  for (const dr of drawings) push("DRAWING", dr.price, dr.label || "Your line", "DRAWING");
+  for (const dr of drawings) { push("DRAWING", dr.price, dr.label || (dr.priceHigh != null ? "Your zone (low)" : "Your line"), "DRAWING"); if (dr.priceHigh != null) push("DRAWING", dr.priceHigh, dr.label ? `${dr.label} (top)` : "Your zone (top)", "DRAWING"); }
   const panel: PanelValues = {
     symbol: sym, status: d.setupStatus, statusLabel: STATUS_LABEL[d.setupStatus], nextAction: d.nextAction,
     price: d.currentPrice, entry: plan.entry, stop: plan.stop, stopLimit: plan.stopLimit, t1: plan.t1, t2: plan.t2,
@@ -282,6 +320,7 @@ export function buildMarketContext(x: BuildInput): MarketContext {
     v: CONTEXT_VERSION, symbol: sym, tf: x.tf, builtAt: new Date(x.now * 1000).toISOString(),
     snapshot: { evaluatedAt: d.evaluatedAt, analysisAt: d.planRefresh?.analysisAt ?? null, dataStatus: d.dataStatus, source: d.dataSource },
     quote: { price: d.currentPrice, ts: d.quoteTimestamp }, barsSig: barsSigOf(x.bars), lastClosedBar: lastClosed ? new Date(lastClosed.t * 1000).toISOString() : null,
+    lastClosed: lastClosed ? { t: lastClosed.t, c: lastClosed.c } : null, params: x.params ?? DEFAULT_INDICATORS,
     day, indicators: snap, sr, plan, trade, alerts, drawings, levels, decision: d, panel,
     ...(x.withSeries ? { bars: x.bars, series } : {}),
   };
@@ -292,4 +331,12 @@ export function priceVs(price: number | null, level: number | null): { pct: numb
   if (price == null || level == null || !(level > 0)) return null;
   const pct = ((price - level) / level) * 100;
   return { pct, text: Math.abs(pct) < 0.005 ? "at" : `${Math.abs(pct).toFixed(2)}% ${pct > 0 ? "above" : "below"}` };
+}
+
+/** Part 2 — "Price vs HOD/LOD" line shared by the Trade Card tile and its summary. */
+export function priceVsDay(price: number | null, day: Pick<DayLevels, "hod" | "lod"> | null | undefined): { text: string; pos: number | null } | null {
+  if (price == null || !day || day.hod == null || day.lod == null) return null;
+  const h = priceVs(price, day.hod), l = priceVs(price, day.lod);
+  const span = day.hod - day.lod, pos = span > 0 ? Math.max(0, Math.min(100, Math.round(((price - day.lod) / span) * 100))) : null;
+  return { text: `${h?.text ?? "—"} HOD · ${l?.text ?? "—"} LOD${pos != null ? ` · ${pos}% of today's range` : ""}`, pos };
 }
