@@ -132,4 +132,7 @@ export default function AlertContactsPanel() {
 
   const testMutation = useMutation({
     mutationFn: async (id: number) => {
+      const res = await apiRequest("POST", `/api/alert-contacts/${id}/test`);
+      return (await res.json()) as { ok: boolean; status: string; error?: string };
+    },
       const res = await apiRequest("
