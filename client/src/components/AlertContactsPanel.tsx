@@ -130,9 +130,12 @@ export default function AlertContactsPanel() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/alert-contacts"] }),
   });
 
+
+
   const testMutation = useMutation({
     mutationFn: async (id: number) => {
       const res = await apiRequest("POST", `/api/alert-contacts/${id}/test`);
       return (await res.json()) as { ok: boolean; status: string; error?: string };
     },
-      const res = await apiRequest("
+    onSuccess: (result: { ok: boolean; status: string; error?: string }) => {
+      if (result?.ok) {
