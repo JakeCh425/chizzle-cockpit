@@ -40,6 +40,7 @@ import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessRe
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
 const $ = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const rr1 = (n: number | null) => (n == null ? "—" : `${n.toFixed(1)}R`);
+const rTxt = (r: number | null | undefined) => (r == null ? null : `${r.toFixed(2)}R`);
 
 const ICON: Record<ActionGroup, typeof CheckCircle2> = { READY: CheckCircle2, CONFIRMED: Clock, FORMING: Sprout, RETEST: RotateCcw, EXTENDED: ShieldAlert, RR_STOP: Ban, DATA: WifiOff, NO_TRADE: MinusCircle };
 const CLASS_LABEL: Record<string, string> = { A4_CORE: "Core", A3_SWING: "Standard", A2_PRACTICE: "Practice (half size)", WATCH: "Watch", NO_TRADE: "No trade" };
@@ -696,3 +697,5 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
     </div>
   );
 }
+
+```
