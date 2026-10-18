@@ -698,4 +698,4 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
   );
 }
 
-```
+
