@@ -31,7 +31,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           # Use the GitHub CLI to download the diff of the current PR
-          gh pr view ${{ github.event.pull_request.number }} --diff > pr_diff.txt
+          gh pr diff ${{ github.event.pull_request.number }} > pr_diff.txt
 
       - name: Run Gemini Review Script
         env:
