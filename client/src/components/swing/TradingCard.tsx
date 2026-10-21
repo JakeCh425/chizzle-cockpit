@@ -9,7 +9,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, LineChart,
+  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import { ScoreChip, ScoreSection } from "./SetupScore";
@@ -20,9 +20,10 @@ import { usePersistentState } from "@/hooks/use-persistent-state";
 import type { StructureLevel, SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL, levelsInvalidOf } from "@shared/swingDecision";
 import { readyStatusLabel, type LivePermission } from "@shared/readyAlerts";
+import { parseNum } from "@shared/positionSizing";
 import {
   ACTION_GROUP_LABEL, canEditPlan, engineChangedSince, enginePlanSig, inputsFromCardChoice, obstacleBefore, plannedR, recalcPlan, rMultipleOf,
-  R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels, suggestStops,
+  R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels, suggestStops, stopLimitOf,
   type ActionGroup, type CardTargetMethod, type PlanContext, type PlanVersion, type TargetChoice,
 } from "@shared/practicePlan";
 import { fmtCT, swingGet, swingSend } from "@/lib/swing";
@@ -371,11 +372,19 @@ export function CriticalWarnings({ d, ver }: { d: SwingDecision; ver: PlanVersio
   );
 }
 
-export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, prefs, inDialog, onOpen, onAdjust }: CardProps) {
+export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, prefs, inDialog, onOpen, onAdjust, sz: propSz }: CardProps & { sz?: ReturnType<typeof useCardSizing> }) {
   const guided = prefs.view === "guided";
   const scope = `${inDialog ? "dlg" : "card"}:${d.symbol}`;
   const p = effectivePlan(d, ver);
-  const populated = p.entry != null && p.stop != null;
+  const szHook = useCardSizing(d, ver);
+  const sz = propSz ?? szHook;
+  const isCustom = sz.override;
+  const activeEntry = isCustom ? sz.E : p.entry;
+  const activeStop = isCustom ? sz.S : p.stop;
+  const activeRisk = isCustom ? sz.riskPerShare : p.risk;
+  const activeT1 = isCustom ? sz.activeT1 : p.t1;
+  const activeT2 = isCustom ? sz.activeT2 : p.t2;
+  const populated = activeEntry != null && activeStop != null;
   const changed = new Set(ver?.result.changedFields ?? []);
   const mv = (f: string) => { const c = !ver && d.planRefresh?.changedAt ? d.planRefresh.changes.find((x) => x.field === f) : null; return c ? $(c.from) : null; };
   const engine = { entry: d.entryPrice, stop: d.structuralStop, t1: d.target1, t2: d.target2 };
@@ -384,9 +393,24 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const step0 = nextStepFor(d, group, ver);
   const step = overridesStatus(d, fr) && step0.tone === "good" ? { text: fr.resetConditionText ? `Don't chase. Resets when: ${fr.resetConditionText}.` : "Not tradeable yet. Wait for a fresh setup.", tone: "warn" as const } : step0;
   
-  const sz = useCardSizing(d, ver);
   const src = targetSources(d, ver, minRr);
-  const ob1 = obstacleBefore(d.structureLevels, p.entry, p.t1), ob2 = obstacleBefore(d.structureLevels, p.entry, p.t2);
+  const ob1 = obstacleBefore(d.structureLevels, activeEntry, activeT1), ob2 = obstacleBefore(d.structureLevels, activeEntry, activeT2);
+  const disclosure = useContext(DisclosureCtx);
+
+  const handleAdjustPlan = () => {
+    disclosure?.set(`${scope}:funding`, true);
+    window.dispatchEvent(new CustomEvent(`chizzle:expand-override-${d.symbol}`));
+    setTimeout(() => {
+      const details = document.querySelector(`[data-testid="details-override-${d.symbol}"]`) as HTMLDetailsElement;
+      if (details) details.open = true;
+      const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
+      if (input) {
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+        input.focus();
+        input.select?.();
+      }
+    }, 100);
+  };
 
   return (
     <div className={`flex flex-col gap-4 ${inDialog ? "p-4 sm:p-6" : "p-4 pt-0"}`}>
@@ -415,20 +439,39 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
       )}
 
       {populated ? (
-        <Section id={`${scope}:levels`} title="Trade Levels & Target Method" testId={`sec-levels-${d.symbol}`} summary={`Entry ${$(p.entry)} · Stop ${$(p.stop)} · T1 ${$(p.t1)}`}>
+        <Section id={`${scope}:levels`} title="Trade Levels & Target Method" testId={`sec-levels-${d.symbol}`} summary={`Entry ${$(activeEntry)} · Stop ${$(activeStop)} · T1 ${$(activeT1)}`}>
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <span className={`rounded-md border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider ${p.source === "USER" ? "border-neon-blue/40 bg-neon-blue/10 text-neon-blue" : "border-ink-line bg-ink-deep/40 text-slate-gray"}`}>
-              Target method: {ver ? (CARD_TARGET_METHOD_LABEL[ver.chartState?.targetMethod as CardTargetMethod] ?? "Adjusted") : (d.planTargets?.label ?? "Engine Original")}
+            {isCustom ? (
+              <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm" data-testid={`badge-custom-levels-${d.symbol}`}>
+                Target method: Custom Practice Plan
+              </span>
+            ) : (
+              <span className={`rounded-md border px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider ${p.source === "USER" ? "border-neon-blue/40 bg-neon-blue/10 text-neon-blue" : "border-ink-line bg-ink-deep/40 text-slate-gray"}`}>
+                Target method: {ver ? (CARD_TARGET_METHOD_LABEL[ver.chartState?.targetMethod as CardTargetMethod] ?? "Adjusted") : (d.planTargets?.label ?? "Engine Original")}
+              </span>
+            )}
+            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-gray">
+              R = |entry − stop loss| = <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeRisk)}</strong>
             </span>
-            <span className="text-[10px] font-mono uppercase tracking-wider text-slate-gray">R = |entry − stop loss| = <strong className="text-soft-white">{$(p.risk)}</strong></span>
+            {isCustom && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 ml-auto text-xs text-slate-300 hover:text-soft-white bg-slate-800 hover:bg-slate-700 border border-slate-600 px-2.5 py-1 rounded cursor-pointer transition-colors shadow-sm"
+                onClick={sz.reset}
+                data-testid={`button-levels-reset-${d.symbol}`}
+                title="Reset to Original Engine Plan"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-cyan-400" /> Use plan levels
+              </button>
+            )}
           </div>
 
-          <div className={`grid grid-cols-2 gap-4 sm:grid-cols-5 ${stopBreach(d, p.stop, p.t1) ? "opacity-50 grayscale" : ""}`}>
-            <PriceTile moved={mv("entry")} label="ENTRY" sub="Planned starting price" value={$(p.entry)} tone="good" guided={guided} changed={changed.has("entry")} engineValue={$(engine.entry)} />
-            <PriceTile moved={mv("stop")} label="STOP LOSS" sub="Protective exit trigger" value={$(p.stop)} tone="bad" guided={guided} changed={changed.has("stop")} engineValue={$(engine.stop)} />
-            <PriceTile moved={mv("stopLimit")} label="STOP LIMIT" sub="Lowest limit price" value={p.stopLimit != null ? $(p.stopLimit) : "Not configured"} tone="bad" guided={guided} />
-            <PriceTile moved={mv("t1")} label="TARGET 1" sub="First profit level" value={$(p.t1)} tone="accent" guided={guided} rText={rTxt(p.rrT1)} changed={changed.has("target1")} engineValue={$(engine.t1)} source={src.t1} flags={targetFlags(1, p.rrT1, minRr, ob1)} />
-            <PriceTile moved={mv("t2")} label="TARGET 2" sub="Further level" value={$(p.t2)} tone="accent" guided={guided} rText={rTxt(p.rrT2)} changed={changed.has("target2")} engineValue={$(engine.t2)} source={src.t2} flags={targetFlags(2, p.rrT2, minRr, ob2)} />
+          <div className={`grid grid-cols-2 gap-4 sm:grid-cols-5 ${stopBreach(d, activeStop, activeT1) ? "opacity-50 grayscale" : ""}`}>
+            <PriceTile moved={mv("entry")} label="ENTRY" sub="Planned starting price" value={$(activeEntry)} tone="good" guided={guided} changed={isCustom ? sz.st.entry != null : changed.has("entry")} engineValue={$(engine.entry)} />
+            <PriceTile moved={mv("stop")} label="STOP LOSS" sub="Protective exit trigger" value={$(activeStop)} tone="bad" guided={guided} changed={isCustom ? sz.st.stop != null : changed.has("stop")} engineValue={$(engine.stop)} />
+            <PriceTile moved={mv("stopLimit")} label="STOP LIMIT" sub="Lowest limit price" value={activeStop != null ? $(stopLimitOf(activeStop)) : (p.stopLimit != null ? $(p.stopLimit) : "Not configured")} tone="bad" guided={guided} />
+            <PriceTile moved={mv("t1")} label="TARGET 1" sub="First profit level" value={$(activeT1)} tone="accent" guided={guided} rText={isCustom ? "2.0R" : rTxt(p.rrT1)} changed={isCustom || changed.has("target1")} engineValue={$(engine.t1)} source={src.t1} flags={targetFlags(1, isCustom ? 2.0 : p.rrT1, minRr, ob1)} />
+            <PriceTile moved={mv("t2")} label="TARGET 2" sub="Further level" value={$(activeT2)} tone="accent" guided={guided} rText={isCustom ? "3.0R" : rTxt(p.rrT2)} changed={isCustom || changed.has("target2")} engineValue={$(engine.t2)} source={src.t2} flags={targetFlags(2, isCustom ? 3.0 : p.rrT2, minRr, ob2)} />
           </div>
         </Section>
       ) : (
@@ -447,7 +490,7 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
         <span className="text-lg font-bold leading-snug">{step.text}</span>
       </div>
 
-      <CardActions d={d} group={group} ver={ver} inDialog={inDialog} onOpen={onOpen} onAdjust={onAdjust} sizedShares={sz.sizing.ok && !sz.override ? sz.sizing.shares : null} />
+      <CardActions d={d} group={group} ver={ver} inDialog={inDialog} onOpen={onOpen} onAdjust={onAdjust} onAdjustInPlace={handleAdjustPlan} sizedShares={sz.sizing.ok && !sz.override ? sz.sizing.shares : null} />
     </div>
   );
 }
@@ -476,7 +519,7 @@ export function ExtensionLine({ d }: { d: SwingDecision }) {
   );
 }
 
-function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, sizedShares = null }: any) {
+function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, onAdjustInPlace, sizedShares = null }: any) {
   const { toast } = useToast();
   const journal = useMutation({
     mutationFn: () => addJournalEntry({ action: "PRACTICE_TRADE", symbol: d.symbol, notes: "Saved from trading card", levels: levelsOf(effectivePlan(d, ver)), snapshot: snapshotOf(d) }),
@@ -487,7 +530,16 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, sizedShares = 
     <div className="flex flex-wrap items-center gap-3 pt-2">
       {group === "READY" && <button className="flex items-center gap-2 rounded-md border border-signal-green/50 bg-signal-green/10 px-4 py-2 text-xs font-bold text-signal-green transition-colors hover:bg-signal-green/20" onClick={() => {}}><Crosshair className="h-4 w-4" /> Arm Trade</button>}
       {!inDialog && onOpen && <button className="flex items-center gap-2 rounded-md border border-neon-blue/50 bg-neon-blue/10 px-4 py-2 text-xs font-bold text-neon-blue transition-colors hover:bg-neon-blue/20" onClick={onOpen}><Maximize2 className="h-4 w-4" /> Open Trading Card</button>}
-      {canEditPlan(d) && onAdjust && <button className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep/40 px-4 py-2 text-xs font-medium text-soft-white transition-colors hover:border-neon-blue hover:text-neon-blue" onClick={onAdjust}><Pencil className="h-4 w-4" /> Adjust My Practice Plan</button>}
+      {canEditPlan(d) && (
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep/40 px-4 py-2 text-xs font-medium text-soft-white transition-colors hover:border-cyan-400 hover:text-cyan-300 cursor-pointer"
+          onClick={onAdjustInPlace ?? onAdjust}
+          data-testid={`button-adjust-plan-${d.symbol}`}
+        >
+          <Pencil className="h-4 w-4 text-cyan-400" /> Adjust My Practice Plan
+        </button>
+      )}
       <button className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep/40 px-4 py-2 text-xs font-medium text-soft-white transition-colors hover:border-neon-blue hover:text-neon-blue" onClick={() => focusSymbol(d.symbol)}><LineChart className="h-4 w-4" /> Open Chart</button>
       {group === "READY" && <button className="rounded-md border border-ink-line bg-ink-black px-4 py-2 text-xs font-medium text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" disabled={journal.isPending} onClick={() => journal.mutate()}>{journal.isPending ? "Saving…" : "Save to Journal"}</button>}
     </div>
@@ -512,11 +564,14 @@ export function PendingChip({ d }: { d: SwingDecision }) {
   return <span className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep/40 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-gray"><RefreshCw className="h-3 w-3 animate-spin" /> Evaluating…</span>;
 }
 
-function CardHeader({ d, group, ver, isNew, open, toggle, action }: any) {
+function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: any) {
+  const szHook = useCardSizing(d, ver);
+  const sz = propSz ?? szHook;
   const p = effectivePlan(d, ver);
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
-  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group];
+  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
+  const isCustom = sz?.override;
 
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -526,9 +581,15 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action }: any) {
       
       <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
       
-      <span className={`rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${p.source === "USER" ? "border-neon-blue/40 bg-neon-blue/10 text-neon-blue" : "border-ink-line bg-ink-deep/40 text-slate-gray"}`}>
-        {p.source === "USER" ? `My Plan v${p.version}` : "Engine Plan"}
-      </span>
+      {isCustom ? (
+        <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300 shadow-sm" data-testid={`badge-custom-plan-${d.symbol}`}>
+          Custom Practice Plan
+        </span>
+      ) : (
+        <span className={`rounded-md border px-2 py-1 text-[10px] font-bold uppercase tracking-wider ${p.source === "USER" ? "border-neon-blue/40 bg-neon-blue/10 text-neon-blue" : "border-ink-line bg-ink-deep/40 text-slate-gray"}`}>
+          {p.source === "USER" ? `My Plan v${p.version}` : "Engine Plan"}
+        </span>
+      )}
       {isNew && <span className="rounded-md bg-neon-blue/20 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-neon-blue">NEW PLAN</span>}
       <PendingChip d={d} />
 
@@ -576,6 +637,7 @@ export function EarlyLookLine({ d }: any) {
 
 export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void }) {
   const { d, group, setupKey, isNew, onSeen } = props;
+  const sz = useCardSizing(d, props.ver);
   const [open, setOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggle = () => { setOpen(!open); onSeen(); };
   
@@ -585,22 +647,29 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       {open ? (
         <>
           <div className="flex flex-col gap-4 border-b border-ink-line/50 p-4">
-            <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle} />
+            <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle} sz={sz} />
             <CriticalWarnings d={d} ver={props.ver} />
           </div>
-          <TradingCardBody {...props} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
+          <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
         </>
-      ) : <CompactRow {...props} toggle={toggle} />}
+      ) : <CompactRow {...props} sz={sz} toggle={toggle} />}
     </article>
   );
 }
 
-function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; toggle: () => void }) {
-  const { d, group, ver, isNew, toggle } = props;
+function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; toggle: () => void; sz?: ReturnType<typeof useCardSizing> }) {
+  const { d, group, ver, isNew, toggle, sz: propSz } = props;
+  const szHook = useCardSizing(d, ver);
+  const sz = propSz ?? szHook;
   const live = useContext(LiveCtx);
   const p = effectivePlan(d, ver);
   const f = useFreshness()(d, ver);
-  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group];
+  const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
+  const isCustom = sz.override;
+  const activeEntry = isCustom ? sz.E : p.entry;
+  const activeStop = isCustom ? sz.S : p.stop;
+  const activeT1 = isCustom ? sz.activeT1 : p.t1;
+  const activeRisk = isCustom ? sz.riskPerShare : p.risk;
 
   return (
     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-6">
@@ -608,15 +677,20 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}><ChevronRight className="h-5 w-5" /></button>
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
+        {isCustom && (
+          <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
+            Custom Plan
+          </span>
+        )}
       </div>
       
       <div className="flex flex-1 flex-wrap items-center gap-4 text-sm font-mono text-slate-gray">
-        {p.entry != null ? (
+        {activeEntry != null ? (
           <>
-            <span>Entry <strong className="text-soft-white">{$(p.entry)}</strong></span>
-            <span>Stop <strong className="text-soft-white">{$(p.stop)}</strong></span>
-            <span>T1 <strong className="text-soft-white">{$(p.t1)}</strong></span>
-            <span>Risk/sh <strong className="text-soft-white">{$(p.risk)}</strong></span>
+            <span>Entry <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeEntry)}</strong></span>
+            <span>Stop <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeStop)}</strong></span>
+            <span>T1 <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeT1)}</strong></span>
+            <span>Risk/sh <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeRisk)}</strong></span>
           </>
         ) : <span>{d.nextAction || "No plan levels yet."}</span>}
       </div>
@@ -631,6 +705,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
 
 export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Omit<CardProps, "inDialog" | "onOpen" | "onAdjust"> & { open: boolean; onClose: () => void; mode: "view" | "adjust"; setMode: (m: "view" | "adjust") => void; }) {
   const { d } = props;
+  const sz = useCardSizing(d, props.ver);
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
       <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl overflow-y-auto rounded-xl border border-ink-line bg-ink-black p-0 shadow-2xl">
@@ -638,11 +713,11 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
           <ReadyRibbon d={d} ver={props.ver} />
           <div className="flex flex-col gap-4 border-b border-ink-line/50 p-6">
             <DialogTitle className="sr-only">Trading Card — {d.symbol}</DialogTitle>
-            <CardHeader d={d} group={props.group} ver={props.ver} />
+            <CardHeader d={d} group={props.group} ver={props.ver} sz={sz} />
             <CriticalWarnings d={d} ver={props.ver} />
             <LockedNotice symbol={d.symbol} />
           </div>
-          {mode === "adjust" && canEditPlan(d) ? <AdjustPlan {...props} onDone={() => setMode("view")} /> : <TradingCardBody {...props} inDialog onAdjust={canEditPlan(d) ? () => setMode("adjust") : undefined} />}
+          {mode === "adjust" && canEditPlan(d) ? <AdjustPlan {...props} onDone={() => setMode("view")} /> : <TradingCardBody {...props} inDialog sz={sz} onAdjust={canEditPlan(d) ? () => setMode("adjust") : undefined} />}
         </div>
       </DialogContent>
     </Dialog>
@@ -664,8 +739,65 @@ function RPicker({ id, label, sel, onChange }: any) {
 }
 
 export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "inDialog" | "onOpen" | "onAdjust"> & { onDone: () => void }) {
+  const sz = useCardSizing(d, ver);
   const p = effectivePlan(d, ver);
-  const [raw, setRaw] = useState({ entry: p.entry?.toFixed(2) ?? "", stop: p.stop?.toFixed(2) ?? "", stopLimit: p.stopLimit?.toFixed(2) ?? "", t1: p.t1?.toFixed(2) ?? "", t2: p.t2?.toFixed(2) ?? "" });
+  const initialEntry = sz.override && sz.st.entry ? sz.st.entry : (p.entry?.toFixed(2) ?? "");
+  const initialStop = sz.override && sz.st.stop ? sz.st.stop : (p.stop?.toFixed(2) ?? "");
+  const initialStopLimit = sz.S != null ? stopLimitOf(sz.S).toFixed(2) : (p.stopLimit?.toFixed(2) ?? "");
+  
+  const [raw, setRaw] = useState({
+    entry: initialEntry,
+    stop: initialStop,
+    stopLimit: initialStopLimit,
+    t1: sz.activeT1?.toFixed(2) ?? p.t1?.toFixed(2) ?? "",
+    t2: sz.activeT2?.toFixed(2) ?? p.t2?.toFixed(2) ?? ""
+  });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const resetToEngine = () => {
+    sz.reset();
+    setRaw({
+      entry: d.entryPrice?.toFixed(2) ?? "",
+      stop: d.structuralStop?.toFixed(2) ?? "",
+      stopLimit: d.structuralStop != null ? stopLimitOf(d.structuralStop).toFixed(2) : "",
+      t1: d.target1?.toFixed(2) ?? "",
+      t2: d.target2?.toFixed(2) ?? ""
+    });
+    setErr(null);
+  };
+
+  const applyCustom = () => {
+    const eNum = parseNum(raw.entry);
+    const sNum = parseNum(raw.stop);
+    if (eNum == null || !Number.isFinite(eNum) || eNum <= 0) {
+      setErr("Please enter a valid entry price.");
+      return;
+    }
+    if (sNum == null || !Number.isFinite(sNum) || sNum <= 0) {
+      setErr("Please enter a valid stop price.");
+      return;
+    }
+    if (sNum >= eNum) {
+      setErr("Entry must be above the stop loss price.");
+      return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      sz.setSt({
+        ...sz.st,
+        entry: eNum.toFixed(2),
+        stop: sNum.toFixed(2),
+        how: "MANUAL",
+      });
+      onDone();
+    } catch (e: any) {
+      setErr(e?.message ?? "Failed to save plan");
+    } finally {
+      setBusy(false);
+    }
+  };
   
   const priceField = (k: "entry" | "stop" | "stopLimit" | "t1" | "t2", label: string, help: string) => (
     <div className="flex flex-col gap-2 rounded-lg border border-ink-line bg-ink-deep/40 p-4">
@@ -690,12 +822,41 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
         {priceField("stopLimit", "Stop Limit", "Lowest sell price after trigger")}
       </div>
 
+      {err && (
+        <div className="rounded-md border border-red-500/50 bg-red-950/40 p-3 text-xs font-bold text-red-400">
+          {err}
+        </div>
+      )}
+
       <div className="flex flex-wrap items-center gap-4 border-t border-ink-line/50 pt-4">
-        <button className="flex items-center gap-2 rounded-md border border-neon-blue/50 bg-neon-blue/10 px-6 py-2.5 text-sm font-bold text-neon-blue transition-colors hover:bg-neon-blue/20" onClick={onDone}><Save className="h-4 w-4" /> Save Changes</button>
-        <button className="rounded-md border border-ink-line bg-ink-deep/40 px-6 py-2.5 text-sm font-medium text-soft-white transition-colors hover:border-slate-gray hover:text-slate-gray" onClick={onDone}>Cancel</button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 text-slate-950 font-bold px-6 py-2.5 text-sm shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer disabled:opacity-50"
+          onClick={applyCustom}
+          disabled={busy}
+          data-testid={`button-apply-custom-modal-${d.symbol}`}
+        >
+          <Check className="h-4 w-4 stroke-[2.5]" />
+          {busy ? "Saving…" : "Apply Custom Plan"}
+        </button>
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 hover:border-slate-500 text-slate-100 px-5 py-2.5 text-sm font-semibold shadow-sm transition-colors cursor-pointer"
+          onClick={resetToEngine}
+          data-testid={`button-reset-engine-modal-${d.symbol}`}
+          title="Reset to Original Engine Plan"
+        >
+          <RotateCcw className="h-4 w-4 text-cyan-400" />
+          Use plan levels
+        </button>
+        <button
+          type="button"
+          className="rounded-lg border border-ink-line bg-ink-deep/40 px-5 py-2.5 text-sm font-medium text-soft-white transition-colors hover:border-slate-gray hover:text-slate-gray cursor-pointer"
+          onClick={onDone}
+        >
+          Cancel
+        </button>
       </div>
     </div>
   );
 }
-
-```

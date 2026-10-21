@@ -2,16 +2,16 @@
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE. This panel never places, sends or arms an order, never moves the stop,
 // and never changes setup status, Ready/live permission, the setup score, or a saved/armed plan.
 // Account data: this app has NO broker/account connection, so every balance here is MANUAL and never "verified".
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, RefreshCw, RotateCcw, Save, Wallet } from "lucide-react";
+import { AlertTriangle, Check, RefreshCw, RotateCcw, Save, Wallet } from "lucide-react";
 import type { SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { effectivePlan, setupIdOf, type PlanVersion } from "@shared/practicePlan";
 import { DEFAULT_FUNDING, fundingStatus, parseNum, r2, rTargets, sizePosition, type FundingProfile, type SizingResult } from "@shared/positionSizing";
 import { queryClient } from "@/lib/queryClient";
 import { fmtCT, swingGet } from "@/lib/swing";
 import { openTradeFor, useSwingTrades } from "@/lib/swingTrades";
-import { usePersistentState } from "@/hooks/use-persistent-state";
+import { readPersisted, usePersistentState } from "@/hooks/use-persistent-state";
 import { useRiskContext } from "./ArmTrade";
 import { saveSwingSettings } from "./PlanRefresh";
 import { Section } from "./TradingCard";
@@ -48,15 +48,27 @@ interface CardSizingState { allocation: string; entry: string | null; stop: stri
 const BLANK: CardSizingState = { allocation: "", entry: null, stop: null, how: null, quoteAt: null };
 export function useCardSizing(d: SwingDecision, ver: PlanVersion | null) {
   const acct = useAccountSnapshot();
-  const [st, setSt] = usePersistentState<CardSizingState>(`ac-sizing:${setupIdOf(d)}`, BLANK);
+  const symKey = `ac-sizing:${d.symbol}`;
+  const legacy = readPersisted<CardSizingState>(`ac-sizing:${setupIdOf(d)}`, BLANK);
+  const initial = legacy && (legacy.entry != null || legacy.stop != null || legacy.allocation) ? legacy : BLANK;
+  const [st, setSt] = usePersistentState<CardSizingState>(symKey, initial);
   const p = effectivePlan(d, ver);
-  const override = st.entry != null || st.stop != null;
-  const E = st.entry != null ? parseNum(st.entry) : p.entry, S = st.stop != null ? parseNum(st.stop) : p.stop;
+  const hasEntry = st.entry != null && String(st.entry).trim() !== "";
+  const hasStop = st.stop != null && String(st.stop).trim() !== "";
+  const override = hasEntry || hasStop;
+  const parsedE = hasEntry ? parseNum(st.entry) : null;
+  const parsedS = hasStop ? parseNum(st.stop) : null;
+  const E = parsedE != null && Number.isFinite(parsedE) ? parsedE : p.entry;
+  const S = parsedS != null && Number.isFinite(parsedS) ? parsedS : p.stop;
+  const riskPerShare = E != null && S != null ? r2(Math.abs(E - S)) : null;
+  const activeT1 = E != null && riskPerShare != null ? r2(E + 2 * riskPerShare) : p.t1;
+  const activeT2 = E != null && riskPerShare != null ? r2(E + 3 * riskPerShare) : p.t2;
   const f = acct.funding;
   const sizing = sizePosition({ equity: acct.equity, riskPct: acct.riskPct, riskPctLimit: acct.riskPctLimit, cash: f.cash,
     reservedOpen: f.reservedOpen, reservedPending: f.reservedPending, cashIncludesReservations: f.cashIncludesReservations,
     allocation: parseNum(st.allocation), entry: E, stop: S, feePerTrade: f.feePerTrade, bufferPct: f.bufferPct });
-  return { acct, st, setSt, plan: p, override, E, S, sizing };
+  const reset = () => setSt({ allocation: st.allocation, entry: null, stop: null, how: null, quoteAt: null });
+  return { acct, st, setSt, plan: p, override, E, S, riskPerShare, activeT1, activeT2, sizing, reset };
 }
 
 // ─── Small inputs ─────────────────────────────────────────────────────────
@@ -99,6 +111,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
   const f = acct.funding;
   const [draft, setDraft] = useState<Draft | null>(null);
   const [busy, setBusy] = useState(false);
+  const [savedFlash, setSavedFlash] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const trades = useSwingTrades();
   const v = draft ?? draftOf(f);
@@ -121,9 +134,17 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
       feePerTrade: num("feePerTrade")!, bufferPct: num("bufferPct")!,
     };
     setBusy(true);
-    try { await saveSwingSettings({ funding: next }); setDraft(null); setMsg("Saved — every card now sizes with these values."); }
-    catch (e: any) { setMsg(`Not saved: ${e?.message ?? "error"}`); }
-    finally { setBusy(false); }
+    try {
+      await saveSwingSettings({ funding: next });
+      setDraft(null);
+      setSavedFlash(true);
+      setMsg("Saved — every card now sizes with these values.");
+      setTimeout(() => setSavedFlash(false), 3500);
+    } catch (e: any) {
+      setMsg(`Not saved: ${e?.message ?? "error"}`);
+    } finally {
+      setBusy(false);
+    }
   };
   // Practice records in My Trades (cost = shares × fill or entry). Offered, never applied automatically.
   const fromTrades = () => {
@@ -189,11 +210,39 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
         </div>
       </details>
 
-      <div className="flex flex-wrap items-center gap-2">
-        <button className="ac-btn ac-btn-primary !py-1" style={sm} disabled={!dirty || !!anyErr || busy} onClick={() => void save()} data-testid={`button-funding-save-${symbol}`}><Save className="h-3.5 w-3.5" aria-hidden /> {busy ? "Saving…" : "Save funding"}</button>
-        {dirty && <button className="ac-btn !py-1" style={sm} onClick={() => { setDraft(null); setMsg(null); }} data-testid={`button-funding-discard-${symbol}`}>Discard changes</button>}
+      <div className="flex flex-wrap items-center gap-2.5 pt-1">
+        <button
+          type="button"
+          className="inline-flex items-center gap-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 text-slate-950 font-bold px-4 py-2 text-xs shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-cyan-400"
+          style={sm}
+          disabled={!dirty || !!anyErr || busy}
+          onClick={() => void save()}
+          data-testid={`button-funding-save-${symbol}`}
+        >
+          <Save className="h-4 w-4 stroke-[2.5]" aria-hidden />
+          {busy ? "Saving…" : "Save funding"}
+        </button>
+        {savedFlash && (
+          <span
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-300 bg-emerald-950/80 border border-emerald-500/60 rounded-lg shadow-sm"
+            role="status"
+            data-testid={`badge-funding-saved-${symbol}`}
+          >
+            <Check className="h-3.5 w-3.5 stroke-[2.5]" aria-hidden /> Saved!
+          </span>
+        )}
+        {dirty && (
+          <button
+            type="button"
+            className="ac-btn !py-1 text-xs"
+            onClick={() => { setDraft(null); setMsg(null); }}
+            data-testid={`button-funding-discard-${symbol}`}
+          >
+            Discard changes
+          </button>
+        )}
         {dirty && <span className="ac-muted" style={xs}>Unsaved — sizing below uses the saved values until you save.</span>}
-        {msg && <span style={xs} data-testid={`text-funding-msg-${symbol}`}>{msg}</span>}
+        {msg && !savedFlash && <span style={xs} data-testid={`text-funding-msg-${symbol}`}>{msg}</span>}
       </div>
     </div>
   );
@@ -201,8 +250,10 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
 
 // ─── The panel ────────────────────────────────────────────────────────────
 export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: PlanVersion | null; scope: string; sz: ReturnType<typeof useCardSizing> }) {
-  const { acct, st, setSt, plan: p, override, E, S, sizing } = sz;
+  const { acct, st, setSt, plan: p, override, E, S, sizing, reset } = sz;
   const [extended, setExtended] = usePersistentState<boolean>("ac-sizing-extended", false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [appliedFlash, setAppliedFlash] = useState(false);
   const trades = useSwingTrades();
   const locked = openTradeFor(trades.data?.trades, d.symbol);
   const fill = locked?.fillPrice != null ? { px: locked.fillPrice, at: locked.filledAt } : null;
@@ -213,7 +264,25 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
   const overCash = (() => { const n = parseNum(st.allocation); return n != null && fc != null && Number.isFinite(n) && n > (sizing.cashAfterReservations ?? fc) ? `More than available cash${sizing.cashAfterReservations != null && sizing.cashAfterReservations !== fc ? " after reservations" : ""} — sizing uses ${$(sizing.cashAfterReservations ?? fc)}.` : null; })();
   const quote = d.currentPrice;
   const useQuote = () => { if (quote == null) return; setSt({ ...st, entry: quote.toFixed(2), stop: st.stop, how: "QUOTE", quoteAt: d.quoteTimestamp }); };
-  const reset = () => setSt({ ...st, entry: null, stop: null, how: null, quoteAt: null });
+
+  useEffect(() => {
+    const handleExpand = () => setDetailsOpen(true);
+    window.addEventListener(`chizzle:expand-override-${sym}`, handleExpand);
+    return () => window.removeEventListener(`chizzle:expand-override-${sym}`, handleExpand);
+  }, [sym]);
+
+  const handleApplyCustom = () => {
+    const en = parseNum(st.entry), sn = parseNum(st.stop);
+    setSt({
+      ...st,
+      entry: en != null && Number.isFinite(en) ? en.toFixed(2) : st.entry,
+      stop: sn != null && Number.isFinite(sn) ? sn.toFixed(2) : st.stop,
+      how: "MANUAL",
+    });
+    setAppliedFlash(true);
+    setTimeout(() => setAppliedFlash(false), 3000);
+  };
+
   const stopMethod = p.source === "USER" ? `From My Adjusted Plan v${p.version}.` : `Engine stop — structure low${d.stopBuffer != null ? ` − ${$(d.stopBuffer)} ATR buffer` : ""} (chart/setup-derived).`;
   const savedShares = ver ? ver.result.shares : null;
   const summary = sizing.ok ? `${sizing.shares} sh · cost ${$(sizing.positionCost)} · loss at stop ${$(sizing.plannedLoss)} (${pct(sizing.riskPctOfEquity)}) · ${BINDING_LABEL[sizing.binding!]}` : `Needs input — ${sizing.issues[0]?.text ?? ""}`;
@@ -249,20 +318,63 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
 
           <div className="flex flex-wrap items-end gap-3">
             <button className="ac-btn !py-1" style={sm} disabled={quote == null} onClick={useQuote} data-testid={`button-recalc-quote-${sym}`}><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Recalculate using latest quote</button>
-            <details open={override} className="rounded-lg px-2.5 py-1" style={box}>
-              <summary className="cursor-pointer" style={sm}>Manual entry/stop override (practice analysis)</summary>
-              <div className="flex flex-wrap gap-3 pt-1.5">
-                <Field label="Entry override" value={st.entry ?? ""} onChange={(v) => setSt({ ...st, entry: v === "" ? null : v, how: "MANUAL" })} testId={`input-ov-entry-${sym}`} width="6.5rem" />
-                <Field label="Stop override" value={st.stop ?? ""} onChange={(v) => setSt({ ...st, stop: v === "" ? null : v, how: "MANUAL" })} testId={`input-ov-stop-${sym}`} width="6.5rem" />
+            <details
+              open={override || detailsOpen}
+              onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
+              className="rounded-lg px-2.5 py-1.5 transition-colors"
+              style={box}
+              data-testid={`details-override-${sym}`}
+            >
+              <summary className="cursor-pointer font-semibold" style={sm}>Manual entry/stop override (practice analysis)</summary>
+              <div className="space-y-2.5 pt-2">
+                <div className="flex flex-wrap gap-3">
+                  <Field label="Entry override" value={st.entry ?? ""} onChange={(v) => setSt({ ...st, entry: v === "" ? null : v, how: "MANUAL" })} testId={`input-ov-entry-${sym}`} width="7rem" placeholder={p.entry != null ? String(p.entry) : ""} />
+                  <Field label="Stop override" value={st.stop ?? ""} onChange={(v) => setSt({ ...st, stop: v === "" ? null : v, how: "MANUAL" })} testId={`input-ov-stop-${sym}`} width="7rem" placeholder={p.stop != null ? String(p.stop) : ""} />
+                </div>
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 text-slate-950 font-bold px-3.5 py-1.5 text-xs shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer"
+                    onClick={handleApplyCustom}
+                    data-testid={`button-apply-custom-${sym}`}
+                  >
+                    <Check className="h-3.5 w-3.5 stroke-[2.5]" aria-hidden />
+                    Apply Custom Plan
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 hover:border-slate-500 active:bg-slate-900 text-slate-100 px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                    onClick={reset}
+                    data-testid={`button-reset-override-accordion-${sym}`}
+                    title="Reset to Original Engine Plan"
+                  >
+                    <RotateCcw className="h-3.5 w-3.5 text-cyan-400" aria-hidden />
+                    Use plan levels
+                  </button>
+                  {appliedFlash && (
+                    <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-400 bg-emerald-950/70 border border-emerald-500/50 px-2.5 py-1 rounded-md">
+                      <Check className="h-3.5 w-3.5" /> Custom plan levels active!
+                    </span>
+                  )}
+                </div>
               </div>
             </details>
           </div>
           {override && (
-            <div className="flex flex-wrap items-center gap-2 rounded-lg px-2.5 py-1.5" style={{ ...xs, border: "1.5px solid var(--ac-accent-2, var(--ac-accent))" }} data-testid={`badge-manual-override-${sym}`}>
-              <b>Manual override</b>
-              <span className="ac-num">Sizing with entry {$(E)}{st.how === "QUOTE" ? ` (latest quote${st.quoteAt ? ` at ${fmtCT(st.quoteAt)}` : ""})` : ""} · stop {$(S)}</span>
-              <span className="ac-muted ac-num">Original plan: entry {$(p.entry)} · stop {$(p.stop)} — unchanged</span>
-              <button className="ac-btn !py-0.5 ml-auto" style={xs} onClick={reset} data-testid={`button-reset-override-${sym}`}><RotateCcw className="h-3.5 w-3.5" aria-hidden /> Use plan levels</button>
+            <div className="flex flex-wrap items-center gap-2.5 rounded-lg p-2.5 bg-cyan-950/40 border border-cyan-400/50 shadow-sm" data-testid={`badge-manual-override-${sym}`}>
+              <span className="font-bold text-cyan-300 text-xs uppercase tracking-wider">Custom Practice Plan Active</span>
+              <span className="ac-num text-soft-white text-xs">Sizing with entry <b>{$(E)}</b>{st.how === "QUOTE" ? ` (latest quote${st.quoteAt ? ` at ${fmtCT(st.quoteAt)}` : ""})` : ""} · stop <b>{$(S)}</b> · risk/sh <b>{$(sz.riskPerShare)}</b></span>
+              <span className="ac-muted ac-num text-xs">Original plan: entry {$(p.entry)} · stop {$(p.stop)} — preserved</span>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 ml-auto rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 hover:border-slate-500 active:bg-slate-900 text-slate-100 px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer"
+                onClick={reset}
+                data-testid={`button-reset-override-${sym}`}
+                title="Reset overrides to engine plan levels"
+              >
+                <RotateCcw className="h-3.5 w-3.5 text-cyan-400" aria-hidden />
+                Use plan levels
+              </button>
             </div>
           )}
         </div>
