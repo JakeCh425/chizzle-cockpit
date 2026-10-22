@@ -583,14 +583,20 @@ export function useDisclosure(key: string, def = true): [boolean, (o: boolean) =
 }
 export const useDisclosureAll = () => useContext(DisclosureCtx)?.all ?? (() => {});
 
-export function Section({ id, title, summary, def = true, children, testId }: { id: string; title: string; summary?: React.ReactNode; def?: boolean; children: React.ReactNode; testId: string }) {
+export function Section({ id, title, summary, def = true, children, testId, headerClassName, className }: { id: string; title: string; summary?: React.ReactNode; def?: boolean; children: React.ReactNode; testId: string; headerClassName?: string; className?: string }) {
   const [open, setOpen] = useDisclosure(id, def);
   return (
-    <section className="flex flex-col rounded-lg border border-ink-line bg-ink-black/40" data-testid={testId} data-open={open}>
-      <button className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-deep/40" onClick={() => setOpen(!open)} aria-expanded={open}>
+    <section className={`flex flex-col rounded-lg border border-ink-line bg-ink-black/40 ${className ?? ""}`} data-testid={testId} data-open={open}>
+      <button className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-deep/40 ${headerClassName ?? ""}`} onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-gray" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-gray" />}
         <span className="text-sm font-bold text-soft-white">{title}</span>
-        {summary != null && <span className="min-w-0 truncate text-xs font-medium text-slate-gray">{summary}</span>}
+        {summary != null && (
+          typeof summary === "string" ? (
+            <span className="min-w-0 truncate text-xs font-medium text-slate-gray">{summary}</span>
+          ) : (
+            <div className="min-w-0 ml-auto">{summary}</div>
+          )
+        )}
       </button>
       {open && <div className="p-4 pt-0">{children}</div>}
     </section>

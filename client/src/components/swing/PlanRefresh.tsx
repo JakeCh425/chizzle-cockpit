@@ -26,23 +26,63 @@ export function SyncLine({ compact, showSymbols, testId = "text-sync-line" }: { 
   const [open, setOpen] = useState(false);
   const last = s?.lastSyncAt ?? s?.lastOkAt ?? null;
   return (
-    <span className="inline-flex flex-wrap items-center gap-x-2 gap-y-0.5" data-testid={testId}>
-      <span className="inline-flex items-center gap-1" data-testid="text-sync-last"><span className="ac-muted">Last sync</span> <b className="ac-num">{last ? fmtCT(last) : "pending"}</b>{s?.running && <span className="ac-muted">(syncing…)</span>}</span>
-      <span className="inline-flex items-center gap-1" data-testid="text-sync-next"><Clock className="h-3.5 w-3.5" aria-hidden /> <span className="ac-muted">Next sync</span> <b className="ac-num">{s?.nextAt ? fmtCT(s.nextAt) : s ? "manual only" : "…"}</b>
-        {s?.nextAt && !compact && <span className="ac-muted">({NEXT_KIND_LABEL[s.nextKind ?? ""] ?? s.nextKind}{s.marketOpen ? "" : ", market closed"})</span>}</span>
+    <div className="inline-flex flex-wrap items-center gap-2" data-testid={testId}>
+      {/* Telemetry Badge: Last Sync */}
+      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs font-mono text-slate-400 backdrop-blur-sm shadow-inner" data-testid="text-sync-last">
+        <span className="flex h-2 w-2 relative">
+          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full ${s?.running ? "bg-cyan-400" : "bg-emerald-400"} opacity-75`}></span>
+          <span className={`relative inline-flex rounded-full h-2 w-2 ${s?.running ? "bg-cyan-500" : "bg-emerald-500"}`}></span>
+        </span>
+        <span className="font-mono uppercase tracking-widest text-[10px] text-slate-400 font-semibold">Last sync</span>
+        <b className="font-mono font-bold text-soft-white tabular-nums">{last ? fmtCT(last) : "pending"}</b>
+        {s?.running && <span className="font-mono text-[10px] text-cyan-400 animate-pulse">(syncing…)</span>}
+      </div>
+
+      {/* Telemetry Badge: Next Sync */}
+      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs font-mono text-slate-400 backdrop-blur-sm shadow-inner" data-testid="text-sync-next">
+        <Clock className="h-3.5 w-3.5 text-cyan-400 shrink-0" aria-hidden />
+        <span className="font-mono uppercase tracking-widest text-[10px] text-slate-400 font-semibold">Next sync</span>
+        <b className="font-mono font-bold text-cyan-300 tabular-nums">{s?.nextAt ? fmtCT(s.nextAt) : s ? "manual only" : "…"}</b>
+        {s?.nextAt && !compact && (
+          <span className="hidden sm:inline text-[10px] text-slate-500 font-mono">
+            ({NEXT_KIND_LABEL[s.nextKind ?? ""] ?? s.nextKind}{s.marketOpen ? "" : ", market closed"})
+          </span>
+        )}
+      </div>
+
+      {/* Symbol Telemetry Toggle */}
       {showSymbols && s?.symbols?.length ? (
-        <button className="ac-btn !py-0 !px-1.5" onClick={() => setOpen((o) => !o)} aria-expanded={open} data-testid="button-sync-symbols">{open ? "Hide" : "Data by symbol"}</button>
+        <button
+          className="flex items-center gap-1 rounded-full border border-white/10 bg-black/30 hover:bg-white/5 hover:border-cyan-500/40 px-2.5 py-1 text-[10.5px] font-mono font-semibold text-cyan-300 transition-colors"
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          data-testid="button-sync-symbols"
+        >
+          {open ? "Hide symbols" : "Data by symbol"}
+        </button>
       ) : null}
+
       {showSymbols && open && s?.symbols && (
-        <span className="basis-full flex flex-wrap gap-x-3 gap-y-0.5 ac-muted" data-testid="list-sync-symbols">
+        <div className="basis-full flex flex-wrap gap-2 pt-2 mt-1 border-t border-white/10 text-xs font-mono text-slate-400" data-testid="list-sync-symbols">
           {s.symbols.map((x) => (
-            <span key={x.symbol} className="inline-flex items-center gap-1" data-testid={`text-sync-symbol-${x.symbol}`} data-status={x.dataStatus}>
-              <b className="ac-num">{x.symbol}</b> {sourceLabel(x.source)} · quote {x.quoteAt ? fmtCT(x.quoteAt) : "—"} · <span className={x.dataStatus === "LIVE" ? "ac-good" : x.dataStatus === "PENDING" ? "" : "ac-warn"}>{x.dataStatus}</span>
+            <span
+              key={x.symbol}
+              className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2.5 py-0.5 text-[11px] shadow-sm"
+              data-testid={`text-sync-symbol-${x.symbol}`}
+              data-status={x.dataStatus}
+            >
+              <b className="font-bold text-soft-white">{x.symbol}</b>
+              <span className="text-slate-400">{sourceLabel(x.source)}</span>
+              <span className="text-slate-500">·</span>
+              <span className="text-slate-400 font-mono text-[10px]">{x.quoteAt ? fmtCT(x.quoteAt) : "—"}</span>
+              <span className={`px-1.5 py-0.2 rounded text-[9.5px] font-bold uppercase ${x.dataStatus === "LIVE" ? "text-emerald-400 bg-emerald-950/60 border border-emerald-500/30" : x.dataStatus === "PENDING" ? "text-cyan-300" : "text-amber-400 bg-amber-950/60 border border-amber-500/30"}`}>
+                {x.dataStatus}
+              </span>
             </span>
           ))}
-        </span>
+        </div>
       )}
-    </span>
+    </div>
   );
 }
 
@@ -95,21 +135,73 @@ export function PlanRefreshBar({ settings }: { settings: SwingSettings | undefin
     catch (e: any) { setMsg(`Refresh failed: ${e?.message ?? "error"}. Showing the last confirmed snapshot.`); }
     finally { setBusy(false); }
   };
-  const xs = { fontSize: "var(--ac-fs-xs)" } as const;
   return (
-    <div className="ac-tile rounded-xl px-3 py-1.5 flex flex-wrap items-center gap-x-3 gap-y-1" style={xs} data-testid="bar-plan-refresh">
-      <button className="ac-btn ac-btn-primary !py-1" style={xs} onClick={run} disabled={running} aria-busy={running} data-testid="button-refresh-plan">
-        <RefreshCw className={`h-3.5 w-3.5 ${running ? "animate-spin" : ""}`} aria-hidden /> {running ? "Analyzing…" : "Refresh Plan"}
-      </button>
-      <SyncLine showSymbols />
-      <span className="inline-flex items-center gap-1" data-testid="text-last-analysis" title={s?.schedule ?? ""}>
-        {s?.lastError ? <AlertTriangle className="h-3.5 w-3.5 ac-warn" aria-hidden /> : <CheckCircle2 className="h-3.5 w-3.5 ac-good" aria-hidden />}
-        <span className="ac-muted">{s?.lastError ? "Last confirmed snapshot:" : "Hourly sync on"}</span>{s?.lastError && <b className="ac-num">{s?.lastOkAt ? fmtCT(s.lastOkAt) : "first run pending"}</b>}
-      </span>
+    <div
+      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-cyan-500/30 bg-ink-black/60 p-3 sm:p-4 backdrop-blur-md shadow-[0_0_15px_rgba(34,211,238,0.08)] transition-all"
+      data-testid="bar-plan-refresh"
+    >
+      <div className="flex flex-wrap items-center gap-3">
+        {/* The Glowing Primary Action Button */}
+        <button
+          onClick={run}
+          disabled={running}
+          aria-busy={running}
+          data-testid="button-refresh-plan"
+          className={`relative inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-mono text-xs font-bold uppercase tracking-wider transition-all duration-300 select-none ${
+            running
+              ? "bg-cyan-950/80 text-cyan-300 border border-cyan-500/50 shadow-[0_0_15px_rgba(34,211,238,0.3)] animate-pulse"
+              : "bg-gradient-to-r from-cyan-500 to-blue-600 text-white border border-cyan-400/60 shadow-[0_0_12px_rgba(34,211,238,0.3)] hover:shadow-[0_0_20px_rgba(34,211,238,0.55)] hover:border-cyan-300 hover:scale-[1.02] active:scale-[0.98]"
+          }`}
+        >
+          <RefreshCw className={`h-4 w-4 ${running ? "animate-spin text-cyan-200" : "text-white"}`} aria-hidden />
+          <span>{running ? "Analyzing…" : "Refresh Plan"}</span>
+        </button>
+
+        {/* Sync Telemetry Badges (Last sync & Next sync) */}
+        <SyncLine showSymbols />
+
+        {/* Telemetry Badge: Hourly sync */}
+        <div
+          className="flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-1 text-xs font-mono text-slate-400 backdrop-blur-sm shadow-inner"
+          data-testid="text-last-analysis"
+          title={s?.schedule ?? ""}
+        >
+          {s?.lastError ? (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" aria-hidden />
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400 shrink-0" aria-hidden />
+          )}
+          <span className="font-mono uppercase tracking-widest text-[10px] text-slate-400 font-semibold">
+            {s?.lastError ? "Snapshot:" : "Hourly sync on"}
+          </span>
+          <span className={`font-mono font-bold tabular-nums ${s?.lastError ? "text-amber-300" : "text-emerald-400"}`}>
+            {s?.lastError ? (s?.lastOkAt ? fmtCT(s.lastOkAt) : "first run pending") : "ACTIVE"}
+          </span>
+        </div>
+      </div>
+
+      {/* Status / Alert notification banner */}
       {(s?.lastError || msg) && (
-        <span className={`basis-full ${s?.lastError ? "ac-warn font-semibold" : "ac-muted"}`} role={s?.lastError ? "alert" : "status"} data-testid="text-refresh-message">
-          {s?.lastError ? `${s.lastError.replace(/ — showing the last successful snapshot\.?$/, "")} — showing the last confirmed snapshot${s.lastOkAt ? ` from ${fmtCT(s.lastOkAt)}` : ""}${s.lastAttemptAt ? ` (attempt ${fmtCT(s.lastAttemptAt)})` : ""}.` : msg}
-        </span>
+        <div
+          className={`basis-full mt-1 flex items-center gap-2 rounded-lg border px-3 py-2 font-mono text-xs ${
+            s?.lastError
+              ? "border-amber-500/40 bg-amber-950/40 text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.1)]"
+              : "border-cyan-500/40 bg-cyan-950/40 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.1)]"
+          }`}
+          role={s?.lastError ? "alert" : "status"}
+          data-testid="text-refresh-message"
+        >
+          {s?.lastError ? (
+            <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" aria-hidden />
+          ) : (
+            <CheckCircle2 className="h-4 w-4 text-cyan-400 shrink-0" aria-hidden />
+          )}
+          <span>
+            {s?.lastError
+              ? `${s.lastError.replace(/ — showing the last successful snapshot\.?$/, "")} — showing the last confirmed snapshot${s.lastOkAt ? ` from ${fmtCT(s.lastOkAt)}` : ""}${s.lastAttemptAt ? ` (attempt ${fmtCT(s.lastAttemptAt)})` : ""}.`
+              : msg}
+          </span>
+        </div>
       )}
     </div>
   );

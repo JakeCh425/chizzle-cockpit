@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { getTrafficLightStatus } from "@/components/swing/ActionCenter";
+import { getTrafficLightStatus, CYBER_THEMES } from "@/components/swing/ActionCenter";
 import { historicalWinRate, beginnerStatusText, computeTargetLevels } from "@/components/swing/TradingCard";
 import { isWatchlistRowCollapsed } from "@/components/swing/SwingWorkspace";
 import type { SwingDecision } from "@shared/swingDecision";
@@ -186,5 +186,31 @@ describe("Watchlist Auto-Collapse & Visual Hierarchy", () => {
     expect(isWatchlistRowCollapsed("WATCH_EXTENDED")).toBe(false);
     expect(isWatchlistRowCollapsed("WATCH_RETEST")).toBe(false);
     expect(isWatchlistRowCollapsed(undefined)).toBe(false);
+  });
+});
+
+describe("Cyberpunk Theme Engine & Futuristic Terminal System", () => {
+  it("provides Cyber Neon, Midnight Ocean, and Stealth theme modules", () => {
+    const ids = CYBER_THEMES.map((t) => t.id);
+    expect(ids).toEqual(["cyber-neon", "midnight-ocean", "stealth"]);
+  });
+
+  it("configures distinct visual previews and accents for each theme", () => {
+    const neon = CYBER_THEMES.find((t) => t.id === "cyber-neon")!;
+    expect(neon.name).toBe("Cyber Neon");
+    expect(neon.previewGradient).toContain("cyan");
+    expect(neon.previewGradient).toContain("fuchsia");
+    expect(neon.containerBorder).toContain("border-cyan");
+
+    const ocean = CYBER_THEMES.find((t) => t.id === "midnight-ocean")!;
+    expect(ocean.name).toBe("Midnight Ocean");
+    expect(ocean.previewGradient).toContain("teal");
+    expect(ocean.previewGradient).toContain("sky");
+    expect(ocean.containerBorder).toContain("border-teal");
+
+    const stealth = CYBER_THEMES.find((t) => t.id === "stealth")!;
+    expect(stealth.name).toBe("Stealth");
+    expect(stealth.previewGradient).toContain("zinc");
+    expect(stealth.containerBorder).toContain("border-zinc");
   });
 });

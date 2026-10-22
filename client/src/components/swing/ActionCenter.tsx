@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf } from "@shared/practicePlan";
 import { sortForCockpit } from "@shared/readyAlerts";
@@ -24,6 +24,117 @@ import { useFreshness } from "@/lib/freshness";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
 const DEFAULT_TITLE = "Action Center";
+
+export type CyberTheme = "cyber-neon" | "midnight-ocean" | "stealth";
+
+export interface CyberThemeConfig {
+  id: CyberTheme;
+  name: string;
+  badgeLabel: string;
+  description: string;
+  previewGradient: string;
+  previewBorder: string;
+  previewGlow: string;
+  containerBg: string;
+  containerBorder: string;
+  accentText: string;
+}
+
+export const CYBER_THEMES: CyberThemeConfig[] = [
+  {
+    id: "cyber-neon",
+    name: "Cyber Neon",
+    badgeLabel: "NEON",
+    description: "Deep black background with bright cyan & magenta card glow",
+    previewGradient: "from-[#060913] via-cyan-400 to-fuchsia-500",
+    previewBorder: "border-cyan-400",
+    previewGlow: "shadow-[0_0_15px_rgba(34,211,238,0.5)] border-cyan-400/80 ring-1 ring-cyan-400/50",
+    containerBg: "bg-[#060913]/90 backdrop-blur-xl",
+    containerBorder: "border-cyan-500/40 shadow-[0_0_25px_rgba(34,211,238,0.12)]",
+    accentText: "text-cyan-400",
+  },
+  {
+    id: "midnight-ocean",
+    name: "Midnight Ocean",
+    badgeLabel: "OCEAN",
+    description: "Deep navy blue background with teal & ocean blue accents",
+    previewGradient: "from-[#030E1E] via-teal-400 to-sky-500",
+    previewBorder: "border-teal-400",
+    previewGlow: "shadow-[0_0_15px_rgba(45,212,191,0.5)] border-teal-400/80 ring-1 ring-teal-400/50",
+    containerBg: "bg-[#030E1E]/95 backdrop-blur-xl",
+    containerBorder: "border-teal-500/40 shadow-[0_0_25px_rgba(45,212,191,0.12)]",
+    accentText: "text-teal-400",
+  },
+  {
+    id: "stealth",
+    name: "Stealth",
+    badgeLabel: "STEALTH",
+    description: "Pure black background with monochromatic titanium & silver accents",
+    previewGradient: "from-black via-zinc-600 to-slate-200",
+    previewBorder: "border-zinc-400",
+    previewGlow: "shadow-[0_0_15px_rgba(255,255,255,0.3)] border-zinc-300 ring-1 ring-white/30",
+    containerBg: "bg-black/95 backdrop-blur-xl",
+    containerBorder: "border-zinc-800 shadow-[0_0_25px_rgba(255,255,255,0.04)]",
+    accentText: "text-zinc-200",
+  },
+];
+
+export function CyberThemeSwitcher({
+  currentTheme,
+  onThemeChange,
+}: {
+  currentTheme: CyberTheme;
+  onThemeChange: (t: CyberTheme) => void;
+}) {
+  return (
+    <div
+      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 backdrop-blur-md shadow-[0_0_15px_rgba(34,211,238,0.05)]"
+      data-testid="theme-switcher-deck"
+    >
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 text-cyan-400" aria-hidden />
+        <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-300">
+          Terminal Theme Switcher
+        </span>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2.5">
+        {CYBER_THEMES.map((t) => {
+          const isActive = currentTheme === t.id;
+          return (
+            <button
+              key={t.id}
+              onClick={() => onThemeChange(t.id)}
+              className={`group flex items-center gap-2.5 rounded-lg border px-3 py-1.5 transition-all duration-200 select-none ${
+                isActive
+                  ? `bg-white/10 ${t.previewGlow} scale-[1.03]`
+                  : "border-white/10 bg-black/40 hover:border-white/20 hover:bg-white/5 opacity-70 hover:opacity-100"
+              }`}
+              title={t.description}
+              aria-label={`Switch theme to ${t.name}: ${t.description}`}
+              aria-pressed={isActive}
+              data-testid={`button-theme-${t.id}`}
+            >
+              <div
+                className={`h-4.5 w-4.5 rounded-md bg-gradient-to-br ${t.previewGradient} border ${
+                  isActive ? t.previewBorder : "border-white/20"
+                } shadow-sm shrink-0`}
+              />
+              <div className="flex flex-col text-left">
+                <span className="font-mono text-[11px] font-bold text-soft-white leading-tight">
+                  {t.name}
+                </span>
+                <span className="font-mono text-[8.5px] uppercase tracking-widest text-slate-400">
+                  {t.badgeLabel}
+                </span>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 export function getTrafficLightStatus(regimeCode: string, readyCount: number, extendedCount: number) {
   const normRegime = (regimeCode || "yellow").toLowerCase();
@@ -211,9 +322,19 @@ function ActionCenterInner() {
   const markSeen = (k: string) => { if (!seen.includes(k)) setSeen([...seen.slice(-199), k]); };
   const dlgDecision: SwingDecision | undefined = dlg ? rows.find((d) => d.symbol === dlg.symbol) : undefined;
 
+  const [cyberTheme, setCyberTheme] = usePersistentState<CyberTheme>("ac-cyber-theme", "cyber-neon");
+  const activeThemeConfig = CYBER_THEMES.find((t) => t.id === cyberTheme) ?? CYBER_THEMES[0];
+
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
-    <section className="flex flex-col gap-4 rounded-xl border border-ink-line bg-ink-black/60 p-4 shadow-sm" {...acAttrs(prefs)} aria-label={title} data-testid="action-center" data-open={boxOpen}>
+    <section
+      className={`flex flex-col gap-4 rounded-xl border p-4 sm:p-5 transition-all duration-300 ${activeThemeConfig.containerBg} ${activeThemeConfig.containerBorder}`}
+      data-cyber-theme={cyberTheme}
+      {...acAttrs(prefs)}
+      aria-label={title}
+      data-testid="action-center"
+      data-open={boxOpen}
+    >
       
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-4 border-b border-ink-line/50 pb-4">
@@ -223,18 +344,38 @@ function ActionCenterInner() {
         
         <EditableTitle value={title} onChange={setTitle} />
         
-        <span className={`flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider ${readyCount ? "border-signal-green/40 bg-signal-green/10 text-signal-green" : "border-ink-line bg-ink-deep/40 text-slate-gray"}`} data-testid="text-ac-ready-count" title="Fresh, tradeable practice setups">
-          <Zap className="h-3.5 w-3.5" aria-hidden /> {readyCount} fresh
+        <span
+          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest ${
+            readyCount
+              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.15)]"
+              : "border-white/10 bg-black/40 text-slate-400"
+          }`}
+          data-testid="text-ac-ready-count"
+          title="Fresh, tradeable practice setups"
+        >
+          <Zap className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> {readyCount} fresh
         </span>
         
-        {older.length > 0 && <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-signal-amber" data-testid="text-ac-older-count">{older.length} older / not tradeable</span>}
+        {older.length > 0 && (
+          <span
+            className="rounded-full border border-amber-500/30 bg-amber-950/40 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
+            data-testid="text-ac-older-count"
+          >
+            {older.length} older / not tradeable
+          </span>
+        )}
         
-        <span className="text-[10px] font-mono font-medium uppercase tracking-wider text-slate-gray" data-testid="text-ac-counts">
+        <span
+          className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[10px] font-mono font-medium uppercase tracking-wider text-slate-400"
+          data-testid="text-ac-counts"
+        >
           {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned}… · ` : ""}
           {scan.isLoading ? "" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
         </span>
         
-        <span className="text-[10px] font-bold uppercase tracking-wider text-signal-amber">PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE</span>
+        <span className="rounded-md border border-amber-500/30 bg-amber-950/40 px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-amber-300">
+          PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE
+        </span>
         
         {boxOpen && (
           <div className="ml-auto flex flex-wrap items-center gap-3">
@@ -279,6 +420,7 @@ function ActionCenterInner() {
             extendedCount={counts.EXTENDED ?? 0}
           />
           <PlanRefreshBar settings={settings.data} />
+          <CyberThemeSwitcher currentTheme={cyberTheme} onThemeChange={setCyberTheme} />
           
           {appOpen && <div id="ac-appearance" data-testid="sec-appearance" data-open="true"><AppearanceControls prefs={prefs} set={setPrefs} /></div>}
           {appOpen && <CardStyleSection />}

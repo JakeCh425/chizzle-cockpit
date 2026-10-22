@@ -133,9 +133,31 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
   const scored = rankScores(rows.filter((d) => d.setupScore));
   if (!scored.length) return null;
   const tf = settings?.scoreTimeframe ?? "Daily", strict = !!settings?.scoreStrict;
-  const top = scored.slice(0, 3).map((d, i) => `#${i + 1} ${d.symbol} ${d.setupScore!.error ? "n/a" : d.setupScore!.score}`).join(" · ");
+  const topChips = (
+    <div className="flex flex-wrap items-center gap-2" data-testid="priority-board-chips">
+      {scored.slice(0, 3).map((d, i) => (
+        <span
+          key={d.symbol}
+          className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-950/60 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)] backdrop-blur-sm"
+          data-testid={`chip-priority-${d.symbol}`}
+        >
+          <span className="font-bold text-slate-400">#{i + 1}</span>
+          <span className="font-bold text-soft-white">{d.symbol}</span>
+          <span className="font-mono font-bold text-emerald-400">{d.setupScore!.error ? "n/a" : d.setupScore!.score}</span>
+        </span>
+      ))}
+    </div>
+  );
   return (
-    <Section id="priority-board" title="Setup Priority Board" def={false} testId="sec-priority-board" summary={top}>
+    <Section
+      id="priority-board"
+      title="Setup Priority Board"
+      def={false}
+      testId="sec-priority-board"
+      headerClassName="bg-gradient-to-r from-ink-deep/50 to-transparent hover:from-ink-deep/70"
+      className="border-cyan-500/20 bg-ink-black/60 backdrop-blur-md shadow-[0_0_15px_rgba(34,211,238,0.06)]"
+      summary={topChips}
+    >
       <div className="space-y-2">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1" style={xs}>
           <label className="inline-flex items-center gap-1.5"><span className="font-semibold">Trigger timeframe</span>

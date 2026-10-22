@@ -549,3 +549,73 @@
 .rn-root .rn-btn:focus-visible { outline: 3px solid var(--rn-chip); outline-offset: 2px; }
 .rn-root .rn-swatch { width: 18px; height: 18px; border-radius: 999px; border: 2px solid rgba(255,255,255,.35); }
 .rn-root .rn-swatch[aria-pressed="true"] { border-color: var(--rn-text); box-shadow: 0 0 0 2px var(--rn-edge); }
+
+/* ─── Cyberpunk / Futuristic Terminal Themes (ActionCenter & Trading Cards) ─── */
+[data-cyber-theme="cyber-neon"] {
+  --ac-bg: #060913;
+  --ac-surface: #0B1220;
+  --ac-surface-2: #111A2E;
+  --ac-border: #1E293B;
+  --ac-border-strong: #22D3EE;
+  --ac-accent: #22D3EE;
+  --ac-accent-2: #E879F9;
+  --ac-good: #34D399;
+  --ac-warn: #FBBF24;
+  --ac-bad: #F87171;
+}
+
+[data-cyber-theme="midnight-ocean"] {
+  --ac-bg: #030E1E;
+  --ac-surface: #071A2B;
+  --ac-surface-2: #0B253D;
+  --ac-border: #163857;
+  --ac-border-strong: #14B8A6;
+  --ac-accent: #14B8A6;
+  --ac-accent-2: #38BDF8;
+  --ac-good: #10B981;
+  --ac-warn: #F59E0B;
+  --ac-bad: #EF4444;
+}
+
+[data-cyber-theme="stealth"] {
+  --ac-bg: #000000;
+  --ac-surface: #09090B;
+  --ac-surface-2: #18181B;
+  --ac-border: #27272A;
+  --ac-border-strong: #71717A;
+  --ac-accent: #E4E4E7;
+  --ac-accent-2: #FFFFFF;
+  --ac-good: #A1A1AA;
+  --ac-warn: #E4E4E7;
+  --ac-bad: #71717A;
+}
+
+[data-cyber-theme="cyber-neon"] article[data-testid^="trading-card-"] {
+  background-color: rgba(11, 18, 32, 0.85);
+  border-color: rgba(34, 211, 238, 0.25);
+  box-shadow: 0 0 15px rgba(34, 211, 238, 0.08);
+}
+[data-cyber-theme="cyber-neon"] article[data-testid^="trading-card-"]:hover {
+  border-color: rgba(232, 121, 249, 0.45);
+  box-shadow: 0 0 22px rgba(34, 211, 238, 0.16);
+}
+
+[data-cyber-theme="midnight-ocean"] article[data-testid^="trading-card-"] {
+  background-color: rgba(7, 26, 43, 0.88);
+  border-color: rgba(20, 184, 166, 0.25);
+  box-shadow: 0 0 15px rgba(20, 184, 166, 0.08);
+}
+[data-cyber-theme="midnight-ocean"] article[data-testid^="trading-card-"]:hover {
+  border-color: rgba(56, 189, 248, 0.45);
+  box-shadow: 0 0 22px rgba(56, 189, 248, 0.16);
+}
+
+[data-cyber-theme="stealth"] article[data-testid^="trading-card-"] {
+  background-color: rgba(9, 9, 11, 0.92);
+  border-color: rgba(39, 39, 42, 0.85);
+  box-shadow: 0 0 12px rgba(255, 255, 255, 0.03);
+}
+[data-cyber-theme="stealth"] article[data-testid^="trading-card-"]:hover {
+  border-color: rgba(113, 113, 122, 0.65);
+  box-shadow: 0 0 18px rgba(255, 255, 255, 0.06);
+}
