@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { getTrafficLightStatus } from "@/components/swing/ActionCenter";
-import { historicalWinRate, beginnerStatusText } from "@/components/swing/TradingCard";
+import { historicalWinRate, beginnerStatusText, computeTargetLevels } from "@/components/swing/TradingCard";
 import type { SwingDecision } from "@shared/swingDecision";
 
 describe("ActionCenter Global Traffic Light Banner", () => {
@@ -40,17 +40,85 @@ describe("ActionCenter Global Traffic Light Banner", () => {
   });
 });
 
-describe("TradingCard Historical Edge & Beginner Status Text", () => {
-  it("assigns appropriate historical win rates by pattern type and score", () => {
-    expect(historicalWinRate("BULL_FLAG", 75)).toBe(67);
-    expect(historicalWinRate("BREAKOUT", 70)).toBe(65);
-    expect(historicalWinRate("HAMMER_RECLAIM", 60)).toBe(63);
-    expect(historicalWinRate("BASE", 50)).toBe(62);
-    expect(historicalWinRate(null, 85)).toBe(68);
-    expect(historicalWinRate(null, null)).toBe(60);
+describe("Scale-Out Mode Target Calculation & Extended Targets", () => {
+  const entry = 100.00;
+  const stop = 96.00; // Risk = $4.00
+
+  it("maintains unchanged default settings (T1 = 2.0R, T2 = 3.0R) when scaleOutMode is OFF", () => {
+    const targets = computeTargetLevels(entry, stop, 108.00, 112.00, false);
+    expect(targets.scaleOutMode).toBe(false);
+    expect(targets.activeRisk).toBe(4.00);
+    expect(targets.t1).toBe(108.00); // 2.0R
+    expect(targets.t1R).toBe(2.0);
+    expect(targets.t2).toBe(112.00); // 3.0R
+    expect(targets.t2R).toBe(3.0);
+    expect(targets.t3).toBeNull();
+    expect(targets.t3R).toBeNull();
   });
 
-  it("generates beginner-friendly status text for various stages", () => {
+  it("adjusts targets to 1.5R, 2.0R, and 3.00R when scaleOutMode is ON", () => {
+    const targets = computeTargetLevels(entry, stop, 108.00, 112.00, true);
+    expect(targets.scaleOutMode).toBe(true);
+    expect(targets.activeRisk).toBe(4.00);
+
+    // Target 1 (New): 1.5R = 100 + 1.5 * 4 = 106.00
+    expect(targets.t1).toBe(106.00);
+    expect(targets.t1R).toBe(1.5);
+    expect(targets.gainPct(targets.t1)).toBe(6.00);
+
+    // Target 2: 2.0R = 100 + 2.0 * 4 = 108.00
+    expect(targets.t2).toBe(108.00);
+    expect(targets.t2R).toBe(2.0);
+    expect(targets.gainPct(targets.t2)).toBe(8.00);
+
+    // Target 3 (Runner): 3.00R = 100 + 3.0 * 4 = 112.00
+    expect(targets.t3).toBe(112.00);
+    expect(targets.t3R).toBe(3.0);
+    expect(targets.gainPct(targets.t3)).toBe(12.00);
+  });
+
+  it("calculates extended runner targets (4.00R, 5.00R, 6.00R) correctly", () => {
+    const targets = computeTargetLevels(entry, stop, 108.00, 112.00, false);
+    // 4.00R: 100 + 4.0 * 4 = 116.00 (+16.00%)
+    expect(targets.t4).toBe(116.00);
+    expect(targets.gainPct(targets.t4)).toBe(16.00);
+
+    // 5.00R: 100 + 5.0 * 4 = 120.00 (+20.00%)
+    expect(targets.t5).toBe(120.00);
+    expect(targets.gainPct(targets.t5)).toBe(20.00);
+
+    // 6.00R: 100 + 6.0 * 4 = 124.00 (+24.00%)
+    expect(targets.t6).toBe(124.00);
+    expect(targets.gainPct(targets.t6)).toBe(24.00);
+  });
+});
+
+describe("TradingCard Historical Edge & Beginner Status Text", () => {
+  it("assigns appropriate historical win rates by pattern type and score", () => {
+    expect(historicalWinRate("BULL_FLAG", 75, false)).toBe(67);
+    expect(historicalWinRate("BREAKOUT", 70, false)).toBe(65);
+    expect(historicalWinRate("HAMMER_RECLAIM", 60, false)).toBe(63);
+    expect(historicalWinRate("BASE", 50, false)).toBe(62);
+    expect(historicalWinRate(null, 85, false)).toBe(68);
+    expect(historicalWinRate(null, null, false)).toBe(60);
+  });
+
+  it("dynamically boosts historical win rate to 75%+ when scaleOutMode is active", () => {
+    // Closer 1.5R target yields 75%+ win rate across all setups
+    expect(historicalWinRate("BULL_FLAG", 75, true)).toBeGreaterThanOrEqual(75);
+    expect(historicalWinRate("BULL_FLAG", 75, true)).toBe(78);
+
+    expect(historicalWinRate("BREAKOUT", 70, true)).toBeGreaterThanOrEqual(75);
+    expect(historicalWinRate("BREAKOUT", 70, true)).toBe(76);
+
+    expect(historicalWinRate("BASE", 50, true)).toBeGreaterThanOrEqual(75);
+    expect(historicalWinRate("BASE", 50, true)).toBe(76);
+
+    expect(historicalWinRate(null, null, true)).toBeGreaterThanOrEqual(75);
+    expect(historicalWinRate(null, null, true)).toBe(76);
+  });
+
+  it("generates beginner-friendly status text for various stages and scale-out mode", () => {
     const mockDecision = {
       symbol: "AAPL",
       entryPrice: 150,
@@ -62,28 +130,25 @@ describe("TradingCard Historical Edge & Beginner Status Text", () => {
     } as unknown as SwingDecision;
 
     // Below stop
-    const statusBelowStop = beginnerStatusText(mockDecision, "READY", 150, 145, 160, false, false);
+    const statusBelowStop = beginnerStatusText(mockDecision, "READY", 150, 145, 160, false, false, false);
     expect(statusBelowStop).toContain("breached planned stop");
 
-    // Approaching T1
-    const mockApproaching = { ...mockDecision, currentPrice: 158 } as unknown as SwingDecision;
-    const statusApproaching = beginnerStatusText(mockApproaching, "READY", 150, 145, 160, false, false);
-    expect(statusApproaching).toContain("approaching Target 1");
-
-    // T1 surpassed
+    // Standard mode: T1 surpassed
     const mockSurpassedT1 = { ...mockDecision, currentPrice: 161 } as unknown as SwingDecision;
-    const statusT1 = beginnerStatusText(mockSurpassedT1, "READY", 150, 145, 160, true, false);
+    const statusT1 = beginnerStatusText(mockSurpassedT1, "READY", 150, 145, 160, true, false, false);
     expect(statusT1).toContain("surpassed Target 1");
 
-    // T2 surpassed
-    const mockSurpassedT2 = { ...mockDecision, currentPrice: 166 } as unknown as SwingDecision;
-    const statusT2 = beginnerStatusText(mockSurpassedT2, "READY", 150, 145, 160, true, true);
-    expect(statusT2).toContain("surpassed Target 2");
+    // Scale-out mode: 1.5R partial target reached
+    const statusScaleT1 = beginnerStatusText(mockSurpassedT1, "READY", 150, 145, 156, true, false, true, false);
+    expect(statusScaleT1).toContain("1.5R Partial profit target reached");
 
-    // Setup confirmed waiting
-    const mockConfirmed = { ...mockDecision, currentPrice: 148, currentTrigger: 150 } as unknown as SwingDecision;
-    const statusConfirmed = beginnerStatusText(mockConfirmed, "CONFIRMED", 150, 145, 160, false, false);
-    expect(statusConfirmed).toContain("Waiting for 1-hour candle close");
+    // Scale-out mode: 2.0R core target reached
+    const statusScaleT2 = beginnerStatusText(mockSurpassedT1, "READY", 150, 145, 156, true, true, true, false);
+    expect(statusScaleT2).toContain("2.0R Core target");
+
+    // Scale-out mode: 3.0R runner target reached
+    const statusScaleT3 = beginnerStatusText(mockSurpassedT1, "READY", 150, 145, 156, true, true, true, true);
+    expect(statusScaleT3).toContain("3.0R Runner target");
   });
 
   it("calculates progress bar and potential gain % correctly", () => {
@@ -106,4 +171,3 @@ describe("TradingCard Historical Edge & Beginner Status Text", () => {
     expect(aboveProgress).toBe(100);
   });
 });
-

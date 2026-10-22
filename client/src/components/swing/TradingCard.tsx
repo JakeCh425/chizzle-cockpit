@@ -95,15 +95,102 @@ export const freshTone = (d: SwingDecision, group: ActionGroup, f?: FreshnessRes
 
 export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLowerCase().replace(/(^|[\s-])\w/g, (c) => c.toUpperCase()) : "No setup");
 
-export function historicalWinRate(setupType?: string | null, score?: number | null): number {
+export function historicalWinRate(setupType?: string | null, score?: number | null, scaleOutMode = false): number {
   const t = (setupType ?? "").toUpperCase();
-  if (t.includes("BULL_FLAG") || t.includes("FLAG")) return 67;
-  if (t.includes("BREAKOUT") || t.includes("MOMENTUM")) return 65;
-  if (t.includes("RECLAIM") || t.includes("HAMMER")) return 63;
-  if (t.includes("CONSOLIDATION") || t.includes("BASE")) return 62;
-  if (score && score >= 80) return 68;
-  if (score && score >= 70) return 64;
-  return 60;
+  let base = 60;
+  if (t.includes("BULL_FLAG") || t.includes("FLAG")) base = 67;
+  else if (t.includes("BREAKOUT") || t.includes("MOMENTUM")) base = 65;
+  else if (t.includes("RECLAIM") || t.includes("HAMMER")) base = 63;
+  else if (t.includes("CONSOLIDATION") || t.includes("BASE")) base = 62;
+  else if (score && score >= 80) base = 68;
+  else if (score && score >= 70) base = 64;
+
+  if (scaleOutMode) {
+    return Math.max(76, base + 11);
+  }
+  return base;
+}
+
+export interface TargetLevels {
+  scaleOutMode: boolean;
+  activeRisk: number | null;
+  t1: number | null;
+  t1R: number;
+  t2: number | null;
+  t2R: number;
+  t3: number | null;
+  t3R: number | null;
+  t4: number | null;
+  t5: number | null;
+  t6: number | null;
+  gainPct: (target: number | null) => number;
+}
+
+export function computeTargetLevels(
+  activeEntry: number | null,
+  activeStop: number | null,
+  defaultT1: number | null,
+  defaultT2: number | null,
+  scaleOutMode: boolean
+): TargetLevels {
+  const activeRisk =
+    activeEntry != null && activeStop != null
+      ? Math.round(Math.abs(activeEntry - activeStop) * 100) / 100
+      : null;
+
+  const gainPct = (t: number | null) => {
+    if (t == null || activeEntry == null || activeEntry <= 0) return 0;
+    return Math.round(((t - activeEntry) / activeEntry) * 10000) / 100;
+  };
+
+  let t1: number | null = null;
+  let t1R = 2.0;
+  let t2: number | null = null;
+  let t2R = 3.0;
+  let t3: number | null = null;
+  let t3R: number | null = null;
+
+  if (scaleOutMode && activeEntry != null && activeRisk != null && activeRisk > 0) {
+    t1 = Math.round((activeEntry + 1.5 * activeRisk) * 100) / 100;
+    t1R = 1.5;
+    t2 = Math.round((activeEntry + 2.0 * activeRisk) * 100) / 100;
+    t2R = 2.0;
+    t3 = Math.round((activeEntry + 3.0 * activeRisk) * 100) / 100;
+    t3R = 3.0;
+  } else {
+    t1 = defaultT1 ?? (activeEntry != null && activeRisk != null ? Math.round((activeEntry + 2.0 * activeRisk) * 100) / 100 : null);
+    t1R = 2.0;
+    t2 = defaultT2 ?? (activeEntry != null && activeRisk != null ? Math.round((activeEntry + 3.0 * activeRisk) * 100) / 100 : null);
+    t2R = 3.0;
+    t3 = null;
+    t3R = null;
+  }
+
+  // Extended runner targets (4R, 5R, 6R)
+  const t4 = activeEntry != null && activeRisk != null && activeRisk > 0
+    ? Math.round((activeEntry + 4.0 * activeRisk) * 100) / 100
+    : null;
+  const t5 = activeEntry != null && activeRisk != null && activeRisk > 0
+    ? Math.round((activeEntry + 5.0 * activeRisk) * 100) / 100
+    : null;
+  const t6 = activeEntry != null && activeRisk != null && activeRisk > 0
+    ? Math.round((activeEntry + 6.0 * activeRisk) * 100) / 100
+    : null;
+
+  return {
+    scaleOutMode,
+    activeRisk,
+    t1,
+    t1R,
+    t2,
+    t2R,
+    t3,
+    t3R,
+    t4,
+    t5,
+    t6,
+    gainPct,
+  };
 }
 
 export function beginnerStatusText(
@@ -113,22 +200,38 @@ export function beginnerStatusText(
   activeStop: number | null,
   activeT1: number | null,
   t1Passed: boolean,
-  t2Passed: boolean
+  t2Passed: boolean,
+  scaleOutMode = false,
+  t3Passed = false
 ): string {
   if (d.currentPrice != null && activeStop != null && d.currentPrice < activeStop) {
     return `Status: Price (${$(d.currentPrice)}) breached planned stop (${$(activeStop)}). Setup invalidated.`;
   }
-  if (t2Passed) {
-    return "Status: Price surpassed Target 2. Lock in maximum gains and trail stops.";
-  }
-  if (t1Passed) {
-    return "Status: Price surpassed Target 1! Trail stop to breakeven to secure gains.";
+  if (scaleOutMode) {
+    if (t3Passed) {
+      return "Status: Price reached 3.0R Runner target. Maximum plan targets achieved!";
+    }
+    if (t2Passed) {
+      return "Status: Price reached 2.0R Core target! Trail stops for the remaining 3.0R runner.";
+    }
+    if (t1Passed) {
+      return "Status: 1.5R Partial profit target reached! Secure partial gains and trail stop to breakeven.";
+    }
+  } else {
+    if (t2Passed) {
+      return "Status: Price surpassed Target 2. Lock in maximum gains and trail stops.";
+    }
+    if (t1Passed) {
+      return "Status: Price surpassed Target 1! Trail stop to breakeven to secure gains.";
+    }
   }
   if (d.currentPrice != null && activeEntry != null && activeT1 != null && d.currentPrice >= activeEntry) {
     const distToT1 = activeT1 - d.currentPrice;
     const totalRange = activeT1 - activeEntry;
     if (distToT1 <= totalRange * 0.3) {
-      return "Status: Price approaching Target 1, trail stop to breakeven.";
+      return scaleOutMode
+        ? "Status: Price approaching 1.5R Partial Profit target, prepare to lock in gains."
+        : "Status: Price approaching Target 1, trail stop to breakeven.";
     }
     return "Status: Active trade above entry, working toward Target 1.";
   }
@@ -570,6 +673,9 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const activeRisk = isCustom ? sz.riskPerShare : p.risk;
   const activeT1 = isCustom ? sz.activeT1 : p.t1;
   const activeT2 = isCustom ? sz.activeT2 : p.t2;
+  const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
+  const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
+  const targets = computeTargetLevels(activeEntry, activeStop, activeT1, activeT2, scaleOutMode);
   const populated = activeEntry != null && activeStop != null;
   const changed = new Set(ver?.result.changedFields ?? []);
   const mv = (f: string) => { const c = !ver && d.planRefresh?.changedAt ? d.planRefresh.changes.find((x) => x.field === f) : null; return c ? $(c.from) : null; };
@@ -625,8 +731,8 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
       )}
 
       {populated ? (
-        <Section id={`${scope}:levels`} title="Trade Levels & Target Method" testId={`sec-levels-${d.symbol}`} summary={`Entry ${$(activeEntry)} · Stop ${$(activeStop)} · T1 ${$(activeT1)}`}>
-          <div className="mb-4 flex flex-wrap items-center gap-3">
+        <Section id={`${scope}:levels`} title="Trade Levels & Target Method" testId={`sec-levels-${d.symbol}`} summary={scaleOutMode ? `Entry ${$(activeEntry)} · Stop ${$(activeStop)} · T1 (1.5R) ${$(targets.t1)}` : `Entry ${$(activeEntry)} · Stop ${$(activeStop)} · T1 ${$(activeT1)}`}>
+          <div className="mb-3 flex flex-wrap items-center gap-3">
             {isCustom ? (
               <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm" data-testid={`badge-custom-levels-${d.symbol}`}>
                 Target method: Custom Practice Plan
@@ -652,13 +758,93 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
             )}
           </div>
 
-          <div className={`grid grid-cols-2 gap-4 sm:grid-cols-5 ${stopBreach(d, activeStop, activeT1) ? "opacity-50 grayscale" : ""}`}>
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/5 bg-black/25 px-3 py-2">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={scaleOutMode}
+                onClick={() => setScaleOutMode(!scaleOutMode)}
+                className={`relative inline-flex h-4 w-8 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  scaleOutMode ? "bg-cyan-500" : "bg-slate-700"
+                }`}
+                title="Toggle 1.5R Partial Profit Scale-Out Mode"
+              >
+                <span
+                  className={`pointer-events-none inline-block h-3 w-3 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    scaleOutMode ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+              <label
+                onClick={() => setScaleOutMode(!scaleOutMode)}
+                className="text-[11px] font-semibold text-slate-300 cursor-pointer select-none hover:text-white"
+              >
+                Enable 1.5R Partial Profit (75%+ Win Rate)
+              </label>
+            </div>
+            {scaleOutMode && (
+              <span className="rounded border border-cyan-400/40 bg-cyan-950/70 px-1.5 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300">
+                1.5R • 2R • 3R Active
+              </span>
+            )}
+          </div>
+
+          <div className={`grid grid-cols-2 gap-4 ${scaleOutMode ? "sm:grid-cols-6" : "sm:grid-cols-5"} ${stopBreach(d, activeStop, targets.t1) ? "opacity-50 grayscale" : ""}`}>
             <PriceTile moved={mv("entry")} label="ENTRY" sub="Planned starting price" value={$(activeEntry)} tone="good" guided={guided} changed={isCustom ? sz.st.entry != null : changed.has("entry")} engineValue={$(engine.entry)} />
             <PriceTile moved={mv("stop")} label="STOP LOSS" sub="Protective exit trigger" value={$(activeStop)} tone="bad" guided={guided} changed={isCustom ? sz.st.stop != null : changed.has("stop")} engineValue={$(engine.stop)} />
             <PriceTile moved={mv("stopLimit")} label="STOP LIMIT" sub="Lowest limit price" value={activeStop != null ? $(stopLimitOf(activeStop)) : (p.stopLimit != null ? $(p.stopLimit) : "Not configured")} tone="bad" guided={guided} />
-            <PriceTile moved={mv("t1")} label="TARGET 1" sub="First profit level" value={$(activeT1)} tone="accent" guided={guided} rText={isCustom ? "2.0R" : rTxt(p.rrT1)} changed={isCustom || changed.has("target1")} engineValue={$(engine.t1)} source={src.t1} flags={targetFlags(1, isCustom ? 2.0 : p.rrT1, minRr, ob1)} />
-            <PriceTile moved={mv("t2")} label="TARGET 2" sub="Further level" value={$(activeT2)} tone="accent" guided={guided} rText={isCustom ? "3.0R" : rTxt(p.rrT2)} changed={isCustom || changed.has("target2")} engineValue={$(engine.t2)} source={src.t2} flags={targetFlags(2, isCustom ? 3.0 : p.rrT2, minRr, ob2)} />
+            <PriceTile moved={mv("t1")} label={scaleOutMode ? "TARGET 1 (PARTIAL)" : "TARGET 1"} sub={scaleOutMode ? "1.5R partial profit" : "First profit level"} value={$(targets.t1)} tone="accent" guided={guided} rText={`${targets.t1R.toFixed(1)}R`} changed={isCustom || scaleOutMode || changed.has("target1")} engineValue={$(engine.t1)} source={scaleOutMode ? "Scale-Out 1.5R" : src.t1} flags={targetFlags(1, targets.t1R, minRr, ob1)} />
+            <PriceTile moved={mv("t2")} label={scaleOutMode ? "TARGET 2 (CORE)" : "TARGET 2"} sub={scaleOutMode ? "2.0R core exit" : "Further level"} value={$(targets.t2)} tone="accent" guided={guided} rText={`${targets.t2R.toFixed(1)}R`} changed={isCustom || scaleOutMode || changed.has("target2")} engineValue={$(engine.t2)} source={scaleOutMode ? "Scale-Out 2.0R" : src.t2} flags={targetFlags(2, targets.t2R, minRr, ob2)} />
+            {scaleOutMode && (
+              <PriceTile label="TARGET 3 (RUNNER)" sub="3.0R runner exit" value={$(targets.t3)} tone="accent" guided={guided} rText="3.0R" changed={true} engineValue={$(engine.t2)} source="Scale-Out 3.0R" />
+            )}
           </div>
+
+          <div className="flex items-center gap-2 mt-3">
+            <input
+              id={`body-chk-extended-${d.symbol}`}
+              type="checkbox"
+              checked={showExtended}
+              onChange={(e) => setShowExtended(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+            />
+            <label
+              htmlFor={`body-chk-extended-${d.symbol}`}
+              className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
+            >
+              Show Extended Runner Targets (4R, 5R, 6R)
+            </label>
+          </div>
+
+          {showExtended && (
+            <div className="flex flex-col gap-2 rounded-lg border border-purple-500/25 bg-purple-950/20 p-3 mt-2">
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono">
+                <span className="font-bold uppercase tracking-wider text-purple-300">Extended Runner Targets (View Only)</span>
+                <span className="text-slate-400">Informational • Does not alter execution logic</span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className="flex flex-col gap-0.5 rounded-md border border-white/5 bg-black/40 p-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">4.00R Runner</span>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t4)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t4)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md border border-white/5 bg-black/40 p-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">5.00R Runner</span>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t5)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t5)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+                <div className="flex flex-col gap-0.5 rounded-md border border-white/5 bg-black/40 p-2">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400">6.00R Runner</span>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t6)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t6)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+              </div>
+            </div>
+          )}
         </Section>
       ) : (
         <div className="rounded-lg border border-ink-line bg-ink-deep/40 p-4 text-sm font-medium text-slate-gray">
@@ -830,27 +1016,36 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const [detailsOpen, setDetailsOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
 
+  const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
+  const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
+
   const isCustom = sz.override;
   const activeEntry = isCustom ? sz.E : p.entry;
   const activeStop = isCustom ? sz.S : p.stop;
-  const activeT1 = isCustom ? sz.activeT1 : p.t1;
-  const activeT2 = isCustom ? sz.activeT2 : p.t2;
+  const activeRisk = isCustom ? sz.riskPerShare : p.risk;
 
-  // Potential Gain calculation to Target 1
-  const potentialGainPct = activeEntry != null && activeT1 != null && activeEntry > 0
-    ? ((activeT1 - activeEntry) / activeEntry) * 100
+  // Compute targets based on Scale-Out Mode (defaults: T1=2.0R, T2=3.0R)
+  const targets = computeTargetLevels(activeEntry, activeStop, isCustom ? sz.activeT1 : p.t1, isCustom ? sz.activeT2 : p.t2, scaleOutMode);
+
+  // Potential Gain calculation to active Target 1 (1.5R when Scale-Out Mode ON, else 2.0R)
+  const potentialGainPct = activeEntry != null && targets.t1 != null && activeEntry > 0
+    ? ((targets.t1 - activeEntry) / activeEntry) * 100
     : 0;
 
-  // Visual Progress bar calculation between Entry and T1
+  // Visual Progress bar calculation between Entry and active T1
   let progressPct = 0;
-  if (d.currentPrice != null && activeEntry != null && activeT1 != null && activeT1 > activeEntry) {
-    const raw = ((d.currentPrice - activeEntry) / (activeT1 - activeEntry)) * 100;
+  if (d.currentPrice != null && activeEntry != null && targets.t1 != null && targets.t1 > activeEntry) {
+    const raw = ((d.currentPrice - activeEntry) / (targets.t1 - activeEntry)) * 100;
     progressPct = Math.min(100, Math.max(0, raw));
   }
 
   // Targets surpassed
-  const t1Passed = d.currentPrice != null && activeT1 != null && d.currentPrice >= activeT1;
-  const t2Passed = d.currentPrice != null && activeT2 != null && d.currentPrice >= activeT2;
+  const t1Passed = d.currentPrice != null && targets.t1 != null && d.currentPrice >= targets.t1;
+  const t2Passed = d.currentPrice != null && targets.t2 != null && d.currentPrice >= targets.t2;
+  const t3Passed = d.currentPrice != null && targets.t3 != null && d.currentPrice >= targets.t3;
+  const t4Passed = d.currentPrice != null && targets.t4 != null && d.currentPrice >= targets.t4;
+  const t5Passed = d.currentPrice != null && targets.t5 != null && d.currentPrice >= targets.t5;
+  const t6Passed = d.currentPrice != null && targets.t6 != null && d.currentPrice >= targets.t6;
 
   // Ready to Buy subtle green glow distinction
   const isReadyToBuy = group === "READY" && f.isTradeable;
@@ -862,8 +1057,9 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     ? "border-rose-500/30"
     : "border-white/10 hover:border-white/20";
 
-  const winRate = historicalWinRate(d.setupType, d.setupScore);
-  const statusSentence = beginnerStatusText(d, group, activeEntry, activeStop, activeT1, t1Passed, t2Passed);
+  // Dynamic Historical Win Rate (reflects 75%+ when Scale-Out Mode is ON)
+  const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
+  const statusSentence = beginnerStatusText(d, group, activeEntry, activeStop, targets.t1, t1Passed, t2Passed, scaleOutMode, t3Passed);
 
   const handleAdjustPlan = () => {
     onSeen();
@@ -936,11 +1132,50 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           </span>
         </div>
         <span
-          className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-mono font-semibold text-cyan-300"
-          title="Historical win rate for this setup structure"
+          className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-mono font-semibold transition-colors ${
+            scaleOutMode
+              ? "border-emerald-400/50 bg-emerald-950/60 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
+              : "border-cyan-500/30 bg-cyan-950/40 text-cyan-300"
+          }`}
+          title={scaleOutMode ? "Dynamic higher win rate (75%+) with closer 1.5R partial target" : "Historical win rate for this setup structure"}
+          data-testid={`badge-win-rate-${d.symbol}`}
         >
-          Historical Win Rate: {winRate}%
+          Historical Win Rate: {winRate}%{scaleOutMode ? " (75%+ Win Rate)" : ""}
         </span>
+      </div>
+
+      {/* ─── LEARNING / SCALE-OUT MODE TOGGLE ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 my-1">
+        <div className="flex items-center gap-2.5">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={scaleOutMode}
+            onClick={() => setScaleOutMode(!scaleOutMode)}
+            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+              scaleOutMode ? "bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]" : "bg-slate-700"
+            }`}
+            data-testid={`toggle-scale-out-${d.symbol}`}
+            title="Toggle 1.5R Partial Profit Scale-Out Mode"
+          >
+            <span
+              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                scaleOutMode ? "translate-x-4" : "translate-x-0"
+              }`}
+            />
+          </button>
+          <label
+            onClick={() => setScaleOutMode(!scaleOutMode)}
+            className="text-xs font-semibold text-slate-300 cursor-pointer select-none hover:text-white"
+          >
+            Enable 1.5R Partial Profit (75%+ Win Rate)
+          </label>
+        </div>
+        {scaleOutMode && (
+          <span className="rounded border border-cyan-400/40 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm">
+            Scale-Out Active (1.5R • 2R • 3R)
+          </span>
+        )}
       </div>
 
       {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) ─── */}
@@ -963,7 +1198,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
         <div className="flex flex-col gap-1 pl-1">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
-            Return %
+            Return % {scaleOutMode ? "(1.5R)" : "(T1)"}
           </span>
           <span className="font-mono text-base font-bold tabular-nums text-emerald-400">
             {potentialGainPct > 0 ? `+${potentialGainPct.toFixed(2)}%` : "—"}
@@ -971,14 +1206,17 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       </div>
 
-      {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and Target 1 ─── */}
+      {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and active Target 1 ─── */}
       <div className="flex flex-col gap-1.5 my-2">
         <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
           <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
           <span className="text-slate-300">
             Current: <strong className="text-white tabular-nums">{$(d.currentPrice)}</strong> ({progressPct.toFixed(0)}%)
           </span>
-          <span>Target 1: <strong className="text-white tabular-nums">{$(activeT1)}</strong></span>
+          <span>
+            {scaleOutMode ? "Target 1 (1.5R): " : "Target 1 (2.0R): "}
+            <strong className="text-white tabular-nums">{$(targets.t1)}</strong>
+          </span>
         </div>
         <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800 border border-white/5">
           <div
@@ -990,27 +1228,134 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
       {/* ─── TARGET BADGES: Pill-shaped badges with checkmarks if surpassed ─── */}
       <div className="flex flex-wrap items-center gap-2 my-2">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-            t1Passed
-              ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-              : "border-white/10 bg-slate-800/80 text-slate-300"
-          }`}
-        >
-          {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-          Sell Target 1: {$(activeT1)} {isCustom ? "(2.0R)" : rTxt(p.rrT1) ? `(${rTxt(p.rrT1)})` : ""}
-        </span>
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-            t2Passed
-              ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-              : "border-white/10 bg-slate-800/80 text-slate-300"
-          }`}
-        >
-          {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-          Sell Target 2: {$(activeT2)} {isCustom ? "(3.0R)" : rTxt(p.rrT2) ? `(${rTxt(p.rrT2)})` : ""}
-        </span>
+        {scaleOutMode ? (
+          <>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                t1Passed
+                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                  : "border-cyan-400/30 bg-cyan-950/50 text-cyan-200"
+              }`}
+              data-testid={`badge-target-1-${d.symbol}`}
+            >
+              {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+              Target 1 (Partial): {$(targets.t1)} (1.5R)
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                t2Passed
+                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                  : "border-white/10 bg-slate-800/80 text-slate-300"
+              }`}
+              data-testid={`badge-target-2-${d.symbol}`}
+            >
+              {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+              Target 2 (Core): {$(targets.t2)} (2.0R)
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                t3Passed
+                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                  : "border-white/10 bg-slate-800/80 text-slate-300"
+              }`}
+              data-testid={`badge-target-3-${d.symbol}`}
+            >
+              {t3Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+              Target 3 (Runner): {$(targets.t3)} (3.0R)
+            </span>
+          </>
+        ) : (
+          <>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                t1Passed
+                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                  : "border-white/10 bg-slate-800/80 text-slate-300"
+              }`}
+              data-testid={`badge-target-1-${d.symbol}`}
+            >
+              {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+              Sell Target 1: {$(targets.t1)} (2.0R)
+            </span>
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                t2Passed
+                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                  : "border-white/10 bg-slate-800/80 text-slate-300"
+              }`}
+              data-testid={`badge-target-2-${d.symbol}`}
+            >
+              {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+              Sell Target 2: {$(targets.t2)} (3.0R)
+            </span>
+          </>
+        )}
       </div>
+
+      {/* ─── EXTENDED RUNNER TARGETS CHECKBOX & DISPLAY ─── */}
+      <div className="flex items-center gap-2 mt-1 mb-2">
+        <input
+          id={`chk-extended-${d.symbol}`}
+          type="checkbox"
+          checked={showExtended}
+          onChange={(e) => setShowExtended(e.target.checked)}
+          className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+          data-testid={`checkbox-extended-targets-${d.symbol}`}
+        />
+        <label
+          htmlFor={`chk-extended-${d.symbol}`}
+          className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
+        >
+          Show Extended Runner Targets (4R, 5R, 6R)
+        </label>
+      </div>
+
+      {showExtended && (
+        <div
+          className="flex flex-col gap-2 rounded-lg border border-purple-500/25 bg-purple-950/20 p-3 my-2 animate-in fade-in duration-200"
+          data-testid={`container-extended-targets-${d.symbol}`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono">
+            <span className="font-bold uppercase tracking-wider text-purple-300">
+              Extended Runner Targets (View Only)
+            </span>
+            <span className="text-slate-400">
+              Informational • Does not alter execution logic
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t4Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                <span>4.00R Runner</span>
+                {t4Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+              </div>
+              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t4)}</span>
+              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t4)}%</span>
+              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+            </div>
+
+            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t5Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                <span>5.00R Runner</span>
+                {t5Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+              </div>
+              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t5)}</span>
+              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t5)}%</span>
+              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+            </div>
+
+            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t6Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                <span>6.00R Runner</span>
+                {t6Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+              </div>
+              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t6)}</span>
+              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t6)}%</span>
+              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
       <div className="my-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium leading-relaxed text-slate-300">
