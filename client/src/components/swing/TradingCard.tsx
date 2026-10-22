@@ -949,6 +949,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
     <div className="flex flex-wrap items-center gap-3">
       {toggle && <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}>{open ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}</button>}
       <span className="text-2xl font-bold tracking-tight text-soft-white">{d.symbol}</span>
+      <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`cardheader-price-${d.symbol}`}>{$(d.currentPrice)}</span>
       <span className="text-sm font-medium text-slate-gray">{setupName(d.setupType)}{d.setupTimeframe && <span className="text-neon-blue"> · {d.setupTimeframe}</span>}</span>
       
       <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
@@ -966,7 +967,6 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
       <PendingChip d={d} />
 
       <div className="ml-auto flex flex-col items-end gap-1">
-        <span className="text-xl font-mono font-bold text-soft-white">{$(d.currentPrice)}</span>
         <span className="text-[10px] font-medium text-slate-gray">Data {d.dataStatus} · {fmtCT(d.quoteTimestamp)}</span>
       </div>
     </div>
@@ -1088,6 +1088,9 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
             {d.symbol}
+          </span>
+          <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`inline-header-price-${d.symbol}`}>
+            {$(d.currentPrice)}
           </span>
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
           {isCustom && (

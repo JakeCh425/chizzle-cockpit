@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { getTrafficLightStatus } from "@/components/swing/ActionCenter";
 import { historicalWinRate, beginnerStatusText, computeTargetLevels } from "@/components/swing/TradingCard";
+import { isWatchlistRowCollapsed } from "@/components/swing/SwingWorkspace";
 import type { SwingDecision } from "@shared/swingDecision";
 
 describe("ActionCenter Global Traffic Light Banner", () => {
@@ -169,5 +170,21 @@ describe("TradingCard Historical Edge & Beginner Status Text", () => {
     // Above T1: price 115 -> 100%
     const aboveProgress = Math.min(100, Math.max(0, ((115 - entry) / (t1 - entry)) * 100));
     expect(aboveProgress).toBe(100);
+  });
+});
+
+describe("Watchlist Auto-Collapse & Visual Hierarchy", () => {
+  it("collapses rows when status is SIGNAL_EXPIRED or NO_TRADE", () => {
+    expect(isWatchlistRowCollapsed("SIGNAL_EXPIRED")).toBe(true);
+    expect(isWatchlistRowCollapsed("NO_TRADE")).toBe(true);
+  });
+
+  it("keeps rows expanded when active trade setup exists", () => {
+    expect(isWatchlistRowCollapsed("READY_TO_TRADE")).toBe(false);
+    expect(isWatchlistRowCollapsed("SETUP_CONFIRMED")).toBe(false);
+    expect(isWatchlistRowCollapsed("SETUP_FORMING")).toBe(false);
+    expect(isWatchlistRowCollapsed("WATCH_EXTENDED")).toBe(false);
+    expect(isWatchlistRowCollapsed("WATCH_RETEST")).toBe(false);
+    expect(isWatchlistRowCollapsed(undefined)).toBe(false);
   });
 });

@@ -58,6 +58,9 @@ function DataPill({ s }: { s: string }) {
 }
 
 // ─── Watchlist (§Q1) ─────────────────────────────────────────────────────────
+export const isWatchlistRowCollapsed = (status: SwingDecision["setupStatus"] | undefined) =>
+  status === "SIGNAL_EXPIRED" || status === "NO_TRADE";
+
 function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus, statusBy }: {
   active: string; onFocus: (s: string) => void; selected: Set<string>; onToggleSelect: (s: string) => void;
   dataStatus: Record<string, string>; statusBy: Record<string, SwingDecision["setupStatus"]>;
@@ -125,44 +128,52 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
       </div>
       {wl.isLoading && <div className="text-xs text-slate-gray">Loading watchlist…</div>}
       <ul className="divide-y divide-ink-line border border-ink-line rounded" data-testid="list-watchlist">
-        {shown.map((x) => (
-          <li key={x.symbol}
-            onClick={(e) => { if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return; onFocus(x.symbol); }}
-            title={`Show ${x.symbol} on the chart`}
-            className={`px-2 py-1.5 cursor-pointer hover:bg-white/5 ${x.symbol === active ? "border-l-2 border-neon-blue " : ""}${x.symbol === active ? "bg-neon-blue/5" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
-            <div className="flex items-center gap-1.5">
-              <input type="checkbox" checked={selected.has(x.symbol)} onChange={() => onToggleSelect(x.symbol)} aria-label={`Select ${x.symbol} for scan`} data-testid={`checkbox-select-${x.symbol}`} />
-              <button className="font-mono text-xs font-bold text-soft-white hover:text-neon-blue" onClick={() => onFocus(x.symbol)} data-testid={`button-focus-${x.symbol}`} title="Focus chart">{x.symbol}</button>
-              <button className="text-[9.5px] px-1 rounded border border-ink-line text-slate-gray hover:text-soft-white" title="Toggle ETF / Stock"
-                onClick={() => patch.mutate({ s: x.symbol, p: { assetType: x.assetType === "ETF" ? "STOCK" : "ETF" } })} data-testid={`button-assettype-${x.symbol}`}>{x.assetType}</button>
-              {dataStatus[x.symbol] && <DataPill s={dataStatus[x.symbol]} />}
-              {statusBy[x.symbol] && <span className="hidden sm:inline"><StatusPill s={statusBy[x.symbol]} short /></span>}
-              <span className="ml-auto flex items-center">
-                <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { pinned: !x.pinned } })} aria-label={x.pinned ? "Unpin" : "Pin"} data-testid={`button-pin-${x.symbol}`}>{x.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}</button>
-                <button className={iconBtn} onClick={() => move(x, -1)} aria-label="Move up" data-testid={`button-up-${x.symbol}`}><ArrowUp className="h-3 w-3" /></button>
-                <button className={iconBtn} onClick={() => move(x, 1)} aria-label="Move down" data-testid={`button-down-${x.symbol}`}><ArrowDown className="h-3 w-3" /></button>
-                <button className={iconBtn} onClick={() => { setNoteFor(noteFor === x.symbol ? null : x.symbol); setNoteText(x.notes ?? ""); }} aria-label="Notes" data-testid={`button-notes-${x.symbol}`}><StickyNote className="h-3 w-3" /></button>
-                <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { hidden: !x.hidden } })} aria-label={x.hidden ? "Show" : "Hide"} data-testid={`button-hide-${x.symbol}`}>{x.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button>
-                {!x.isDefault && <>
-                  <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { archived: !x.categories.includes("ARCHIVED") } })} aria-label="Archive" data-testid={`button-archive-${x.symbol}`}><Archive className="h-3 w-3" /></button>
-                  <button className={iconBtn} onClick={() => { if (confirm(`Remove ${x.symbol} from the watchlist?`)) del.mutate(x.symbol); }} aria-label="Remove" data-testid={`button-remove-${x.symbol}`}><Trash2 className="h-3 w-3" /></button>
-                </>}
-              </span>
-            </div>
-            <div className="text-[10px] text-slate-gray mt-0.5 truncate" title={x.riskNote}>
-              {x.isDefault && <span className="text-neon-blue font-mono mr-1">{DEFAULT_UNIVERSE_LABEL}</span>}
-              {x.categories.filter((c) => c !== "DEFAULT_LEARNING").map((c) => CAT_LABEL[c]).join(" · ")}
-            </div>
-            <div className={`text-[10px] mt-0.5 ${x.assetType === "STOCK" ? "text-signal-amber" : "text-slate-gray"}`}>{x.riskNote}</div>
-            {x.notes && noteFor !== x.symbol && <div className="text-[10.5px] text-soft-white/80 mt-0.5">“{x.notes}”</div>}
-            {noteFor === x.symbol && (
-              <div className="flex gap-1 mt-1">
-                <input value={noteText} onChange={(e) => setNoteText(e.target.value)} className="flex-1 bg-ink-deep border border-ink-line rounded px-1.5 py-0.5 text-[11px] text-soft-white" data-testid={`input-note-${x.symbol}`} />
-                <button className={btn} onClick={() => { patch.mutate({ s: x.symbol, p: { notes: noteText } }); setNoteFor(null); }} data-testid={`button-save-note-${x.symbol}`}>Save</button>
+        {shown.map((x) => {
+          const status = statusBy[x.symbol];
+          const isExpired = isWatchlistRowCollapsed(status);
+          return (
+            <li key={x.symbol}
+              onClick={(e) => { if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return; onFocus(x.symbol); }}
+              title={`Show ${x.symbol} on the chart`}
+              className={`px-2 py-1.5 cursor-pointer hover:bg-white/5 ${x.symbol === active ? "border-l-2 border-neon-blue " : ""}${x.symbol === active ? "bg-neon-blue/5" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
+              <div className="flex items-center gap-1.5">
+                <input type="checkbox" checked={selected.has(x.symbol)} onChange={() => onToggleSelect(x.symbol)} aria-label={`Select ${x.symbol} for scan`} data-testid={`checkbox-select-${x.symbol}`} />
+                <button className="font-mono text-xs font-bold text-soft-white hover:text-neon-blue" onClick={() => onFocus(x.symbol)} data-testid={`button-focus-${x.symbol}`} title="Focus chart">{x.symbol}</button>
+                <button className="text-[9.5px] px-1 rounded border border-ink-line text-slate-gray hover:text-soft-white" title="Toggle ETF / Stock"
+                  onClick={() => patch.mutate({ s: x.symbol, p: { assetType: x.assetType === "ETF" ? "STOCK" : "ETF" } })} data-testid={`button-assettype-${x.symbol}`}>{x.assetType}</button>
+                {dataStatus[x.symbol] && <DataPill s={dataStatus[x.symbol]} />}
+                {status && <span className={isExpired ? "inline" : "hidden sm:inline"}><StatusPill s={status} short /></span>}
+                <span className="ml-auto flex items-center">
+                  <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { pinned: !x.pinned } })} aria-label={x.pinned ? "Unpin" : "Pin"} data-testid={`button-pin-${x.symbol}`}>{x.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}</button>
+                  <button className={iconBtn} onClick={() => move(x, -1)} aria-label="Move up" data-testid={`button-up-${x.symbol}`}><ArrowUp className="h-3 w-3" /></button>
+                  <button className={iconBtn} onClick={() => move(x, 1)} aria-label="Move down" data-testid={`button-down-${x.symbol}`}><ArrowDown className="h-3 w-3" /></button>
+                  <button className={iconBtn} onClick={() => { setNoteFor(noteFor === x.symbol ? null : x.symbol); setNoteText(x.notes ?? ""); }} aria-label="Notes" data-testid={`button-notes-${x.symbol}`}><StickyNote className="h-3 w-3" /></button>
+                  <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { hidden: !x.hidden } })} aria-label={x.hidden ? "Show" : "Hide"} data-testid={`button-hide-${x.symbol}`}>{x.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button>
+                  {!x.isDefault && <>
+                    <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { archived: !x.categories.includes("ARCHIVED") } })} aria-label="Archive" data-testid={`button-archive-${x.symbol}`}><Archive className="h-3 w-3" /></button>
+                    <button className={iconBtn} onClick={() => { if (confirm(`Remove ${x.symbol} from the watchlist?`)) del.mutate(x.symbol); }} aria-label="Remove" data-testid={`button-remove-${x.symbol}`}><Trash2 className="h-3 w-3" /></button>
+                  </>}
+                </span>
               </div>
-            )}
-          </li>
-        ))}
+              {!isExpired && (
+                <>
+                  <div className="text-[10px] text-slate-gray mt-0.5 truncate" title={x.riskNote}>
+                    {x.isDefault && <span className="text-neon-blue font-mono mr-1">{DEFAULT_UNIVERSE_LABEL}</span>}
+                    {x.categories.filter((c) => c !== "DEFAULT_LEARNING").map((c) => CAT_LABEL[c]).join(" · ")}
+                  </div>
+                  <div className={`text-[10px] mt-0.5 ${x.assetType === "STOCK" ? "text-signal-amber" : "text-slate-gray"}`}>{x.riskNote}</div>
+                  {x.notes && noteFor !== x.symbol && <div className="text-[10.5px] text-soft-white/80 mt-0.5">“{x.notes}”</div>}
+                </>
+              )}
+              {noteFor === x.symbol && (
+                <div className="flex gap-1 mt-1">
+                  <input value={noteText} onChange={(e) => setNoteText(e.target.value)} className="flex-1 bg-ink-deep border border-ink-line rounded px-1.5 py-0.5 text-[11px] text-soft-white" data-testid={`input-note-${x.symbol}`} />
+                  <button className={btn} onClick={() => { patch.mutate({ s: x.symbol, p: { notes: noteText } }); setNoteFor(null); }} data-testid={`button-save-note-${x.symbol}`}>Save</button>
+                </div>
+              )}
+            </li>
+          );
+        })}
         {!wl.isLoading && !shown.length && <li className="px-2 py-2 text-[11px] text-slate-gray">No tickers in this category.</li>}
       </ul>
     </div>
