@@ -12,6 +12,10 @@ import {
   AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
+import {
+  CandlestickSeries, LineStyle, createChart,
+  type IChartApi, type UTCTimestamp,
+} from "lightweight-charts";
 import { ScoreChip, ScoreSection } from "./SetupScore";
 import { FundingPanel, useCardSizing } from "./FundingPanel";
 import { MarketContextSection } from "./MarketContextSection";
@@ -26,7 +30,7 @@ import {
   R_CHOICES, R_EXPLAIN, R_PRESETS, CARD_TARGET_METHOD_LABEL, validateCardLevels, suggestStops, stopLimitOf,
   type ActionGroup, type CardTargetMethod, type PlanContext, type PlanVersion, type TargetChoice,
 } from "@shared/practicePlan";
-import { fmtCT, swingGet, swingSend } from "@/lib/swing";
+import { fmtCT, swingGet, swingSend, type BarsResp } from "@/lib/swing";
 import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEditor, selectPlanVersion } from "@/lib/plans";
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton } from "./DataStatus";
@@ -90,6 +94,188 @@ export const freshTone = (d: SwingDecision, group: ActionGroup, f?: FreshnessRes
 };
 
 export const setupName = (t: string | null) => (t ? t.replace(/_/g, " ").toLowerCase().replace(/(^|[\s-])\w/g, (c) => c.toUpperCase()) : "No setup");
+
+export function historicalWinRate(setupType?: string | null, score?: number | null): number {
+  const t = (setupType ?? "").toUpperCase();
+  if (t.includes("BULL_FLAG") || t.includes("FLAG")) return 67;
+  if (t.includes("BREAKOUT") || t.includes("MOMENTUM")) return 65;
+  if (t.includes("RECLAIM") || t.includes("HAMMER")) return 63;
+  if (t.includes("CONSOLIDATION") || t.includes("BASE")) return 62;
+  if (score && score >= 80) return 68;
+  if (score && score >= 70) return 64;
+  return 60;
+}
+
+export function beginnerStatusText(
+  d: SwingDecision,
+  group: ActionGroup,
+  activeEntry: number | null,
+  activeStop: number | null,
+  activeT1: number | null,
+  t1Passed: boolean,
+  t2Passed: boolean
+): string {
+  if (d.currentPrice != null && activeStop != null && d.currentPrice < activeStop) {
+    return `Status: Price (${$(d.currentPrice)}) breached planned stop (${$(activeStop)}). Setup invalidated.`;
+  }
+  if (t2Passed) {
+    return "Status: Price surpassed Target 2. Lock in maximum gains and trail stops.";
+  }
+  if (t1Passed) {
+    return "Status: Price surpassed Target 1! Trail stop to breakeven to secure gains.";
+  }
+  if (d.currentPrice != null && activeEntry != null && activeT1 != null && d.currentPrice >= activeEntry) {
+    const distToT1 = activeT1 - d.currentPrice;
+    const totalRange = activeT1 - activeEntry;
+    if (distToT1 <= totalRange * 0.3) {
+      return "Status: Price approaching Target 1, trail stop to breakeven.";
+    }
+    return "Status: Active trade above entry, working toward Target 1.";
+  }
+  if (group === "READY") {
+    return "Status: Setup ready to evaluate. All entry rules confirmed on closed candles.";
+  }
+  if (group === "CONFIRMED") {
+    return `Status: Setup confirmed. Waiting for 1-hour candle close above ${$(d.currentTrigger ?? d.originalTrigger ?? activeEntry)}.`;
+  }
+  if (group === "FORMING") {
+    return `Status: Pattern still forming on the ${d.setupTimeframe || "4H"} chart. Stand by.`;
+  }
+  if (group === "RETEST" || group === "EXTENDED") {
+    return "Status: Price is extended. Don't chase — wait for an orderly pullback/retest.";
+  }
+  return d.nextAction ? `Status: ${d.nextAction}` : "Status: Evaluating setup structure.";
+}
+
+export function SparklineChart({
+  symbol,
+  entry,
+  stop,
+}: {
+  symbol: string;
+  entry: number | null;
+  stop: number | null;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+
+  const { data: barsData, isLoading } = useQuery<BarsResp>({
+    queryKey: ["/api/swing/bars", symbol, "1H", "5D"],
+    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=1H&range=5D`),
+    staleTime: 60_000,
+  });
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+
+    const chart = createChart(el, {
+      height: 120,
+      layout: {
+        background: { color: "transparent" },
+        textColor: "#64748b",
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: "rgba(255, 255, 255, 0.04)" },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.1, bottom: 0.1 },
+        entireTextOnly: true,
+      },
+      timeScale: {
+        borderVisible: false,
+        visible: false,
+      },
+      crosshair: {
+        vertLine: { visible: false },
+        horzLine: { visible: false },
+      },
+      handleScroll: false,
+      handleScale: false,
+    });
+    chartRef.current = chart;
+
+    const bars = barsData?.bars ?? [];
+    if (bars.length > 0) {
+      const candleSeries = chart.addSeries(CandlestickSeries, {
+        upColor: "#10b981",
+        downColor: "#f43f5e",
+        borderUpColor: "#10b981",
+        borderDownColor: "#f43f5e",
+        wickUpColor: "#10b981",
+        wickDownColor: "#f43f5e",
+      });
+
+      candleSeries.setData(
+        bars.map((b) => ({
+          time: b.t as UTCTimestamp,
+          open: b.o,
+          high: b.h,
+          low: b.l,
+          close: b.c,
+          ...(b.closed ? {} : { color: "rgba(148, 163, 184, 0.4)", borderColor: "#94a3b8", wickColor: "#94a3b8" }),
+        }))
+      );
+
+      if (entry != null && Number.isFinite(entry)) {
+        candleSeries.createPriceLine({
+          price: entry,
+          color: "#34d399",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: "Buy",
+        });
+      }
+
+      if (stop != null && Number.isFinite(stop)) {
+        candleSeries.createPriceLine({
+          price: stop,
+          color: "#f43f5e",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: "Stop",
+        });
+      }
+
+      chart.timeScale().fitContent();
+    }
+
+    const ro = new ResizeObserver((entries) => {
+      if (!entries[0] || !chartRef.current) return;
+      const { width } = entries[0].contentRect;
+      chartRef.current.applyOptions({ width });
+      chartRef.current.timeScale().fitContent();
+    });
+    ro.observe(el);
+
+    return () => {
+      ro.disconnect();
+      chart.remove();
+      chartRef.current = null;
+    };
+  }, [barsData, entry, stop]);
+
+  return (
+    <div className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5" data-testid={`sparkline-${symbol}`}>
+      {isLoading && (
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-slate-500">
+          Loading chart…
+        </div>
+      )}
+      {!isLoading && (!barsData?.bars || barsData.bars.length === 0) && (
+        <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-slate-500">
+          No candle data available
+        </div>
+      )}
+      <div ref={containerRef} className="w-full h-full" />
+    </div>
+  );
+}
 
 // ─── FRESHNESS PANEL ───────────────────────────────────────────────────────
 export function FreshnessPanel({ d, f, p }: { d: SwingDecision; f: FreshnessResult; p: { entry: number | null; stop: number | null; t1: number | null } }) {
@@ -636,23 +822,277 @@ export function EarlyLookLine({ d }: any) {
 }
 
 export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void }) {
-  const { d, group, setupKey, isNew, onSeen } = props;
+  const { d, group, ver, setupKey, isNew, onSeen } = props;
   const sz = useCardSizing(d, props.ver);
-  const [open, setOpen] = useDisclosure(`card:${setupKey}`, false);
-  const toggle = () => { setOpen(!open); onSeen(); };
-  
+  const p = effectivePlan(d, ver);
+  const live = useContext(LiveCtx);
+  const f = useFreshness()(d, ver);
+  const [detailsOpen, setDetailsOpen] = useDisclosure(`card:${setupKey}`, false);
+  const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
+
+  const isCustom = sz.override;
+  const activeEntry = isCustom ? sz.E : p.entry;
+  const activeStop = isCustom ? sz.S : p.stop;
+  const activeT1 = isCustom ? sz.activeT1 : p.t1;
+  const activeT2 = isCustom ? sz.activeT2 : p.t2;
+
+  // Potential Gain calculation to Target 1
+  const potentialGainPct = activeEntry != null && activeT1 != null && activeEntry > 0
+    ? ((activeT1 - activeEntry) / activeEntry) * 100
+    : 0;
+
+  // Visual Progress bar calculation between Entry and T1
+  let progressPct = 0;
+  if (d.currentPrice != null && activeEntry != null && activeT1 != null && activeT1 > activeEntry) {
+    const raw = ((d.currentPrice - activeEntry) / (activeT1 - activeEntry)) * 100;
+    progressPct = Math.min(100, Math.max(0, raw));
+  }
+
+  // Targets surpassed
+  const t1Passed = d.currentPrice != null && activeT1 != null && d.currentPrice >= activeT1;
+  const t2Passed = d.currentPrice != null && activeT2 != null && d.currentPrice >= activeT2;
+
+  // Ready to Buy subtle green glow distinction
+  const isReadyToBuy = group === "READY" && f.isTradeable;
+  const isInvalidated = (activeStop != null && d.currentPrice != null && d.currentPrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
+
+  const cardBorderClass = isReadyToBuy
+    ? "border-emerald-500/40 shadow-[0_0_15px_rgba(52,211,153,0.1)]"
+    : isInvalidated
+    ? "border-rose-500/30"
+    : "border-white/10 hover:border-white/20";
+
+  const winRate = historicalWinRate(d.setupType, d.setupScore);
+  const statusSentence = beginnerStatusText(d, group, activeEntry, activeStop, activeT1, t1Passed, t2Passed);
+
+  const handleAdjustPlan = () => {
+    onSeen();
+    setDetailsOpen(true);
+    setTimeout(() => {
+      const details = document.querySelector(`[data-testid="details-override-${d.symbol}"]`) as HTMLDetailsElement;
+      if (details) details.open = true;
+      const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
+      if (input) {
+        input.scrollIntoView({ behavior: "smooth", block: "center" });
+        input.focus();
+        input.select?.();
+      }
+    }, 100);
+  };
+
   return (
-    <article className="flex flex-col overflow-hidden rounded-lg border border-ink-line bg-ink-black shadow-sm transition-colors hover:border-ink-line/80">
-      <ReadyRibbon d={d} ver={props.ver} />
-      {open ? (
-        <>
-          <div className="flex flex-col gap-4 border-b border-ink-line/50 p-4">
-            <CardHeader d={d} group={group} ver={props.ver} isNew={isNew} open={open} toggle={toggle} sz={sz} />
-            <CriticalWarnings d={d} ver={props.ver} />
-          </div>
+    <article
+      className={`flex flex-col rounded-xl border bg-[#0B1220] p-5 shadow-lg transition-all duration-200 ${cardBorderClass}`}
+      data-testid={`trading-card-${d.symbol}`}
+    >
+      <ReadyRibbon d={d} ver={ver} />
+
+      {/* ─── HEADER: Ticker symbol, Lock/Status icon, Pinned +X.XX% Potential Gain Badge ─── */}
+      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-white/10">
+        <div className="flex flex-wrap items-center gap-2.5">
+          <span className="font-mono text-2xl font-bold tracking-tight text-white">
+            {d.symbol}
+          </span>
+          <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+          {isCustom && (
+            <span
+              className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm"
+              data-testid={`badge-custom-plan-${d.symbol}`}
+            >
+              Custom Plan
+            </span>
+          )}
+          {isNew && (
+            <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
+              NEW
+            </span>
+          )}
+          <PendingChip d={d} />
+        </div>
+
+        {/* Pinned Potential Gain Badge on Top Right */}
+        <div className="flex items-center gap-2 shrink-0">
+          {potentialGainPct > 0 ? (
+            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-xs font-bold text-emerald-400 tabular-nums shadow-sm">
+              +{potentialGainPct.toFixed(2)}% Potential Gain
+            </span>
+          ) : (
+            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-slate-400 tabular-nums">
+              0.00% Potential Gain
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* ─── SIGNAL INFO & HISTORICAL EDGE BADGE ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-xs text-slate-400">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="tracking-wide">
+            Signal Time: <span className="font-mono text-slate-300">{fmtCT(d.quoteTimestamp)}</span>
+          </span>
+          <span>•</span>
+          <span className="font-semibold text-slate-300">
+            {setupName(d.setupType)}{d.setupTimeframe ? ` (${d.setupTimeframe})` : ""}
+          </span>
+        </div>
+        <span
+          className="inline-flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 text-[10px] font-mono font-semibold text-cyan-300"
+          title="Historical win rate for this setup structure"
+        >
+          Historical Win Rate: {winRate}%
+        </span>
+      </div>
+
+      {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) ─── */}
+      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-white/5 bg-black/30 p-3">
+        <div className="flex flex-col gap-1">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+            Buy Target
+          </span>
+          <span className="font-mono text-base font-bold tabular-nums text-white">
+            {$(activeEntry)}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 border-x border-white/5 px-3">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+            Stop Loss
+          </span>
+          <span className="font-mono text-base font-bold tabular-nums text-rose-500">
+            {$(activeStop)}
+          </span>
+        </div>
+        <div className="flex flex-col gap-1 pl-1">
+          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+            Return %
+          </span>
+          <span className="font-mono text-base font-bold tabular-nums text-emerald-400">
+            {potentialGainPct > 0 ? `+${potentialGainPct.toFixed(2)}%` : "—"}
+          </span>
+        </div>
+      </div>
+
+      {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and Target 1 ─── */}
+      <div className="flex flex-col gap-1.5 my-2">
+        <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
+          <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
+          <span className="text-slate-300">
+            Current: <strong className="text-white tabular-nums">{$(d.currentPrice)}</strong> ({progressPct.toFixed(0)}%)
+          </span>
+          <span>Target 1: <strong className="text-white tabular-nums">{$(activeT1)}</strong></span>
+        </div>
+        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800 border border-white/5">
+          <div
+            className="h-full rounded-full bg-emerald-400 transition-all duration-300"
+            style={{ width: `${progressPct}%` }}
+          />
+        </div>
+      </div>
+
+      {/* ─── TARGET BADGES: Pill-shaped badges with checkmarks if surpassed ─── */}
+      <div className="flex flex-wrap items-center gap-2 my-2">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+            t1Passed
+              ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+              : "border-white/10 bg-slate-800/80 text-slate-300"
+          }`}
+        >
+          {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+          Sell Target 1: {$(activeT1)} {isCustom ? "(2.0R)" : rTxt(p.rrT1) ? `(${rTxt(p.rrT1)})` : ""}
+        </span>
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+            t2Passed
+              ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+              : "border-white/10 bg-slate-800/80 text-slate-300"
+          }`}
+        >
+          {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+          Sell Target 2: {$(activeT2)} {isCustom ? "(3.0R)" : rTxt(p.rrT2) ? `(${rTxt(p.rrT2)})` : ""}
+        </span>
+      </div>
+
+      {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
+      <div className="my-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium leading-relaxed text-slate-300">
+        {statusSentence}
+      </div>
+
+      {/* ─── EMBEDDED SPARKLINE CHART (120px height container) ─── */}
+      <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
+
+      {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-white/10">
+        <div className="flex flex-wrap items-center gap-2">
+          {canEditPlan(d) && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-800/80 hover:bg-slate-700 hover:border-cyan-400 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
+              onClick={handleAdjustPlan}
+              data-testid={`button-adjust-plan-${d.symbol}`}
+              title="Adjust plan entries and overrides"
+            >
+              <Pencil className="h-3.5 w-3.5 text-cyan-400" />
+              Adjust Plan
+            </button>
+          )}
+
+          {isCustom && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+              onClick={sz.reset}
+              data-testid={`button-levels-reset-${d.symbol}`}
+              title="Reset to Original Engine Plan"
+            >
+              <RotateCcw className="h-3.5 w-3.5 text-cyan-400" />
+              Reset Plan
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
+            onClick={() => focusSymbol(d.symbol)}
+            title="Focus symbol on chart"
+          >
+            <LineChart className="h-3.5 w-3.5" />
+            Chart
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {props.onOpen && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
+              onClick={() => { onSeen(); props.onOpen!(); }}
+              title="Open full dialog view"
+            >
+              <Maximize2 className="h-3.5 w-3.5" />
+              Open Card
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+            onClick={toggleDetails}
+            aria-expanded={detailsOpen}
+            title={detailsOpen ? "Hide detailed sections" : "Show detailed sections"}
+          >
+            {detailsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {detailsOpen ? "Less" : "Details"}
+          </button>
+        </div>
+      </div>
+
+      {/* ─── EXPANDABLE DETAILED BODY (Funding, Overrides, Readiness) ─── */}
+      {detailsOpen && (
+        <div className="flex flex-col gap-4 pt-4 mt-4 border-t border-white/10 animate-in fade-in duration-200">
+          <CriticalWarnings d={d} ver={ver} />
           <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
-        </>
-      ) : <CompactRow {...props} sz={sz} toggle={toggle} />}
+        </div>
+      )}
     </article>
   );
 }

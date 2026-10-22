@@ -25,6 +25,94 @@ import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TO
 
 const DEFAULT_TITLE = "Action Center";
 
+export function getTrafficLightStatus(regimeCode: string, readyCount: number, extendedCount: number) {
+  const normRegime = (regimeCode || "yellow").toLowerCase();
+  if (normRegime === "red") {
+    return {
+      status: "RED",
+      headline: "DO NOT ENTER",
+      detail: "Regime is red or setups are extended. Stand down.",
+      icon: "🔴",
+      textColor: "text-rose-400",
+      borderColor: "border-rose-500/30",
+      bgColor: "bg-rose-950/40",
+      badgeClass: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+    };
+  }
+  if (readyCount > 0) {
+    return {
+      status: "GREEN",
+      headline: "ACTION REQUIRED",
+      detail: `${readyCount} fresh setup${readyCount === 1 ? " is" : "s are"} ready to evaluate.`,
+      icon: "🟢",
+      textColor: "text-emerald-400",
+      borderColor: "border-emerald-500/30",
+      bgColor: "bg-emerald-950/40",
+      badgeClass: "bg-emerald-500/20 text-emerald-300 border-emerald-500/40",
+    };
+  }
+  if (extendedCount > 0 && normRegime !== "green") {
+    return {
+      status: "RED",
+      headline: "DO NOT ENTER",
+      detail: "Regime is red or setups are extended. Stand down.",
+      icon: "🔴",
+      textColor: "text-rose-400",
+      borderColor: "border-rose-500/30",
+      bgColor: "bg-rose-950/40",
+      badgeClass: "bg-rose-500/20 text-rose-300 border-rose-500/40",
+    };
+  }
+  return {
+    status: "YELLOW",
+    headline: "MANAGE / HOLD",
+    detail: "No fresh setups; manage existing trades.",
+    icon: "🟡",
+    textColor: "text-amber-400",
+    borderColor: "border-amber-500/30",
+    bgColor: "bg-amber-950/40",
+    badgeClass: "bg-amber-500/20 text-amber-300 border-amber-500/40",
+  };
+}
+
+export function GlobalTrafficLightBanner({
+  regimeCode = "yellow",
+  readyCount = 0,
+  extendedCount = 0,
+}: {
+  regimeCode?: string;
+  readyCount?: number;
+  extendedCount?: number;
+}) {
+  const light = getTrafficLightStatus(regimeCode, readyCount, extendedCount);
+  return (
+    <div
+      className={`sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border ${light.borderColor} ${light.bgColor} px-4 py-3 backdrop-blur-md shadow-lg transition-colors`}
+      data-testid="traffic-light-banner"
+    >
+      <div className="flex items-center gap-3">
+        <span className="text-base select-none" aria-hidden>{light.icon}</span>
+        <div className="flex flex-wrap items-baseline gap-2">
+          <span className={`font-mono text-xs font-black uppercase tracking-wider ${light.textColor}`}>
+            {light.headline}:
+          </span>
+          <span className="text-xs font-medium text-slate-200">
+            {light.detail}
+          </span>
+        </div>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="rounded-md border border-white/10 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300">
+          Market Regime: <strong className={light.textColor}>{regimeCode.toUpperCase()}</strong>
+        </span>
+        <span className="rounded-md border border-white/10 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300">
+          Ready: <strong className="text-emerald-400 font-bold">{readyCount}</strong>
+        </span>
+      </div>
+    </div>
+  );
+}
+
 function EditableTitle({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
@@ -61,6 +149,13 @@ function ActionCenterInner() {
   const lockedSyms = new Set(openTrades.map((t) => t.symbol));
   const { data: prices } = useQuery<Record<string, { price: number }>>({ queryKey: ["/api/prices"], refetchInterval: 30_000, enabled: openTrades.length > 0 });
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
+  const { data: regimePayload } = useQuery<{
+    effective?: { code: "green" | "yellow" | "red"; source?: string };
+  }>({
+    queryKey: ["/api/regime"],
+    staleTime: 60_000,
+  });
+  const regimeCode = regimePayload?.effective?.code?.toLowerCase() ?? (settings.data?.regime?.toLowerCase() as "green" | "yellow" | "red" | undefined) ?? "yellow";
   const [prefs, setPrefs] = useAcPrefs();
   const all = useDisclosureAll();
   const [alertsOpen, setAlertsOpen] = useDisclosure("alerts", true);
@@ -178,6 +273,11 @@ function ActionCenterInner() {
       {/* ─── BODY ───────────────────────────────────────────────────────────── */}
       {boxOpen && (
         <div id="ac-body" className="flex flex-col gap-4">
+          <GlobalTrafficLightBanner
+            regimeCode={regimeCode}
+            readyCount={readyCount}
+            extendedCount={counts.EXTENDED ?? 0}
+          />
           <PlanRefreshBar settings={settings.data} />
           
           {appOpen && <div id="ac-appearance" data-testid="sec-appearance" data-open="true"><AppearanceControls prefs={prefs} set={setPrefs} /></div>}
@@ -210,7 +310,7 @@ function ActionCenterInner() {
 
           <PriorityBoard rows={rows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
           
-          <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" data-testid="ac-cards-grid">
             {loud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
