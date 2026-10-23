@@ -1,3 +1,4 @@
+import { useWakeRefresh, WakeSyncLoader } from "@/lib/wakeRefresh";
 import { Switch, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
 import { queryClient } from "./lib/queryClient";
@@ -45,11 +46,17 @@ function AppRouter() {
   );
 }
 
+function WakeSyncRoot() {
+  useWakeRefresh();
+  return <WakeSyncLoader />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <Toaster />
+        <WakeSyncRoot />
         <Router hook={useHashLocation}>
           <AppRouter />
         </Router>

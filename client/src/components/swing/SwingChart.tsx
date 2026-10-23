@@ -142,6 +142,17 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const ov: Record<Overlay, boolean> = useMemo(() => ({ ...OV_DEFAULT, ...ovSaved }), [JSON.stringify(ovSaved)]);
   const [smaColors, setSmaColors] = usePersistentState<Record<SmaKey, string>>("swing-chart-sma-colors", DEFAULT_SMA_COLORS);
   const [smaWidths, setSmaWidths] = usePersistentState<Record<SmaKey, number>>("swing-chart-sma-widths", DEFAULT_SMA_WIDTHS);
+
+  // Auto-hide S/R lines when viewing 1H or 4H charts and SMAs (20 or 50) are active
+  const is1Hor4H = tf === "1H" || tf === "4H";
+  const hasSmaActive = Boolean(ov.sma20 || ov.sma50);
+  const srEffective = ov.sr && !(is1Hor4H && hasSmaActive);
+
+  useEffect(() => {
+    if ((tf === "1H" || tf === "4H") && (ov.sma20 || ov.sma50) && ov.sr) {
+      setOv((prev) => ({ ...prev, sr: false }));
+    }
+  }, [tf, ov.sma20, ov.sma50]);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement | null>(null);
   const smaSeriesMapRef = useRef<Map<SmaKey, ISeriesApi<any>>>(new Map());
@@ -298,7 +309,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const srClear = ind.sr.style !== "minimal";
   const srAtr = ctxQ.data && ctxQ.data.symbol === symbol && ctxQ.data.tf === tf ? ctxQ.data.indicators.atr : null;
   const srLines = useMemo(() => {
-    if (!ind.sr.on || !srCtx) return [];
+    if (!ind.sr.on || !srEffective || !srCtx) return [];
     const n = Math.min(3, Math.max(1, ind.sr.count || 3));
     // Clean-up rule: same-side levels within ½ ATR merge into one zone (strongest level represents it).
     const ref = srCtx.above[0]?.price ?? srCtx.below[0]?.price ?? 0;
@@ -315,7 +326,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       ...ab.map((l) => ({ price: l.price, low: l.low, high: l.high, members: l.members, color: "#f87171", text: srLabel("R", l, SR_DOTS[srGrade(l.strength)], l.price === nA), src: l.source, side: "R" as const, strength: l.strength, grade: srGrade(l.strength), nearest: l.price === nA, touches: l.touches, why: srWhy(l) })),
       ...be.map((l) => ({ price: l.price, low: l.low, high: l.high, members: l.members, color: "#4ade80", text: srLabel("S", l, SR_DOTS[srGrade(l.strength)], l.price === nB), src: l.source, side: "S" as const, strength: l.strength, grade: srGrade(l.strength), nearest: l.price === nB, touches: l.touches, why: srWhy(l) })),
     ];
-  }, [JSON.stringify(srCtx), ind.sr.on, ind.sr.count, srClear, srAtr]);
+  }, [JSON.stringify(srCtx), ind.sr.on, ind.sr.count, srClear, srAtr, srEffective]);
   const panes = (ind.macd.on ? 1 : 0) + (ind.rsi.on ? 1 : 0);
   const paneH = paneMin ? PANE_MIN_H : PANE_H;
   const chartH = 380 + panes * paneH;
@@ -514,7 +525,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       const line = main.createPriceLine({ price: u.price, color: u.color, lineWidth: 1, lineStyle: LineStyle.LargeDashed, lineVisible: vis, axisLabelVisible: false, title: "" });
       planLinesRef.current.push({ line, title: "", axis: false });
     }
-    if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : ov.sr))) {
+    if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : srEffective))) {
       const retest = z.kind === "RETEST";
       const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : fv0.full, title: "" });
       const lo = main.createPriceLine({ price: z.low, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : fv0.full, title: "" });
@@ -813,8 +824,33 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         {(Object.keys(OVERLAY_LABEL) as Overlay[]).map((k) => {
           const isSma = k === "sma20" || k === "sma50" || k === "sma200";
           const smaColor = isSma ? (smaColors[k as SmaKey] || DEFAULT_SMA_COLORS[k as SmaKey]) : undefined;
+          const isSr = k === "sr";
+          const active = isSr ? srEffective : ov[k];
           return (
-            <button key={k} className={`${btn(ov[k])} inline-flex items-center gap-1`} onClick={() => setOv({ ...ov, [k]: !ov[k] })} aria-pressed={ov[k]} data-testid={`toggle-overlay-${k}`}>
+            <button
+              key={k}
+              className={`${btn(active)} inline-flex items-center gap-1`}
+              onClick={() => {
+                if ((k === "sma20" || k === "sma50") && !ov[k] && (tf === "1H" || tf === "4H")) {
+                  // Programmatically toggle S/R zones button OFF when SMAs are turned ON on 1H or 4H
+                  setOv({ ...ov, [k]: true, sr: false });
+                  return;
+                }
+                if (k === "sr") {
+                  if (!srEffective && is1Hor4H && hasSmaActive) {
+                    // If user manually turns S/R back ON while on 1H/4H with SMAs active,
+                    // turn SMAs OFF to keep the chart clean and focused
+                    setOv({ ...ov, sr: true, sma20: false, sma50: false });
+                    return;
+                  }
+                  setOv({ ...ov, sr: !ov.sr });
+                  return;
+                }
+                setOv({ ...ov, [k]: !ov[k] });
+              }}
+              aria-pressed={active}
+              data-testid={`toggle-overlay-${k}`}
+            >
               {isSma && <span className="inline-block w-2.5 h-0.5 rounded-full transition-colors" style={{ background: smaColor }} />}
               {OVERLAY_LABEL[k]}
             </button>

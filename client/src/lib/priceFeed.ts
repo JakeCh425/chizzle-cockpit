@@ -162,7 +162,7 @@ function stopFallbackPolling() {
 
 function connectWS() {
   if (typeof window === "undefined" || typeof WebSocket === "undefined") {
-    connectWS();
+    connectSSE();
     return;
   }
   try {
@@ -223,6 +223,35 @@ function connectWS() {
   } catch {
     connectSSE();
   }
+}
+
+
+/**
+ * Hard reconnect function for wake-from-sleep or connection resets.
+ * Closes dead WebSocket and SSE handles, resets timers, and instantly reconnects.
+ */
+export function reconnectPriceFeed() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
+  if (ws) {
+    try {
+      ws.onclose = null;
+      ws.onerror = null;
+      ws.close();
+    } catch {}
+    ws = null;
+  }
+  if (es) {
+    try {
+      es.close();
+    } catch {}
+    es = null;
+  }
+  setConn("CONNECTING");
+  connectWS();
+  fallbackPollOnce();
 }
 
 function connectSSE() {
