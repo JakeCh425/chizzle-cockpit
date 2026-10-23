@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import {
   CandlestickSeries, LineSeries, LineStyle, createChart,
-  type IChartApi, type UTCTimestamp,
+  CrosshairMode, type IChartApi, type IPriceLine, type MouseEventParams, type UTCTimestamp,
 } from "lightweight-charts";
 import { ScoreChip, ScoreSection } from "./SetupScore";
 import { FundingPanel, useCardSizing } from "./FundingPanel";
@@ -291,6 +291,12 @@ export function SparklineChart({
   const chartRef = useRef<IChartApi | null>(null);
   const [smaColors] = usePersistentState<Record<string, string>>("swing-chart-sma-colors", DEFAULT_SPARK_SMA_COLORS);
   const [smaWidths] = usePersistentState<Record<string, number>>("swing-chart-sma-widths", { sma20: 1, sma50: 1, sma200: 1 });
+  const [tooltip, setTooltip] = useState<{
+    time: string;
+    price: number;
+    x: number;
+    y: number;
+  } | null>(null);
 
   const sma20Color = smaColors?.sma20 || DEFAULT_SPARK_SMA_COLORS.sma20;
   const sma50Color = smaColors?.sma50 || DEFAULT_SPARK_SMA_COLORS.sma50;
@@ -328,13 +334,34 @@ export function SparklineChart({
         visible: false,
       },
       crosshair: {
-        vertLine: { visible: false },
-        horzLine: { visible: false },
+        mode: CrosshairMode.Normal,
+        vertLine: {
+          visible: true,
+          color: "rgba(148, 163, 184, 0.35)",
+          width: 1,
+          style: LineStyle.Dashed,
+          labelVisible: false,
+        },
+        horzLine: {
+          visible: true,
+          color: "rgba(148, 163, 184, 0.35)",
+          width: 1,
+          style: LineStyle.Dashed,
+          labelVisible: true,
+        },
       },
-      handleScroll: false,
-      handleScale: false,
+      handleScroll: {
+        mouseWheel: true,
+        pressedMouseMove: true,
+      },
+      handleScale: {
+        mouseWheel: true,
+        pinch: true,
+      },
     });
     chartRef.current = chart;
+
+    let cleanupEvents = () => {};
 
     const bars = barsData?.bars ?? [];
     if (bars.length > 0) {
@@ -394,27 +421,104 @@ export function SparklineChart({
         sma50Series.setData(sma50Data);
       }
 
+      let buyLine: IPriceLine | null = null;
+      let stopLine: IPriceLine | null = null;
+
       if (entry != null && Number.isFinite(entry)) {
-        candleSeries.createPriceLine({
+        buyLine = candleSeries.createPriceLine({
           price: entry,
-          color: "#34d399",
+          color: "rgba(52, 211, 153, 0.65)",
           lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
           title: "Buy",
         });
       }
 
       if (stop != null && Number.isFinite(stop)) {
-        candleSeries.createPriceLine({
+        stopLine = candleSeries.createPriceLine({
           price: stop,
-          color: "#f43f5e",
+          color: "rgba(244, 63, 94, 0.65)",
           lineWidth: 1,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
           title: "Stop",
         });
       }
+
+      const handleCrosshairMove = (param: MouseEventParams) => {
+        if (
+          !param.point ||
+          param.point.x < 0 ||
+          param.point.x > el.clientWidth ||
+          param.point.y < 0 ||
+          param.point.y > el.clientHeight ||
+          param.time == null
+        ) {
+          setTooltip(null);
+          chart.clearCrosshairPosition();
+          return;
+        }
+
+        const cd = param.seriesData.get(candleSeries) as
+          | { open?: number; high?: number; low?: number; close?: number; value?: number }
+          | undefined;
+
+        if (!cd) {
+          setTooltip(null);
+          return;
+        }
+
+        const closeVal = cd.close ?? cd.value;
+        if (closeVal == null) {
+          setTooltip(null);
+          return;
+        }
+
+        const timeStr = typeof param.time === "number"
+          ? new Date(param.time * 1000).toLocaleString("en-US", {
+              month: "short",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })
+          : String(param.time);
+
+        setTooltip({
+          time: timeStr,
+          price: closeVal,
+          x: Math.max(8, Math.min(el.clientWidth - 110, param.point.x + 8)),
+          y: Math.max(4, Math.min(el.clientHeight - 36, param.point.y - 28)),
+        });
+      };
+
+      const handleMouseLeave = () => {
+        setTooltip(null);
+        chart.clearCrosshairPosition();
+        buyLine?.applyOptions({ axisLabelVisible: false, color: "rgba(52, 211, 153, 0.65)" });
+        stopLine?.applyOptions({ axisLabelVisible: false, color: "rgba(244, 63, 94, 0.65)" });
+      };
+
+      const handleMouseEnter = () => {
+        buyLine?.applyOptions({ axisLabelVisible: true, color: "#34d399" });
+        stopLine?.applyOptions({ axisLabelVisible: true, color: "#f43f5e" });
+      };
+
+      const handleDblClick = () => {
+        chart.timeScale().fitContent();
+      };
+
+      chart.subscribeCrosshairMove(handleCrosshairMove);
+      el.addEventListener("mouseleave", handleMouseLeave);
+      el.addEventListener("mouseenter", handleMouseEnter);
+      el.addEventListener("dblclick", handleDblClick);
+
+      cleanupEvents = () => {
+        chart.unsubscribeCrosshairMove(handleCrosshairMove);
+        el.removeEventListener("mouseleave", handleMouseLeave);
+        el.removeEventListener("mouseenter", handleMouseEnter);
+        el.removeEventListener("dblclick", handleDblClick);
+      };
 
       chart.timeScale().fitContent();
     }
@@ -429,13 +533,18 @@ export function SparklineChart({
 
     return () => {
       ro.disconnect();
+      cleanupEvents();
       chart.remove();
       chartRef.current = null;
     };
   }, [barsData, entry, stop, sma20Color, sma50Color, sma20Width, sma50Width]);
 
   return (
-    <div className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5" data-testid={`sparkline-${symbol}`}>
+    <div
+      className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5"
+      data-testid={`sparkline-${symbol}`}
+      title="Scroll to zoom • Drag to pan • Double-click to reset"
+    >
       {/* Subtle top-left legend: SMA 20 (Yellow/Gold) and SMA 50 (Cyan/Blue) */}
       <div
         className="absolute top-1.5 left-2 z-10 flex items-center gap-2.5 pointer-events-none select-none text-[9.5px] font-mono font-bold tracking-wider"
@@ -451,6 +560,17 @@ export function SparklineChart({
         </span>
       </div>
 
+      {tooltip && (
+        <div
+          className="absolute z-20 pointer-events-none rounded border border-white/10 bg-black/85 px-2 py-0.5 text-[10px] font-mono shadow-md backdrop-blur-sm transition-opacity"
+          style={{ left: `${tooltip.x}px`, top: `${tooltip.y}px` }}
+          data-testid={`sparkline-tooltip-${symbol}`}
+        >
+          <div className="text-[9px] text-slate-400">{tooltip.time}</div>
+          <div className="font-bold text-soft-white">${tooltip.price.toFixed(2)}</div>
+        </div>
+      )}
+
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-slate-500">
           Loading chart…
@@ -461,7 +581,7 @@ export function SparklineChart({
           No candle data available
         </div>
       )}
-      <div ref={containerRef} className="w-full h-full" />
+      <div ref={containerRef} className="w-full h-full cursor-crosshair" />
     </div>
   );
 }
@@ -992,7 +1112,24 @@ function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, onAdjustInPlac
 
   return (
     <div className="flex flex-wrap items-center gap-3 pt-2">
-      {group === "READY" && <button className="flex items-center gap-2 rounded-md border border-signal-green/50 bg-signal-green/10 px-4 py-2 text-xs font-bold text-signal-green transition-colors hover:bg-signal-green/20" onClick={() => {}}><Crosshair className="h-4 w-4" /> Arm Trade</button>}
+      {group === "READY" && (
+        <button
+          type="button"
+          className="flex items-center gap-2 rounded-md border border-signal-green/50 bg-signal-green/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-signal-green transition-colors hover:bg-signal-green/20 cursor-pointer"
+          onClick={() => {
+            openTradeDialog({
+              mode: "arm",
+              decision: d,
+              plan: effectivePlan(d, ver),
+              liveAllowed: live?.allowed ?? null,
+              overrideRequired: group !== "READY",
+            });
+          }}
+          data-testid={`button-card-actions-arm-trade-${d.symbol}`}
+        >
+          <Crosshair className="h-3.5 w-3.5 text-signal-green" /> Arm Trade
+        </button>
+      )}
       {!inDialog && onOpen && <button className="flex items-center gap-2 rounded-md border border-neon-blue/50 bg-neon-blue/10 px-4 py-2 text-xs font-bold text-neon-blue transition-colors hover:bg-neon-blue/20" onClick={onOpen}><Maximize2 className="h-4 w-4" /> Open Trading Card</button>}
       {canEditPlan(d) && (
         <button
@@ -1463,6 +1600,28 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-white/10">
         <div className="flex flex-wrap items-center gap-2">
+          {group === "READY" && (
+            <button
+              type="button"
+              className="flex items-center gap-2 rounded-md border border-signal-green/50 bg-signal-green/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-signal-green transition-colors hover:bg-signal-green/20 cursor-pointer"
+              onClick={() => {
+                onSeen();
+                openTradeDialog({
+                  mode: "arm",
+                  decision: d,
+                  plan: effectivePlan(d, ver),
+                  liveAllowed: live?.allowed ?? null,
+                  overrideRequired: group !== "READY",
+                });
+              }}
+              data-testid={`button-arm-trade-${d.symbol}`}
+              title="Arm practice trade plan"
+            >
+              <Crosshair className="h-3.5 w-3.5 text-signal-green" />
+              Arm Trade
+            </button>
+          )}
+
           {canEditPlan(d) && (
             <button
               type="button"
@@ -1741,3 +1900,4 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
     </div>
   );
 }
+
