@@ -13,7 +13,7 @@ import {
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
 } from "lucide-react";
 import {
-  CandlestickSeries, LineStyle, createChart,
+  CandlestickSeries, LineSeries, LineStyle, createChart,
   type IChartApi, type UTCTimestamp,
 } from "lightweight-charts";
 import { ScoreChip, ScoreSection } from "./SetupScore";
@@ -250,6 +250,31 @@ export function beginnerStatusText(
   return d.nextAction ? `Status: ${d.nextAction}` : "Status: Evaluating setup structure.";
 }
 
+function computeSMA(
+  bars: Array<{ t: number; c: number }>,
+  period: number
+): Array<{ time: UTCTimestamp; value: number }> {
+  if (!bars || bars.length < period) return [];
+  const result: Array<{ time: UTCTimestamp; value: number }> = [];
+  let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].c;
+    if (i >= period) {
+      sum -= bars[i - period].c;
+    }
+    if (i >= period - 1) {
+      result.push({
+        time: bars[i].t as UTCTimestamp,
+        value: Number((sum / period).toFixed(2)),
+      });
+    }
+  }
+  return result;
+}
+
+const SMA20_COLOR = "#F6C344"; // Yellow/Gold
+const SMA50_COLOR = "#22D3EE"; // Light Blue/Cyan (matches UI neon blue; #2962FF compatible)
+
 export function SparklineChart({
   symbol,
   entry,
@@ -263,8 +288,8 @@ export function SparklineChart({
   const chartRef = useRef<IChartApi | null>(null);
 
   const { data: barsData, isLoading } = useQuery<BarsResp>({
-    queryKey: ["/api/swing/bars", symbol, "1H", "5D"],
-    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=1H&range=5D`),
+    queryKey: ["/api/swing/bars", symbol, "1H", "1M"],
+    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=1H&range=1M`),
     staleTime: 60_000,
   });
 
@@ -323,6 +348,38 @@ export function SparklineChart({
         }))
       );
 
+      // Implementation detail: use addLineSeries or addSeries(LineSeries, ...)
+      const addLineSeries = (opts: any) =>
+        typeof (chart as any).addLineSeries === "function"
+          ? (chart as any).addLineSeries(opts)
+          : chart.addSeries(LineSeries, opts);
+
+      // ─── SMA 20 OVERLAY (Yellow/Gold #F6C344) ───
+      const sma20Data = computeSMA(bars, 20);
+      if (sma20Data.length > 0) {
+        const sma20Series = addLineSeries({
+          color: "rgba(246, 195, 68, 0.85)", // Yellow/Gold #F6C344, slightly transparent
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        sma20Series.setData(sma20Data);
+      }
+
+      // ─── SMA 50 OVERLAY (Light Blue/Cyan #22D3EE / #2962FF) ───
+      const sma50Data = computeSMA(bars, 50);
+      if (sma50Data.length > 0) {
+        const sma50Series = addLineSeries({
+          color: "rgba(34, 211, 238, 0.85)", // Light Blue/Cyan, slightly transparent
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        sma50Series.setData(sma50Data);
+      }
+
       if (entry != null && Number.isFinite(entry)) {
         candleSeries.createPriceLine({
           price: entry,
@@ -365,6 +422,21 @@ export function SparklineChart({
 
   return (
     <div className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5" data-testid={`sparkline-${symbol}`}>
+      {/* Subtle top-left legend: SMA 20 (Yellow/Gold) and SMA 50 (Cyan/Blue) */}
+      <div
+        className="absolute top-1.5 left-2 z-10 flex items-center gap-2.5 pointer-events-none select-none text-[9.5px] font-mono font-bold tracking-wider"
+        data-testid={`sparkline-legend-${symbol}`}
+      >
+        <span className="flex items-center gap-1" style={{ color: SMA20_COLOR }}>
+          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: SMA20_COLOR }} />
+          SMA 20
+        </span>
+        <span className="flex items-center gap-1" style={{ color: SMA50_COLOR }}>
+          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: SMA50_COLOR }} />
+          SMA 50
+        </span>
+      </div>
+
       {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-slate-500">
           Loading chart…
