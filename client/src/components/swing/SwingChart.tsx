@@ -93,6 +93,12 @@ export const DEFAULT_SMA_COLORS: Record<SmaKey, string> = {
   sma200: "#c026d3", // Magenta for SMA 200
 };
 
+export const DEFAULT_SMA_WIDTHS: Record<SmaKey, number> = {
+  sma20: 2,
+  sma50: 2,
+  sma200: 2,
+};
+
 export const PRESET_SMA_PALETTE = [
   "#2563eb", // Blue
   "#22d3ee", // Cyan
@@ -135,6 +141,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [ovSaved, setOv] = usePersistentState<Record<Overlay, boolean>>("swing-chart-overlays", OV_DEFAULT);
   const ov: Record<Overlay, boolean> = useMemo(() => ({ ...OV_DEFAULT, ...ovSaved }), [JSON.stringify(ovSaved)]);
   const [smaColors, setSmaColors] = usePersistentState<Record<SmaKey, string>>("swing-chart-sma-colors", DEFAULT_SMA_COLORS);
+  const [smaWidths, setSmaWidths] = usePersistentState<Record<SmaKey, number>>("swing-chart-sma-widths", DEFAULT_SMA_WIDTHS);
   const [colorPickerOpen, setColorPickerOpen] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement | null>(null);
   const smaSeriesMapRef = useRef<Map<SmaKey, ISeriesApi<any>>>(new Map());
@@ -158,19 +165,18 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
   }, [colorPickerOpen]);
 
-  // Dynamically update existing series color via applyOptions without redrawing chart
+  // Dynamically update existing series color and lineWidth via applyOptions without redrawing chart
   useEffect(() => {
     for (const [key, sr] of smaSeriesMapRef.current.entries()) {
       const color = smaColors[key] || DEFAULT_SMA_COLORS[key];
-      if (color) {
-        try {
-          sr.applyOptions({ color });
-        } catch {
-          // Chart may have been removed / rebuilt
-        }
+      const lineWidth = smaWidths[key] || DEFAULT_SMA_WIDTHS[key] || 2;
+      try {
+        sr.applyOptions({ color, lineWidth });
+      } catch {
+        // Chart may have been removed / rebuilt
       }
     }
-  }, [smaColors]);
+  }, [smaColors, smaWidths]);
   const [tip, setTip] = useState<{ title: string; lines: string[] } | null>(null);
   // Crosshair readout for the SMA key + hover callout when the cursor is on an SMA line.
   const [smaHover, setSmaHover] = useState<{ vals: Partial<Record<SmaKey, number>>; hit: SmaKey | null; x: number; y: number } | null>(null);
@@ -377,25 +383,62 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const line = (vals: (number | null)[], color: string, style = LineStyle.Solid) => {
       const s = chart.addSeries(LineSeries, { color, lineWidth: 1, lineStyle: style, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
       dimRef.current.push({ s, color, width: 1 });
-      s.setData(vals.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
+      const lineData = times
+        .map((t, i) => ({ time: t, value: vals[i] }))
+        .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      s.setData(lineData);
     };
     const smaSeries: { key: SmaKey; s: ISeriesApi<any> }[] = [];
     const last: Partial<Record<SmaKey, number>> = {};
     const fromCtx = (vals: (number | null)[], key: "sma20" | "sma50" | "sma200" | "bbU" | "bbL") => {
-      if (!ctxSeries) return vals;
-      return vals.map((v, i) => { if (v == null) return v; const j = ctxSeries.idx.get(data[i].t); const cv = j == null ? null : ctxSeries.sr[key][j]; return cv ?? v; });
+      if (bars.data?.smas?.[key as SmaKey] && bars.data.smas[key as SmaKey]!.length === data.length) {
+        return bars.data.smas[key as SmaKey]!;
+      }
+      return vals.map((v, i) => {
+        if (ctxSeries) {
+          const j = ctxSeries.idx.get(data[i].t);
+          if (j != null && ctxSeries.sr[key]?.[j] != null) return ctxSeries.sr[key][j];
+        }
+        return v;
+      });
     };
-    ctxUsedRef.current = ctxSeries ? "ctx" : "local";
+    ctxUsedRef.current = ctxSeries ? "ctx" : (bars.data?.smas ? "server" : "local");
     smaSeriesMapRef.current.clear();
     for (const m of SMA_META) {
       if (!ov[m.key]) continue;
-      const vals = fromCtx(sma(closes, m.n), m.key);
+      // Calculate / retrieve full continuous SMA using at least 200 previous periods
+      let vals: (number | null)[] = [];
+      if (bars.data?.smas?.[m.key] && bars.data.smas[m.key]!.length === data.length) {
+        vals = bars.data.smas[m.key]!;
+      } else if (bars.data?.warmupBars?.length) {
+        const fullCloses = [...bars.data.warmupBars.map((b) => b.c), ...closes];
+        const fullSma = sma(fullCloses, m.n);
+        vals = fullSma.slice(bars.data.warmupBars.length);
+      } else {
+        vals = fromCtx(sma(closes, m.n), m.key);
+      }
+
       const color = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
-      const sr = chart.addSeries(LineSeries, { color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, crosshairMarkerRadius: 3, title: "" });
-      sr.setData(vals.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
+      const width = smaWidths[m.key] || DEFAULT_SMA_WIDTHS[m.key] || 2;
+      const sr = chart.addSeries(LineSeries, {
+        color,
+        lineWidth: width,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 3,
+        title: "",
+      });
+
+      // Filter out null/non-finite values gracefully so the line draws continuously without breaking
+      const lineData = times
+        .map((t, i) => ({ time: t, value: vals[i] }))
+        .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      sr.setData(lineData);
+
       smaSeries.push({ key: m.key, s: sr });
       smaSeriesMapRef.current.set(m.key, sr);
-      dimRef.current.push({ s: sr, color, width: 2 });
+      dimRef.current.push({ s: sr, color, width });
       const lv = [...vals].reverse().find((v) => v != null); if (lv != null) last[m.key] = lv;
     }
     setSmaLast(last);
@@ -499,39 +542,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       if (hit.length) onMarker(hit.find((x) => x.current) ?? hit[hit.length - 1]);
     });
 
-    // Translucent zone bands (DOM overlay, repositioned as the scale moves).
-    const zones = (overlay?.zones ?? []).filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : ov.sr));
+    // Day levels: intraday → dashed ray across the active session only; Daily/Weekly → short bracket
+    // over the last few candles next to the price scale. Never a full-width line through history.
+    // NOTE: Horizontal background shading bands (Support/Resistance zones) have been completely removed
+    // to keep the chart clean, institutional, and legible. Strict horizontal lines (createPriceLine)
+    // and right-hand gutter price tags remain intact.
     const drawBands = () => {
       const host = bandRef.current; if (!host) return;
       host.innerHTML = "";
-      for (const z of zones) {
-        if (z.kind === "RETEST" && !showRef.current) continue;
-        if (z.kind !== "RETEST" && !fvRef.current.full) continue; // Focus: no shaded zones while clean
-        const y1 = main.priceToCoordinate(z.high), y2 = main.priceToCoordinate(z.low);
-        if (y1 == null || y2 == null) continue;
-        const d = document.createElement("div");
-        d.style.cssText = `position:absolute;left:0;right:56px;top:${Math.min(y1, y2)}px;height:${Math.max(2, Math.abs(y2 - y1))}px;background:${ZONE_COLOR[z.kind]};pointer-events:none`;
-        host.appendChild(d);
-      }
-      // Clear S/R: a shaded band per level (darker = stronger) + a plain-English tag on the chart.
-      if (srClear && srLines.length && fvRef.current.full) {
-        let paneH = host.clientHeight; try { paneH = chart.panes()[0].getHeight(); } catch { /* single pane */ }
-        for (const l of srLines) {
-          const half = Math.max(l.price * 0.0012, (srAtr ?? 0) * 0.1);
-          const lo = (l as { low?: number }).low ?? l.price, hi = (l as { high?: number }).high ?? l.price; // merged zones span every member
-          const y1 = main.priceToCoordinate(hi + half), y2 = main.priceToCoordinate(lo - half), yc = main.priceToCoordinate(l.price);
-          if (y1 == null || y2 == null || yc == null || yc < 0 || yc > paneH) continue;
-          const top = Math.max(0, Math.min(y1, y2)), h = Math.max(4, Math.min(paneH, Math.max(y1, y2)) - top);
-          const rgb = l.side === "R" ? "248,113,113" : "74,222,128", a = srBandAlpha(Number((0.07 + (l.strength / 100) * 0.13 + (l.nearest ? 0.05 : 0)).toFixed(3)), { dayFocus: dayOnRef.current && !revealRef.current, touching: touchesAny(l.price, dayPrices, srAtr) }).toFixed(3);
-          const b = document.createElement("div");
-          b.setAttribute("data-testid", "sr-band"); b.setAttribute("data-side", l.side); b.setAttribute("data-grade", l.grade); b.setAttribute("data-nearest", l.nearest ? "1" : "0");
-          b.style.cssText = `position:absolute;left:0;right:56px;top:${top}px;height:${h}px;background:rgba(${rgb},${a});${l.nearest ? `border-top:1px solid rgba(${rgb},.55);border-bottom:1px solid rgba(${rgb},.55);` : ""}pointer-events:none`;
-          host.appendChild(b);
-        }
-        // Clean-up rule: the plain-English tags moved off the candles into the right-hand label gutter.
-      }
-      // Day levels: intraday → dashed ray across the active session only; Daily/Weekly → short bracket
-      // over the last few candles next to the price scale. Never a full-width line through history.
       if (dayLines.length) {
         const span = dayRaySpan(tf, data.map((b) => b.t), day?.sessionDate ?? null, (t) => ctParts(t).ymd);
         if (span) {
@@ -827,23 +845,30 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
                   SMA Colors
                 </span>
                 <button
-                  onClick={() => setSmaColors(DEFAULT_SMA_COLORS)}
+                  onClick={() => {
+                    setSmaColors(DEFAULT_SMA_COLORS);
+                    setSmaWidths(DEFAULT_SMA_WIDTHS);
+                  }}
                   className="text-[9.5px] uppercase tracking-wider text-slate-400 hover:text-cyan-400 transition-colors"
-                  title="Reset to default theme colors"
+                  title="Reset to default theme colors and line widths"
                   data-testid="button-sma-reset-colors"
                 >
                   Reset
                 </button>
               </div>
 
-              <div className="space-y-3">
+              <div className="space-y-3.5">
                 {SMA_META.map((m) => {
                   const curColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key];
+                  const curWidth = smaWidths[m.key] || DEFAULT_SMA_WIDTHS[m.key] || 2;
                   return (
-                    <div key={m.key} className="space-y-1.5" data-testid={`sma-color-setting-${m.key}`}>
+                    <div key={m.key} className="space-y-1.5 p-2 rounded-lg bg-slate-900/60 border border-white/5" data-testid={`sma-color-setting-${m.key}`}>
                       <div className="flex items-center justify-between">
                         <span className="font-bold flex items-center gap-1.5" style={{ color: curColor }}>
-                          <span className="w-2.5 h-0.5 rounded-full inline-block" style={{ backgroundColor: curColor }} />
+                          <span
+                            className="w-3 rounded-full inline-block transition-all"
+                            style={{ backgroundColor: curColor, height: curWidth }}
+                          />
                           {m.label}
                         </span>
                         <div className="flex items-center gap-1.5">
@@ -888,6 +913,50 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
                             data-testid={`palette-${m.key}-${hex}`}
                           />
                         ))}
+                      </div>
+
+                      {/* Line Thickness Controls (1–4) */}
+                      <div className="flex items-center justify-between pt-1 border-t border-white/5 text-[10px]">
+                        <span className="text-slate-400 font-medium">Thickness</span>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={curWidth}
+                            onChange={(e) =>
+                              setSmaWidths((prev) => ({
+                                ...prev,
+                                [m.key]: Math.min(4, Math.max(1, parseInt(e.target.value, 10) || 2)),
+                              }))
+                            }
+                            className="bg-slate-800 border border-white/10 rounded px-1.5 py-0.5 text-[10px] text-soft-white focus:outline-none focus:border-cyan-400"
+                            data-testid={`select-sma-width-${m.key}`}
+                            aria-label={`${m.label} thickness`}
+                          >
+                            <option value={1}>1px (Thin)</option>
+                            <option value={2}>2px (Normal)</option>
+                            <option value={3}>3px (Thick)</option>
+                            <option value={4}>4px (Heavy)</option>
+                          </select>
+                          <div className="flex items-center gap-0.5">
+                            {[1, 2, 3, 4].map((w) => (
+                              <button
+                                key={w}
+                                type="button"
+                                onClick={() =>
+                                  setSmaWidths((prev) => ({ ...prev, [m.key]: w }))
+                                }
+                                className={`px-1.5 py-0.5 rounded text-[9.5px] font-mono transition-all ${
+                                  curWidth === w
+                                    ? "bg-cyan-500/25 text-cyan-300 border border-cyan-400/60 font-bold shadow-[0_0_8px_rgba(34,211,238,0.2)]"
+                                    : "bg-slate-800/60 text-slate-400 border border-white/5 hover:text-white"
+                                }`}
+                                data-testid={`button-sma-width-${m.key}-${w}`}
+                                title={`${m.label} thickness: ${w}px`}
+                              >
+                                {w}px
+                              </button>
+                            ))}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   );
@@ -958,12 +1027,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             {SMA_META.filter((m) => ov[m.key]).map((m) => {
               const v = smaHover?.vals[m.key] ?? smaLast[m.key];
               const on = smaHover?.hit === m.key;
+              const curColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
+              const curWidth = smaWidths[m.key] || DEFAULT_SMA_WIDTHS[m.key] || 2;
               return (
                 <span key={m.key} className="flex items-center gap-1" style={{ color: on ? "#f1f5f9" : "#94a3b8" }} data-testid={`legend-${m.key}`}>
-                  <span className="inline-block w-3 rounded-full" style={{ height: on ? 4 : 2, background: m.color }} />
-                  <span style={{ color: m.color }} className="font-bold">{m.label}</span>
+                  <span className="inline-block w-3 rounded-full" style={{ height: on ? Math.max(4, curWidth + 1) : curWidth, background: curColor }} />
+                  <span style={{ color: curColor }} className="font-bold">{m.label}</span>
                   <span>{m.role.replace(" trend", "")}</span>
-                  <span style={{ color: "#f1f5f9" }}>{v != null ? `$${v.toFixed(2)}` : "—"}</span>
+                  <span style={{ color: "#f1f5f9" }}>{v != null ? `${v.toFixed(2)}` : "—"}</span>
                 </span>
               );
             })}
@@ -1020,9 +1091,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       </div>
       {srClear && srLines.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-gray" data-testid="text-sr-key">
-          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "rgba(74,222,128,.35)", border: "1px solid rgba(74,222,128,.7)" }} /><span className="text-soft-white">Support</span> — where buyers stepped in before (price bounced up)</span>
-          <span className="inline-flex items-center gap-1"><span className="inline-block h-2.5 w-4 rounded-sm" style={{ background: "rgba(248,113,113,.35)", border: "1px solid rgba(248,113,113,.7)" }} /><span className="text-soft-white">Resistance</span> — where sellers stepped in before (price turned down)</span>
-          <span>Darker band / ●●● = stronger (more touches, more recent). Solid line = nearest level. Reference areas, not promises.</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 rounded-sm" style={{ background: "#4ade80" }} /><span className="text-soft-white">Support</span> — where buyers stepped in before (price bounced up)</span>
+          <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 rounded-sm" style={{ background: "#f87171" }} /><span className="text-soft-white">Resistance</span> — where sellers stepped in before (price turned down)</span>
+          <span>Solid line = nearest level. Dashed/dotted = secondary levels. Reference levels, not promises.</span>
           {focus && <span data-testid="text-focus-key">Focus: only the nearest level each side shows until you hover the chart · press C to switch.</span>}
         </p>
       )}

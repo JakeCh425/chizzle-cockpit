@@ -272,7 +272,7 @@ function computeSMA(
   return result;
 }
 
-const DEFAULT_SPARK_SMA_COLORS = {
+export const DEFAULT_SPARK_SMA_COLORS = {
   sma20: "#2563eb", // Blue
   sma50: "#dc2626", // Dark Red
   sma200: "#c026d3", // Magenta
@@ -290,9 +290,12 @@ export function SparklineChart({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const [smaColors] = usePersistentState<Record<string, string>>("swing-chart-sma-colors", DEFAULT_SPARK_SMA_COLORS);
+  const [smaWidths] = usePersistentState<Record<string, number>>("swing-chart-sma-widths", { sma20: 1, sma50: 1, sma200: 1 });
 
   const sma20Color = smaColors?.sma20 || DEFAULT_SPARK_SMA_COLORS.sma20;
   const sma50Color = smaColors?.sma50 || DEFAULT_SPARK_SMA_COLORS.sma50;
+  const sma20Width = smaWidths?.sma20 || 1;
+  const sma50Width = smaWidths?.sma50 || 1;
 
   const { data: barsData, isLoading } = useQuery<BarsResp>({
     queryKey: ["/api/swing/bars", symbol, "1H", "1M"],
@@ -362,11 +365,13 @@ export function SparklineChart({
           : chart.addSeries(LineSeries, opts);
 
       // ─── SMA 20 OVERLAY ───
-      const sma20Data = computeSMA(bars, 20);
+      const sma20Data = barsData?.smas?.sma20
+        ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma20[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
+        : computeSMA([...(barsData?.warmupBars || []), ...bars], 20).filter((pt) => bars.some((b) => b.t === pt.time));
       if (sma20Data.length > 0) {
         const sma20Series = addLineSeries({
           color: sma20Color,
-          lineWidth: 1,
+          lineWidth: sma20Width,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -375,11 +380,13 @@ export function SparklineChart({
       }
 
       // ─── SMA 50 OVERLAY ───
-      const sma50Data = computeSMA(bars, 50);
+      const sma50Data = barsData?.smas?.sma50
+        ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma50[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
+        : computeSMA([...(barsData?.warmupBars || []), ...bars], 50).filter((pt) => bars.some((b) => b.t === pt.time));
       if (sma50Data.length > 0) {
         const sma50Series = addLineSeries({
           color: sma50Color,
-          lineWidth: 1,
+          lineWidth: sma50Width,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -425,7 +432,7 @@ export function SparklineChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [barsData, entry, stop, sma20Color, sma50Color]);
+  }, [barsData, entry, stop, sma20Color, sma50Color, sma20Width, sma50Width]);
 
   return (
     <div className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5" data-testid={`sparkline-${symbol}`}>
@@ -435,11 +442,11 @@ export function SparklineChart({
         data-testid={`sparkline-legend-${symbol}`}
       >
         <span className="flex items-center gap-1" style={{ color: sma20Color }}>
-          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: sma20Color }} />
+          <span className="inline-block w-2.5 rounded-full" style={{ backgroundColor: sma20Color, height: sma20Width }} />
           SMA 20
         </span>
         <span className="flex items-center gap-1" style={{ color: sma50Color }}>
-          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: sma50Color }} />
+          <span className="inline-block w-2.5 rounded-full" style={{ backgroundColor: sma50Color, height: sma50Width }} />
           SMA 50
         </span>
       </div>

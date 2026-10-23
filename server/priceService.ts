@@ -921,7 +921,7 @@ export async function fetchYahooBars(
   const to = Math.floor(Date.now() / 1000);
   // Yahoo allows wide ranges; cap at ~560d for daily, ~30d for hourly (Yahoo
   // intraday history limit on the free chart endpoint).
-  const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 30 * 24 * 60 * 60;
+  const lookbackSec = interval === "1d" ? 560 * 24 * 60 * 60 : 120 * 24 * 60 * 60;
   const from = to - lookbackSec;
   // Rotate Yahoo subdomains — query1/query2 have independent rate-limit pools.
   const host = (symbol.charCodeAt(0) % 2 === 0) ? "query1" : "query2";

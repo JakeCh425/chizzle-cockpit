@@ -66,6 +66,7 @@ interface IndicatorConfig {
   kind: IndicatorKind;
   enabled: boolean;
   period?: number;         // SMA/EMA/RSI/BB length
+  lineWidth?: number;      // line thickness (1–4)
   fast?: number;           // MACD fast
   slow?: number;           // MACD slow
   signal?: number;         // MACD signal
@@ -769,8 +770,13 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
       if (!ind.enabled) continue;
       if (ind.kind === "SMA") {
         const arr = sma(closes, ind.period || 20);
-        const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false });
-        s.setData(arr.map((v, i) => (v == null ? null : { time: times[i] as UTCTimestamp, value: v })).filter(Boolean) as any);
+        const normalWidth = ind.lineWidth || 2;
+        const s = chart.addSeries(LineSeries, { color: ind.color, lineWidth: normalWidth, priceLineVisible: false, lastValueVisible: false });
+        s.setData(
+          arr
+            .map((v, i) => (v != null && Number.isFinite(v) ? { time: times[i] as UTCTimestamp, value: v } : null))
+            .filter((pt): pt is { time: UTCTimestamp; value: number } => pt !== null)
+        );
         overlaySeriesRef.current.set(ind.id, s);
         // Phase 4: emphasize on hover — thicken hovered SMA to 3px, dim others
         // to ~40% alpha. Only the SMA that matches `hoveredSmaId` becomes bold.
@@ -1438,6 +1444,30 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
                       className="w-14 px-1.5 py-0.5 text-xs font-mono bg-ink-black/80 border border-white/15 rounded text-soft-white focus:outline-none focus:border-neon-blue/60 tabular-nums"
                       aria-label={`${ind.kind} period`}
                     />
+                  )}
+
+                  {(ind.kind === "SMA" || ind.kind === "EMA") && (
+                    <select
+                      value={ind.lineWidth || 2}
+                      onChange={(e) => {
+                        const lw = Math.min(4, Math.max(1, parseInt(e.target.value, 10) || 2));
+                        setIndicators((prev) =>
+                          prev.map((x) => (x.id === ind.id ? { ...x, lineWidth: lw } : x))
+                        );
+                        const s = overlaySeriesRef.current.get(ind.id);
+                        if (s) {
+                          try { s.applyOptions({ lineWidth: lw }); } catch {}
+                        }
+                      }}
+                      className="px-1.5 py-0.5 text-xs font-mono bg-ink-black/80 border border-white/15 rounded text-soft-white focus:outline-none focus:border-neon-blue/60"
+                      title={`${ind.kind} line thickness`}
+                      aria-label={`${ind.kind} line thickness`}
+                    >
+                      <option value={1}>1px</option>
+                      <option value={2}>2px</option>
+                      <option value={3}>3px</option>
+                      <option value={4}>4px</option>
+                    </select>
                   )}
 
                   {/* Custom Tailwind Color Swatch triggering hidden color input */}

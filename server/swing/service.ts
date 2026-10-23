@@ -491,11 +491,56 @@ export async function chartBars(symbol: string, exchange: string, tf: ChartTf, r
   const out = bars.filter((b) => b.t >= from).map((b) => ({ t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v ?? 0, closed: b.closed ?? true }));
   const lastClosed = [...out].reverse().find((b) => b.closed) ?? null;
   const dec = evalCache.get(sym)?.res.decision;
+
+  // Calculate continuous SMAs across the entire available history (at least 200 previous periods)
+  // so the visible range has fully warmed-up, continuous SMA 20, 50, and 200 values.
+  const allCloses = bars.map((b) => b.c);
+  const computeFullSma = (period) => {
+    const res = [];
+    let sum = 0;
+    for (let i = 0; i < allCloses.length; i++) {
+      sum += allCloses[i];
+      if (i >= period) sum -= allCloses[i - period];
+      res.push(i >= period - 1 ? Number((sum / period).toFixed(4)) : null);
+    }
+    return res;
+  };
+  const allSma20 = computeFullSma(20);
+  const allSma50 = computeFullSma(50);
+  const allSma200 = computeFullSma(200);
+
+  // Map each visible bar in out to its corresponding precalculated SMA value
+  const timeToIdx = new Map();
+  bars.forEach((b, i) => timeToIdx.set(b.t, i));
+
+  const sma20 = out.map((b) => {
+    const idx = timeToIdx.get(b.t);
+    return idx != null ? allSma20[idx] : null;
+  });
+  const sma50 = out.map((b) => {
+    const idx = timeToIdx.get(b.t);
+    return idx != null ? allSma50[idx] : null;
+  });
+  const sma200 = out.map((b) => {
+    const idx = timeToIdx.get(b.t);
+    return idx != null ? allSma200[idx] : null;
+  });
+
+  // Up to 200 warmup bars before from for client-side local calculations
+  const firstVisibleIdx = bars.findIndex((b) => b.t >= from);
+  const warmupStart = Math.max(0, (firstVisibleIdx === -1 ? bars.length : firstVisibleIdx) - 200);
+  const warmupBars = (firstVisibleIdx > 0 ? bars.slice(warmupStart, firstVisibleIdx) : []).map((b) => ({
+    t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, v: b.v ?? 0, closed: b.closed ?? true,
+  }));
+
   return {
     symbol: sym, exchange, timeframe: tf, range, session: extended ? "EXTENDED" : "RTH", source, error: out.length ? undefined : (error ?? "Data unavailable"),
     visualOnly: !signalTf, visualOnlyNote: !signalTf ? "15m / 30m are visual only — they never confirm a setup unless Intraday Learning Mode is on." : null,
     quoteTimestamp: dec?.quoteTimestamp ?? null, dataStatus: dec?.dataStatus ?? (out.length ? "DELAYED" : "ERROR"),
-    lastCompletedBar: lastClosed ? new Date(lastClosed.t * 1000).toISOString() : null, bars: out,
+    lastCompletedBar: lastClosed ? new Date(lastClosed.t * 1000).toISOString() : null,
+    bars: out,
+    smas: { sma20, sma50, sma200 },
+    warmupBars,
   };
 }
 
