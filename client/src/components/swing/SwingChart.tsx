@@ -3,6 +3,7 @@
 // shared SwingDecision.chart overlay (never computed here). Indicators (SMA/BB)
 // are plain visual overlays. Analysis / practice only.
 import { useLiveStatusLabel } from "@/lib/liveStatus";
+import { Palette, Settings } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -80,11 +81,29 @@ const OVERLAY_LABEL: Record<Overlay, string> = { sma20: "SMA20", sma50: "SMA50",
 
 /** SMA key — colors match the lines drawn on the chart. */
 export const SMA_META = [
-  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#fbbf24", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
-  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#60a5fa", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
-  { key: "sma200" as const, n: 200, label: "SMA 200", color: "#e879f9", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
+  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#2563eb", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
+  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#dc2626", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
+  { key: "sma200" as const, n: 200, label: "SMA 200", color: "#c026d3", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
 ];
-type SmaKey = typeof SMA_META[number]["key"];
+export type SmaKey = typeof SMA_META[number]["key"];
+
+export const DEFAULT_SMA_COLORS: Record<SmaKey, string> = {
+  sma20: "#2563eb",  // Blue for SMA 20
+  sma50: "#dc2626",  // Dark Red for SMA 50
+  sma200: "#c026d3", // Magenta for SMA 200
+};
+
+export const PRESET_SMA_PALETTE = [
+  "#2563eb", // Blue
+  "#22d3ee", // Cyan
+  "#10b981", // Emerald
+  "#fbbf24", // Gold/Amber
+  "#f97316", // Orange
+  "#dc2626", // Dark Red
+  "#ec4899", // Pink
+  "#c026d3", // Magenta
+  "#ffffff", // White
+];
 
 export interface SwingChartProps {
   decision: SwingDecision | undefined;
@@ -115,6 +134,43 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [type, setType] = usePersistentState<typeof TYPES[number]>("swing-chart-type", "Candles");
   const [ovSaved, setOv] = usePersistentState<Record<Overlay, boolean>>("swing-chart-overlays", OV_DEFAULT);
   const ov: Record<Overlay, boolean> = useMemo(() => ({ ...OV_DEFAULT, ...ovSaved }), [JSON.stringify(ovSaved)]);
+  const [smaColors, setSmaColors] = usePersistentState<Record<SmaKey, string>>("swing-chart-sma-colors", DEFAULT_SMA_COLORS);
+  const [colorPickerOpen, setColorPickerOpen] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement | null>(null);
+  const smaSeriesMapRef = useRef<Map<SmaKey, ISeriesApi<any>>>(new Map());
+
+  // Close color picker on outside click or Escape
+  useEffect(() => {
+    if (!colorPickerOpen) return;
+    const close = (e: MouseEvent) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setColorPickerOpen(false);
+      }
+    };
+    const esc = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setColorPickerOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [colorPickerOpen]);
+
+  // Dynamically update existing series color via applyOptions without redrawing chart
+  useEffect(() => {
+    for (const [key, sr] of smaSeriesMapRef.current.entries()) {
+      const color = smaColors[key] || DEFAULT_SMA_COLORS[key];
+      if (color) {
+        try {
+          sr.applyOptions({ color });
+        } catch {
+          // Chart may have been removed / rebuilt
+        }
+      }
+    }
+  }, [smaColors]);
   const [tip, setTip] = useState<{ title: string; lines: string[] } | null>(null);
   // Crosshair readout for the SMA key + hover callout when the cursor is on an SMA line.
   const [smaHover, setSmaHover] = useState<{ vals: Partial<Record<SmaKey, number>>; hit: SmaKey | null; x: number; y: number } | null>(null);
@@ -330,13 +386,16 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       return vals.map((v, i) => { if (v == null) return v; const j = ctxSeries.idx.get(data[i].t); const cv = j == null ? null : ctxSeries.sr[key][j]; return cv ?? v; });
     };
     ctxUsedRef.current = ctxSeries ? "ctx" : "local";
+    smaSeriesMapRef.current.clear();
     for (const m of SMA_META) {
       if (!ov[m.key]) continue;
       const vals = fromCtx(sma(closes, m.n), m.key);
-      const sr = chart.addSeries(LineSeries, { color: m.color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, crosshairMarkerRadius: 3, title: "" });
+      const color = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
+      const sr = chart.addSeries(LineSeries, { color, lineWidth: 2, priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: true, crosshairMarkerRadius: 3, title: "" });
       sr.setData(vals.map((v, i) => (v == null ? { time: times[i] } : { time: times[i], value: v })) as any);
       smaSeries.push({ key: m.key, s: sr });
-      dimRef.current.push({ s: sr, color: m.color, width: 2 });
+      smaSeriesMapRef.current.set(m.key, sr);
+      dimRef.current.push({ s: sr, color, width: 2 });
       const lv = [...vals].reverse().find((v) => v != null); if (lv != null) last[m.key] = lv;
     }
     setSmaLast(last);
@@ -733,12 +792,110 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         </button>
       </div>
       <div className="flex flex-wrap gap-1 items-center">
-        {(Object.keys(OVERLAY_LABEL) as Overlay[]).map((k) => (
-          <button key={k} className={`${btn(ov[k])} inline-flex items-center gap-1`} onClick={() => setOv({ ...ov, [k]: !ov[k] })} aria-pressed={ov[k]} data-testid={`toggle-overlay-${k}`}>
-            {SMA_META.find((m) => m.key === k) && <span className="inline-block w-2.5 h-0.5 rounded-full" style={{ background: SMA_META.find((m) => m.key === k)!.color }} />}
-            {OVERLAY_LABEL[k]}
+        {(Object.keys(OVERLAY_LABEL) as Overlay[]).map((k) => {
+          const isSma = k === "sma20" || k === "sma50" || k === "sma200";
+          const smaColor = isSma ? (smaColors[k as SmaKey] || DEFAULT_SMA_COLORS[k as SmaKey]) : undefined;
+          return (
+            <button key={k} className={`${btn(ov[k])} inline-flex items-center gap-1`} onClick={() => setOv({ ...ov, [k]: !ov[k] })} aria-pressed={ov[k]} data-testid={`toggle-overlay-${k}`}>
+              {isSma && <span className="inline-block w-2.5 h-0.5 rounded-full transition-colors" style={{ background: smaColor }} />}
+              {OVERLAY_LABEL[k]}
+            </button>
+          );
+        })}
+        {/* Settings / Color Palette button next to SMA indicator toggles */}
+        <div className="relative inline-flex" ref={colorPickerRef}>
+          <button
+            className={`${btn(colorPickerOpen)} inline-flex items-center gap-1 text-[11px]`}
+            onClick={() => setColorPickerOpen(!colorPickerOpen)}
+            aria-label="SMA Color Settings"
+            title="SMA Color Palette & Settings"
+            data-testid="button-sma-color-picker"
+          >
+            <Palette className="h-3 w-3" aria-hidden />
+            <Settings className="h-2.5 w-2.5 opacity-70" aria-hidden />
           </button>
-        ))}
+
+          {colorPickerOpen && (
+            <div
+              className="absolute left-0 top-full z-40 mt-1.5 w-64 rounded-xl border border-ink-line bg-[#0B1220]/95 p-3.5 shadow-2xl backdrop-blur-md text-[11px] font-mono text-soft-white"
+              role="dialog"
+              aria-label="SMA Color Preferences"
+              data-testid="popover-sma-color-picker"
+            >
+              <div className="flex items-center justify-between pb-2 mb-2.5 border-b border-white/10">
+                <span className="font-bold uppercase tracking-wider text-[10px] text-slate-300">
+                  SMA Colors
+                </span>
+                <button
+                  onClick={() => setSmaColors(DEFAULT_SMA_COLORS)}
+                  className="text-[9.5px] uppercase tracking-wider text-slate-400 hover:text-cyan-400 transition-colors"
+                  title="Reset to default theme colors"
+                  data-testid="button-sma-reset-colors"
+                >
+                  Reset
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                {SMA_META.map((m) => {
+                  const curColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key];
+                  return (
+                    <div key={m.key} className="space-y-1.5" data-testid={`sma-color-setting-${m.key}`}>
+                      <div className="flex items-center justify-between">
+                        <span className="font-bold flex items-center gap-1.5" style={{ color: curColor }}>
+                          <span className="w-2.5 h-0.5 rounded-full inline-block" style={{ backgroundColor: curColor }} />
+                          {m.label}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={curColor}
+                            onChange={(e) =>
+                              setSmaColors((prev) => ({ ...prev, [m.key]: e.target.value }))
+                            }
+                            className="sr-only"
+                            id={`sma-color-input-${m.key}`}
+                            data-testid={`input-sma-color-${m.key}`}
+                          />
+                          <label
+                            htmlFor={`sma-color-input-${m.key}`}
+                            className="h-5 w-5 rounded border border-white/20 cursor-pointer shadow-sm transition-transform hover:scale-110 active:scale-95 block"
+                            style={{ backgroundColor: curColor }}
+                            title={`Pick custom color for ${m.label}`}
+                          />
+                          <span className="text-[10px] text-slate-400 uppercase tabular-nums">
+                            {curColor}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Predefined Palette Swatches */}
+                      <div className="flex items-center gap-1 pt-0.5">
+                        {PRESET_SMA_PALETTE.map((hex) => (
+                          <button
+                            key={hex}
+                            onClick={() =>
+                              setSmaColors((prev) => ({ ...prev, [m.key]: hex }))
+                            }
+                            className={`h-4 w-4 rounded-full border transition-transform ${
+                              curColor.toLowerCase() === hex.toLowerCase()
+                                ? "border-white scale-110 ring-1 ring-white/50"
+                                : "border-transparent opacity-80 hover:opacity-100 hover:scale-105"
+                            }`}
+                            style={{ backgroundColor: hex }}
+                            title={hex}
+                            aria-label={`Set ${m.label} to ${hex}`}
+                            data-testid={`palette-${m.key}-${hex}`}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </div>
         <span className="relative inline-flex">
           <button className={`${btn(indOpen || ind.macd.on || ind.rsi.on || ind.vwap.on)} inline-flex items-center gap-1`} onClick={() => setIndOpen(!indOpen)} aria-expanded={indOpen} data-testid="button-indicators-menu">Indicators +</button>
           {indOpen && <div className="absolute left-0 top-full"><IndicatorsMenu s={ind} set={setInd} bbOn={ov.bb} onBb={(v) => setOv({ ...ov, bb: v })} intraday={intraday} onClose={() => setIndOpen(false)} /></div>}
@@ -823,14 +980,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         )}
         {smaHover?.hit && (() => {
           const m = SMA_META.find((x) => x.key === smaHover.hit)!;
+          const hitColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
           const v = smaHover.vals[m.key];
           const w = boxRef.current?.clientWidth ?? 800;
           const left = Math.min(Math.max(8, smaHover.x + 14), w - 250);
           const top = Math.max(30, smaHover.y - 70);
           return (
-            <div className="absolute z-20 w-[236px] rounded border bg-[#0b1220] px-2 py-1.5 text-[11px] shadow-lg pointer-events-none" style={{ left, top, borderColor: m.color }} role="tooltip" data-testid="tooltip-sma">
-              <div className="flex items-center gap-1.5 font-mono font-bold" style={{ color: m.color }}>
-                <span className="inline-block w-3 h-1 rounded-full" style={{ background: m.color }} /> {m.label} · {m.role}
+            <div className="absolute z-20 w-[236px] rounded border bg-[#0b1220] px-2 py-1.5 text-[11px] shadow-lg pointer-events-none" style={{ left, top, borderColor: hitColor }} role="tooltip" data-testid="tooltip-sma">
+              <div className="flex items-center gap-1.5 font-mono font-bold" style={{ color: hitColor }}>
+                <span className="inline-block w-3 h-1 rounded-full" style={{ background: hitColor }} /> {m.label} · {m.role}
               </div>
               <div className="font-mono" style={{ color: "#f1f5f9" }}>{v != null ? `$${v.toFixed(2)}` : "—"} on this {TF_LABEL[tf]} bar</div>
               <div className="leading-snug mt-0.5" style={{ color: "#cbd5e1" }}>{m.desc}</div>

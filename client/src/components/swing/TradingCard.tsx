@@ -272,8 +272,11 @@ function computeSMA(
   return result;
 }
 
-const SMA20_COLOR = "#F6C344"; // Yellow/Gold
-const SMA50_COLOR = "#22D3EE"; // Light Blue/Cyan (matches UI neon blue; #2962FF compatible)
+const DEFAULT_SPARK_SMA_COLORS = {
+  sma20: "#2563eb", // Blue
+  sma50: "#dc2626", // Dark Red
+  sma200: "#c026d3", // Magenta
+};
 
 export function SparklineChart({
   symbol,
@@ -286,6 +289,10 @@ export function SparklineChart({
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const [smaColors] = usePersistentState<Record<string, string>>("swing-chart-sma-colors", DEFAULT_SPARK_SMA_COLORS);
+
+  const sma20Color = smaColors?.sma20 || DEFAULT_SPARK_SMA_COLORS.sma20;
+  const sma50Color = smaColors?.sma50 || DEFAULT_SPARK_SMA_COLORS.sma50;
 
   const { data: barsData, isLoading } = useQuery<BarsResp>({
     queryKey: ["/api/swing/bars", symbol, "1H", "1M"],
@@ -354,11 +361,11 @@ export function SparklineChart({
           ? (chart as any).addLineSeries(opts)
           : chart.addSeries(LineSeries, opts);
 
-      // ─── SMA 20 OVERLAY (Yellow/Gold #F6C344) ───
+      // ─── SMA 20 OVERLAY ───
       const sma20Data = computeSMA(bars, 20);
       if (sma20Data.length > 0) {
         const sma20Series = addLineSeries({
-          color: "rgba(246, 195, 68, 0.85)", // Yellow/Gold #F6C344, slightly transparent
+          color: sma20Color,
           lineWidth: 1,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -367,11 +374,11 @@ export function SparklineChart({
         sma20Series.setData(sma20Data);
       }
 
-      // ─── SMA 50 OVERLAY (Light Blue/Cyan #22D3EE / #2962FF) ───
+      // ─── SMA 50 OVERLAY ───
       const sma50Data = computeSMA(bars, 50);
       if (sma50Data.length > 0) {
         const sma50Series = addLineSeries({
-          color: "rgba(34, 211, 238, 0.85)", // Light Blue/Cyan, slightly transparent
+          color: sma50Color,
           lineWidth: 1,
           priceLineVisible: false,
           lastValueVisible: false,
@@ -418,7 +425,7 @@ export function SparklineChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [barsData, entry, stop]);
+  }, [barsData, entry, stop, sma20Color, sma50Color]);
 
   return (
     <div className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5" data-testid={`sparkline-${symbol}`}>
@@ -427,12 +434,12 @@ export function SparklineChart({
         className="absolute top-1.5 left-2 z-10 flex items-center gap-2.5 pointer-events-none select-none text-[9.5px] font-mono font-bold tracking-wider"
         data-testid={`sparkline-legend-${symbol}`}
       >
-        <span className="flex items-center gap-1" style={{ color: SMA20_COLOR }}>
-          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: SMA20_COLOR }} />
+        <span className="flex items-center gap-1" style={{ color: sma20Color }}>
+          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: sma20Color }} />
           SMA 20
         </span>
-        <span className="flex items-center gap-1" style={{ color: SMA50_COLOR }}>
-          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: SMA50_COLOR }} />
+        <span className="flex items-center gap-1" style={{ color: sma50Color }}>
+          <span className="inline-block w-2.5 h-[2px] rounded-full" style={{ backgroundColor: sma50Color }} />
           SMA 50
         </span>
       </div>
