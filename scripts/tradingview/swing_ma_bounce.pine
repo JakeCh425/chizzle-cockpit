@@ -10,8 +10,7 @@ smaSlowLen  = input.int(50, title="Slow SMA Period", minval=1, group=group_ma)
 
 group_htf   = "Top-Down Timeframe Filter"
 htfPeriod   = input.timeframe("240", title="Higher Timeframe (HTF)", group=group_htf)
-enforce1H   = input.bool(true, title="Enforce 1H or Lower Execution Timeframe", group=group_htf,
-              tooltip="When enabled, signals only trigger on 1-hour charts or lower.")
+enforce1H   = input.bool(true, title="Enforce 1H or Lower Execution Timeframe", group=group_htf, tooltip="When enabled, signals only trigger on 1-hour charts or lower.")
 
 group_rr    = "2:1 Reward-to-Risk (R:R) Visualizer"
 showRR      = input.bool(true, title="Show R:R Target Lines", group=group_rr)
@@ -56,21 +55,11 @@ is_4H_Bullish = sma20_4H > sma50_4H
 is_valid_tf = not enforce1H or (timeframe.isintraday and (timeframe.isminutes ? timeframe.multiplier <= 60 : true))
 
 // Status Table in Bottom Right Corner
-var table statusTable = table.new(position=position.bottom_right, columns=2, rows=1,
-     bgcolor=color.new(#0B1220, 20), border_width=1, border_color=color.new(#22D3EE, 60))
+var table statusTable = table.new(position.bottom_right, 2, 1, color.new(#0B1220, 20), color.new(#22D3EE, 60), 1)
 
 if barstate.islast and showTable
-    // Left Cell: Header label
-    table.cell(statusTable, 0, 0, "4H Trend:",
-         text_color=color.white,
-         text_size=size.small,
-         bgcolor=color.new(#060913, 10))
-
-    // Right Cell: State status badge
-    table.cell(statusTable, 1, 0, is_4H_Bullish ? "4H: Bullish" : "4H: Bearish",
-         text_color=is_4H_Bullish ? color.green : color.red,
-         text_size=size.small,
-         bgcolor=is_4H_Bullish ? color.new(color.green, 85) : color.new(color.red, 85))
+    table.cell(statusTable, 0, 0, "4H Trend:", text_color=color.white, text_size=size.small, bgcolor=color.new(#060913, 10))
+    table.cell(statusTable, 1, 0, is_4H_Bullish ? "4H: Bullish" : "4H: Bearish", text_color=is_4H_Bullish ? color.green : color.red, text_size=size.small, bgcolor=is_4H_Bullish ? color.new(color.green, 85) : color.new(color.red, 85))
 
 // =============================================================================
 // 4. THE 1-HOUR BOUNCE ENTRY SIGNAL
@@ -84,13 +73,7 @@ if barstate.islast and showTable
 valid_bounce = is_valid_tf and is_4H_Bullish and (low <= sma20) and (close > sma20) and (close > open)
 
 // Plot highly visible bright green "up arrow" below the triggering candle
-plotshape(valid_bounce, title="20 SMA Bounce Signal",
-     style=shape.arrowup,
-     location=location.belowbar,
-     color=color.new(#00E676, 0),
-     size=size.normal,
-     text="BOUNCE",
-     textcolor=color.new(#00E676, 0))
+plotshape(valid_bounce, title="20 SMA Bounce Signal", style=shape.arrowup, location=location.belowbar, color=color.new(#00E676, 0), size=size.normal, text="BOUNCE", textcolor=color.new(#00E676, 0))
 
 // Alert Trigger: Chart alert triggered on confirmed candle close
 alert_msg = "PRACTICE SWING DAY: Confirmed 20 SMA Bounce. Verify 2:1 R:R before entry."
@@ -107,33 +90,21 @@ alertcondition(valid_bounce, title="MA Bounce Alert", message="PRACTICE SWING DA
 atrVal = ta.atr(atrLength)
 
 if valid_bounce and showRR
-    // Stop Loss: 1 ATR below the 20 SMA
-    slLevel = sma20 - (atrVal * atrMult)
-    
-    // Risk calculation based on entry at candle close
+    slLevel    = sma20 - (atrVal * atrMult)
     entryLevel = close
     riskAmount = entryLevel - slLevel
-
-    // Calculate strict 2:1 Take Profit target
-    tpLevel = entryLevel + (riskAmount * rrTarget)
-
-    xStart = bar_index
-    xEnd   = bar_index + projBars
+    tpLevel    = entryLevel + (riskAmount * rrTarget)
+    xStart     = bar_index
+    xEnd       = bar_index + projBars
 
     // Dotted Stop Loss Line (Red)
-    line.new(x1=xStart, y1=slLevel, x2=xEnd, y2=slLevel,
-         color=color.red, style=line.style_dotted, width=2)
-    label.new(x=xEnd, y=slLevel, text="SL: " + str.tostring(slLevel, "#.##") + " (-1R)",
-         color=color.new(color.red, 100), textcolor=color.red, style=label.style_label_left, size=size.small)
+    line.new(xStart, slLevel, xEnd, slLevel, color=color.red, style=line.style_dotted, width=2)
+    label.new(xEnd, slLevel, "SL: " + str.tostring(slLevel, "#.##") + " (-1R)", color=color.new(color.red, 100), textcolor=color.red, style=label.style_label_left, size=size.small)
 
     // Dotted Take Profit Line (Green)
-    line.new(x1=xStart, y1=tpLevel, x2=xEnd, y2=tpLevel,
-         color=color.green, style=line.style_dotted, width=2)
-    label.new(x=xEnd, y=tpLevel, text="TP: " + str.tostring(tpLevel, "#.##") + " (+2R)",
-         color=color.new(color.green, 100), textcolor=color.green, style=label.style_label_left, size=size.small)
+    line.new(xStart, tpLevel, xEnd, tpLevel, color=color.green, style=line.style_dotted, width=2)
+    label.new(xEnd, tpLevel, "TP: " + str.tostring(tpLevel, "#.##") + " (+2R)", color=color.new(color.green, 100), textcolor=color.green, style=label.style_label_left, size=size.small)
 
     // Dashed Entry Reference Line (Cyan)
-    line.new(x1=xStart, y1=entryLevel, x2=xEnd, y2=entryLevel,
-         color=color.new(#22D3EE, 40), style=line.style_dashed, width=1)
-    label.new(x=xEnd, y=entryLevel, text="Entry: " + str.tostring(entryLevel, "#.##"),
-         color=color.new(color.cyan, 100), textcolor=color.new(#22D3EE, 0), style=label.style_label_left, size=size.small)
+    line.new(xStart, entryLevel, xEnd, entryLevel, color=color.new(#22D3EE, 40), style=line.style_dashed, width=1)
+    label.new(xEnd, entryLevel, "Entry: " + str.tostring(entryLevel, "#.##"), color=color.new(color.cyan, 100), textcolor=color.new(#22D3EE, 0), style=label.style_label_left, size=size.small)

@@ -177,21 +177,41 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
             </thead>
             <tbody>
               {scored.map((d, i) => { const s = d.setupScore!, tone = toneOf(s); return (
-                <tr key={d.symbol} className="border-t" style={{ borderColor: "var(--ac-border)" }} data-testid={`row-priority-${d.symbol}`}>
-                  <td className="py-1.5 pr-3 font-bold whitespace-nowrap" data-testid={`text-rank-${d.symbol}`}>RANK #{i + 1} SEED</td>
-                  <td className="pr-3 font-extrabold">{d.symbol}</td>
-                  <td className="pr-3 whitespace-nowrap"><Bar v={s.score} max={100} tone={tone} /> <b style={{ color: tone }}>{s.error ? "n/a" : s.score}</b> <span className="ac-muted" style={xs}>{s.error ? s.error : scoreLabel(s.score)}</span></td>
-                  <td className="pr-3">{pts(s.trendPts, R.TREND_MAX)}</td>
-                  <td className="pr-3 whitespace-nowrap">{pts(s.volumePts, R.VOLUME_MAX)}{s.volRatio != null && <span className="ac-muted" style={xs}> {s.volRatio.toFixed(2)}×</span>}</td>
-                  <td className="pr-3 whitespace-nowrap">{pts(s.rrPts, R.RR_MAX)}{s.rr != null && <span className="ac-muted" style={xs}> {s.rr.toFixed(2)}:1</span>}</td>
-                  <td className="pr-3 min-w-[150px] leading-snug">{s.trigger ?? "—"}{s.trigger && <span className="ac-muted" style={xs}> · {s.status}</span>}</td>
-                  <td className="pr-3 whitespace-nowrap">{s.entry != null ? `${$(s.entry)} / ${$(s.stop)}` : "—"}</td>
-                  <td className="pr-3 min-w-[180px] max-w-[260px] leading-snug" style={xs} data-testid={`text-priority-status-${d.symbol}`}>{(() => {
+                <tr key={d.symbol} className="border-t border-ink-line/50 hover:bg-white/[0.02]" data-testid={`row-priority-${d.symbol}`}>
+                  <td className="py-2 pr-3 font-mono font-bold whitespace-nowrap text-cyan-400 text-xs" data-testid={`text-rank-${d.symbol}`}>RANK #{i + 1} SEED</td>
+                  <td className="pr-3 font-mono font-black text-sm text-soft-white">{d.symbol}</td>
+                  <td className="pr-3 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-black/40 px-2.5 py-0.5 shadow-sm font-mono text-[11px]">
+                      <Bar v={s.score} max={100} tone={tone} />
+                      <b style={{ color: tone }}>{s.error ? "n/a" : s.score}</b>
+                      <span className="text-slate-400 uppercase tracking-wider text-[9px]">{s.error ? s.error : scoreLabel(s.score)}</span>
+                    </span>
+                  </td>
+                  <td className="pr-3">
+                    <span className="inline-flex items-center rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 font-mono text-[10.5px] font-bold text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.15)]">
+                      {pts(s.trendPts, R.TREND_MAX)}
+                    </span>
+                  </td>
+                  <td className="pr-3 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 font-mono text-[10.5px] font-bold text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.15)]">
+                      {pts(s.volumePts, R.VOLUME_MAX)}
+                      {s.volRatio != null && <span className="text-[9.5px] text-slate-400 font-normal">({s.volRatio.toFixed(1)}×)</span>}
+                    </span>
+                  </td>
+                  <td className="pr-3 whitespace-nowrap">
+                    <span className="inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 px-2 py-0.5 font-mono text-[10.5px] font-bold text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.15)]">
+                      {pts(s.rrPts, R.RR_MAX)}
+                      {s.rr != null && <span className="text-[9.5px] text-slate-400 font-normal">({s.rr.toFixed(1)}:1)</span>}
+                    </span>
+                  </td>
+                  <td className="pr-3 min-w-[150px] leading-snug font-mono text-xs text-soft-white">{s.trigger ?? "—"}{s.trigger && <span className="text-slate-400 text-[10px]"> · {s.status}</span>}</td>
+                  <td className="pr-3 whitespace-nowrap font-mono text-xs tabular-nums text-slate-300">{s.entry != null ? `${$(s.entry)} / ${$(s.stop)}` : "—"}</td>
+                  <td className="pr-3 min-w-[180px] max-w-[260px] leading-snug font-mono" style={xs} data-testid={`text-priority-status-${d.symbol}`}>{(() => {
                     const f = freshnessOf(d, { minRrT1: settings?.minRrT1 ?? 2, expiryBars4h: settings?.expiryBars4h ?? 2 });
-                    if (f.isTradeable || !f.hasLevels && d.setupStatus === "NO_SETUP") return <span className="ac-muted">{d.setupStatus.replace(/_/g, " ").toLowerCase()}</span>;
-                    return <span className="font-semibold" style={{ color: "var(--ac-warn)" }} title={f.displayStatus}>{f.displayStatus.replace(/^NOT TRADEABLE( YET)?/, (m) => m === "NOT TRADEABLE YET" ? "Not tradeable yet" : "Not tradeable")}</span>;
+                    if (f.isTradeable || !f.hasLevels && d.setupStatus === "NO_SETUP") return <span className="text-slate-400">{d.setupStatus.replace(/_/g, " ").toLowerCase()}</span>;
+                    return <span className="font-semibold text-amber-300" title={f.displayStatus}>{f.displayStatus.replace(/^NOT TRADEABLE( YET)?/, (m) => m === "NOT TRADEABLE YET" ? "Not tradeable yet" : "Not tradeable")}</span>;
                   })()}</td>
-                  <td><button className="ac-btn !py-0.5" style={xs} onClick={() => onOpen(d.symbol)} data-testid={`button-priority-open-${d.symbol}`}><Maximize2 className="h-3.5 w-3.5" aria-hidden /> Card</button></td>
+                  <td><button className="flex items-center gap-1 rounded border border-cyan-500/30 bg-cyan-950/40 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/20 hover:border-cyan-400 transition-colors" style={xs} onClick={() => onOpen(d.symbol)} data-testid={`button-priority-open-${d.symbol}`}><Maximize2 className="h-3.5 w-3.5" aria-hidden /> Card</button></td>
                 </tr>
               ); })}
             </tbody>

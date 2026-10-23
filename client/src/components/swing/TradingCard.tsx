@@ -1470,6 +1470,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
       <div className="flex items-center gap-3">
         <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}><ChevronRight className="h-5 w-5" /></button>
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
+        <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`compact-header-price-${d.symbol}`}>{$(d.currentPrice)}</span>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
         {isCustom && (
           <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">

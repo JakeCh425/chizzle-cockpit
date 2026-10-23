@@ -49,8 +49,8 @@ export const CYBER_THEMES: CyberThemeConfig[] = [
     previewGradient: "from-[#060913] via-cyan-400 to-fuchsia-500",
     previewBorder: "border-cyan-400",
     previewGlow: "shadow-[0_0_15px_rgba(34,211,238,0.5)] border-cyan-400/80 ring-1 ring-cyan-400/50",
-    containerBg: "bg-[#060913]/90 backdrop-blur-xl",
-    containerBorder: "border-cyan-500/40 shadow-[0_0_25px_rgba(34,211,238,0.12)]",
+    containerBg: "backdrop-blur-md bg-ink-black/40",
+    containerBorder: "border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.1)]",
     accentText: "text-cyan-400",
   },
   {

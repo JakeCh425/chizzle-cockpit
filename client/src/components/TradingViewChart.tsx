@@ -156,6 +156,21 @@ const SMA_DESCRIPTIONS: Record<number, string> = {
   200: "Long-term trend reference and major institutional level.",
 };
 
+const SMA_CLASSIFICATIONS: Record<number, { classification: string; description: string }> = {
+  20: {
+    classification: "Short-term trend",
+    description: "Average close of the last 20 bars; dynamic support/resistance reference during pullbacks.",
+  },
+  50: {
+    classification: "Intermediate trend",
+    description: "Average close of the last 50 bars; primary institutional benchmark for healthy swing trends.",
+  },
+  200: {
+    classification: "Long-term trend",
+    description: "Average close of the last 200 bars; macro divide between bull and bear regimes.",
+  },
+};
+
 // Educational relationship label — no signal wording. Computed per candle.
 function smaRelationship(close: number, sma: number, prevSma: number | null): string {
   const dist = ((close - sma) / sma) * 100;
@@ -1381,37 +1396,73 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
 
       {/* Indicators panel */}
       {showIndicators && (
-        <div className="border-b border-ink-line bg-ink-deep/40 p-2" data-testid="panel-indicators">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+        <div className="border-b border-ink-line bg-ink-black/80 backdrop-blur-md p-4" data-testid="panel-indicators">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {indicators.map((ind) => (
-              <div key={ind.id} className="flex items-center gap-2 px-2 py-1 rounded border border-ink-line bg-ink-black/60">
-                <input
-                  type="checkbox"
-                  checked={ind.enabled}
-                  onChange={(e) => setIndicators((prev) => prev.map((x) => x.id === ind.id ? { ...x, enabled: e.target.checked } : x))}
-                  data-testid={`ind-toggle-${ind.id}`}
-                  className="accent-neon-blue"
-                />
-                <span className="text-[11px] font-mono text-soft-white min-w-[70px]">
-                  {ind.kind}{ind.period ? ` ${ind.period}` : ind.fast ? ` ${ind.fast}/${ind.slow}/${ind.signal}` : ""}
-                </span>
-                <input
-                  type="color"
-                  value={ind.color}
-                  onChange={(e) => setIndicators((prev) => prev.map((x) => x.id === ind.id ? { ...x, color: e.target.value } : x))}
-                  data-testid={`ind-color-${ind.id}`}
-                  className="w-5 h-5 rounded border border-ink-line bg-transparent cursor-pointer"
-                />
-                {ind.period != null && (
+              <div
+                key={ind.id}
+                className="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-white/5 p-3"
+              >
+                <div className="flex items-center gap-2.5 min-w-0">
                   <input
-                    type="number"
-                    value={ind.period}
-                    min={2}
-                    max={400}
-                    onChange={(e) => setIndicators((prev) => prev.map((x) => x.id === ind.id ? { ...x, period: parseInt(e.target.value) || 20 } : x))}
-                    className="w-12 px-1 py-0.5 text-[10px] font-mono bg-ink-black border border-ink-line rounded text-soft-white"
+                    type="checkbox"
+                    checked={ind.enabled}
+                    onChange={(e) =>
+                      setIndicators((prev) =>
+                        prev.map((x) => (x.id === ind.id ? { ...x, enabled: e.target.checked } : x))
+                      )
+                    }
+                    data-testid={`ind-toggle-${ind.id}`}
+                    className="accent-neon-blue h-4 w-4 rounded cursor-pointer shrink-0"
                   />
-                )}
+                  <span className="font-mono text-xs font-bold uppercase tracking-wider text-soft-white truncate">
+                    {ind.kind}
+                    {ind.period ? ` ${ind.period}` : ind.fast ? ` ${ind.fast}/${ind.slow}/${ind.signal}` : ""}
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  {ind.period != null && (
+                    <input
+                      type="number"
+                      value={ind.period}
+                      min={2}
+                      max={400}
+                      onChange={(e) =>
+                        setIndicators((prev) =>
+                          prev.map((x) =>
+                            x.id === ind.id ? { ...x, period: parseInt(e.target.value) || 20 } : x
+                          )
+                        )
+                      }
+                      className="w-14 px-1.5 py-0.5 text-xs font-mono bg-ink-black/80 border border-white/15 rounded text-soft-white focus:outline-none focus:border-neon-blue/60 tabular-nums"
+                      aria-label={`${ind.kind} period`}
+                    />
+                  )}
+
+                  {/* Custom Tailwind Color Swatch triggering hidden color input */}
+                  <div className="relative flex items-center">
+                    <input
+                      id={`ind-color-input-${ind.id}`}
+                      type="color"
+                      value={ind.color}
+                      onChange={(e) =>
+                        setIndicators((prev) =>
+                          prev.map((x) => (x.id === ind.id ? { ...x, color: e.target.value } : x))
+                        )
+                      }
+                      data-testid={`ind-color-${ind.id}`}
+                      className="sr-only"
+                    />
+                    <label
+                      htmlFor={`ind-color-input-${ind.id}`}
+                      className="h-6 w-6 rounded-md border border-white/20 cursor-pointer shadow-sm transition-transform hover:scale-110 active:scale-95 block"
+                      style={{ backgroundColor: ind.color, boxShadow: `0 0 10px ${ind.color}40` }}
+                      title={`Change color for ${ind.kind}`}
+                      data-testid={`ind-color-swatch-${ind.id}`}
+                    />
+                  </div>
+                </div>
               </div>
             ))}
           </div>
@@ -1540,10 +1591,11 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
           return (
             <>
               <div
-                className="absolute top-2 right-2 flex flex-col items-end gap-1 pointer-events-auto"
+                className="absolute top-2 right-2 flex flex-col items-end gap-1.5 pointer-events-auto select-none"
                 data-testid="sma-legend"
+                onMouseLeave={() => setHoveredSmaId(null)}
               >
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1.5">
                   {smas.map((ind) => {
                     const arr = smaArrays.get(ind.id) ?? sma(closes, ind.period || 20);
                     const val = arr[lastIdx];
@@ -1553,23 +1605,33 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
                       <div
                         key={ind.id}
                         onMouseEnter={() => setHoveredSmaId(ind.id)}
-                        onMouseLeave={() => setHoveredSmaId(null)}
-                        className={`flex items-center gap-1 rounded border border-ink-line bg-ink-black/85 backdrop-blur px-1.5 py-0.5 text-[9px] font-mono cursor-pointer transition-opacity ${
+                        onClick={() => setHoveredSmaId((cur) => (cur === ind.id ? null : ind.id))}
+                        className={`flex items-center gap-1.5 rounded-md border border-ink-line bg-ink-black/90 backdrop-blur-md px-2 py-1 text-[10px] font-mono cursor-pointer transition-all ${
                           isDim ? "opacity-50" : "opacity-100"
-                        } ${!ind.enabled ? "line-through opacity-40" : ""}`}
+                        } ${!ind.enabled ? "line-through opacity-40" : ""} ${
+                          isHovered ? "border-white/40 shadow-[0_0_12px_rgba(255,255,255,0.15)] scale-[1.03]" : "hover:border-white/20"
+                        }`}
                         data-testid={`sma-legend-${ind.id}`}
                       >
                         <button
-                          onClick={() => setIndicators((prev) => prev.map((x) => x.id === ind.id ? { ...x, enabled: !x.enabled } : x))}
-                          className="w-2.5 h-2.5 rounded-sm"
-                          style={{ backgroundColor: ind.color, boxShadow: isHovered ? `0 0 6px ${ind.color}` : "none" }}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setIndicators((prev) =>
+                              prev.map((x) => (x.id === ind.id ? { ...x, enabled: !x.enabled } : x))
+                            );
+                          }}
+                          className="w-2.5 h-2.5 rounded-sm transition-transform hover:scale-125"
+                          style={{
+                            backgroundColor: ind.color,
+                            boxShadow: isHovered ? `0 0 8px ${ind.color}` : "none",
+                          }}
                           data-testid={`sma-toggle-${ind.id}`}
                           title={`Toggle SMA ${ind.period}`}
                         />
-                        <span className="text-slate-gray">SMA</span>
-                        <span className="text-soft-white">{ind.period}</span>
+                        <span className="text-slate-400 font-semibold">SMA</span>
+                        <span className="text-soft-white font-bold">{ind.period}</span>
                         {ind.enabled && val != null && (
-                          <span className="text-soft-white/80 tabular-nums">{val.toFixed(2)}</span>
+                          <span className="text-soft-white/90 tabular-nums font-mono">${val.toFixed(2)}</span>
                         )}
                       </div>
                     );
@@ -1577,37 +1639,55 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
                 </div>
                 {hovered && (
                   <div
-                    className="rounded-md border border-ink-line bg-ink-black/95 backdrop-blur px-2.5 py-2 text-[10px] font-mono text-soft-white shadow-lg"
-                    style={{ maxWidth: 260 }}
+                    className="rounded-xl border bg-ink-black/95 backdrop-blur-md px-3.5 py-3 text-[10px] font-mono text-soft-white shadow-2xl transition-all"
+                    style={{
+                      maxWidth: 280,
+                      borderColor: hovered.color,
+                      boxShadow: `0 0 20px ${hovered.color}33`,
+                    }}
                     data-testid="sma-hover-popover"
+                    onMouseEnter={() => setHoveredSmaId(hovered.id)}
+                    onMouseLeave={() => setHoveredSmaId(null)}
                   >
-                    <div className="flex items-center justify-between gap-2 pb-1 border-b border-ink-line/60">
-                      <span className="font-bold" style={{ color: hovered.color }}>SMA {hovered.period}</span>
-                      <span className="text-[9px] text-slate-gray uppercase tracking-wider">{TIMEFRAMES[timeframe]?.label ?? timeframe}</span>
+                    <div className="flex items-center justify-between gap-2 pb-1.5 border-b border-white/10">
+                      <span className="font-bold text-xs" style={{ color: hovered.color }}>
+                        SMA {hovered.period} · {SMA_CLASSIFICATIONS[hovered.period || 0]?.classification ?? "Trend reference"}
+                      </span>
+                      <span className="text-[9px] text-slate-gray uppercase tracking-wider">
+                        {TIMEFRAMES[timeframe]?.label ?? timeframe}
+                      </span>
                     </div>
                     {insufficient ? (
-                      <div className="pt-1 text-slate-gray italic">Insufficient history — need {hovered.period} bars, have {bars.length}.</div>
+                      <div className="pt-2 text-slate-gray italic">
+                        Insufficient history — need {hovered.period} bars, have {bars.length}.
+                      </div>
                     ) : (
-                      <div className="pt-1 space-y-0.5">
+                      <div className="pt-2 space-y-1.5">
                         {hoveredVal != null && (
-                          <div className="flex justify-between tabular-nums">
-                            <span className="text-slate-gray">Value</span>
-                            <span>{hoveredVal.toFixed(2)}</span>
+                          <div className="flex items-baseline justify-between tabular-nums">
+                            <span className="text-slate-gray uppercase tracking-wider text-[9px]">Active Bar</span>
+                            <span className="font-bold text-soft-white text-[11px]">
+                              ${hoveredVal.toFixed(2)} on this {TIMEFRAMES[timeframe]?.label ?? timeframe} bar
+                            </span>
                           </div>
                         )}
                         {hoveredVal != null && lastClose != null && (
-                          <div className="flex justify-between tabular-nums">
-                            <span className="text-slate-gray">Dist</span>
-                            <span>{(((lastClose - hoveredVal) / hoveredVal) * 100).toFixed(2)}%</span>
+                          <div className="flex items-center justify-between tabular-nums">
+                            <span className="text-slate-gray uppercase tracking-wider text-[9px]">Distance</span>
+                            <span className="font-semibold text-soft-white">
+                              {(((lastClose - hoveredVal) / hoveredVal) * 100).toFixed(2)}%
+                            </span>
                           </div>
                         )}
                         {hoveredVal != null && lastClose != null && (
-                          <div className="pt-1 text-neon-blue">
+                          <div className="rounded border border-neon-blue/30 bg-neon-blue/10 px-2 py-1 text-center font-bold text-neon-blue">
                             {smaRelationship(lastClose, hoveredVal, hoveredPrev ?? null)}
                           </div>
                         )}
-                        <div className="pt-1 text-slate-gray/90 leading-snug">
-                          {SMA_DESCRIPTIONS[hovered.period || 0] ?? "Moving average of closing prices."}
+                        <div className="pt-1 text-slate-300 leading-snug">
+                          {SMA_CLASSIFICATIONS[hovered.period || 0]?.description ??
+                            SMA_DESCRIPTIONS[hovered.period || 0] ??
+                            "Average close of closing prices."}
                         </div>
                       </div>
                     )}
