@@ -1,0 +1,139 @@
+//@version=5
+indicator("Practice Swing MA Bounce System [4H/1H]", shorttitle="MA Bounce [4H/1H]", overlay=true, max_lines_count=500, max_labels_count=500)
+
+// =============================================================================
+// 1. INPUT PARAMETERS & USER SETTINGS
+// =============================================================================
+group_ma    = "Moving Average Settings"
+smaFastLen  = input.int(20, title="Fast SMA Period", minval=1, group=group_ma)
+smaSlowLen  = input.int(50, title="Slow SMA Period", minval=1, group=group_ma)
+
+group_htf   = "Top-Down Timeframe Filter"
+htfPeriod   = input.timeframe("240", title="Higher Timeframe (HTF)", group=group_htf)
+enforce1H   = input.bool(true, title="Enforce 1H or Lower Execution Timeframe", group=group_htf,
+              tooltip="When enabled, signals only trigger on 1-hour charts or lower.")
+
+group_rr    = "2:1 Reward-to-Risk (R:R) Visualizer"
+showRR      = input.bool(true, title="Show R:R Target Lines", group=group_rr)
+atrLength   = input.int(14, title="ATR Length for Stop Loss", minval=1, group=group_rr)
+atrMult     = input.float(1.0, title="ATR Multiplier Below 20 SMA", minval=0.1, step=0.1, group=group_rr)
+rrTarget    = input.float(2.0, title="Target Reward-to-Risk Ratio", minval=1.0, step=0.5, group=group_rr)
+projBars    = input.int(20, title="Projection Length (Bars)", minval=5, maxval=100, group=group_rr)
+
+group_ui    = "Interface & Table"
+showTable   = input.bool(true, title="Show 4H Status Table", group=group_ui)
+
+// =============================================================================
+// 2. MOVING AVERAGES & TREND CLOUD (CURRENT TIMEFRAME)
+// =============================================================================
+// Compute current timeframe 20 and 50 SMAs
+sma20 = ta.sma(close, smaFastLen)
+sma50 = ta.sma(close, smaSlowLen)
+
+// Plot moving averages
+pFast = plot(sma20, title="20 SMA", color=color.blue, linewidth=2)
+pSlow = plot(sma50, title="50 SMA", color=color.red, linewidth=2)
+
+// Trend Cloud (Green when 20 SMA > 50 SMA, Red when 20 SMA < 50 SMA)
+cloudBullishColor = color.new(color.green, 85)
+cloudBearishColor = color.new(color.red, 85)
+cloudColor        = sma20 >= sma50 ? cloudBullishColor : cloudBearishColor
+
+fill(pFast, pSlow, color=cloudColor, title="Trend Cloud (20/50 SMA)")
+
+// =============================================================================
+// 3. TOP-DOWN TIMEFRAME RULE (4-HOUR TO 1-HOUR)
+// =============================================================================
+// Pull 4H 20 SMA and 50 SMA using request.security()
+// barmerge.lookahead_off prevents future leak / historical repainting
+sma20_4H = request.security(syminfo.tickerid, htfPeriod, ta.sma(close, smaFastLen), barmerge.gaps_off, barmerge.lookahead_off)
+sma50_4H = request.security(syminfo.tickerid, htfPeriod, ta.sma(close, smaSlowLen), barmerge.gaps_off, barmerge.lookahead_off)
+
+// 4H Trend State: strictly bullish when 4H 20 SMA > 4H 50 SMA
+is_4H_Bullish = sma20_4H > sma50_4H
+
+// Timeframe compliance check: 1-hour (60 min) or lower intraday
+is_valid_tf = not enforce1H or (timeframe.isintraday and (timeframe.isminutes ? timeframe.multiplier <= 60 : true))
+
+// Status Table in Bottom Right Corner
+var table statusTable = table.new(position=position.bottom_right, columns=2, rows=1,
+     bgcolor=color.new(#0B1220, 20), border_width=1, border_color=color.new(#22D3EE, 60))
+
+if barstate.islast and showTable
+    // Left Cell: Header label
+    table.cell(statusTable, 0, 0, "4H Trend:",
+         text_color=color.white,
+         text_size=size.small,
+         bgcolor=color.new(#060913, 10))
+
+    // Right Cell: State status badge
+    table.cell(statusTable, 1, 0, is_4H_Bullish ? "4H: Bullish" : "4H: Bearish",
+         text_color=is_4H_Bullish ? color.green : color.red,
+         text_size=size.small,
+         bgcolor=is_4H_Bullish ? color.new(color.green, 85) : color.new(color.red, 85))
+
+// =============================================================================
+// 4. THE 1-HOUR BOUNCE ENTRY SIGNAL
+// =============================================================================
+// A valid bounce occurs ONLY when ALL conditions are met simultaneously:
+//   a) Current timeframe is 1H or lower (is_valid_tf)
+//   b) 4H trend is strictly bullish (is_4H_Bullish)
+//   c) Low tests or dips below 1H 20 SMA (low <= sma20)
+//   d) Close reclaims above 1H 20 SMA (close > sma20)
+//   e) Candle closes green (close > open)
+valid_bounce = is_valid_tf and is_4H_Bullish and (low <= sma20) and (close > sma20) and (close > open)
+
+// Plot highly visible bright green "up arrow" below the triggering candle
+plotshape(valid_bounce, title="20 SMA Bounce Signal",
+     style=shape.arrowup,
+     location=location.belowbar,
+     color=color.new(#00E676, 0),
+     size=size.normal,
+     text="BOUNCE",
+     textcolor=color.new(#00E676, 0))
+
+// Alert Trigger: Chart alert triggered on confirmed candle close
+alert_msg = "PRACTICE SWING DAY: Confirmed 20 SMA Bounce. Verify 2:1 R:R before entry."
+
+if valid_bounce and barstate.isconfirmed
+    alert(alert_msg, alert.freq_once_per_bar_close)
+
+// Alertcondition for standard TradingView Alert creation dialog
+alertcondition(valid_bounce, title="MA Bounce Alert", message="PRACTICE SWING DAY: Confirmed 20 SMA Bounce. Verify 2:1 R:R before entry.")
+
+// =============================================================================
+// 5. 2:1 REWARD-TO-RISK (R:R) VISUALIZER
+// =============================================================================
+atrVal = ta.atr(atrLength)
+
+if valid_bounce and showRR
+    // Stop Loss: 1 ATR below the 20 SMA
+    slLevel = sma20 - (atrVal * atrMult)
+    
+    // Risk calculation based on entry at candle close
+    entryLevel = close
+    riskAmount = entryLevel - slLevel
+
+    // Calculate strict 2:1 Take Profit target
+    tpLevel = entryLevel + (riskAmount * rrTarget)
+
+    xStart = bar_index
+    xEnd   = bar_index + projBars
+
+    // Dotted Stop Loss Line (Red)
+    line.new(x1=xStart, y1=slLevel, x2=xEnd, y2=slLevel,
+         color=color.red, style=line.style_dotted, width=2)
+    label.new(x=xEnd, y=slLevel, text="SL: " + str.tostring(slLevel, "#.##") + " (-1R)",
+         color=color.new(color.red, 100), textcolor=color.red, style=label.style_label_left, size=size.small)
+
+    // Dotted Take Profit Line (Green)
+    line.new(x1=xStart, y1=tpLevel, x2=xEnd, y2=tpLevel,
+         color=color.green, style=line.style_dotted, width=2)
+    label.new(x=xEnd, y=tpLevel, text="TP: " + str.tostring(tpLevel, "#.##") + " (+2R)",
+         color=color.new(color.green, 100), textcolor=color.green, style=label.style_label_left, size=size.small)
+
+    // Dashed Entry Reference Line (Cyan)
+    line.new(x1=xStart, y1=entryLevel, x2=xEnd, y2=entryLevel,
+         color=color.new(#22D3EE, 40), style=line.style_dashed, width=1)
+    label.new(x=xEnd, y=entryLevel, text="Entry: " + str.tostring(entryLevel, "#.##"),
+         color=color.new(color.cyan, 100), textcolor=color.new(#22D3EE, 0), style=label.style_label_left, size=size.small)
