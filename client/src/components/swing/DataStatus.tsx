@@ -6,6 +6,7 @@ import type { SwingDecision, DataStatus } from "@shared/swingDecision";
 import { dataVerifyLabel, REFERENCE_ONLY } from "@shared/swingDecision";
 import { fmtCT, swingGet } from "@/lib/swing";
 import { queryClient } from "@/lib/queryClient";
+import { useLiveQuote, type LiveQuoteStatus } from "@/lib/useLivePrices";
 
 const BAD: DataStatus[] = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
 export const isUnverified = (s: string | undefined) => !!s && (BAD as string[]).includes(s);
@@ -105,3 +106,70 @@ export function DataVerifyBlock({ d }: { d: SwingDecision }) {
 export const ReferenceOnlyTag = () => (
   <span className="px-1.5 rounded border border-yellow-500/50 text-[9.5px] font-mono text-yellow-600 dark:text-yellow-300" data-testid="tag-reference-only">{REFERENCE_ONLY}</span>
 );
+
+/**
+ * Visual indicator (green dot for 'Live' or yellow dot for 'Delayed') next to current price.
+ * Shows 'Syncing...' state when refreshing or when auto-refreshing stale data (> 1m old during market hours).
+ */
+export function DataStatusIndicator({
+  symbol,
+  liveQuote: propQuote,
+  className = "",
+}: {
+  symbol: string;
+  liveQuote?: LiveQuoteStatus;
+  className?: string;
+}) {
+  const hookQuote = useLiveQuote(symbol);
+  const q = propQuote ?? hookQuote;
+
+  if (q.isSyncing) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1 rounded-full border border-cyan-500/30 bg-cyan-950/60 px-2 py-0.5 text-[10px] font-mono text-cyan-300 shadow-sm animate-pulse select-none ${className}`}
+        data-testid={`data-status-syncing-${symbol}`}
+        title="Syncing live market data..."
+      >
+        <RefreshCw className="h-2.5 w-2.5 animate-spin text-cyan-400" />
+        Syncing…
+      </span>
+    );
+  }
+
+  if (q.isLive) {
+    return (
+      <span
+        className={`inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-950/40 px-2 py-0.5 text-[10px] font-mono text-emerald-300 shadow-sm cursor-pointer hover:bg-emerald-900/40 transition-colors select-none ${className}`}
+        data-testid={`data-status-live-${symbol}`}
+        title={`Live • Last tick ${q.ageSec != null ? `${q.ageSec}s ago` : "just now"} • Click to refresh`}
+        onClick={(e) => {
+          e.stopPropagation();
+          q.refresh();
+        }}
+      >
+        <span className="relative flex h-2 w-2">
+          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+        </span>
+        <span className="font-bold tracking-wider uppercase text-[9px]">Live</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-950/40 px-2 py-0.5 text-[10px] font-mono text-amber-300 shadow-sm cursor-pointer hover:bg-amber-900/40 transition-colors select-none ${className}`}
+      data-testid={`data-status-delayed-${symbol}`}
+      title={`Delayed (${q.ageSec ? `${q.ageSec}s old` : ">1m old"}) • Click to force refresh`}
+      onClick={(e) => {
+        e.stopPropagation();
+        q.refresh();
+      }}
+    >
+      <span className="relative flex h-2 w-2">
+        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.8)]"></span>
+      </span>
+      <span className="font-bold tracking-wider uppercase text-[9px]">Delayed</span>
+    </span>
+  );
+}

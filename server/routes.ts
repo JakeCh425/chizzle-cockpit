@@ -6,6 +6,10 @@ import path from "node:path";
 import { storage } from "./storage";
 import {
   startPricePoller,
+  setupPriceWebSocket,
+  startUpstreamWebSocket,
+  refreshSymbolOnce,
+  addPollSymbols,
   snapshot as priceSnapshot,
   getQuote,
   feedStatus,
@@ -99,6 +103,8 @@ function validateBody<S extends ZodTypeAny>(
 }
 
 export async function registerRoutes(httpServer: Server, app: Express): Promise<Server> {
+  setupPriceWebSocket(httpServer);
+  startUpstreamWebSocket();
   // ── health check (for rebuild.sh + uptime monitoring) ───────────
   app.get("/health", (_req, res) => {
     res.json({
@@ -2417,9 +2423,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   });
 
   // Manual price refresh — fetches one tick per symbol on demand.
-  app.post("/api/prices/refresh", async (_req, res) => {
+  app.post("/api/prices/refresh", async (req, res) => {
     try {
-      const { refreshAllSymbolsOnce } = await import("./priceService");
+      const sym = req.body?.symbol ? String(req.body.symbol).trim() : null;
+      if (sym) {
+        const quote = await refreshSymbolOnce(sym);
+        return res.json({ ok: true, quote });
+      }
       const n = await refreshAllSymbolsOnce();
       res.json({ ok: true, refreshed: n });
     } catch (e: any) {
@@ -2430,6 +2440,29 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // Live ticker feed: keep the price poller running so the badge goes LIVE
   // and the watchlist updates without manual refresh. Regime/setup schedulers
   // remain manual (recompute via /api/recompute-all).
+  app.post("/api/prices/refresh/:symbol", async (req, res) => {
+    try {
+      const sym = String(req.params.symbol).trim();
+      const quote = await refreshSymbolOnce(sym);
+      res.json({ ok: true, quote });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  app.post("/api/prices/subscribe", async (req, res) => {
+    try {
+      const symbols: string[] = Array.isArray(req.body?.symbols) ? req.body.symbols : req.body?.symbol ? [req.body.symbol] : [];
+      if (symbols.length) {
+        addPollSymbols(symbols);
+        for (const s of symbols) void refreshSymbolOnce(s).catch(() => {});
+      }
+      res.json({ ok: true, subscribed: symbols });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   startPricePoller();
 
   // Auto-prune archived trades older than 45 days. Runs once on boot, then

@@ -4,7 +4,7 @@ import path from "path";
 
 describe("Mini-Chart Interactions & Quick-Action Arm Trade", () => {
   const tradingCardPath = path.resolve(__dirname, "../../client/src/components/swing/TradingCard.tsx");
-  const tradingCardContent = fs.readFileSync(tradingCardPath, "utf-8");
+  const tradingCardContent = fs.readFileSync(tradingCardPath, "utf-8").replace(/\r\n/g, "\n");
 
   describe("Task 1: Fix Stuck Labels & Crosshair on the Mini-Chart", () => {
     it("imports CrosshairMode, IPriceLine, and MouseEventParams from lightweight-charts", () => {

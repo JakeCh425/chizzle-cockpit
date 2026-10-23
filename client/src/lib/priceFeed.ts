@@ -44,6 +44,15 @@ export function marketSession(now = new Date()): Session {
   return "OFF";
 }
 
+
+export function isMarketHours(now = new Date()): boolean {
+  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
+  const day = et.getDay();
+  if (day === 0 || day === 6) return false;
+  const minutes = et.getHours() * 60 + et.getMinutes();
+  return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+}
+
 export function chicagoClock(now = new Date()): string {
   return now.toLocaleTimeString("en-US", {
     timeZone: "America/Chicago",
@@ -66,6 +75,47 @@ let snapshotState: Record<string, LiveQuote> = {};
 let connState: ConnState = "CONNECTING";
 let lastEventAt = 0;
 let es: EventSource | null = null;
+let ws: WebSocket | null = null;
+const subscribedSymbols = new Set<string>();
+
+export function subscribeSymbol(symbol: string) {
+  const s = symbol.toUpperCase().split(":").pop()!;
+  if (!s || subscribedSymbols.has(s)) return;
+  subscribedSymbols.add(s);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ type: "subscribe", symbols: [s] }));
+    } catch {}
+  } else {
+    fetch(`${API_BASE}/api/prices/subscribe`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbols: [s] }),
+    }).catch(() => {});
+  }
+}
+
+export async function forceRefreshPrice(symbol?: string): Promise<boolean> {
+  const sym = symbol ? symbol.toUpperCase().split(":").pop()! : undefined;
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ type: "refresh", symbol: sym }));
+    } catch {}
+  }
+  try {
+    const res = await fetch(`${API_BASE}/api/prices/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ symbol: sym }),
+    });
+    if (res.ok) {
+      fallbackPollOnce();
+      return true;
+    }
+  } catch {}
+  return false;
+}
+
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let started = false;
@@ -103,10 +153,76 @@ function fallbackPollOnce() {
 function startFallbackPolling() {
   if (pollTimer) return;
   fallbackPollOnce();
-  pollTimer = setInterval(fallbackPollOnce, 10000);
+  pollTimer = setInterval(fallbackPollOnce, isMarketHours() ? 5000 : 10000);
 }
 function stopFallbackPolling() {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
+
+function connectWS() {
+  if (typeof window === "undefined" || typeof WebSocket === "undefined") {
+    connectWS();
+    return;
+  }
+  try {
+    const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const host = window.location.host;
+    const wsUrl = `${proto}//${host}/ws/prices`;
+
+    ws = new WebSocket(wsUrl);
+    setConn("CONNECTING");
+
+    ws.onopen = () => {
+      setConn(lastEventAt ? "LIVE" : "CONNECTING");
+      stopFallbackPolling();
+      if (subscribedSymbols.size > 0) {
+        try {
+          ws?.send(JSON.stringify({ type: "subscribe", symbols: Array.from(subscribedSymbols) }));
+        } catch {}
+      }
+    };
+
+    ws.onmessage = (ev) => {
+      try {
+        const j = JSON.parse(ev.data);
+        if (j?.type === "hello" && Array.isArray(j?.quotes)) {
+          const next: Record<string, LiveQuote> = { ...snapshotState };
+          for (const q of j.quotes as LiveQuote[]) next[q.symbol] = q;
+          if (Object.keys(next).length) {
+            lastEventAt = Date.now();
+            setSnapshot(next);
+            setConn("LIVE");
+          }
+        } else if (j?.type === "tick" && j?.quote) {
+          applyQuote(j.quote as LiveQuote);
+          setConn("LIVE");
+          stopFallbackPolling();
+        }
+      } catch {}
+    };
+
+    ws.onerror = () => {
+      setConn("DISCONNECTED");
+      if (!es) connectSSE();
+      startFallbackPolling();
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      setConn("DISCONNECTED");
+      if (!es) connectSSE();
+      startFallbackPolling();
+      if (!reconnectTimer) {
+        reconnectTimer = setTimeout(() => {
+          reconnectTimer = null;
+          connectWS();
+        }, 5000);
+      }
+    };
+  } catch {
+    connectSSE();
+  }
 }
 
 function connectSSE() {

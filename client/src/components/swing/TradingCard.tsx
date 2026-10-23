@@ -33,7 +33,8 @@ import {
 import { fmtCT, swingGet, swingSend, type BarsResp } from "@/lib/swing";
 import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEditor, selectPlanVersion } from "@/lib/plans";
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
-import { RefreshDataButton } from "./DataStatus";
+import { RefreshDataButton, DataStatusIndicator } from "./DataStatus";
+import { useLiveQuote } from "@/lib/useLivePrices";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { useCardBg } from "./CardStyle";
@@ -287,6 +288,7 @@ export function SparklineChart({
   entry: number | null;
   stop: number | null;
 }) {
+  const liveQuote = useLiveQuote(symbol);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const [smaColors] = usePersistentState<Record<string, string>>("swing-chart-sma-colors", DEFAULT_SPARK_SMA_COLORS);
@@ -538,6 +540,26 @@ export function SparklineChart({
       chartRef.current = null;
     };
   }, [barsData, entry, stop, sma20Color, sma50Color, sma20Width, sma50Width]);
+
+  // Stream live ticks into unclosed candlestick in real time
+  const lastBar = barsData?.bars?.[barsData.bars.length - 1];
+  useEffect(() => {
+    if (!liveQuote?.price || !chartRef.current || !lastBar || lastBar.closed) return;
+    try {
+      const p = liveQuote.price;
+      const seriesList = (chartRef.current as any)._paneWidgets?.[0]?.state()?._series || [];
+      const cs = seriesList[0]?._series;
+      if (cs && typeof cs.update === "function") {
+        cs.update({
+          time: lastBar.t,
+          open: lastBar.o,
+          high: Math.max(lastBar.h, p),
+          low: Math.min(lastBar.l, p),
+          close: p,
+        });
+      }
+    } catch {}
+  }, [liveQuote?.price, lastBar]);
 
   return (
     <div
@@ -1171,6 +1193,8 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
   const p = effectivePlan(d, ver);
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
+  const liveQuote = useLiveQuote(d.symbol);
+  const effectivePrice = liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz?.override;
 
@@ -1178,7 +1202,10 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
     <div className="flex flex-wrap items-center gap-3">
       {toggle && <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}>{open ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}</button>}
       <span className="text-2xl font-bold tracking-tight text-soft-white">{d.symbol}</span>
-      <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`cardheader-price-${d.symbol}`}>{$(d.currentPrice)}</span>
+      <div className="flex items-center gap-2">
+        <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
+        <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+      </div>
       <span className="text-sm font-medium text-slate-gray">{setupName(d.setupType)}{d.setupTimeframe && <span className="text-neon-blue"> · {d.setupTimeframe}</span>}</span>
       
       <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
@@ -1242,6 +1269,8 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const p = effectivePlan(d, ver);
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
+  const liveQuote = useLiveQuote(d.symbol);
+  const effectivePrice = liveQuote.price ?? d.currentPrice;
   const [detailsOpen, setDetailsOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
 
@@ -1263,22 +1292,22 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   // Visual Progress bar calculation between Entry and active T1
   let progressPct = 0;
-  if (d.currentPrice != null && activeEntry != null && targets.t1 != null && targets.t1 > activeEntry) {
-    const raw = ((d.currentPrice - activeEntry) / (targets.t1 - activeEntry)) * 100;
+  if (effectivePrice != null && activeEntry != null && targets.t1 != null && targets.t1 > activeEntry) {
+    const raw = ((effectivePrice - activeEntry) / (targets.t1 - activeEntry)) * 100;
     progressPct = Math.min(100, Math.max(0, raw));
   }
 
   // Targets surpassed
-  const t1Passed = d.currentPrice != null && targets.t1 != null && d.currentPrice >= targets.t1;
-  const t2Passed = d.currentPrice != null && targets.t2 != null && d.currentPrice >= targets.t2;
-  const t3Passed = d.currentPrice != null && targets.t3 != null && d.currentPrice >= targets.t3;
-  const t4Passed = d.currentPrice != null && targets.t4 != null && d.currentPrice >= targets.t4;
-  const t5Passed = d.currentPrice != null && targets.t5 != null && d.currentPrice >= targets.t5;
-  const t6Passed = d.currentPrice != null && targets.t6 != null && d.currentPrice >= targets.t6;
+  const t1Passed = effectivePrice != null && targets.t1 != null && effectivePrice >= targets.t1;
+  const t2Passed = effectivePrice != null && targets.t2 != null && effectivePrice >= targets.t2;
+  const t3Passed = effectivePrice != null && targets.t3 != null && effectivePrice >= targets.t3;
+  const t4Passed = effectivePrice != null && targets.t4 != null && effectivePrice >= targets.t4;
+  const t5Passed = effectivePrice != null && targets.t5 != null && effectivePrice >= targets.t5;
+  const t6Passed = effectivePrice != null && targets.t6 != null && effectivePrice >= targets.t6;
 
   // Ready to Buy subtle green glow distinction
   const isReadyToBuy = group === "READY" && f.isTradeable;
-  const isInvalidated = (activeStop != null && d.currentPrice != null && d.currentPrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
+  const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
 
   const cardBorderClass = isReadyToBuy
     ? "border-emerald-500/40 shadow-[0_0_15px_rgba(52,211,153,0.1)]"
@@ -1288,7 +1317,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   // Dynamic Historical Win Rate (reflects 75%+ when Scale-Out Mode is ON)
   const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
-  const statusSentence = beginnerStatusText(d, group, activeEntry, activeStop, targets.t1, t1Passed, t2Passed, scaleOutMode, t3Passed);
+  const statusSentence = beginnerStatusText({ ...d, currentPrice: effectivePrice }, group, activeEntry, activeStop, targets.t1, t1Passed, t2Passed, scaleOutMode, t3Passed);
 
   const handleAdjustPlan = () => {
     onSeen();
@@ -1318,9 +1347,12 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
             {d.symbol}
           </span>
-          <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`inline-header-price-${d.symbol}`}>
-            {$(d.currentPrice)}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`inline-header-price-${d.symbol}`}>
+              {$(effectivePrice)}
+            </span>
+            <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+          </div>
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
           {isCustom && (
             <span
@@ -1443,7 +1475,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
           <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
           <span className="text-slate-300">
-            Current: <strong className="text-white tabular-nums">{$(d.currentPrice)}</strong> ({progressPct.toFixed(0)}%)
+            Current: <strong className="text-white tabular-nums">{$(effectivePrice)}</strong> ({progressPct.toFixed(0)}%)
           </span>
           <span>
             {scaleOutMode ? "Target 1 (1.5R): " : "Target 1 (2.0R): "}
@@ -1703,6 +1735,8 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const live = useContext(LiveCtx);
   const p = effectivePlan(d, ver);
   const f = useFreshness()(d, ver);
+  const liveQuote = useLiveQuote(d.symbol);
+  const effectivePrice = liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz.override;
   const activeEntry = isCustom ? sz.E : p.entry;
@@ -1715,7 +1749,10 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
       <div className="flex items-center gap-3">
         <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}><ChevronRight className="h-5 w-5" /></button>
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
-        <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`compact-header-price-${d.symbol}`}>{$(d.currentPrice)}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`compact-header-price-${d.symbol}`}>{$(effectivePrice)}</span>
+          <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+        </div>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
         {isCustom && (
           <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">

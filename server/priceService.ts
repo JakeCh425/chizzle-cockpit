@@ -11,6 +11,8 @@
 import type { Response } from "express";
 import { storage } from "./storage";
 import { ProxyAgent, fetch as undiciFetch } from "undici";
+import { WebSocketServer, WebSocket } from "ws";
+import type { Server as HttpServer } from "node:http";
 
 // Node's global fetch does not honour HTTPS_PROXY. Route Finnhub calls through
 // the credential-injecting proxy that the sandbox sets via HTTPS_PROXY, using
@@ -78,8 +80,8 @@ function activeCadenceSec(now = new Date()): number {
   const day = et.getDay();
   if (day === 0 || day === 6) return 300; // weekend
   const minutes = et.getHours() * 60 + et.getMinutes();
-  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 90;  // regular session — 40 req/hr, under Tiingo 50/hr free cap
-  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 180; // pre/post
+  if (minutes >= 9 * 60 + 30 && minutes < 16 * 60) return 5;   // regular session — 5s max live polling — 40 req/hr, under Tiingo 50/hr free cap
+  if ((minutes >= 4 * 60 && minutes < 9 * 60 + 30) || (minutes >= 16 * 60 && minutes < 20 * 60)) return 10; // pre/post
   return 300; // overnight
 }
 
@@ -506,7 +508,7 @@ function simulatorQuote(symbol: string): Quote {
   };
 }
 
-// Persist tick + update DB ticker.currentPrice + broadcast over SSE
+// Persist tick + update DB ticker.currentPrice + broadcast over SSE & WebSocket
 function commitQuote(q: Quote) {
   quotes.set(q.symbol, q);
   lastPollOk.set(q.symbol, q.receivedAt);
@@ -519,16 +521,28 @@ function commitQuote(q: Quote) {
     storage.getTickerBySymbol(q.symbol).then(t => {
       if (t) return storage.updateTicker(t.id, { currentPrice: q.price });
     }).catch(() => {});
-    broadcast({ type: "tick", quote: q });
   }
+  // Broadcast tick for all symbols to both SSE and WebSocket clients
+  broadcast({ type: "tick", quote: q });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SSE plumbing
 function broadcast(payload: any) {
+  // Broadcast to SSE clients
   const data = `data: ${JSON.stringify(payload)}\n\n`;
   for (const res of sseClients) {
     try { res.write(data); } catch (e) { /* drop on error */ }
+  }
+
+  // Broadcast to WebSocket clients
+  if (wsClients.size > 0) {
+    const wsMsg = JSON.stringify(payload);
+    for (const ws of wsClients) {
+      if (ws.readyState === WebSocket.OPEN) {
+        try { ws.send(wsMsg); } catch { /* drop */ }
+      }
+    }
   }
 }
 
@@ -536,7 +550,7 @@ export function addSseClient(res: Response) {
   sseClients.add(res);
   // Send initial snapshot — public watchlist symbols only.
   try {
-    const visible = Array.from(quotes.values()).filter(q => WATCHLIST_SYMS.includes(q.symbol));
+    const visible = Array.from(quotes.values()).filter(q => q.symbol !== "VIXY");
     res.write(`event: hello\n`);
     res.write(`data: ${JSON.stringify({ quotes: visible })}\n\n`);
   } catch (e) { /* ignore */ }
@@ -594,6 +608,209 @@ async function pollOnce() {
   if (q) commitQuote(q);
   const intervalMs = Math.floor((cadenceSec * 1000) / SYMBOLS.length);
   setTimeout(pollOnce, Math.max(250, intervalMs));
+}
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// WebSocket Streaming Server & Upstream Client
+let wss: WebSocketServer | null = null;
+const wsClients = new Set<WebSocket>();
+
+export function setupPriceWebSocket(httpServer: HttpServer) {
+  if (wss) return wss;
+  wss = new WebSocketServer({ noServer: true });
+
+  httpServer.on("upgrade", (request, socket, head) => {
+    const pathname = request.url ? new URL(request.url, "http://localhost").pathname : "";
+    if (pathname === "/ws/prices" || pathname === "/api/prices/ws") {
+      wss!.handleUpgrade(request, socket, head, (ws) => {
+        wss!.emit("connection", ws, request);
+      });
+    }
+  });
+
+  wss.on("connection", (ws: WebSocket) => {
+    wsClients.add(ws);
+
+    try {
+      const visible = Array.from(quotes.values()).filter(q => q.symbol !== "VIXY");
+      ws.send(JSON.stringify({ type: "hello", quotes: visible, ts: Date.now() }));
+    } catch { /* ignore */ }
+
+    ws.on("message", async (msg: string | Buffer) => {
+      try {
+        const data = JSON.parse(msg.toString());
+        if (data.type === "subscribe" && Array.isArray(data.symbols)) {
+          addPollSymbols(data.symbols);
+          subscribeUpstreamSymbols(data.symbols);
+          for (const s of data.symbols) {
+            void refreshSymbolOnce(s).catch(() => {});
+          }
+        } else if (data.type === "refresh") {
+          if (data.symbol) {
+            void refreshSymbolOnce(data.symbol).catch(() => {});
+          } else {
+            void refreshAllSymbolsOnce().catch(() => {});
+          }
+        } else if (data.type === "ping") {
+          ws.send(JSON.stringify({ type: "pong", ts: Date.now() }));
+        }
+      } catch {}
+    });
+
+    ws.on("close", () => {
+      wsClients.delete(ws);
+    });
+
+    ws.on("error", () => {
+      wsClients.delete(ws);
+    });
+  });
+
+  return wss;
+}
+
+let upstreamWs: WebSocket | null = null;
+let upstreamReconnectTimer: NodeJS.Timeout | null = null;
+
+export function subscribeUpstreamSymbols(syms: string[]) {
+  if (!upstreamWs || upstreamWs.readyState !== WebSocket.OPEN) return;
+  const token = FINNHUB_TOKEN;
+  if (token) {
+    for (const s of syms) {
+      if (s === "VIXY") continue;
+      try {
+        upstreamWs.send(JSON.stringify({ type: "subscribe", symbol: s }));
+      } catch {}
+    }
+  } else if (process.env.POLYGON_API_KEY) {
+    try {
+      upstreamWs.send(JSON.stringify({ action: "subscribe", params: syms.filter(s => s !== "VIXY").map(s => `T.${s}`).join(",") }));
+    } catch {}
+
+  }
+}
+
+export function startUpstreamWebSocket() {
+  const finnhubToken = FINNHUB_TOKEN;
+  const polygonKey = process.env.POLYGON_API_KEY;
+
+
+  if (upstreamWs || upstreamReconnectTimer) return;
+
+  if (finnhubToken) {
+    try {
+      const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubToken}`);
+      upstreamWs = ws;
+
+      ws.on("open", () => {
+        console.log(`[priceService] Finnhub live WebSocket connected. Subscribing to ${SYMBOLS.length} symbols.`);
+        subscribeUpstreamSymbols(SYMBOLS);
+      });
+
+      ws.on("message", (raw: string | Buffer) => {
+        try {
+          const msg = JSON.parse(raw.toString());
+          if (msg.type === "trade" && Array.isArray(msg.data)) {
+            for (const t of msg.data) {
+              const sym = String(t.s).toUpperCase();
+              const price = Number(t.p);
+              if (!sym || !Number.isFinite(price) || price <= 0) continue;
+              const prev = quotes.get(sym)?.prevClose ?? price;
+              const q: Quote = {
+                symbol: sym,
+                price,
+                prevClose: prev,
+                change: prev > 0 ? price - prev : 0,
+                changePct: prev > 0 ? ((price - prev) / prev) * 100 : 0,
+                high: Math.max(price, quotes.get(sym)?.high ?? price),
+                low: Math.min(price, quotes.get(sym)?.low ?? price),
+                open: quotes.get(sym)?.open ?? price,
+                ts: t.t ? Math.floor(t.t / 1000) : Math.floor(Date.now() / 1000),
+                receivedAt: Date.now(),
+                source: "FINNHUB",
+              };
+              commitQuote(q);
+            }
+          }
+        } catch {}
+      });
+
+      ws.on("close", () => {
+        upstreamWs = null;
+        upstreamReconnectTimer = setTimeout(() => {
+          upstreamReconnectTimer = null;
+          startUpstreamWebSocket();
+        }, 10_000);
+      });
+
+      ws.on("error", (e) => {
+        console.warn("[priceService] Finnhub WebSocket error:", e?.message || e);
+        try { ws.close(); } catch {}
+      });
+    } catch (e: any) {
+      console.warn("[priceService] Failed to initialize Finnhub WebSocket:", e?.message || e);
+    }
+  } else if (polygonKey) {
+    try {
+      const ws = new WebSocket("wss://socket.polygon.io/stocks");
+      upstreamWs = ws;
+      ws.on("open", () => {
+        ws.send(JSON.stringify({ action: "auth", params: polygonKey }));
+      });
+      ws.on("message", (raw: string | Buffer) => {
+        try {
+          const arr = JSON.parse(raw.toString());
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.ev === "status" && item.status === "auth_success") {
+                subscribeUpstreamSymbols(SYMBOLS);
+              } else if (item.ev === "T") {
+                const sym = String(item.sym).toUpperCase();
+                const price = Number(item.p);
+                if (sym && Number.isFinite(price) && price > 0) {
+                  const prev = quotes.get(sym)?.prevClose ?? price;
+                  commitQuote({
+                    symbol: sym,
+                    price,
+                    prevClose: prev,
+                    change: price - prev,
+                    changePct: prev > 0 ? ((price - prev) / prev) * 100 : 0,
+                    high: Math.max(price, quotes.get(sym)?.high ?? price),
+                    low: Math.min(price, quotes.get(sym)?.low ?? price),
+                    open: quotes.get(sym)?.open ?? price,
+                    ts: item.t ? Math.floor(item.t / 1000) : Math.floor(Date.now() / 1000),
+                    receivedAt: Date.now(),
+                    source: "POLYGON" as any,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+      });
+      ws.on("close", () => {
+        upstreamWs = null;
+        upstreamReconnectTimer = setTimeout(() => {
+          upstreamReconnectTimer = null;
+          startUpstreamWebSocket();
+        }, 10_000);
+      });
+      ws.on("error", () => { try { ws.close(); } catch {} });
+    } catch {}
+  }
+}
+
+export async function refreshSymbolOnce(symbol: string): Promise<Quote | null> {
+  const sym = symbol.toUpperCase().split(":").pop()!;
+  addPollSymbols([sym]);
+  const q = await fetchQuote(sym);
+  if (q) {
+    commitQuote(q);
+    return q;
+  }
+  return quotes.get(sym) ?? null;
 }
 
 // Force-refresh every symbol once (for the manual refresh endpoint).
