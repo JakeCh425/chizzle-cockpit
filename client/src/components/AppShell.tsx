@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useQuery } from "@tanstack/react-query";

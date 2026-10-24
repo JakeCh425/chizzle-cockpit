@@ -293,10 +293,11 @@ export interface ChartProps {
 }
 
 export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) {
+  const item = activeItem || DEFAULT_WATCHLIST[0];
   // Dynamically compute candlestick series scaled to the active symbol
   const candles = useMemo(() => {
-    const p = activeItem.price;
-    const rng = activeItem.atr * 1.5;
+    const p = item?.price ?? 100;
+    const rng = (item?.atr ?? 5) * 1.5;
     const basePrices = [
       p - rng * 0.9, p - rng * 0.7, p - rng * 0.8, p - rng * 0.5,
       p - rng * 0.6, p - rng * 0.3, p - rng * 0.4, p - rng * 0.1,
@@ -312,10 +313,12 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
       const x = 50 + i * 40;
       return { x, o: open, c: close, h: high, l: low };
     });
-  }, [activeItem.price, activeItem.atr]);
+  }, [item?.price, item?.atr]);
 
-  const minPrice = Math.min(activeItem.stopLoss * 0.98, ...candles.map((c) => c.l));
-  const maxPrice = Math.max(activeItem.primaryTarget * 1.02, ...candles.map((c) => c.h));
+  const stopVal = item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
+  const targetVal = item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
+  const minPrice = Math.min(stopVal * 0.98, ...candles.map((c) => c.l));
+  const maxPrice = Math.max(targetVal * 1.02, ...candles.map((c) => c.h));
   const priceRange = maxPrice - minPrice || 1;
   const priceToY = (price: number) => 350 - ((price - minPrice) / priceRange) * 290;
 
@@ -351,7 +354,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
             <span className="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]" />
             <span className="text-blue-400 font-bold">20-SMA:</span>
             <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-              ${(activeItem.price * 0.985).toFixed(2)}
+              ${((item?.price ?? 100) * 0.985).toFixed(2)}
             </span>
           </div>
 
@@ -360,7 +363,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
             <span className="h-2 w-2 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
             <span className="text-red-400 font-bold">50-SMA:</span>
             <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-              ${(activeItem.price * 0.952).toFixed(2)}
+              ${((item?.price ?? 100) * 0.952).toFixed(2)}
             </span>
           </div>
 
@@ -369,7 +372,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
             <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.8)]" />
             <span className="text-fuchsia-400 font-bold">200-SMA:</span>
             <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-              ${(activeItem.price * 0.890).toFixed(2)}
+              ${((item?.price ?? 100) * 0.890).toFixed(2)}
             </span>
           </div>
         </div>
@@ -395,7 +398,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
 
           {/* 200-SMA Curve (Magenta) */}
           <path
-            d={`M 20 ${priceToY(activeItem.price * 0.89)} Q 200 ${priceToY(activeItem.price * 0.90)} 400 ${priceToY(activeItem.price * 0.91)} T 780 ${priceToY(activeItem.price * 0.92)}`}
+            d={`M 20 ${priceToY((item?.price ?? 100) * 0.89)} Q 200 ${priceToY((item?.price ?? 100) * 0.90)} 400 ${priceToY((item?.price ?? 100) * 0.91)} T 780 ${priceToY((item?.price ?? 100) * 0.92)}`}
             fill="none"
             stroke="#C026D3"
             strokeWidth="2.2"
@@ -404,7 +407,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
 
           {/* 50-SMA Curve (Red) */}
           <path
-            d={`M 20 ${priceToY(activeItem.price * 0.94)} Q 220 ${priceToY(activeItem.price * 0.95)} 420 ${priceToY(activeItem.price * 0.96)} T 780 ${priceToY(activeItem.price * 0.97)}`}
+            d={`M 20 ${priceToY((item?.price ?? 100) * 0.94)} Q 220 ${priceToY((item?.price ?? 100) * 0.95)} 420 ${priceToY((item?.price ?? 100) * 0.96)} T 780 ${priceToY((item?.price ?? 100) * 0.97)}`}
             fill="none"
             stroke="#DC2626"
             strokeWidth="2.2"
@@ -413,7 +416,7 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
 
           {/* 20-SMA Curve (Blue/Cyan) */}
           <path
-            d={`M 20 ${priceToY(activeItem.price * 0.97)} Q 240 ${priceToY(activeItem.price * 0.98)} 440 ${priceToY(activeItem.price * 0.985)} T 780 ${priceToY(activeItem.price * 0.99)}`}
+            d={`M 20 ${priceToY((item?.price ?? 100) * 0.97)} Q 240 ${priceToY((item?.price ?? 100) * 0.98)} 440 ${priceToY((item?.price ?? 100) * 0.985)} T 780 ${priceToY((item?.price ?? 100) * 0.99)}`}
             fill="none"
             stroke="#2563EB"
             strokeWidth="2.5"
@@ -422,21 +425,21 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
 
           {/* Target Levels Overlays */}
           {/* Buy Target Line */}
-          <line x1="40" y1={priceToY(activeItem.buyTarget)} x2="780" y2={priceToY(activeItem.buyTarget)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(activeItem.buyTarget) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            BUY: ${activeItem.buyTarget.toFixed(2)}
+          <line x1="40" y1={priceToY(item?.buyTarget ?? 100)} x2="780" y2={priceToY(item?.buyTarget ?? 100)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(item?.buyTarget ?? 100) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            BUY: ${(item?.buyTarget ?? 100).toFixed(2)}
           </text>
 
           {/* Stop Loss Line */}
-          <line x1="40" y1={priceToY(activeItem.stopLoss)} x2="780" y2={priceToY(activeItem.stopLoss)} stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(activeItem.stopLoss) + 14} fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            STOP: ${activeItem.stopLoss.toFixed(2)}
+          <line x1="40" y1={priceToY(item?.stopLoss ?? 95)} x2="780" y2={priceToY(item?.stopLoss ?? 95)} stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(item?.stopLoss ?? 95) + 14} fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            STOP: ${(item?.stopLoss ?? 95).toFixed(2)}
           </text>
 
           {/* Primary Target Line */}
-          <line x1="40" y1={priceToY(activeItem.primaryTarget)} x2="780" y2={priceToY(activeItem.primaryTarget)} stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(activeItem.primaryTarget) - 5} fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            T1: ${activeItem.primaryTarget.toFixed(2)}
+          <line x1="40" y1={priceToY(item?.primaryTarget ?? 110)} x2="780" y2={priceToY(item?.primaryTarget ?? 110)} stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(item?.primaryTarget ?? 110) - 5} fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            T1: ${(item?.primaryTarget ?? 110).toFixed(2)}
           </text>
 
           {/* Dynamic Candlestick Series */}

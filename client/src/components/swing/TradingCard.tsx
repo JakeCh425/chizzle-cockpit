@@ -1130,6 +1130,7 @@ export function ExtensionLine({ d }: { d: SwingDecision }) {
 
 function CardActions({ d, group, ver, inDialog, onOpen, onAdjust, onAdjustInPlace, sizedShares = null }: any) {
   const { toast } = useToast();
+  const live = useContext(LiveCtx);
   const journal = useMutation({
     mutationFn: () => addJournalEntry({ action: "PRACTICE_TRADE", symbol: d.symbol, notes: "Saved from trading card", levels: levelsOf(effectivePlan(d, ver)), snapshot: snapshotOf(d) }),
     onSuccess: (r) => toast({ title: `Saved to practice journal — ${d.symbol}` }),
