@@ -138,7 +138,7 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
       {scored.slice(0, 3).map((d, i) => (
         <span
           key={d.symbol}
-          className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-950/60 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)] backdrop-blur-sm"
+          className="inline-flex items-center gap-1.5 rounded-full border border-cyan-500/40 bg-cyan-950/60 px-2.5 py-0.5 font-mono text-[10px] font-semibold text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.2)] backdrop-blur-sm cursor-pointer hover:scale-105 transition-transform" onClick={() => onOpen(d.symbol)}
           data-testid={`chip-priority-${d.symbol}`}
         >
           <span className="font-bold text-slate-400">#{i + 1}</span>
@@ -177,7 +177,7 @@ export function PriorityBoard({ rows, settings, onOpen }: { rows: SwingDecision[
             </thead>
             <tbody>
               {scored.map((d, i) => { const s = d.setupScore!, tone = toneOf(s); return (
-                <tr key={d.symbol} className="border-t border-ink-line/50 hover:bg-white/[0.02]" data-testid={`row-priority-${d.symbol}`}>
+                <tr key={d.symbol} className="border-t border-ink-line/50 hover:bg-white/[0.04] cursor-pointer transition-colors" onClick={() => onOpen(d.symbol)} data-testid={`row-priority-${d.symbol}`}>
                   <td className="py-2 pr-3 font-mono font-bold whitespace-nowrap text-cyan-400 text-xs" data-testid={`text-rank-${d.symbol}`}>RANK #{i + 1} SEED</td>
                   <td className="pr-3 font-mono font-black text-sm text-soft-white">{d.symbol}</td>
                   <td className="pr-3 whitespace-nowrap">

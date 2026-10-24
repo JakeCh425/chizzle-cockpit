@@ -1,3 +1,4 @@
+import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 // ─── Trading Card (v2 Overhaul) ────────────────────────────────────────────
 // The Action Center's stat-card view of one engine decision.
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
@@ -1338,7 +1339,16 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border shadow-md ${cardBorderClass}`}
+      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border shadow-md ${cardBorderClass} cursor-pointer`}
+      onClick={(e) => {
+        if ((e.target as HTMLElement).closest("button, a, input, select, textarea, details, [role='button'], [data-prevent-modal='true']")) {
+          return;
+        }
+        if (props.onOpen) {
+          props.onSeen?.();
+          props.onOpen();
+        }
+      }}
       data-testid={`trading-card-${d.symbol}`}
     >
       <ReadyRibbon d={d} ver={ver} />
@@ -1783,18 +1793,45 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
 export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Omit<CardProps, "inDialog" | "onOpen" | "onAdjust"> & { open: boolean; onClose: () => void; mode: "view" | "adjust"; setMode: (m: "view" | "adjust") => void; }) {
   const { d } = props;
   const sz = useCardSizing(d, props.ver);
+  const p = effectivePlan(d, props.ver);
+  const entryVal = sz.override && sz.E != null ? sz.E : p.entry;
+  const stopVal = sz.override && sz.S != null ? sz.S : p.stop;
+  const target1Val = sz.override && sz.activeT1 != null ? sz.activeT1 : p.t1;
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl overflow-y-auto rounded-xl border border-ink-line/50 bg-ink-black/80 backdrop-blur-md p-0 shadow-2xl">
+      <DialogContent className="max-h-[92vh] w-[95vw] max-w-5xl overflow-y-auto rounded-2xl border border-slate-800 bg-slate-950/95 backdrop-blur-xl p-0 shadow-2xl z-50">
         <div className="flex flex-col">
           <ReadyRibbon d={d} ver={props.ver} />
-          <div className="flex flex-col gap-4 border-b border-ink-line/50 p-6">
-            <DialogTitle className="sr-only">Trading Card — {d.symbol}</DialogTitle>
+          <div className="flex flex-col gap-4 border-b border-slate-800 p-6">
+            <div className="flex items-center justify-between pr-8">
+              <DialogTitle className="font-mono text-xl font-black text-soft-white tracking-wide flex items-center gap-2.5">
+                <span>{d.symbol}</span>
+                <span className="text-xs font-mono font-bold px-2.5 py-0.5 rounded-full border border-cyan-500/40 bg-cyan-950/50 text-cyan-300">
+                  {d.setupType}
+                </span>
+              </DialogTitle>
+            </div>
             <CardHeader d={d} group={props.group} ver={props.ver} sz={sz} />
             <CriticalWarnings d={d} ver={props.ver} />
             <LockedNotice symbol={d.symbol} />
           </div>
-          {mode === "adjust" && canEditPlan(d) ? <AdjustPlan {...props} onDone={() => setMode("view")} /> : <TradingCardBody {...props} inDialog sz={sz} onAdjust={canEditPlan(d) ? () => setMode("adjust") : undefined} />}
+          {mode === "adjust" && canEditPlan(d) ? (
+            <AdjustPlan {...props} onDone={() => setMode("view")} />
+          ) : (
+            <TradingCardBody {...props} inDialog sz={sz} onAdjust={canEditPlan(d) ? () => setMode("adjust") : undefined} />
+          )}
+
+          {/* Broker Execution Guide Accordion directly inside expanded modal */}
+          <div className="p-5 sm:p-6 border-t border-slate-800 bg-slate-900/40">
+            <BrokerExecutionSteps
+              symbol={d.symbol}
+              entry={entryVal}
+              stop={stopVal}
+              target1={target1Val}
+              defaultOpen={true}
+            />
+          </div>
         </div>
       </DialogContent>
     </Dialog>
@@ -1938,3 +1975,5 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
   );
 }
 
+
+export { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";

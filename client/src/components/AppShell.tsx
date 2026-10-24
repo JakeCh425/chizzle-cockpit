@@ -26,23 +26,21 @@ const NAV = [
   { href: "/journal", label: "Journal", icon: BookText },
   { href: "/leap", label: "LEAP Ladder", icon: Layers },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/signals", label: "Signal History", icon: Activity },
-  { href: "/spec", label: "Spec Review", icon: FileText },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
-function CandlestickIcon({ color = "#22C55E" }: { color?: string }) {
+function CandlestickIcon({ color = "#22C55E", className = "h-7 md:h-8 w-3.5 md:w-4 inline-block mx-1.5 align-middle drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]" }: { color?: string; className?: string }) {
   return (
     <svg
       viewBox="0 0 10 24"
-      className="h-5 w-2.5 inline-block mx-0.5 align-middle"
+      className={className}
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Bullish Candlestick"
     >
-      <line x1="5" y1="1" x2="5" y2="6" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
-      <rect x="2" y="6" width="6" height="11" rx="0.75" fill={color} stroke={color} strokeWidth="0.5" />
-      <line x1="5" y1="17" x2="5" y2="23" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="1" x2="5" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round" />
+      <rect x="2" y="6" width="6" height="11" rx="0.75" fill={color} stroke={color} strokeWidth="0.75" />
+      <line x1="5" y1="17" x2="5" y2="23" stroke={color} strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -51,12 +49,12 @@ function CandlestickIcon({ color = "#22C55E" }: { color?: string }) {
 // Renders the brand name with the bullish green candlestick SVG logo.
 function BrandMark({ settings }: { settings?: Settings }) {
   return (
-    <Link href="/" className="flex items-center gap-2 md:gap-3 min-w-0 cursor-pointer" data-testid="dashboard-brand-logo" aria-label="CHIZZLE WEALTH ENGINE">
-      <div className="flex items-center tracking-tight font-extrabold font-mono text-base md:text-lg text-soft-white">
+    <Link href="/" className="flex items-center gap-3 min-w-0 cursor-pointer select-none" data-testid="dashboard-brand-logo" aria-label="CHIZZLE WEALTH ENGINE">
+      <div className="flex items-center tracking-tight font-black font-mono text-2xl md:text-3xl text-soft-white drop-shadow-sm">
         <span>CH</span>
         <CandlestickIcon color="#22C55E" />
         <span>ZZLE</span>
-        <span className="text-[10px] md:text-xs uppercase tracking-[0.22em] font-semibold ml-2.5 px-2 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
+        <span className="text-[11px] md:text-xs uppercase tracking-[0.22em] font-extrabold ml-3 px-2.5 py-1 rounded-md border border-cyan-400/50 bg-cyan-500/15 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.2)]">
           WEALTH ENGINE
         </span>
       </div>
@@ -66,8 +64,45 @@ function BrandMark({ settings }: { settings?: Settings }) {
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("chizzle-sidebar-width");
+      if (saved) return Math.min(420, Math.max(180, Number(saved)));
+    }
+    return 260;
+  });
+  const isDraggingRef = useRef(false);
   const [location] = useLocation();
   const [now, setNow] = useState(new Date());
+
+  useEffect(() => {
+    const onMouseMove = (e: MouseEvent) => {
+      if (!isDraggingRef.current) return;
+      const next = Math.min(420, Math.max(180, e.clientX));
+      setSidebarWidth(next);
+      localStorage.setItem("chizzle-sidebar-width", String(next));
+    };
+    const onMouseUp = () => {
+      if (isDraggingRef.current) {
+        isDraggingRef.current = false;
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+      }
+    };
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+    return () => {
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+  }, []);
+
+  const startDrag = (e: React.MouseEvent) => {
+    e.preventDefault();
+    isDraggingRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  };
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000);
@@ -178,9 +213,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </header>
 
       <div className="flex-1 flex min-w-0">
-        {/* Sidebar */}
-        <aside className={`hidden md:flex flex-col ${collapsed ? "w-14" : "w-52"} border-r border-slate-800 bg-slate-900/80 transition-all duration-200 flex-shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto`}>
-          <nav className="flex-1 py-4 px-2 space-y-1">
+        {/* Sidebar (with adjustable drag-handle) */}
+        <aside
+          style={{ width: collapsed ? 56 : sidebarWidth }}
+          className="hidden md:flex flex-col relative border-r border-slate-800 bg-slate-900/90 flex-shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto select-none"
+        >
+          <nav className="flex-1 py-5 px-3 space-y-1.5">
             {NAV.map(item => {
               const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));
               const Icon = item.icon;
@@ -189,24 +227,37 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   data-testid={`link-${item.label.toLowerCase().replace(/\s/g, "-")}`}
-                  className={`flex items-center gap-3 px-2.5 py-2 rounded-sm text-[13px] font-display tracking-wide uppercase transition-colors cursor-pointer
+                  className={`flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-lg font-display tracking-wide uppercase transition-colors cursor-pointer
                     ${active
-                      ? "bg-neon-blue/10 text-neon-blue border-l-2 border-neon-blue pl-2"
-                      : "text-slate-gray hover:text-soft-white hover:bg-slate-800/50"}`}
+                      ? "bg-neon-blue/15 text-neon-blue border-l-4 border-neon-blue pl-2.5 font-bold shadow-sm"
+                      : "text-slate-400 hover:text-soft-white hover:bg-slate-800/60 font-medium"}`}
                 >
-                  <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
-                  {!collapsed && <span>{labelFor(item.href, item.label)}</span>}
+                  <Icon className="w-5 h-5 flex-shrink-0" strokeWidth={2} />
+                  {!collapsed && <span className="text-lg font-display truncate">{labelFor(item.href, item.label)}</span>}
                 </Link>
               );
             })}
           </nav>
+
+          {/* Drag Handle to manually widen/narrow sidebar */}
+          {!collapsed && (
+            <div
+              onMouseDown={startDrag}
+              className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-cyan-500/50 active:bg-cyan-400 transition-colors z-20 group flex items-center justify-center"
+              title="Drag to resize sidebar width"
+              data-testid="sidebar-resize-handle"
+            >
+              <div className="w-0.5 h-10 bg-slate-700 group-hover:bg-cyan-400 rounded-full transition-colors" />
+            </div>
+          )}
+
           <button
             onClick={() => setCollapsed(c => !c)}
             data-testid="button-collapse-sidebar"
-            className="border-t border-slate-800 py-2 px-3 flex items-center gap-2 text-slate-gray hover:text-soft-white text-[11px] font-mono"
+            className="border-t border-slate-800 py-3 px-4 flex items-center gap-2 text-slate-400 hover:text-soft-white text-xs font-mono tracking-wider uppercase"
           >
-            {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
-            {!collapsed && <span>collapse</span>}
+            {collapsed ? <ChevronRight className="w-5 h-5" /> : <ChevronLeft className="w-5 h-5" />}
+            {!collapsed && <span>collapse sidebar</span>}
           </button>
         </aside>
 

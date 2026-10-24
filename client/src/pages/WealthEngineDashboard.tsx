@@ -1,3 +1,4 @@
+import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo } from "react";
 import { Link } from "wouter";
 import {
@@ -98,17 +99,17 @@ function CandlestickIcon({ color = "#22C55E" }: { color?: string }) {
   return (
     <svg
       viewBox="0 0 10 24"
-      className="h-5 w-2.5 inline-block mx-0.5 align-middle"
+      className="h-7 md:h-8 w-3.5 md:w-4 inline-block mx-1 align-middle drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
       aria-label="Bullish Candlestick"
     >
       {/* Upper wick */}
-      <line x1="5" y1="1" x2="5" y2="6" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="1" x2="5" y2="6" stroke={color} strokeWidth="2" strokeLinecap="round" />
       {/* Candlestick body */}
-      <rect x="2" y="6" width="6" height="11" rx="0.75" fill={color} stroke={color} strokeWidth="0.5" />
+      <rect x="2" y="6" width="6" height="11" rx="0.75" fill={color} stroke={color} strokeWidth="0.75" />
       {/* Lower wick */}
-      <line x1="5" y1="17" x2="5" y2="23" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <line x1="5" y1="17" x2="5" y2="23" stroke={color} strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
@@ -283,6 +284,191 @@ const DEFAULT_WATCHLIST: WatchlistItem[] = [
 ];
 
 // ============================================================================
+// LIVE TRADING CHART COMPONENT (Bound directly to activeTicker symbol)
+// ============================================================================
+export interface ChartProps {
+  symbol: string;
+  timeframe: string;
+  activeItem: WatchlistItem;
+}
+
+export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) {
+  // Dynamically compute candlestick series scaled to the active symbol
+  const candles = useMemo(() => {
+    const p = activeItem.price;
+    const rng = activeItem.atr * 1.5;
+    const basePrices = [
+      p - rng * 0.9, p - rng * 0.7, p - rng * 0.8, p - rng * 0.5,
+      p - rng * 0.6, p - rng * 0.3, p - rng * 0.4, p - rng * 0.1,
+      p - rng * 0.2, p + rng * 0.1, p - rng * 0.05, p + rng * 0.2,
+      p + rng * 0.1, p + rng * 0.4, p + rng * 0.25, p + rng * 0.5,
+      p + rng * 0.35, p
+    ];
+    return basePrices.map((close, i) => {
+      const prevClose = i > 0 ? basePrices[i - 1] : close - rng * 0.1;
+      const open = prevClose;
+      const high = Math.max(open, close) + rng * 0.15;
+      const low = Math.min(open, close) - rng * 0.15;
+      const x = 50 + i * 40;
+      return { x, o: open, c: close, h: high, l: low };
+    });
+  }, [activeItem.price, activeItem.atr]);
+
+  const minPrice = Math.min(activeItem.stopLoss * 0.98, ...candles.map((c) => c.l));
+  const maxPrice = Math.max(activeItem.primaryTarget * 1.02, ...candles.map((c) => c.h));
+  const priceRange = maxPrice - minPrice || 1;
+  const priceToY = (price: number) => 350 - ((price - minPrice) / priceRange) * 290;
+
+  return (
+    <div
+      className="w-full h-full flex-1 min-h-0 rounded-xl border flex flex-col relative overflow-hidden shadow-2xl"
+      style={{
+        backgroundColor: "var(--bg-panel)",
+        borderColor: "var(--border-subtle)",
+      }}
+      data-testid="chart-placeholder-area"
+    >
+      {/* Chart Header Bar: Overlay SMA Labels */}
+      <div
+        className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10 select-none"
+        style={{
+          backgroundColor: "var(--bg-panel-subtle)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        {/* Active Ticker Context */}
+        <div className="flex items-center gap-3 font-mono">
+          <span className="font-bold text-base tracking-wide" style={{ color: "var(--text-primary)" }}>
+            {symbol}
+          </span>
+          <span className="text-xs text-slate-400">· {timeframe} Live Candlestick Feed</span>
+        </div>
+
+        {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA */}
+        <div className="flex items-center gap-3 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
+          {/* 20-SMA */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/30">
+            <span className="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]" />
+            <span className="text-blue-400 font-bold">20-SMA:</span>
+            <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+              ${(activeItem.price * 0.985).toFixed(2)}
+            </span>
+          </div>
+
+          {/* 50-SMA */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/10 border border-red-500/30">
+            <span className="h-2 w-2 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
+            <span className="text-red-400 font-bold">50-SMA:</span>
+            <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+              ${(activeItem.price * 0.952).toFixed(2)}
+            </span>
+          </div>
+
+          {/* 200-SMA */}
+          <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-fuchsia-500/10 border border-fuchsia-500/30">
+            <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.8)]" />
+            <span className="text-fuchsia-400 font-bold">200-SMA:</span>
+            <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+              ${(activeItem.price * 0.890).toFixed(2)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Interactive Candlestick Chart Visualization */}
+      <div className="flex-1 min-h-0 relative flex items-center justify-center p-2">
+        <svg className="w-full h-full select-none" viewBox="0 0 800 420" preserveAspectRatio="none">
+          <defs>
+            <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity="0.0" />
+            </linearGradient>
+          </defs>
+
+          {/* Background Grid Lines */}
+          {[80, 160, 240, 320].map((y) => (
+            <line key={y} x1="0" y1={y} x2="800" y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+          ))}
+          {[160, 320, 480, 640].map((x) => (
+            <line key={x} x1={x} y1="0" x2={x} y2="420" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+          ))}
+
+          {/* 200-SMA Curve (Magenta) */}
+          <path
+            d={`M 20 ${priceToY(activeItem.price * 0.89)} Q 200 ${priceToY(activeItem.price * 0.90)} 400 ${priceToY(activeItem.price * 0.91)} T 780 ${priceToY(activeItem.price * 0.92)}`}
+            fill="none"
+            stroke="#C026D3"
+            strokeWidth="2.2"
+            opacity="0.85"
+          />
+
+          {/* 50-SMA Curve (Red) */}
+          <path
+            d={`M 20 ${priceToY(activeItem.price * 0.94)} Q 220 ${priceToY(activeItem.price * 0.95)} 420 ${priceToY(activeItem.price * 0.96)} T 780 ${priceToY(activeItem.price * 0.97)}`}
+            fill="none"
+            stroke="#DC2626"
+            strokeWidth="2.2"
+            opacity="0.85"
+          />
+
+          {/* 20-SMA Curve (Blue/Cyan) */}
+          <path
+            d={`M 20 ${priceToY(activeItem.price * 0.97)} Q 240 ${priceToY(activeItem.price * 0.98)} 440 ${priceToY(activeItem.price * 0.985)} T 780 ${priceToY(activeItem.price * 0.99)}`}
+            fill="none"
+            stroke="#2563EB"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+          />
+
+          {/* Target Levels Overlays */}
+          {/* Buy Target Line */}
+          <line x1="40" y1={priceToY(activeItem.buyTarget)} x2="780" y2={priceToY(activeItem.buyTarget)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(activeItem.buyTarget) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            BUY: ${activeItem.buyTarget.toFixed(2)}
+          </text>
+
+          {/* Stop Loss Line */}
+          <line x1="40" y1={priceToY(activeItem.stopLoss)} x2="780" y2={priceToY(activeItem.stopLoss)} stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(activeItem.stopLoss) + 14} fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            STOP: ${activeItem.stopLoss.toFixed(2)}
+          </text>
+
+          {/* Primary Target Line */}
+          <line x1="40" y1={priceToY(activeItem.primaryTarget)} x2="780" y2={priceToY(activeItem.primaryTarget)} stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(activeItem.primaryTarget) - 5} fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            T1: ${activeItem.primaryTarget.toFixed(2)}
+          </text>
+
+          {/* Dynamic Candlestick Series */}
+          {candles.map((bar, i) => {
+            const isUp = bar.c >= bar.o;
+            const bodyColor = isUp ? "var(--accent-green)" : "var(--accent-red)";
+            const top = priceToY(Math.max(bar.o, bar.c));
+            const bottom = priceToY(Math.min(bar.o, bar.c));
+            const height = Math.max(bottom - top, 2);
+            const highY = priceToY(bar.h);
+            const lowY = priceToY(bar.l);
+            return (
+              <g key={i}>
+                <line x1={bar.x + 8} y1={highY} x2={bar.x + 8} y2={lowY} stroke={bodyColor} strokeWidth="1.5" />
+                <rect x={bar.x} y={top} width="16" height={height} fill={bodyColor} rx="1" />
+              </g>
+            );
+          })}
+
+          {/* Volume Bars */}
+          {[25, 40, 30, 20, 55, 35, 70, 45, 30, 60, 80, 35, 65, 40, 90, 50, 75, 85].map((vh, i) => (
+            <rect key={i} x={50 + i * 40} y={415 - vh} width="16" height={vh} fill="url(#volGrad)" rx="1" />
+          ))}
+        </svg>
+      </div>
+    </div>
+  );
+}
+
+export const Chart = LiveTradingChart;
+
+// ============================================================================
 // MAIN COMPONENT: WEALTH ENGINE DASHBOARD
 // ============================================================================
 export default function WealthEngineDashboard() {
@@ -306,11 +492,13 @@ export default function WealthEngineDashboard() {
     }
   };
 
-  // Active ticker selection
-  const [activeSymbol, setActiveSymbol] = useState("NVDA");
+  // Active ticker selection (linked directly to Chart symbol)
+  const [activeTicker, setActiveTicker] = useState("NVDA");
+  const activeSymbol = activeTicker;
+  const setActiveSymbol = setActiveTicker;
   const activeItem = useMemo(
-    () => DEFAULT_WATCHLIST.find((item) => item.symbol === activeSymbol) || DEFAULT_WATCHLIST[0],
-    [activeSymbol]
+    () => DEFAULT_WATCHLIST.find((item) => item.symbol === activeTicker) || DEFAULT_WATCHLIST[0],
+    [activeTicker]
   );
 
   // Center column tabs: "Chart" | "Setup History" | "Settings" | "Indicators"
@@ -357,9 +545,9 @@ export default function WealthEngineDashboard() {
       >
         {/* Left: Branding & Bullish Candlestick Logo */}
         <div className="flex items-center gap-4">
-          <div className="flex items-center tracking-tight" data-testid="dashboard-brand-logo" aria-label="CHIZZLE WEALTH ENGINE">
+          <div className="flex items-center tracking-tight select-none" data-testid="dashboard-brand-logo" aria-label="CHIZZLE WEALTH ENGINE">
             <span
-              className="font-extrabold tracking-wider font-mono text-lg md:text-xl flex items-center"
+              className="font-black tracking-tight font-mono text-2xl md:text-3xl flex items-center drop-shadow-sm"
               style={{ color: "var(--text-primary)" }}
             >
               <span>CH</span>
@@ -367,7 +555,7 @@ export default function WealthEngineDashboard() {
               <span>ZZLE</span>
             </span>
             <span
-              className="text-[10px] md:text-xs uppercase tracking-[0.22em] font-semibold ml-2.5 px-2 py-0.5 rounded border"
+              className="text-[11px] md:text-xs uppercase tracking-[0.22em] font-extrabold ml-3 px-2.5 py-1 rounded border shadow-sm"
               style={{
                 color: "var(--accent-cyan)",
                 borderColor: "var(--border-subtle)",
@@ -429,7 +617,7 @@ export default function WealthEngineDashboard() {
       {/* 2. THREE-COLUMN LAYOUT (STRICT 100VH, LOCKED, NO WINDOW SCROLLING) */}
       {/* ==================================================================== */}
       <main
-        className="flex-1 min-h-0 w-full overflow-hidden flex flex-row"
+        className="flex-1 min-h-0 w-screen max-w-screen overflow-hidden flex flex-row"
         style={{
           backgroundColor: "var(--bg-root)",
           color: "var(--text-primary)",
@@ -439,7 +627,7 @@ export default function WealthEngineDashboard() {
         {/* COLUMN 1: LEFT COLUMN (20% width) — MARKET CONTEXT & WATCHLIST     */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <aside
-          className="w-[20%] min-w-[250px] max-w-[320px] flex-shrink-0 h-full flex flex-col border-r overflow-hidden"
+          className="w-[20%] min-w-[240px] max-w-[280px] flex-shrink-0 h-full flex flex-col border-r overflow-hidden"
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
@@ -554,7 +742,7 @@ export default function WealthEngineDashboard() {
                 return (
                   <div
                     key={item.symbol}
-                    onClick={() => setActiveSymbol(item.symbol)}
+                    onClick={() => setActiveTicker(item.symbol)}
                     data-testid={`watchlist-row-${item.symbol}`}
                     className={`px-3 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
                       isSelected
@@ -738,211 +926,7 @@ export default function WealthEngineDashboard() {
           {/* Body Area */}
           <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col p-4">
             {activeTab === "Chart" && (
-              <div
-                className="w-full h-full flex-1 min-h-0 rounded-xl border flex flex-col relative overflow-hidden shadow-2xl"
-                style={{
-                  backgroundColor: "var(--bg-panel)",
-                  borderColor: "var(--border-subtle)",
-                }}
-                data-testid="chart-placeholder-area"
-              >
-                {/* Chart Header Bar: Overlay SMA Labels */}
-                <div
-                  className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10"
-                  style={{
-                    backgroundColor: "var(--bg-panel-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                >
-                  {/* Active Ticker Context */}
-                  <div className="flex items-center gap-3 font-mono">
-                    <span className="font-bold text-base tracking-wide" style={{ color: "var(--text-primary)" }}>
-                      {activeItem.symbol}
-                    </span>
-                    <span className="text-xs text-slate-400">· {activeTf} Candlestick Feed</span>
-                  </div>
-
-                  {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA */}
-                  <div className="flex items-center gap-3 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
-                    {/* 20-SMA */}
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/30">
-                      <span className="h-2 w-2 rounded-full bg-blue-400 shadow-[0_0_6px_rgba(96,165,250,0.8)]" />
-                      <span className="text-blue-400 font-bold">20-SMA:</span>
-                      <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${(activeItem.price * 0.985).toFixed(2)}
-                      </span>
-                    </div>
-
-                    {/* 50-SMA */}
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-red-500/10 border border-red-500/30">
-                      <span className="h-2 w-2 rounded-full bg-red-400 shadow-[0_0_6px_rgba(248,113,113,0.8)]" />
-                      <span className="text-red-400 font-bold">50-SMA:</span>
-                      <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${(activeItem.price * 0.952).toFixed(2)}
-                      </span>
-                    </div>
-
-                    {/* 200-SMA */}
-                    <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-fuchsia-500/10 border border-fuchsia-500/30">
-                      <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(232,121,249,0.8)]" />
-                      <span className="text-fuchsia-400 font-bold">200-SMA:</span>
-                      <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${(activeItem.price * 0.890).toFixed(2)}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Interactive Candlestick Chart Visualization */}
-                <div className="flex-1 min-h-0 relative flex items-center justify-center p-2">
-                  <svg className="w-full h-full select-none" viewBox="0 0 800 420" preserveAspectRatio="none">
-                    <defs>
-                      <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity="0.25" />
-                        <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity="0.0" />
-                      </linearGradient>
-                    </defs>
-
-                    {/* Background Grid Lines */}
-                    {[80, 160, 240, 320].map((y) => (
-                      <line
-                        key={y}
-                        x1="0"
-                        y1={y}
-                        x2="800"
-                        y2={y}
-                        stroke="rgba(255,255,255,0.05)"
-                        strokeDasharray="4 4"
-                      />
-                    ))}
-                    {[160, 320, 480, 640].map((x) => (
-                      <line
-                        key={x}
-                        x1={x}
-                        y1="0"
-                        x2={x}
-                        y2="420"
-                        stroke="rgba(255,255,255,0.05)"
-                        strokeDasharray="4 4"
-                      />
-                    ))}
-
-                    {/* 200-SMA Curve (Magenta) */}
-                    <path
-                      d="M 20 310 Q 200 300 400 290 T 780 270"
-                      fill="none"
-                      stroke="#C026D3"
-                      strokeWidth="2.2"
-                      opacity="0.85"
-                    />
-
-                    {/* 50-SMA Curve (Red) */}
-                    <path
-                      d="M 20 280 Q 220 260 420 230 T 780 195"
-                      fill="none"
-                      stroke="#DC2626"
-                      strokeWidth="2.2"
-                      opacity="0.85"
-                    />
-
-                    {/* 20-SMA Curve (Blue/Cyan) */}
-                    <path
-                      d="M 20 250 Q 240 210 440 180 T 780 140"
-                      fill="none"
-                      stroke="#2563EB"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                    />
-
-                    {/* Target Levels Overlays */}
-                    {/* Buy Target Line */}
-                    <line x1="40" y1="135" x2="780" y2="135" stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
-                    <text x="700" y="130" fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-                      BUY: ${activeItem.buyTarget.toFixed(2)}
-                    </text>
-
-                    {/* Stop Loss Line */}
-                    <line x1="40" y1="210" x2="780" y2="210" stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
-                    <text x="700" y="225" fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-                      STOP: ${activeItem.stopLoss.toFixed(2)}
-                    </text>
-
-                    {/* Primary Target Line */}
-                    <line x1="40" y1="70" x2="780" y2="70" stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
-                    <text x="700" y="65" fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-                      T1: ${activeItem.primaryTarget.toFixed(2)}
-                    </text>
-
-                    {/* Realistic Candlestick Series (18 bars) */}
-                    {[
-                      { x: 50, o: 280, c: 260, h: 250, l: 290 },
-                      { x: 90, o: 260, c: 275, h: 255, l: 285 },
-                      { x: 130, o: 275, c: 240, h: 230, l: 280 },
-                      { x: 170, o: 240, c: 255, h: 235, l: 265 },
-                      { x: 210, o: 255, c: 220, h: 215, l: 260 },
-                      { x: 250, o: 220, c: 230, h: 210, l: 240 },
-                      { x: 290, o: 230, c: 200, h: 195, l: 235 },
-                      { x: 330, o: 200, c: 185, h: 180, l: 210 },
-                      { x: 370, o: 185, c: 210, h: 180, l: 220 },
-                      { x: 410, o: 210, c: 175, h: 170, l: 215 },
-                      { x: 450, o: 175, c: 160, h: 150, l: 180 },
-                      { x: 490, o: 160, c: 170, h: 155, l: 180 },
-                      { x: 530, o: 170, c: 145, h: 140, l: 175 },
-                      { x: 570, o: 145, c: 155, h: 140, l: 160 },
-                      { x: 610, o: 155, c: 138, h: 130, l: 160 },
-                      { x: 650, o: 138, c: 150, h: 135, l: 155 },
-                      { x: 690, o: 150, c: 136, h: 130, l: 155 },
-                      { x: 730, o: 136, c: 135, h: 125, l: 142 },
-                    ].map((bar, i) => {
-                      const isUp = bar.c <= bar.o;
-                      const bodyColor = isUp ? "var(--accent-green)" : "var(--accent-red)";
-                      const top = Math.min(bar.o, bar.c);
-                      const height = Math.max(Math.abs(bar.o - bar.c), 2);
-                      return (
-                        <g key={i}>
-                          {/* High/Low Wick */}
-                          <line
-                            x1={bar.x + 8}
-                            y1={bar.h}
-                            x2={bar.x + 8}
-                            y2={bar.l}
-                            stroke={bodyColor}
-                            strokeWidth="1.5"
-                          />
-                          {/* Candle Body */}
-                          <rect
-                            x={bar.x}
-                            y={top}
-                            width="16"
-                            height={height}
-                            fill={bodyColor}
-                            rx="1"
-                          />
-                        </g>
-                      );
-                    })}
-
-                    {/* Bottom Volume Bars */}
-                    {[
-                      { x: 50, h: 25 }, { x: 90, h: 40 }, { x: 130, h: 30 }, { x: 170, h: 20 },
-                      { x: 210, h: 55 }, { x: 250, h: 35 }, { x: 290, h: 70 }, { x: 330, h: 45 },
-                      { x: 370, h: 30 }, { x: 410, h: 60 }, { x: 450, h: 80 }, { x: 490, h: 35 },
-                      { x: 530, h: 65 }, { x: 570, h: 40 }, { x: 610, h: 90 }, { x: 650, h: 50 },
-                      { x: 690, h: 75 }, { x: 730, h: 85 },
-                    ].map((v, i) => (
-                      <rect
-                        key={i}
-                        x={v.x}
-                        y={415 - v.h}
-                        width="16"
-                        height={v.h}
-                        fill="url(#volGrad)"
-                        rx="1"
-                      />
-                    ))}
-                  </svg>
-                </div>
-              </div>
+              <Chart symbol={activeTicker} timeframe={activeTf} activeItem={activeItem} />
             )}
 
             {/* Tab: Setup History */}
@@ -1066,7 +1050,7 @@ export default function WealthEngineDashboard() {
         {/* COLUMN 3: RIGHT COLUMN (25% width) — THE TRADE PLAN & EXECUTION    */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
-          className="w-[25%] min-w-[280px] max-w-[380px] flex-shrink-0 h-full flex flex-col border-l overflow-hidden"
+          className="w-[25%] lg:w-[320px] w-[320px] min-w-[320px] max-w-[340px] flex-shrink-0 h-full flex flex-col border-l overflow-hidden"
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
@@ -1289,6 +1273,15 @@ export default function WealthEngineDashboard() {
                 )}
               </div>
             </div>
+
+            {/* Broker Execution Guide Accordion */}
+            <BrokerExecutionSteps
+              symbol={activeItem.symbol}
+              entry={activeItem.buyTarget}
+              stop={activeItem.stopLoss}
+              target1={activeItem.primaryTarget}
+              defaultOpen={false}
+            />
 
             {/* Quick Sizing & Risk Card */}
             <div
