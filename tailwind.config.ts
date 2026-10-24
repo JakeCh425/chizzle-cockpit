@@ -98,6 +98,16 @@ export default {
         gold: {
           lux: "hsl(var(--gold-lux) / <alpha-value>)",
         },
+        // 9-Color Card Theming Engine
+        "card-bg": "var(--card-bg)",
+        "card-border": "var(--card-border)",
+        "card-text-primary": "var(--card-text-primary)",
+        "card-text-secondary": "var(--card-text-secondary)",
+        "card-accent-buy": "var(--card-accent-buy)",
+        "card-accent-stop": "var(--card-accent-stop)",
+        "card-accent-target": "var(--card-accent-target)",
+        "card-badge-bg": "var(--card-badge-bg)",
+        "card-badge-text": "var(--card-badge-text)",
       },
       fontFamily: {
         sans: ["Inter", "system-ui", "sans-serif"],

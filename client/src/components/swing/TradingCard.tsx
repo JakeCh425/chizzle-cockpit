@@ -1318,7 +1318,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     ? "border-emerald-500/50 shadow-[0_0_20px_rgba(52,211,153,0.18)] ring-1 ring-emerald-500/30"
     : isInvalidated
     ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
-    : "border-slate-800 hover:border-slate-700";
+    : "border-[var(--card-border)] hover:border-slate-700";
 
   // Dynamic Historical Win Rate (reflects 75%+ when Scale-Out Mode is ON)
   const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
@@ -1341,7 +1341,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border shadow-md ${cardBorderClass} cursor-pointer`}
+      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button, a, input, select, textarea, details, [role='button'], [data-prevent-modal='true']")) {
           return;
@@ -1356,7 +1356,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       <ReadyRibbon d={d} ver={ver} />
 
       {/* ─── HEADER: Ticker symbol, Lock/Status icon, Pinned +X.XX% Potential Gain Badge ─── */}
-      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-slate-800">
+      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-[var(--card-border)]">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
             {d.symbol}
@@ -1387,11 +1387,11 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         {/* Pinned Potential Gain Badge on Top Right */}
         <div className="flex items-center gap-2 shrink-0">
           {potentialGainPct > 0 ? (
-            <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1 font-mono text-xs font-bold text-emerald-400 tabular-nums shadow-sm">
+            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm">
               +{potentialGainPct.toFixed(2)}% Potential Gain
             </span>
           ) : (
-            <span className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-slate-400 tabular-nums">
+            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums">
               0.00% Potential Gain
             </span>
           )}
@@ -1457,28 +1457,28 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       </div>
 
       {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) ─── */}
-      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm p-3 shadow-inner">
+      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner">
         <div className="flex flex-col gap-1">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+          <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
             Buy Target
           </span>
-          <span className="font-mono text-base font-bold tabular-nums text-white">
+          <span className="font-mono text-2xl font-black text-[var(--card-accent-buy)] tabular-nums">
             {$(activeEntry)}
           </span>
         </div>
-        <div className="flex flex-col gap-1 border-x border-white/5 px-3">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+        <div className="flex flex-col gap-1 border-x border-[var(--card-border)] px-3">
+          <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
             Stop Loss
           </span>
-          <span className="font-mono text-base font-bold tabular-nums text-rose-500">
+          <span className="font-mono text-2xl font-black text-[var(--card-accent-stop)] tabular-nums">
             {$(activeStop)}
           </span>
         </div>
         <div className="flex flex-col gap-1 pl-1">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
+          <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
             Return % {scaleOutMode ? "(1.5R)" : "(T1)"}
           </span>
-          <span className="font-mono text-base font-bold tabular-nums text-emerald-400">
+          <span className="font-mono text-2xl font-black text-[var(--card-accent-target)] tabular-nums">
             {potentialGainPct > 0 ? `+${potentialGainPct.toFixed(2)}%` : "—"}
           </span>
         </div>
@@ -1486,7 +1486,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
       {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and active Target 1 ─── */}
       <div className="flex flex-col gap-1.5 my-2">
-        <div className="flex items-center justify-between font-mono text-[10px] text-slate-400">
+        <div className="flex items-center justify-between font-mono text-[10px] text-[var(--card-text-secondary)]">
           <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
           <span className="text-slate-300">
             Current: <strong className="text-white tabular-nums">{$(effectivePrice)}</strong> ({progressPct.toFixed(0)}%)
@@ -1496,9 +1496,9 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
             <strong className="text-white tabular-nums">{$(targets.t1)}</strong>
           </span>
         </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-800 border border-white/5">
+        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--card-bg)] border border-[var(--card-border)]">
           <div
-            className="h-full rounded-full bg-emerald-400 transition-all duration-300"
+            className="h-full rounded-full bg-[var(--card-accent-target)] transition-all duration-300"
             style={{ width: `${progressPct}%` }}
           />
         </div>

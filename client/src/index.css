@@ -1,3 +1,18 @@
+/* ============================================================
+ * 9-COLOR CARD THEMING ENGINE
+ * ============================================================ */
+:root {
+  --card-bg: #0F172A;
+  --card-border: #1E293B;
+  --card-text-primary: #F8FAFC;
+  --card-text-secondary: #94A3B8;
+  --card-accent-buy: #38BDF8;
+  --card-accent-stop: #F87171;
+  --card-accent-target: #34D399;
+  --card-badge-bg: #064E3B;
+  --card-badge-text: #6EE7B7;
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

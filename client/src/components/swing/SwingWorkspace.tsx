@@ -102,7 +102,7 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
   const move = (x: WatchRow, dir: -1 | 1) => patch.mutate({ s: x.symbol, p: { moveTo: Math.max(0, x.order + dir) } });
 
   return (
-    <div className="space-y-2" data-testid="panel-watchlist">
+    <div className="w-full space-y-2" data-testid="panel-watchlist">
       <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); if (q.trim()) add.mutate(q.trim().toUpperCase()); }}>
         <input value={q} onChange={(e) => { setQ(e.target.value); setErr(null); }} placeholder="Add ticker or exchange-qualified symbol"
           className="flex-1 min-w-0 bg-ink-deep border border-ink-line rounded px-2 py-1 text-xs text-soft-white placeholder:text-slate-gray/70" data-testid="input-add-ticker" aria-label="Add ticker" />

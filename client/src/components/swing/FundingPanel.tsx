@@ -72,14 +72,14 @@ export function useCardSizing(d: SwingDecision, ver: PlanVersion | null) {
 }
 
 // ─── Small inputs ─────────────────────────────────────────────────────────
-function Field({ label, value, onChange, testId, hint, err, prefix = "$", width = "8.5rem", placeholder }: { label: string; value: string; onChange: (v: string) => void; testId: string; hint?: React.ReactNode; err?: string | null; prefix?: string; width?: string; placeholder?: string }) {
+function Field({ label, value, onChange, testId, hint, err, prefix = "$", width = "9.5rem", placeholder }: { label: string; value: string; onChange: (v: string) => void; testId: string; hint?: React.ReactNode; err?: string | null; prefix?: string; width?: string; placeholder?: string }) {
   return (
-    <label className="flex flex-col gap-1" style={sm}>
-      <span className="font-semibold text-slate-200">{label}</span>
+    <label className="flex flex-col gap-1.5" style={sm}>
+      <span className="text-base font-medium text-slate-200">{label}</span>
       <span className="inline-flex items-center gap-1.5">
-        {prefix && <span className="text-slate-400 font-mono text-xs">{prefix}</span>}
+        {prefix && <span className="text-slate-400 font-mono text-sm">{prefix}</span>}
         <input
-          className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-xs shadow-inner"
+          className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-lg font-bold shadow-inner"
           style={{ width }}
           inputMode="decimal"
           placeholder={placeholder}
@@ -179,9 +179,9 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
 
       <div style={grid(220)}>
         <div className="space-y-1">
-          <div className="flex items-center gap-2" style={sm}><span className="font-semibold">Account equity</span>{v.equityMode === "MANUAL" ? <Chip state={eqStatus!.state === "UNAVAILABLE" ? "MANUAL" : eqStatus!.state} /> : <Chip state="MANUAL" />}</div>
+          <div className="flex items-center gap-2" style={sm}><span className="text-base font-medium text-slate-200">Account equity</span>{v.equityMode === "MANUAL" ? <Chip state={eqStatus!.state === "UNAVAILABLE" ? "MANUAL" : eqStatus!.state} /> : <Chip state="MANUAL" />}</div>
           <select
-            className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-xs cursor-pointer !w-auto shadow-inner"
+            className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-base font-medium cursor-pointer !w-auto shadow-inner"
             style={sm}
             value={v.equityMode}
             onChange={(e) => set("equityMode")(e.target.value)}
@@ -196,7 +196,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
           {histGap && <div style={xs} className="ac-muted" data-testid={`text-equity-history-gap-${symbol}`}><AlertTriangle className="inline h-3.5 w-3.5" aria-hidden /> Equity history's latest point is {$(histGap.equity)} ({histGap.date}); sizing uses the value selected above.</div>}
         </div>
         <div className="space-y-1">
-          <div className="flex items-center gap-2" style={sm}><span className="font-semibold">Available trading cash</span><Chip state={cashStatus.state} /></div>
+          <div className="flex items-center gap-2" style={sm}><span className="text-base font-medium text-slate-200">Available trading cash</span><Chip state={cashStatus.state} /></div>
           <Field label="Cash for this trade" value={v.cash} onChange={set("cash")} testId={`input-cash-${symbol}`} err={errOf("cash")}
             hint={f.cashUpdatedAt ? `Entered ${fmtCT(f.cashUpdatedAt)} (${cashStatus.ageText})${cashStatus.state === "STALE" ? " — older than 1 day, re-check your balance" : ""}` : "Enter the cash you could use (not margin)."} />
         </div>

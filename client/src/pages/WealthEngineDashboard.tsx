@@ -1083,21 +1083,21 @@ export default function WealthEngineDashboard() {
           <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
             {/* The Setup Card Component */}
             <div
-              className={`rounded-2xl border p-5 transition-all duration-300 relative ${statusTint}`}
+              className={`rounded-2xl border p-5 transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
               data-testid="setup-card"
             >
               {/* Card Header & Status Badge */}
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-white/10">
+              <div className="flex items-center justify-between pb-3 mb-3 border-b border-[var(--card-border)]">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xl font-black font-mono tracking-tight" style={{ color: "var(--text-primary)" }}>
+                    <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)]">
                       {activeItem.symbol}
                     </span>
-                    <span className="text-xs font-mono font-semibold opacity-75">
+                    <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)]">
                       ${activeItem.price.toFixed(2)}
                     </span>
                   </div>
-                  <div className="text-[10.5px] font-mono uppercase tracking-wider text-cyan-400 font-bold mt-0.5">
+                  <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5">
                     {activeItem.setupType}
                   </div>
                 </div>
@@ -1120,57 +1120,45 @@ export default function WealthEngineDashboard() {
               <div className="grid grid-cols-3 gap-3 my-4 w-full" data-testid="setup-three-bold-datapoints">
                 {/* 1. Buy Target (Entry) */}
                 <div
-                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md"
-                  style={{
-                    backgroundColor: "var(--bg-panel-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
+                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md bg-[var(--card-bg)] border-[var(--card-border)]"
                 >
-                  <span className="text-[9px] font-mono uppercase tracking-wider font-bold text-cyan-400 mb-1">
+                  <span className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-1">
                     Buy Target
                   </span>
-                  <span className="text-lg md:text-xl font-black font-mono tabular-nums text-cyan-300">
+                  <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-buy)]">
                     ${activeItem.buyTarget.toFixed(2)}
                   </span>
-                  <span className="text-[8.5px] font-mono text-slate-400 mt-0.5">
+                  <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     Entry Level
                   </span>
                 </div>
 
                 {/* 2. Stop Loss */}
                 <div
-                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md"
-                  style={{
-                    backgroundColor: "var(--bg-panel-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
+                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md bg-[var(--card-bg)] border-[var(--card-border)]"
                 >
-                  <span className="text-[9px] font-mono uppercase tracking-wider font-bold text-red-400 mb-1">
+                  <span className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-1">
                     Stop Loss
                   </span>
-                  <span className="text-lg md:text-xl font-black font-mono tabular-nums text-red-400">
+                  <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-stop)]">
                     ${activeItem.stopLoss.toFixed(2)}
                   </span>
-                  <span className="text-[8.5px] font-mono text-slate-400 mt-0.5">
+                  <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     Structural
                   </span>
                 </div>
 
                 {/* 3. Primary Target */}
                 <div
-                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md"
-                  style={{
-                    backgroundColor: "var(--bg-panel-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
+                  className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md bg-[var(--card-bg)] border-[var(--card-border)]"
                 >
-                  <span className="text-[9px] font-mono uppercase tracking-wider font-bold text-emerald-400 mb-1">
+                  <span className="text-xs text-slate-400 uppercase tracking-wider font-bold mb-1">
                     Primary T1
                   </span>
-                  <span className="text-lg md:text-xl font-black font-mono tabular-nums text-emerald-300">
+                  <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-target)]">
                     ${activeItem.primaryTarget.toFixed(2)}
                   </span>
-                  <span className="text-[8.5px] font-mono text-slate-400 mt-0.5">
+                  <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     +2.37R R:R
                   </span>
                 </div>

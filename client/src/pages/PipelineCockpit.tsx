@@ -61,7 +61,7 @@ export default function PipelineCockpit() {
 
   return (
     <CockpitTickerProvider>
-    <div className="w-full max-w-[1440px] mx-auto p-4 sm:p-6 space-y-6">
+    <div className="w-full space-y-6">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
       {/* READY NOW — only when a decision is ready; hidden otherwise. Same scan as the Action Center. */}
