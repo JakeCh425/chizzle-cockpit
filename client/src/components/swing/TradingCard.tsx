@@ -450,6 +450,8 @@ export function SparklineChart({
 
       const handleCrosshairMove = (param: MouseEventParams) => {
         if (
+          param === undefined ||
+          param.point === undefined ||
           !param.point ||
           param.point.x < 0 ||
           param.point.x > el.clientWidth ||
@@ -814,7 +816,7 @@ export const useDisclosureAll = () => useContext(DisclosureCtx)?.all ?? (() => {
 export function Section({ id, title, summary, def = true, children, testId, headerClassName, className }: { id: string; title: string; summary?: React.ReactNode; def?: boolean; children: React.ReactNode; testId: string; headerClassName?: string; className?: string }) {
   const [open, setOpen] = useDisclosure(id, def);
   return (
-    <section className={`flex flex-col rounded-lg border border-ink-line bg-ink-black/40 ${className ?? ""}`} data-testid={testId} data-open={open}>
+    <section className={`flex flex-col rounded-lg border border-ink-line/50 bg-ink-black/60 backdrop-blur-md shadow-sm ${className ?? ""}`} data-testid={testId} data-open={open}>
       <button className={`flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-deep/40 ${headerClassName ?? ""}`} onClick={() => setOpen(!open)} aria-expanded={open}>
         {open ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-gray" /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-gray" />}
         <span className="text-sm font-bold text-soft-white">{title}</span>
@@ -835,7 +837,7 @@ export function Section({ id, title, summary, def = true, children, testId, head
 function PriceTile({ label, sub, value, tone, guided, engineValue, changed, moved, rText, source, flags }: any) {
   const cls = TONE_CLASSES[tone as keyof typeof TONE_CLASSES] || TONE_CLASSES.muted;
   return (
-    <div className={`flex flex-col gap-1.5 rounded-lg border p-3 ${cls.split(" ")[1]} bg-ink-deep/40`}>
+    <div className={`flex flex-col gap-1.5 rounded-lg border p-3 ${cls.split(" ")[1]} bg-ink-black/60 backdrop-blur-md shadow-sm`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className={`text-[10px] font-mono font-bold uppercase tracking-wider ${cls.split(" ")[0]}`}>{label}</span>
         {changed && <span className="rounded bg-neon-blue/20 px-1.5 py-0.5 text-[9px] font-bold text-neon-blue">ADJUSTED</span>}
@@ -857,7 +859,7 @@ function PriceTile({ label, sub, value, tone, guided, engineValue, changed, move
 
 function Stat({ k, v, explain, guided }: any) {
   return (
-    <div className="flex flex-col gap-1 rounded-lg border border-ink-line bg-ink-deep/40 p-3">
+    <div className="flex flex-col gap-1 rounded-lg border border-ink-line/50 bg-ink-black/60 backdrop-blur-md p-3 shadow-sm">
       <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-gray">{k}</span>
       <span className="text-sm font-mono font-bold tabular-nums leading-tight text-soft-white whitespace-pre-line">{v}</span>
       {guided && <span className="text-[10px] leading-snug text-slate-gray">{explain}</span>}
@@ -1336,7 +1338,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`flex flex-col rounded-xl border bg-[#0B1220] p-5 shadow-lg transition-all duration-200 ${cardBorderClass}`}
+      className={`flex flex-col rounded-xl p-5 transition-all duration-200 bg-ink-black/60 backdrop-blur-md border border-ink-line/50 shadow-lg ${cardBorderClass}`}
       data-testid={`trading-card-${d.symbol}`}
     >
       <ReadyRibbon d={d} ver={ver} />
@@ -1409,7 +1411,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       </div>
 
       {/* ─── LEARNING / SCALE-OUT MODE TOGGLE ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-white/10 bg-black/30 px-3 py-2 my-1">
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 my-1 shadow-sm">
         <div className="flex items-center gap-2.5">
           <button
             type="button"
@@ -1443,7 +1445,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       </div>
 
       {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) ─── */}
-      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-white/5 bg-black/30 p-3">
+      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm p-3 shadow-inner">
         <div className="flex flex-col gap-1">
           <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-slate-400">
             Buy Target
@@ -1622,7 +1624,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       )}
 
       {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
-      <div className="my-2 rounded-lg border border-white/5 bg-black/20 px-3 py-2 text-xs font-medium leading-relaxed text-slate-300">
+      <div className="my-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 text-xs font-medium leading-relaxed text-slate-200">
         {statusSentence}
       </div>
 
@@ -1630,42 +1632,40 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
 
       {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-3 mt-3 border-t border-white/10">
-        <div className="flex flex-wrap items-center gap-2">
-          {group === "READY" && (
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-md border border-signal-green/50 bg-signal-green/10 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-signal-green transition-colors hover:bg-signal-green/20 cursor-pointer"
-              onClick={() => {
-                onSeen();
-                openTradeDialog({
-                  mode: "arm",
-                  decision: d,
-                  plan: effectivePlan(d, ver),
-                  liveAllowed: live?.allowed ?? null,
-                  overrideRequired: group !== "READY",
-                });
-              }}
-              data-testid={`button-arm-trade-${d.symbol}`}
-              title="Arm practice trade plan"
-            >
-              <Crosshair className="h-3.5 w-3.5 text-signal-green" />
-              Arm Trade
-            </button>
-          )}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-3 border-t border-ink-line/50">
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Permanently visible Arm Trade action button */}
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
+            onClick={() => {
+              onSeen();
+              openTradeDialog({
+                mode: "arm",
+                decision: d,
+                plan: effectivePlan(d, ver),
+                liveAllowed: live?.allowed ?? null,
+                overrideRequired: group !== "READY",
+              });
+            }}
+            data-testid={`button-arm-trade-${d.symbol}`}
+            title="Arm practice trade plan"
+          >
+            <Crosshair className="h-4 w-4 text-signal-green" />
+            Arm Trade
+          </button>
 
-          {canEditPlan(d) && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-800/80 hover:bg-slate-700 hover:border-cyan-400 px-3 py-1.5 text-xs font-medium text-slate-200 transition-colors cursor-pointer"
-              onClick={handleAdjustPlan}
-              data-testid={`button-adjust-plan-${d.symbol}`}
-              title="Adjust plan entries and overrides"
-            >
-              <Pencil className="h-3.5 w-3.5 text-cyan-400" />
-              Adjust Plan
-            </button>
-          )}
+          {/* Permanently visible Adjust Plan action button */}
+          <button
+            type="button"
+            className="flex items-center gap-2 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
+            onClick={handleAdjustPlan}
+            data-testid={`button-adjust-plan-${d.symbol}`}
+            title="Adjust plan entries and overrides"
+          >
+            <Pencil className="h-4 w-4 text-neon-blue" />
+            Adjust Plan
+          </button>
 
           {isCustom && (
             <button
@@ -1785,7 +1785,7 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
   const sz = useCardSizing(d, props.ver);
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl overflow-y-auto rounded-xl border border-ink-line bg-ink-black p-0 shadow-2xl">
+      <DialogContent className="max-h-[90vh] w-[95vw] max-w-5xl overflow-y-auto rounded-xl border border-ink-line/50 bg-ink-black/80 backdrop-blur-md p-0 shadow-2xl">
         <div className="flex flex-col">
           <ReadyRibbon d={d} ver={props.ver} />
           <div className="flex flex-col gap-4 border-b border-ink-line/50 p-6">

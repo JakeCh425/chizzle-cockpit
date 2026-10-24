@@ -49,7 +49,7 @@ export const CYBER_THEMES: CyberThemeConfig[] = [
     previewGradient: "from-[#060913] via-cyan-400 to-fuchsia-500",
     previewBorder: "border-cyan-400",
     previewGlow: "shadow-[0_0_15px_rgba(34,211,238,0.5)] border-cyan-400/80 ring-1 ring-cyan-400/50",
-    containerBg: "backdrop-blur-md bg-ink-black/40",
+    containerBg: "bg-ink-black/60 backdrop-blur-md",
     containerBorder: "border-cyan-500/30 shadow-[0_0_15px_rgba(34,211,238,0.1)]",
     accentText: "text-cyan-400",
   },
@@ -61,7 +61,7 @@ export const CYBER_THEMES: CyberThemeConfig[] = [
     previewGradient: "from-[#030E1E] via-teal-400 to-sky-500",
     previewBorder: "border-teal-400",
     previewGlow: "shadow-[0_0_15px_rgba(45,212,191,0.5)] border-teal-400/80 ring-1 ring-teal-400/50",
-    containerBg: "bg-[#030E1E]/95 backdrop-blur-xl",
+    containerBg: "bg-[#030E1E]/80 backdrop-blur-md",
     containerBorder: "border-teal-500/40 shadow-[0_0_25px_rgba(45,212,191,0.12)]",
     accentText: "text-teal-400",
   },
@@ -73,7 +73,7 @@ export const CYBER_THEMES: CyberThemeConfig[] = [
     previewGradient: "from-black via-zinc-600 to-slate-200",
     previewBorder: "border-zinc-400",
     previewGlow: "shadow-[0_0_15px_rgba(255,255,255,0.3)] border-zinc-300 ring-1 ring-white/30",
-    containerBg: "bg-black/95 backdrop-blur-xl",
+    containerBg: "bg-black/80 backdrop-blur-md",
     containerBorder: "border-zinc-800 shadow-[0_0_25px_rgba(255,255,255,0.04)]",
     accentText: "text-zinc-200",
   },
@@ -88,12 +88,12 @@ export function CyberThemeSwitcher({
 }) {
   return (
     <div
-      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/10 bg-black/40 px-3.5 py-2.5 backdrop-blur-md shadow-[0_0_15px_rgba(34,211,238,0.05)]"
+      className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-ink-line/50 bg-ink-black/60 px-3.5 py-2.5 backdrop-blur-md shadow-lg"
       data-testid="theme-switcher-deck"
     >
       <div className="flex items-center gap-2">
         <Sparkles className="h-4 w-4 text-cyan-400" aria-hidden />
-        <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-300">
+        <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-gray">
           Terminal Theme Switcher
         </span>
       </div>
@@ -124,7 +124,7 @@ export function CyberThemeSwitcher({
                 <span className="font-mono text-[11px] font-bold text-soft-white leading-tight">
                   {t.name}
                 </span>
-                <span className="font-mono text-[8.5px] uppercase tracking-widest text-slate-400">
+                <span className="font-mono text-[8.5px] uppercase tracking-widest text-slate-gray">
                   {t.badgeLabel}
                 </span>
               </div>
@@ -198,7 +198,7 @@ export function GlobalTrafficLightBanner({
   const light = getTrafficLightStatus(regimeCode, readyCount, extendedCount);
   return (
     <div
-      className={`sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border ${light.borderColor} ${light.bgColor} px-4 py-3 backdrop-blur-md shadow-lg transition-colors`}
+      className={`sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 rounded-xl border ${light.borderColor} bg-ink-black/60 px-4 py-3 backdrop-blur-md shadow-lg transition-colors`}
       data-testid="traffic-light-banner"
     >
       <div className="flex items-center gap-3">
@@ -213,11 +213,11 @@ export function GlobalTrafficLightBanner({
         </div>
       </div>
       <div className="flex items-center gap-2">
-        <span className="rounded-md border border-white/10 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300">
+        <span className="rounded-md border border-ink-line/50 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-gray">
           Market Regime: <strong className={light.textColor}>{regimeCode.toUpperCase()}</strong>
         </span>
-        <span className="rounded-md border border-white/10 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-300">
-          Ready: <strong className="text-emerald-400 font-bold">{readyCount}</strong>
+        <span className="rounded-md border border-ink-line/50 bg-black/50 px-2.5 py-1 font-mono text-[10px] font-bold uppercase tracking-wider text-slate-gray">
+          Ready: <strong className="font-mono tabular-nums font-bold text-emerald-400">{readyCount}</strong>
         </span>
       </div>
     </div>
@@ -232,7 +232,7 @@ function EditableTitle({ value, onChange }: { value: string; onChange: (v: strin
   
   if (editing) return (
     <div className="flex items-center gap-2">
-      <input autoFocus className="w-56 rounded-md border border-neon-blue/50 bg-ink-black px-3 py-1 text-sm font-bold text-soft-white focus:outline-none" maxLength={40} value={draft} aria-label="Action Center title"
+      <input autoFocus className="w-56 rounded-md border border-neon-blue/50 bg-ink-black/60 backdrop-blur-md px-3 py-1 font-mono text-sm font-bold text-soft-white focus:outline-none" maxLength={40} value={draft} aria-label="Action Center title"
         onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }} onBlur={commit} data-testid="input-ac-title" />
       <button className="rounded-md bg-signal-green/20 p-1.5 text-signal-green transition-colors hover:bg-signal-green/30" onMouseDown={(e) => e.preventDefault()} onClick={commit} aria-label="Save title" data-testid="button-ac-title-save"><Check className="h-4 w-4" aria-hidden /></button>
       <button className="rounded-md bg-ink-line p-1.5 text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(false)} aria-label="Cancel" data-testid="button-ac-title-cancel"><X className="h-4 w-4" aria-hidden /></button>
@@ -328,7 +328,7 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`flex flex-col gap-4 rounded-xl border p-4 sm:p-5 transition-all duration-300 ${activeThemeConfig.containerBg} ${activeThemeConfig.containerBorder}`}
+      className={`flex flex-col gap-4 rounded-xl p-4 sm:p-5 transition-all duration-300 bg-ink-black/60 backdrop-blur-md border border-ink-line/50 shadow-lg ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
       {...acAttrs(prefs)}
       aria-label={title}
@@ -348,12 +348,12 @@ function ActionCenterInner() {
           className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest ${
             readyCount
               ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.15)]"
-              : "border-white/10 bg-black/40 text-slate-400"
+              : "border-white/10 bg-black/40 text-slate-gray"
           }`}
           data-testid="text-ac-ready-count"
           title="Fresh, tradeable practice setups"
         >
-          <Zap className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> {readyCount} fresh
+          <Zap className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> <strong className="font-mono tabular-nums font-bold text-emerald-400">{readyCount}</strong> fresh
         </span>
         
         {older.length > 0 && (
@@ -361,12 +361,12 @@ function ActionCenterInner() {
             className="rounded-full border border-amber-500/30 bg-amber-950/40 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
             data-testid="text-ac-older-count"
           >
-            {older.length} older / not tradeable
+            <strong className="font-mono tabular-nums font-bold text-amber-300">{older.length}</strong> older / not tradeable
           </span>
         )}
         
         <span
-          className="rounded-full border border-white/10 bg-black/30 px-3 py-1 text-[10px] font-mono font-medium uppercase tracking-wider text-slate-400"
+          className="rounded-full border border-ink-line/40 bg-black/40 px-3 py-1 text-[10px] font-mono tabular-nums font-medium uppercase tracking-wider text-slate-gray"
           data-testid="text-ac-counts"
         >
           {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned}… · ` : ""}
@@ -392,7 +392,7 @@ function ActionCenterInner() {
                 <MoreHorizontal className="h-4 w-4" aria-hidden /> More
               </button>
               {moreOpen && (
-                <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-lg border border-ink-line bg-ink-black p-3 shadow-2xl" role="menu" data-testid="menu-ac-more">
+                <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-lg border border-ink-line/50 bg-ink-black/90 backdrop-blur-md p-3 shadow-2xl" role="menu" data-testid="menu-ac-more">
                   <div className="flex flex-wrap gap-2">
                     <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-ink-deep/40 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-soft-white transition-colors hover:bg-ink-line hover:text-neon-blue" role="menuitem" onClick={() => { all(true); setMoreOpen(false); }} data-testid="button-expand-all"><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand</button>
                     <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-ink-deep/40 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-soft-white transition-colors hover:bg-ink-line hover:text-neon-blue" role="menuitem" onClick={() => { all(false); setMoreOpen(false); }} data-testid="button-collapse-all"><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse</button>
@@ -432,7 +432,7 @@ function ActionCenterInner() {
           )}
 
           {!scan.isLoading && !loud.length && !openTrades.length && (
-            <div className="rounded-lg border border-dashed border-ink-line bg-ink-deep/20 p-6 text-center text-sm font-medium text-slate-gray" data-testid="text-ac-nothing">
+            <div className="rounded-lg border border-dashed border-ink-line/50 bg-ink-black/40 backdrop-blur-md p-6 text-center text-sm font-medium text-slate-gray" data-testid="text-ac-nothing">
               {older.length ? `No fresh setups right now. ${older.length} older setup${older.length === 1 ? " is" : "s are"} listed under "Older / not tradeable" below — each shows what resets it.` : "Nothing ready, confirmed or forming right now. That is a valid answer: no trade is a position. Next conditions are listed below."}
             </div>
           )}
@@ -440,7 +440,7 @@ function ActionCenterInner() {
           {openTrades.length > 0 && (
             <div className="flex flex-col gap-3" data-testid="sec-pinned-trades">
               <div className="flex flex-wrap items-center gap-3 px-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-soft-white">MY TRADES — PINNED</span>
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-gray">MY TRADES — PINNED</span>
                 <span className="text-[10px] font-medium uppercase tracking-wider text-slate-gray">{openTrades.length} locked card{openTrades.length === 1 ? "" : "s"} · levels come from your practice trade, not the scanner</span>
               </div>
               {openTrades.map((t) => { 
@@ -473,7 +473,7 @@ function ActionCenterInner() {
           </div>
 
           {older.length > 0 && (
-            <div className="flex flex-col rounded-lg border border-dashed border-ink-line bg-ink-deep/20" data-testid="sec-older" data-open={cp.section}>
+            <div className="flex flex-col rounded-lg border border-dashed border-ink-line/50 bg-ink-black/40 backdrop-blur-md" data-testid="sec-older" data-open={cp.section}>
               <button className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-deep/40" onClick={() => setCp({ ...cp, section: !cp.section })} aria-expanded={cp.section} data-testid="button-toggle-older">
                 {cp.section ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-gray" aria-hidden /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-gray" aria-hidden />}
                 <span className="text-sm font-bold text-soft-white">Older / not tradeable ({older.length})</span>
@@ -510,8 +510,8 @@ function ActionCenterInner() {
                   {quiet.map((d) => (
                     <li key={d.symbol} className="flex flex-wrap items-center gap-3 text-sm" data-testid={`row-ac-quiet-${d.symbol}`}>
                       <MinusCircle className="h-4 w-4 shrink-0 text-slate-gray" aria-hidden />
-                      <span className="font-mono font-bold text-soft-white">{d.symbol}</span>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-gray">NO TRADE — NEXT CONDITION</span>
+                      <span className="font-mono tabular-nums font-bold text-soft-white">{d.symbol}</span>
+                      <span className="text-[10px] uppercase tracking-wider text-slate-gray">NO TRADE — NEXT CONDITION</span>
                       <span className="text-xs text-slate-gray">{d.nextAction}</span>
                     </li>
                   ))}
@@ -524,7 +524,7 @@ function ActionCenterInner() {
                 d={dlgDecision} group={actionGroupOf(dlgDecision)} ver={activeVersion(dlgDecision, sel)} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} />
             )}
             
-            <div className={`rounded-xl bg-ink-panel p-1 text-soft-white ${quiet.length ? "" : "lg:col-span-2"}`}>
+            <div className={`rounded-xl bg-ink-black/60 backdrop-blur-md border border-ink-line/50 p-1 text-soft-white shadow-lg ${quiet.length ? "" : "lg:col-span-2"}`}>
               <AlertsPanel open={alertsOpen} onOpenChange={setAlertsOpen} />
             </div>
           </div>
