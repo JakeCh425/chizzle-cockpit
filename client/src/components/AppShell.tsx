@@ -1,9 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
-import { Logo } from "./Logo";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useQuery } from "@tanstack/react-query";
-import type { Settings, ChizzleScore, Ticker, RegimeState, RegimeInputsRow } from "@shared/schema";
+import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection } from "@/lib/priceFeed";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
@@ -19,8 +18,8 @@ interface RegimePayload {
 }
 
 const NAV = [
-  { href: "/", label: "Cockpit", icon: Gauge },
-  { href: "/engine", label: "Wealth Studio", icon: LayoutDashboard },
+  { href: "/", label: "Wealth Engine", icon: LayoutDashboard },
+  { href: "/cockpit", label: "Pipeline Cockpit", icon: Gauge },
   { href: "/watchlist", label: "Watchlist", icon: ListChecks },
   { href: "/trades", label: "Trades", icon: History },
   { href: "/trade-planner", label: "Trade Planner", icon: ClipboardList },
@@ -32,41 +31,36 @@ const NAV = [
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
 
-// ── Configurable brand mark ────────────────────────────────────────────────
-// Renders the settings.brandName with the chosen font family and, when the
-// user has pasted a custom SVG, uses it in place of the default Logo. Falls
-// back to defaults silently when settings haven't loaded yet.
-function BrandMark({ settings }: { settings?: Settings }) {
-  const name = settings?.brandName || "CHIZZLE WEALTH ENGINE";
-  const font = settings?.brandFont || "display";
-  const svg = settings?.brandIconSvg || null;
-  const fontClass =
-    font === "mono"  ? "font-mono"
-    : font === "serif" ? "font-serif"
-    : font === "sans"  ? "font-sans"
-    :                    "font-display";
-  // Split into two visual halves on the first space so the neon-blue accent
-  // still applies to the trailing words (matches original two-tone treatment).
-  const [first, ...rest] = name.split(" ");
-  const tail = rest.join(" ");
+function CandlestickIcon({ color = "#22C55E" }: { color?: string }) {
   return (
-    <div className="flex items-center gap-2 md:gap-3 text-neon-blue min-w-0">
-      {svg ? (
-        <span
-          className="inline-flex items-center justify-center text-neon-blue"
-          style={{ width: 26, height: 26 }}
-          // Trusted content: the user pastes their own SVG in Settings.
-          dangerouslySetInnerHTML={{ __html: svg }}
-          aria-label={name}
-        />
-      ) : (
-        <Logo size={26} />
-      )}
-      <span className={`${fontClass} font-semibold tracking-tight text-[15px] md:text-[16px] text-soft-white truncate`}>
-        <span className="brand-glow neon-flicker">{first}</span>
-        {tail && <> <span className="text-neon-blue">{tail}</span></>}
-      </span>
-    </div>
+    <svg
+      viewBox="0 0 10 24"
+      className="h-5 w-2.5 inline-block mx-0.5 align-middle"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-label="Bullish Candlestick"
+    >
+      <line x1="5" y1="1" x2="5" y2="6" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+      <rect x="2" y="6" width="6" height="11" rx="0.75" fill={color} stroke={color} strokeWidth="0.5" />
+      <line x1="5" y1="17" x2="5" y2="23" stroke={color} strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// ── Configurable brand mark ────────────────────────────────────────────────
+// Renders the brand name with the bullish green candlestick SVG logo.
+function BrandMark({ settings }: { settings?: Settings }) {
+  return (
+    <Link href="/" className="flex items-center gap-2 md:gap-3 min-w-0 cursor-pointer" data-testid="dashboard-brand-logo" aria-label="CHIZZLE WEALTH ENGINE">
+      <div className="flex items-center tracking-tight font-extrabold font-mono text-base md:text-lg text-soft-white">
+        <span>CH</span>
+        <CandlestickIcon color="#22C55E" />
+        <span>ZZLE</span>
+        <span className="text-[10px] md:text-xs uppercase tracking-[0.22em] font-semibold ml-2.5 px-2 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
+          WEALTH ENGINE
+        </span>
+      </div>
+    </Link>
   );
 }
 
@@ -118,9 +112,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : session === "POST" ? "POST" : "MARKET CLOSED";
 
   return (
-    <div className="min-h-screen bg-ink-black text-soft-white flex flex-col">
+    <div className="h-screen w-full max-h-screen overflow-hidden bg-ink-black text-soft-white flex flex-col" data-testid="app-shell-root">
       {/* Header strip */}
-      <header className="border-b border-ink-line bg-ink-panel/60 backdrop-blur sticky top-0 z-30">
+      <header className="border-b border-ink-line bg-ink-panel/60 backdrop-blur flex-shrink-0 z-30">
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
           <BrandMark settings={settings} />
 
@@ -183,9 +177,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="flex-1 flex">
+      <div className="flex-1 min-h-0 w-full flex overflow-hidden">
         {/* Sidebar */}
-        <aside className={`hidden md:flex flex-col ${collapsed ? "w-14" : "w-52"} border-r border-ink-line bg-ink-panel/40 transition-all duration-200`}>
+        <aside className={`hidden md:flex flex-col ${collapsed ? "w-14" : "w-52"} h-full border-r border-ink-line bg-ink-panel/40 transition-all duration-200 overflow-y-auto flex-shrink-0`}>
           <nav className="flex-1 py-4 px-2 space-y-1">
             {NAV.map(item => {
               const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));
@@ -233,7 +227,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <main className="flex-1 min-w-0 pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 min-h-0 min-w-0 h-full overflow-hidden flex flex-col pb-16 md:pb-0">{children}</main>
       </div>
     </div>
   );

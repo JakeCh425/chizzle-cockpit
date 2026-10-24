@@ -26,21 +26,27 @@ import TagsPage from "@/pages/TagsPage";
 
 function AppRouter() {
   const [location] = useLocation();
-  if (location === "/engine" || location === "/dashboard") {
+
+  // Root "/" and dedicated "/engine" or "/dashboard" render the strict 100vh 3-column Chizzle Wealth Engine
+  if (location === "/" || location === "/engine" || location === "/dashboard" || location === "") {
     return (
       <Switch>
+        <Route path="/" component={WealthEngineDashboard} />
         <Route path="/engine" component={WealthEngineDashboard} />
         <Route path="/dashboard" component={WealthEngineDashboard} />
         <Route component={WealthEngineDashboard} />
       </Switch>
     );
   }
+
   return (
     <AppShell>
       <Switch>
-        <Route path="/" component={PipelineCockpit} />
+        <Route path="/" component={WealthEngineDashboard} />
         <Route path="/engine" component={WealthEngineDashboard} />
         <Route path="/dashboard" component={WealthEngineDashboard} />
+        <Route path="/cockpit" component={PipelineCockpit} />
+        <Route path="/pipeline" component={PipelineCockpit} />
         <Route path="/advanced" component={Cockpit} />
         <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
         <Route path="/watchlist" component={Watchlist} />
