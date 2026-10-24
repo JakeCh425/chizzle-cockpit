@@ -1,5 +1,5 @@
 /* ============================================================
- * 9-COLOR CARD THEMING ENGINE
+ * 9-COLOR CARD THEMING ENGINE & EXPANDED PALETTES
  * ============================================================ */
 :root {
   --card-bg: #0F172A;
@@ -11,6 +11,42 @@
   --card-accent-target: #34D399;
   --card-badge-bg: #064E3B;
   --card-badge-text: #6EE7B7;
+}
+
+[data-theme="sunset-orange"] {
+  --card-bg: #18110D;
+  --card-border: #431E0C;
+  --card-text-primary: #FFF7ED;
+  --card-text-secondary: #FDBA74;
+  --card-accent-buy: #F97316;
+  --card-accent-stop: #F87171;
+  --card-accent-target: #FB923C;
+  --card-badge-bg: #431407;
+  --card-badge-text: #FFEDD5;
+}
+
+[data-theme="neon-grape"] {
+  --card-bg: #13091B;
+  --card-border: #3B144E;
+  --card-text-primary: #FDF4FF;
+  --card-text-secondary: #E879F9;
+  --card-accent-buy: #D946EF;
+  --card-accent-stop: #F87171;
+  --card-accent-target: #F472B6;
+  --card-badge-bg: #4A044E;
+  --card-badge-text: #F0ABFC;
+}
+
+[data-theme="mint-matrix"] {
+  --card-bg: #040D08;
+  --card-border: #064E3B;
+  --card-text-primary: #ECFDF5;
+  --card-text-secondary: #6EE7B7;
+  --card-accent-buy: #34D399;
+  --card-accent-stop: #F87171;
+  --card-accent-target: #10B981;
+  --card-badge-bg: #064E3B;
+  --card-badge-text: #A7F3D0;
 }
 
 @tailwind base;

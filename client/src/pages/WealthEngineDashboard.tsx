@@ -1,8 +1,9 @@
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo } from "react";
+import { useFeedConnection } from "@/lib/priceFeed";
 import { Link } from "wouter";
 import {
-  TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun,
+  TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, LayoutDashboard,
   Maximize2, Crosshair, HelpCircle, Eye, Info, Play
@@ -11,7 +12,7 @@ import {
 // ============================================================================
 // THEME CONFIGURATIONS & CSS VARIABLES
 // ============================================================================
-export type DashboardTheme = "cyber-neon" | "stealth" | "arctic";
+export type DashboardTheme = "cyber-neon" | "stealth" | "arctic" | "sunset-orange" | "neon-grape" | "mint-matrix";
 
 interface ThemeStyle {
   id: DashboardTheme;
@@ -88,6 +89,75 @@ export const THEMES: Record<DashboardTheme, ThemeStyle> = {
       "--accent-amber": "#D97706",
       "--accent-red": "#DC2626",
       "--badge-bg": "rgba(15, 23, 42, 0.06)",
+    },
+  },
+  "sunset-orange": {
+    id: "sunset-orange",
+    name: "Sunset Orange",
+    icon: Flame,
+    vars: {
+      "--bg-root": "#18110D",
+      "--bg-panel": "#27170E",
+      "--bg-panel-subtle": "#1F130B",
+      "--bg-card": "#1C1109",
+      "--border-main": "#F97316",
+      "--border-subtle": "rgba(249, 115, 22, 0.3)",
+      "--border-glow": "0 0 15px rgba(249, 115, 22, 0.2)",
+      "--text-primary": "#FFF7ED",
+      "--text-secondary": "#FDBA74",
+      "--text-muted": "#9A3412",
+      "--accent-green": "#FB923C",
+      "--accent-cyan": "#F97316",
+      "--accent-blue": "#EA580C",
+      "--accent-amber": "#F97316",
+      "--accent-red": "#EF4444",
+      "--badge-bg": "rgba(249, 115, 22, 0.15)",
+    },
+  },
+  "neon-grape": {
+    id: "neon-grape",
+    name: "Neon Grape",
+    icon: Sparkles,
+    vars: {
+      "--bg-root": "#13091B",
+      "--bg-panel": "#1F0F2D",
+      "--bg-panel-subtle": "#190C24",
+      "--bg-card": "#160B20",
+      "--border-main": "#D946EF",
+      "--border-subtle": "rgba(217, 70, 239, 0.3)",
+      "--border-glow": "0 0 15px rgba(217, 70, 239, 0.2)",
+      "--text-primary": "#FDF4FF",
+      "--text-secondary": "#E879F9",
+      "--text-muted": "#86198F",
+      "--accent-green": "#F472B6",
+      "--accent-cyan": "#D946EF",
+      "--accent-blue": "#C026D3",
+      "--accent-amber": "#F59E0B",
+      "--accent-red": "#EF4444",
+      "--badge-bg": "rgba(217, 70, 239, 0.15)",
+    },
+  },
+  "mint-matrix": {
+    id: "mint-matrix",
+    name: "Mint Matrix",
+    icon: Terminal,
+    vars: {
+      "--bg-root": "#040D08",
+      "--bg-panel": "#081A10",
+      "--bg-panel-subtle": "#06140D",
+      "--bg-card": "#05100A",
+      "--border-main": "#34D399",
+      "--border-subtle": "rgba(52, 211, 153, 0.3)",
+      "--border-glow": "0 0 15px rgba(52, 211, 153, 0.2)",
+      "--text-primary": "#ECFDF5",
+      "--text-secondary": "#6EE7B7",
+      "--text-muted": "#065F46",
+      "--accent-green": "#34D399",
+      "--accent-cyan": "#34D399",
+      "--accent-blue": "#10B981",
+      "--accent-amber": "#F59E0B",
+      "--accent-red": "#EF4444",
+      "--badge-bg": "rgba(52, 211, 153, 0.15)",
     },
   },
 };
@@ -339,12 +409,15 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
           borderColor: "var(--border-subtle)",
         }}
       >
-        {/* Active Ticker Context */}
-        <div className="flex items-center gap-3 font-mono">
-          <span className="font-bold text-base tracking-wide" style={{ color: "var(--text-primary)" }}>
+        {/* Active Ticker Context with Prominent Live Price */}
+        <div className="flex items-baseline gap-3 font-mono" data-testid="chart-live-price-header">
+          <span className="font-black text-2xl md:text-3xl tracking-tight text-white drop-shadow-sm">
             {symbol}
           </span>
-          <span className="text-xs text-slate-400">· {timeframe} Live Candlestick Feed</span>
+          <span className="font-black text-2xl md:text-3xl tabular-nums tracking-tight text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]" data-testid="chart-live-price-value">
+            ${(item?.price ?? 100).toFixed(2)}
+          </span>
+          <span className="text-xs text-slate-400 font-normal">· {timeframe} Live Candlestick Feed</span>
         </div>
 
         {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA */}
@@ -424,6 +497,42 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
           />
 
           {/* Target Levels Overlays */}
+          {/* Dynamic Live Price Horizontal Line across Chart */}
+          <line
+            x1="20"
+            y1={priceToY(item?.price ?? 100)}
+            x2="780"
+            y2={priceToY(item?.price ?? 100)}
+            stroke="#06B6D4"
+            strokeWidth="2"
+            strokeDasharray="4 4"
+            data-testid="chart-live-price-line"
+          />
+
+          {/* Pinned & Highlighted Current Price Label on Right-Hand Y-Axis */}
+          <g transform={`translate(710, ${priceToY(item?.price ?? 100) - 10})`} data-testid="chart-live-price-badge">
+            <rect
+              x="0"
+              y="0"
+              width="78"
+              height="20"
+              rx="4"
+              fill="#06B6D4"
+              className="drop-shadow-[0_0_8px_rgba(6,182,212,0.8)]"
+            />
+            <text
+              x="39"
+              y="14"
+              fill="#0F172A"
+              fontSize="11"
+              fontFamily="monospace"
+              fontWeight="900"
+              textAnchor="middle"
+            >
+              ${(item?.price ?? 100).toFixed(2)}
+            </text>
+          </g>
+
           {/* Buy Target Line */}
           <line x1="40" y1={priceToY(item?.buyTarget ?? 100)} x2="780" y2={priceToY(item?.buyTarget ?? 100)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
           <text x="680" y={priceToY(item?.buyTarget ?? 100) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
@@ -486,9 +595,12 @@ export default function WealthEngineDashboard() {
 
   const activeTheme = THEMES[theme];
 
+  const { source: feedSource } = useFeedConnection();
+
+  const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
   const cycleTheme = () => {
-    const next: DashboardTheme =
-      theme === "cyber-neon" ? "stealth" : theme === "stealth" ? "arctic" : "cyber-neon";
+    const idx = THEME_ORDER.indexOf(theme);
+    const next: DashboardTheme = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
     setTheme(next);
     if (typeof window !== "undefined") {
       localStorage.setItem("chizzle-wealth-theme", next);
@@ -584,14 +696,28 @@ export default function WealthEngineDashboard() {
           </div>
         </div>
 
-        {/* Center: Live Terminal Telemetry */}
-        <div className="hidden md:flex items-center gap-4 text-xs font-mono">
-          <div className="flex items-center gap-2 px-2.5 py-1 rounded border border-white/10 bg-black/20">
-            <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span className="text-[11px] font-bold tracking-wider" style={{ color: "var(--accent-green)" }}>
-              STREAM ACTIVE
+        {/* Center: Live Terminal Telemetry & Provider Status Pill */}
+        <div className="hidden md:flex items-center gap-3 text-xs font-mono">
+          <div
+            className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm font-bold tracking-wider ${
+              feedSource && feedSource !== "FINNHUB"
+                ? "border-amber-400/50 bg-amber-950/60 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]"
+                : "border-emerald-400/50 bg-emerald-950/60 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.2)]"
+            }`}
+            data-testid="pill-feed-provider"
+          >
+            <span
+              className={`h-2 w-2 rounded-full ${
+                feedSource && feedSource !== "FINNHUB"
+                  ? "bg-amber-400 shadow-[0_0_6px_#F59E0B] animate-pulse"
+                  : "bg-emerald-400 shadow-[0_0_6px_#34D399]"
+              }`}
+            />
+            <span>
+              {feedSource && feedSource !== "FINNHUB"
+                ? `🟡 LIVE: ${feedSource === "POLYGON" ? "Polygon" : feedSource === "TWELVEDATA" ? "TwelveData" : feedSource} (Backup)`
+                : "🟢 LIVE: Finnhub"}
             </span>
-            <span className="text-slate-400 text-[10px]">· SUB-SECOND</span>
           </div>
         </div>
 
@@ -606,11 +732,14 @@ export default function WealthEngineDashboard() {
               backgroundColor: "var(--bg-panel-subtle)",
               color: "var(--accent-cyan)",
             }}
-            title="Cycle theme: Cyber Neon -> Stealth Mode -> Arctic Terminal"
+            title="Cycle theme"
           >
             {theme === "cyber-neon" && <Zap className="h-3.5 w-3.5 text-cyan-400" />}
             {theme === "stealth" && <Moon className="h-3.5 w-3.5 text-amber-400" />}
             {theme === "arctic" && <Sun className="h-3.5 w-3.5 text-blue-600" />}
+            {theme === "sunset-orange" && <Flame className="h-3.5 w-3.5 text-orange-400" />}
+            {theme === "neon-grape" && <Sparkles className="h-3.5 w-3.5 text-fuchsia-400" />}
+            {theme === "mint-matrix" && <Terminal className="h-3.5 w-3.5 text-emerald-400" />}
             <span className="hidden sm:inline">{activeTheme.name}</span>
           </button>
         </div>

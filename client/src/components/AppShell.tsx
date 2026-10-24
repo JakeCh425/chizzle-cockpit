@@ -121,7 +121,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     queryKey: ["/api/regime"],
     // Low-Credit Mode: manual refresh only — no polling.
   });
-  const { state: feedState, lastEventAt } = useFeedConnection();
+  const { state: feedState, lastEventAt, source: feedSource } = useFeedConnection();
   const session = marketSession(now);
   const ageSec = lastEventAt ? Math.round((now.getTime() - lastEventAt) / 1000) : null;
   const todayScore = scores?.[0]?.total ?? 0;
@@ -180,7 +180,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           )}
 
-          <FeedBadge state={feedState} ageSec={ageSec} />
+          <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} />
 
           <div className="ml-auto flex items-center gap-3 md:gap-5">
             <ThemeSwitcher />
@@ -284,28 +284,39 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FeedBadge({ state, ageSec }: { state: "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED"; ageSec: number | null }) {
+function FeedBadge({ state, ageSec, source = "FINNHUB" }: { state: "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED"; ageSec: number | null; source?: string }) {
+  const isBackup = source && source !== "FINNHUB";
+  const providerLabel =
+    source === "POLYGON" ? "Polygon (Backup)"
+    : source === "TWELVEDATA" ? "TwelveData (Backup)"
+    : source === "NASDAQ" ? "Nasdaq (Backup)"
+    : source === "YAHOO" ? "Yahoo (Backup)"
+    : source === "SIMULATOR" ? "Sim (Backup)"
+    : isBackup ? `${source} (Backup)`
+    : "Finnhub";
+
   const label =
-    state === "LIVE" ? "LIVE • FINNHUB"
-    : state === "STALE" ? "STALE • FINNHUB"
+    state === "LIVE" ? (isBackup ? `🟡 LIVE: ${providerLabel}` : "🟢 LIVE: Finnhub")
+    : state === "STALE" ? `STALE: ${providerLabel}`
     : state === "CONNECTING" ? "CONNECTING"
     : "DISCONNECTED";
   const tone =
-    state === "LIVE" ? "text-neon-blue border-neon-blue/40 bg-neon-blue/10"
-    : state === "STALE" ? "text-signal-amber border-signal-amber/40 bg-signal-amber/10"
-    : state === "CONNECTING" ? "text-slate-gray border-slate-800 bg-slate-900/60"
-    : "text-signal-red border-signal-red/40 bg-signal-red/10";
+    state === "LIVE"
+      ? (isBackup ? "text-amber-300 border-amber-400/50 bg-amber-950/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]" : "text-emerald-300 border-emerald-400/40 bg-emerald-950/40 shadow-[0_0_10px_rgba(52,211,153,0.15)]")
+      : state === "STALE" ? "text-signal-amber border-signal-amber/40 bg-signal-amber/10"
+      : state === "CONNECTING" ? "text-slate-gray border-slate-800 bg-slate-900/60"
+      : "text-signal-red border-signal-red/40 bg-signal-red/10";
   const dotAnim = state === "LIVE" ? "heartbeat" : state === "CONNECTING" ? "animate-pulse" : "";
   return (
     <div
       data-testid="badge-feed-status"
-      className={`hidden sm:flex items-center gap-2 px-2 py-1 border ${tone} text-[10px] font-display tracking-widest uppercase rounded-sm`}
-      title={ageSec != null ? `Last tick ${ageSec}s ago` : "Awaiting first tick"}
+      className={`hidden sm:flex items-center gap-2 px-2.5 py-1 border ${tone} text-[10px] font-mono font-bold tracking-wider uppercase rounded-full`}
+      title={ageSec != null ? `Last tick ${ageSec}s ago via ${source}` : "Awaiting first tick"}
     >
-      <span className={`inline-block w-1.5 h-1.5 rounded-full bg-current ${dotAnim}`} />
+      <span className={`inline-block w-2 h-2 rounded-full bg-current ${dotAnim}`} />
       <span>{label}</span>
       {ageSec != null && ageSec >= 0 && (
-        <span className="font-mono-num tabular-nums text-slate-gray">{ageSec}s</span>
+        <span className="font-mono-num tabular-nums text-slate-400 font-normal">{ageSec}s</span>
       )}
     </div>
   );

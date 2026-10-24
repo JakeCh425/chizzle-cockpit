@@ -1268,7 +1268,7 @@ export function EarlyLookLine({ d }: any) {
   return <span className="text-[10px] font-bold text-signal-amber"><Eye className="inline h-3 w-3 mr-1" /> Heads up: 30m closed above trigger</span>;
 }
 
-export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void }) {
+export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; collapsed?: boolean }) {
   const { d, group, ver, setupKey, isNew, onSeen } = props;
   const sz = useCardSizing(d, props.ver);
   const p = effectivePlan(d, ver);
@@ -1338,6 +1338,30 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       }
     }, 100);
   };
+
+  if (props.collapsed) {
+    return (
+      <article
+        className={`w-full flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:border-cyan-400/60`}
+        onClick={() => {
+          if (props.onOpen) {
+            props.onSeen?.();
+            props.onOpen();
+          }
+        }}
+        data-testid={`trading-card-${d.symbol}`}
+      >
+        <div className="flex items-center gap-3">
+          <span className="font-mono text-xl font-black text-white">{d.symbol}</span>
+          <span className="font-mono text-sm font-bold text-slate-300 tabular-nums">{$(effectivePrice)}</span>
+          <span className="text-xs font-mono text-slate-400 hidden sm:inline">{setupName(d.setupType)}</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+        </div>
+      </article>
+    );
+  }
 
   return (
     <article

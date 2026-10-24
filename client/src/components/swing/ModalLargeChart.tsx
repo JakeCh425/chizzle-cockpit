@@ -290,6 +290,19 @@ export function ModalLargeChart({
         });
       }
 
+      // Dynamic Bright Live Price Line
+      const activeLive = liveQuote?.price ?? (bars.length > 0 ? bars[bars.length - 1].c : null);
+      if (activeLive != null && Number.isFinite(activeLive)) {
+        candleSeries.createPriceLine({
+          price: activeLive,
+          color: "#06B6D4",
+          lineWidth: 2,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: "LIVE",
+        });
+      }
+
       // 7. Interactive Crosshair & Tooltip
       const handleCrosshairMove = (param: MouseEventParams) => {
         if (
@@ -408,11 +421,11 @@ export function ModalLargeChart({
     >
       {/* Chart Top Header & Controls */}
       <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-900/80 flex flex-wrap items-center justify-between gap-3 select-none">
-        {/* Left: Ticker & Live Price */}
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-base font-black text-white">{symbol}</span>
-            <span className="font-mono text-xs font-bold text-cyan-400">
+        {/* Left: Ticker & Prominent Live Price */}
+        <div className="flex items-baseline gap-3 font-mono">
+          <div className="flex items-baseline gap-2.5">
+            <span className="text-2xl md:text-3xl font-black text-white drop-shadow-sm">{symbol}</span>
+            <span className="text-2xl md:text-3xl font-black tabular-nums text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
               ${liveQuote?.price != null ? liveQuote.price.toFixed(2) : (bars[bars.length - 1]?.c ? bars[bars.length - 1].c.toFixed(2) : "—")}
             </span>
           </div>

@@ -19,7 +19,7 @@ export interface LiveQuote {
   open: number;
   ts: number;
   receivedAt: number; // ms
-  source: "FINNHUB" | "SIMULATOR" | "OVERRIDE";
+  source: "FINNHUB" | "POLYGON" | "TWELVEDATA" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE";
 }
 
 // Backwards-compat alias (older code imports `SimTick`)
@@ -346,17 +346,33 @@ export function getLastEventAt(): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // React hooks
-export function useFeedConnection(): { state: ConnState; lastEventAt: number; ageSec: number } {
+export function useFeedConnection(): { state: ConnState; lastEventAt: number; ageSec: number; source: string } {
   const [state, setState] = useState<ConnState>(connState);
   const [tick, setTick] = useState(0);
+  const [source, setSource] = useState<string>(() => {
+    const snap = getSnapshot();
+    const first = Object.values(snap)[0];
+    return first?.source || "FINNHUB";
+  });
+
   useEffect(() => {
     ensurePriceFeed();
     const off = subscribeStatus(setState);
+    const offSnap = subscribe((snap) => {
+      const first = Object.values(snap)[0];
+      if (first?.source) setSource(first.source);
+    });
     const t = setInterval(() => setTick(x => x + 1), 1000);
-    return () => { off(); clearInterval(t); };
+    return () => { off(); offSnap(); clearInterval(t); };
   }, []);
+
   const ageSec = lastEventAt ? Math.round((Date.now() - lastEventAt) / 1000) : -1;
-  return { state, lastEventAt, ageSec };
+  return { state, lastEventAt, ageSec, source };
+}
+
+export function useFeedSource(): string {
+  const { source } = useFeedConnection();
+  return source;
 }
 
 export interface FeedStatusPayload {

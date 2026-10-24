@@ -1,27 +1,29 @@
 import { useState, useEffect } from "react";
-import { Zap, Moon, Sun } from "lucide-react";
+import { Zap, Moon, Sun, Flame, Sparkles, Terminal } from "lucide-react";
 
-export type Theme = "cyber-neon" | "stealth" | "arctic";
+export type Theme = "cyber-neon" | "stealth" | "arctic" | "sunset-orange" | "neon-grape" | "mint-matrix";
+
+const THEME_ORDER: Theme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
 
 function readTheme(): Theme {
   if (typeof document !== "undefined") {
     const saved = localStorage.getItem("chizzle-wealth-theme") || localStorage.getItem("chizzle-theme");
-    if (saved === "cyber-neon" || saved === "stealth" || saved === "arctic") return saved;
+    if (saved && THEME_ORDER.includes(saved as Theme)) return saved as Theme;
     if (saved === "dark") return "stealth";
     if (saved === "light") return "arctic";
     if (saved === "medium") return "cyber-neon";
     const attr = document.documentElement.getAttribute("data-theme");
-    if (attr === "cyber-neon" || attr === "stealth" || attr === "arctic") return attr as Theme;
+    if (attr && THEME_ORDER.includes(attr as Theme)) return attr as Theme;
   }
   return "cyber-neon";
 }
 
 function applyTheme(t: Theme) {
   document.documentElement.setAttribute("data-theme", t);
-  if (t === "cyber-neon" || t === "stealth") {
-    document.documentElement.classList.add("dark");
-  } else {
+  if (t === "arctic") {
     document.documentElement.classList.remove("dark");
+  } else {
+    document.documentElement.classList.add("dark");
   }
   try {
     localStorage.setItem("chizzle-wealth-theme", t);
@@ -37,14 +39,18 @@ export function ThemeSwitcher() {
   }, [theme]);
 
   const cycleTheme = () => {
-    const next: Theme = theme === "cyber-neon" ? "stealth" : theme === "stealth" ? "arctic" : "cyber-neon";
+    const idx = THEME_ORDER.indexOf(theme);
+    const next = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
     setTheme(next);
   };
 
-  const themes: { value: Theme; label: string; Icon: typeof Zap }[] = [
+  const themes: { value: Theme; label: string; Icon: any }[] = [
     { value: "cyber-neon", label: "Cyber Neon", Icon: Zap },
     { value: "stealth", label: "Stealth", Icon: Moon },
     { value: "arctic", label: "Arctic", Icon: Sun },
+    { value: "sunset-orange", label: "Sunset Orange", Icon: Flame },
+    { value: "neon-grape", label: "Neon Grape", Icon: Sparkles },
+    { value: "mint-matrix", label: "Mint Matrix", Icon: Terminal },
   ];
 
   return (
@@ -59,6 +65,9 @@ export function ThemeSwitcher() {
         {theme === "cyber-neon" && <Zap className="w-3.5 h-3.5 text-cyan-400" />}
         {theme === "stealth" && <Moon className="w-3.5 h-3.5 text-amber-400" />}
         {theme === "arctic" && <Sun className="w-3.5 h-3.5 text-blue-600" />}
+        {theme === "sunset-orange" && <Flame className="w-3.5 h-3.5 text-orange-400" />}
+        {theme === "neon-grape" && <Sparkles className="w-3.5 h-3.5 text-fuchsia-400" />}
+        {theme === "mint-matrix" && <Terminal className="w-3.5 h-3.5 text-emerald-400" />}
         <span className="hidden sm:inline capitalize">{theme.replace("-", " ")}</span>
       </button>
 

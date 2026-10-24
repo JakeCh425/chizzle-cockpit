@@ -324,6 +324,12 @@ function ActionCenterInner() {
 
   const [cyberTheme, setCyberTheme] = usePersistentState<CyberTheme>("ac-cyber-theme", "cyber-neon");
   const activeThemeConfig = CYBER_THEMES.find((t) => t.id === cyberTheme) ?? CYBER_THEMES[0];
+  const [gridSize, setGridSize] = usePersistentState<"sm" | "md" | "lg">("ac-grid-size", "md");
+  const [isCollapsedAll, setIsCollapsedAll] = usePersistentState<boolean>("ac-cards-collapsed-all", false);
+  const gridColsClass =
+    gridSize === "lg" ? "grid-cols-1 md:grid-cols-2"
+    : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
+    : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
 
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
@@ -364,6 +370,34 @@ function ActionCenterInner() {
             <strong className="font-mono tabular-nums font-bold text-amber-300">{older.length}</strong> older / not tradeable
           </span>
         )}
+
+        {/* High-Contrast Glowing Status Pill: Confirmed Trades */}
+        <span
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider transition-all ${
+            (counts.CONFIRMED ?? 0) > 0
+              ? "border-emerald-400 bg-emerald-950/80 text-emerald-300 shadow-[0_0_18px_rgba(52,211,153,0.5)] ring-1 ring-emerald-400/40 animate-pulse"
+              : "border-white/10 bg-black/40 text-slate-400"
+          }`}
+          data-testid="pill-confirmed-trades"
+          title="Setups where price has confirmed above trigger"
+        >
+          <span className={`h-2 w-2 rounded-full ${(counts.CONFIRMED ?? 0) > 0 ? "bg-emerald-400 shadow-[0_0_8px_#34D399]" : "bg-slate-600"}`} />
+          <span>Confirmed Trades: <strong className="font-mono tabular-nums font-black">{(counts.CONFIRMED ?? 0)}</strong></span>
+        </span>
+
+        {/* High-Contrast Glowing Status Pill: Practice Trades Active */}
+        <span
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider transition-all ${
+            openTrades.length > 0
+              ? "border-amber-400 bg-amber-950/80 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.5)] ring-1 ring-amber-400/40 animate-pulse"
+              : "border-white/10 bg-black/40 text-slate-400"
+          }`}
+          data-testid="pill-practice-trades-active"
+          title="Active practice trades being tracked in Cockpit"
+        >
+          <span className={`h-2 w-2 rounded-full ${openTrades.length > 0 ? "bg-amber-400 shadow-[0_0_8px_#F59E0B]" : "bg-slate-600"}`} />
+          <span>Practice Trades Active: <strong className="font-mono tabular-nums font-black">{openTrades.length}</strong></span>
+        </span>
         
         <span
           className="rounded-full border border-ink-line/40 bg-black/40 px-3 py-1 text-[10px] font-mono tabular-nums font-medium uppercase tracking-wider text-slate-gray"
@@ -451,8 +485,55 @@ function ActionCenterInner() {
           )}
 
           <PriorityBoard rows={rows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
+
+          {/* Cockpit Grid Toolbar */}
+          <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 backdrop-blur-sm" data-testid="cockpit-grid-toolbar">
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setIsCollapsedAll(!isCollapsedAll)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
+                data-testid="button-collapse-expand-all"
+              >
+                {isCollapsedAll ? (
+                  <>
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Expand All Cards</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronsDownUp className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Collapse All Cards</span>
+                  </>
+                )}
+              </button>
+              <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                {isCollapsedAll ? "Compact view: ticker & status only" : "Detailed view: levels & progress active"}
+              </span>
+            </div>
+
+            {/* Grid Size Toggle: Small, Medium, Large */}
+            <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-black/40 p-1 font-mono text-xs" data-testid="grid-size-toggle">
+              <span className="text-[10px] text-slate-400 uppercase tracking-wider px-2 font-bold">Grid Size:</span>
+              {(["sm", "md", "lg"] as const).map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setGridSize(sz)}
+                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                    gridSize === sz
+                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  data-testid={`grid-size-${sz}`}
+                >
+                  {sz === "sm" ? "Small" : sz === "md" ? "Medium" : "Large"}
+                </button>
+              ))}
+            </div>
+          </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 w-full" data-testid="ac-cards-grid">
+          <div className={`grid ${gridColsClass} gap-6 w-full`} data-testid="ac-cards-grid">
             {loud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
@@ -460,7 +541,7 @@ function ActionCenterInner() {
               const populated = isPopulated(d, ver);
               return (
                 <div key={d.symbol} className="flex flex-col gap-1.5">
-                  <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} />
+                  <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} />
                   {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
                   {fOf(d).shouldCollapse && (
                     <button className="flex w-max items-center gap-1.5 rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onClick={() => setCard(key, true)} data-testid={`button-move-older-${d.symbol}`}>

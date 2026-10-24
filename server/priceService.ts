@@ -37,7 +37,7 @@ async function proxiedFetch(url: string, init: any = {}) {
   return fetch(url, init);
 }
 
-export type FeedSource = "FINNHUB" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE";
+export type FeedSource = "FINNHUB" | "POLYGON" | "TWELVEDATA" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE";
 
 export interface Quote {
   symbol: string;
@@ -192,6 +192,115 @@ async function fetchTiingoQuotesBatch(symbols: string[]): Promise<Quote[]> {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Backup Provider: Polygon.io (free tier / demo fallback)
+export async function fetchPolygonQuote(symbol: string): Promise<Quote | null> {
+  if (isCooling("polygon")) return null;
+  const key = process.env.POLYGON_API_KEY || process.env.POLYGON_TOKEN || "";
+  const url = `https://api.polygon.io/v2/aggs/ticker/${encodeURIComponent(symbol)}/prev?adjusted=true${key ? `&apiKey=${key}` : ""}`;
+  try {
+    const r = await fetch(url, {
+      headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) {
+        const cur = providerFailures.get("polygon") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 5 * 60_000;
+        providerFailures.set("polygon", cur);
+        console.warn(`[priceService:polygon] ${symbol} 429 — cooling 5min`);
+      } else {
+        markFail("polygon");
+      }
+      return null;
+    }
+    const j: any = await r.json();
+    const result = j?.results?.[0];
+    if (!result || !result.c) {
+      markFail("polygon");
+      return null;
+    }
+    markOk("polygon");
+    const close = Number(result.c);
+    const open = Number(result.o ?? close);
+    const change = close - open;
+    const changePct = open > 0 ? (change / open) * 100 : 0;
+    return {
+      symbol,
+      price: close,
+      prevClose: open,
+      change,
+      changePct,
+      high: Number(result.h ?? close),
+      low: Number(result.l ?? close),
+      open,
+      ts: result.t ? Math.floor(result.t / 1000) : Math.floor(Date.now() / 1000),
+      receivedAt: Date.now(),
+      source: "POLYGON",
+    };
+  } catch (e: any) {
+    pushError();
+    markFail("polygon");
+    console.warn(`[priceService:polygon] ${symbol} fetch error: ${e?.message || e}`);
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Backup Provider: TwelveData (free tier fallback)
+export async function fetchTwelveDataQuote(symbol: string): Promise<Quote | null> {
+  if (isCooling("twelvedata")) return null;
+  const key = process.env.TWELVEDATA_API_KEY || process.env.TWELVEDATA_TOKEN || "demo";
+  const url = `https://api.twelvedata.com/quote?symbol=${encodeURIComponent(symbol)}&apikey=${key}`;
+  try {
+    const r = await fetch(url, {
+      headers: { "Accept": "application/json", "User-Agent": "chizzle-cockpit/1.0" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) {
+      if (r.status === 429) {
+        const cur = providerFailures.get("twelvedata") || { count: 0, until: 0 };
+        cur.count = 999;
+        cur.until = Date.now() + 5 * 60_000;
+        providerFailures.set("twelvedata", cur);
+        console.warn(`[priceService:twelvedata] ${symbol} 429 — cooling 5min`);
+      } else {
+        markFail("twelvedata");
+      }
+      return null;
+    }
+    const j: any = await r.json();
+    const close = parseFloat(String(j?.close || "0"));
+    if (!Number.isFinite(close) || close <= 0) {
+      markFail("twelvedata");
+      return null;
+    }
+    markOk("twelvedata");
+    const prev = parseFloat(String(j?.previous_close || "0")) || close;
+    const change = parseFloat(String(j?.change || "0"));
+    const changePct = parseFloat(String(j?.percent_change || "0"));
+    return {
+      symbol,
+      price: close,
+      prevClose: prev,
+      change,
+      changePct,
+      high: parseFloat(String(j?.high || close)),
+      low: parseFloat(String(j?.low || close)),
+      open: parseFloat(String(j?.open || close)),
+      ts: j?.timestamp ? Number(j.timestamp) : Math.floor(Date.now() / 1000),
+      receivedAt: Date.now(),
+      source: "TWELVEDATA",
+    };
+  } catch (e: any) {
+    pushError();
+    markFail("twelvedata");
+    console.warn(`[priceService:twelvedata] ${symbol} fetch error: ${e?.message || e}`);
+    return null;
+  }
+}
+
 async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
   if (isCooling("finnhub")) return null;
   if (!proxyDispatcher && !FINNHUB_TOKEN) return null;
@@ -214,6 +323,19 @@ async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
     if (j?.c == null || j.c === 0) {
       pushError();
       markFail("finnhub");
+      return null;
+    }
+    // Check for stale timestamp (e.g., older than 15 minutes during live market hours)
+    const quoteTs = Number(j.t ?? 0);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
+    const day = et.getDay();
+    const minutes = et.getHours() * 60 + et.getMinutes();
+    const isMktHours = day >= 1 && day <= 5 && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+    if (isMktHours && quoteTs > 0 && nowSec - quoteTs > 15 * 60) {
+      pushError();
+      markFail("finnhub");
+      console.warn(`[priceService:finnhub] ${symbol} quote is stale (${Math.floor((nowSec - quoteTs) / 60)}m old > 15m), failing over to backup provider`);
       return null;
     }
     markOk("finnhub");
@@ -459,25 +581,36 @@ export async function fetchNasdaqDailyBars(
 
 async function fetchQuote(symbol: string): Promise<Quote | null> {
   if (USE_SIMULATOR) return simulatorQuote(symbol);
-  // 1. Tiingo IEX (preferred — single batch call covers many symbols,
-  //    works reliably from datacenter IPs). For single-symbol calls we still hit it.
+  // 1. Primary provider: Finnhub REST
+  if (!isCooling("finnhub") && (proxyDispatcher || FINNHUB_TOKEN)) {
+    const fh = await fetchFinnhubQuote(symbol);
+    if (fh) return fh;
+  }
+  // 2. Automatic Backup Provider: Polygon.io (silent failover)
+  if (!isCooling("polygon")) {
+    const poly = await fetchPolygonQuote(symbol);
+    if (poly) return poly;
+  }
+  // 3. Automatic Backup Provider: TwelveData (silent failover)
+  if (!isCooling("twelvedata")) {
+    const td = await fetchTwelveDataQuote(symbol);
+    if (td) return td;
+  }
+  // 4. Tiingo IEX (batch-capable)
   if (TIINGO_TOKEN && !isCooling("tiingo-iex")) {
     const arr = await fetchTiingoQuotesBatch([symbol]);
     if (arr.length > 0) return arr[0];
   }
-  // 2. Nasdaq fallback (zero-quota, no auth, works from Render IPs)
+  // 5. Nasdaq fallback (zero-quota, works from Render IPs)
   if (!isCooling("nasdaq")) {
     const nq = await fetchNasdaqQuote(symbol);
     if (nq) return nq;
   }
-  // 3. Yahoo fallback (zero-quota but heavily rate-limited from datacenter IPs)
+  // 6. Yahoo fallback (zero-quota)
   if (!isCooling("yahoo")) {
     const yhArr = await fetchYahooQuotesBatch([symbol]);
     if (yhArr.length > 0) return yhArr[0];
   }
-  // 4. Finnhub fallback
-  const fh = await fetchFinnhubQuote(symbol);
-  if (fh) return fh;
   // 4. Auto-fallback: if no quote provider is healthy and no token configured,
   //    fall back to simulator so the UI still shows motion.
   if (!proxyDispatcher && !FINNHUB_TOKEN && !TIINGO_TOKEN) {
