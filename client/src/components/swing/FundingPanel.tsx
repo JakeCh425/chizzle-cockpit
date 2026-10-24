@@ -74,14 +74,22 @@ export function useCardSizing(d: SwingDecision, ver: PlanVersion | null) {
 // ─── Small inputs ─────────────────────────────────────────────────────────
 function Field({ label, value, onChange, testId, hint, err, prefix = "$", width = "8.5rem", placeholder }: { label: string; value: string; onChange: (v: string) => void; testId: string; hint?: React.ReactNode; err?: string | null; prefix?: string; width?: string; placeholder?: string }) {
   return (
-    <label className="flex flex-col gap-0.5" style={sm}>
-      <span className="font-semibold">{label}</span>
-      <span className="inline-flex items-center gap-1">
-        {prefix && <span className="ac-muted">{prefix}</span>}
-        <input className="ac-input !py-0.5 ac-num" style={{ ...sm, width }} inputMode="decimal" placeholder={placeholder} value={value} onChange={(e) => onChange(e.target.value)}
-          aria-invalid={!!err} data-testid={testId} />
+    <label className="flex flex-col gap-1" style={sm}>
+      <span className="font-semibold text-slate-200">{label}</span>
+      <span className="inline-flex items-center gap-1.5">
+        {prefix && <span className="text-slate-400 font-mono text-xs">{prefix}</span>}
+        <input
+          className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-xs shadow-inner"
+          style={{ width }}
+          inputMode="decimal"
+          placeholder={placeholder}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          aria-invalid={!!err}
+          data-testid={testId}
+        />
       </span>
-      {err ? <span className="ac-bad" style={xs} role="alert">{err}</span> : hint ? <span className="ac-muted" style={xs}>{hint}</span> : null}
+      {err ? <span className="text-red-400 font-medium text-xs" style={xs} role="alert">{err}</span> : hint ? <span className="text-slate-400 text-[11px]" style={xs}>{hint}</span> : null}
     </label>
   );
 }
@@ -172,7 +180,13 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
       <div style={grid(220)}>
         <div className="space-y-1">
           <div className="flex items-center gap-2" style={sm}><span className="font-semibold">Account equity</span>{v.equityMode === "MANUAL" ? <Chip state={eqStatus!.state === "UNAVAILABLE" ? "MANUAL" : eqStatus!.state} /> : <Chip state="MANUAL" />}</div>
-          <select className="ac-input !w-auto !py-0.5" style={sm} value={v.equityMode} onChange={(e) => set("equityMode")(e.target.value)} data-testid={`select-equity-mode-${symbol}`}>
+          <select
+            className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-xs cursor-pointer !w-auto shadow-inner"
+            style={sm}
+            value={v.equityMode}
+            onChange={(e) => set("equityMode")(e.target.value)}
+            data-testid={`select-equity-mode-${symbol}`}
+          >
             <option value="RISK_PROFILE">Risk Profile — {$(acct.profileEquity)}</option>
             <option value="MANUAL">Manual sizing equity</option>
           </select>
@@ -203,7 +217,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
             <Field label="Execution buffer (estimate)" prefix="" value={v.bufferPct} onChange={set("bufferPct")} testId={`input-buffer-${symbol}`} err={bufErr} width="5rem" hint="% added to entry for the cash check" />
           </div>
           <label className="inline-flex items-center gap-2 cursor-pointer" style={sm}>
-            <input type="checkbox" checked={v.cashIncludesReservations} onChange={(e) => set("cashIncludesReservations")(e.target.checked)} data-testid={`check-cash-includes-${symbol}`} />
+            <input type="checkbox" className="h-4 w-4 rounded bg-[#0F172A] border-slate-700 text-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer" checked={v.cashIncludesReservations} onChange={(e) => set("cashIncludesReservations")(e.target.checked)} data-testid={`check-cash-includes-${symbol}`} />
             My cash figure already reflects these reservations (don't subtract them twice)
           </label>
           <button className="ac-btn !py-0.5" style={xs} onClick={fromTrades} data-testid={`button-res-from-trades-${symbol}`}>Fill from My Trades practice records</button>
@@ -386,7 +400,7 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
             <span className="font-bold">Calculated R targets</span>
             <span className="ac-muted" style={xs}>R = entry − stop{sizing.riskPerShare != null ? ` = ${$(sizing.riskPerShare)}` : ""}</span>
             <label className="inline-flex items-center gap-2 cursor-pointer ml-auto" style={sm}>
-              <input type="checkbox" checked={extended} onChange={(e) => setExtended(e.target.checked)} data-testid={`check-extended-targets-${sym}`} />
+              <input type="checkbox" className="h-4 w-4 rounded bg-[#0F172A] border-slate-700 text-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer" checked={extended} onChange={(e) => setExtended(e.target.checked)} data-testid={`check-extended-targets-${sym}`} />
               Show extended targets: 4R / 5R / 6R
             </label>
           </div>

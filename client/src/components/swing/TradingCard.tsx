@@ -1,3 +1,4 @@
+import { ModalLargeChart } from "./ModalLargeChart";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 // ─── Trading Card (v2 Overhaul) ────────────────────────────────────────────
 // The Action Center's stat-card view of one engine decision.
@@ -1639,8 +1640,23 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         {statusSentence}
       </div>
 
-      {/* ─── EMBEDDED SPARKLINE CHART (120px height container) ─── */}
-      <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
+      {/* ─── EMBEDDED SPARKLINE CHART (Click to expand large modal chart) ─── */}
+      <div
+        className="cursor-pointer group relative"
+        onClick={(e) => {
+          e.stopPropagation();
+          props.onSeen?.();
+          props.onOpen?.();
+        }}
+        title="Click to view large interactive chart"
+        data-testid={`chart-click-expand-${d.symbol}`}
+      >
+        <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
+        <div className="absolute top-6 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/90 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-300 flex items-center gap-1 shadow-md pointer-events-none">
+          <Maximize2 className="h-3 w-3 text-cyan-400" />
+          <span>Large Chart</span>
+        </div>
+      </div>
 
       {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-3 border-t border-ink-line/50">
@@ -1817,6 +1833,17 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
             <CriticalWarnings d={d} ver={props.ver} />
             <LockedNotice symbol={d.symbol} />
           </div>
+
+          {/* Large Interactive Chart View at Top of Modal (Height: >= 400px / 50vh) */}
+          <div className="p-4 sm:p-6 border-b border-slate-800 bg-slate-900/30" data-testid={`dialog-large-chart-${d.symbol}`}>
+            <ModalLargeChart
+              symbol={d.symbol}
+              entry={entryVal}
+              stop={stopVal}
+              target1={target1Val}
+              target2={sz.override && sz.activeT2 != null ? sz.activeT2 : p.t2}
+            />
+          </div>
           {mode === "adjust" && canEditPlan(d) ? (
             <AdjustPlan {...props} onDone={() => setMode("view")} />
           ) : (
@@ -1844,10 +1871,10 @@ function RPicker({ id, label, sel, onChange }: any) {
     <label className="flex flex-col gap-1.5">
       <span className="text-xs font-bold text-slate-gray">{label}</span>
       <div className="flex gap-2">
-        <select className="rounded-md border border-ink-line bg-ink-black px-3 py-2 text-sm text-soft-white focus:border-neon-blue" value={String(sel.v)} onChange={(e) => onChange({ ...sel, v: e.target.value === "custom" ? "custom" : Number(e.target.value) })}>
+        <select className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-sm cursor-pointer" value={String(sel.v)} onChange={(e) => onChange({ ...sel, v: e.target.value === "custom" ? "custom" : Number(e.target.value) })}>
           {R_CHOICES.map((r) => <option key={r} value={r}>{r}R</option>)}<option value="custom">Custom…</option>
         </select>
-        {sel.v === "custom" && <input className="rounded-md border border-ink-line bg-ink-black px-3 py-2 text-sm text-soft-white focus:border-neon-blue" type="number" step="0.1" min="0.1" value={sel.custom} onChange={(e) => onChange({ ...sel, custom: e.target.value })} />}
+        {sel.v === "custom" && <input className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-sm" type="number" step="0.1" min="0.1" value={sel.custom} onChange={(e) => onChange({ ...sel, custom: e.target.value })} />}
       </div>
     </label>
   );
@@ -1918,7 +1945,7 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
     <div className="flex flex-col gap-2 rounded-lg border border-ink-line bg-ink-deep/40 p-4">
       <label htmlFor={`adj-${k}`} className="text-xs font-bold uppercase tracking-wider text-slate-gray">{label}</label>
       <span className="text-[10px] text-slate-gray/80">{help}</span>
-      <input id={`adj-${k}`} type="number" step="0.01" min="0.01" className="rounded-md border border-ink-line bg-ink-black px-3 py-2 font-mono text-sm text-soft-white focus:border-neon-blue focus:outline-none" value={raw[k]} onChange={(e) => setRaw({ ...raw, [k]: e.target.value })} />
+      <input id={`adj-${k}`} type="number" step="0.01" min="0.01" className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-sm" value={raw[k]} onChange={(e) => setRaw({ ...raw, [k]: e.target.value })} />
     </div>
   );
 
