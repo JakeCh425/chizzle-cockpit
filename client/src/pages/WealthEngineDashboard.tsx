@@ -620,17 +620,17 @@ export default function WealthEngineDashboard() {
       {/* 2. THREE-COLUMN LAYOUT (STRICT 100VH, LOCKED, NO WINDOW SCROLLING) */}
       {/* ==================================================================== */}
       <main
-        className="flex-1 min-h-0 w-screen max-w-screen overflow-hidden flex flex-row"
+        className="grid grid-cols-[300px_minmax(0,1fr)_350px] w-full h-full gap-4 overflow-hidden flex-1 min-h-0"
         style={{
           backgroundColor: "var(--bg-root)",
           color: "var(--text-primary)",
         }}
       >
         {/* ────────────────────────────────────────────────────────────────── */}
-        {/* COLUMN 1: LEFT COLUMN (20% width) — MARKET CONTEXT & WATCHLIST     */}
+        {/* COLUMN 1: LEFT COLUMN (20% width — w-[20%]) — MARKET CONTEXT & WATCHLIST */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <aside
-          className="w-[20%] min-w-[240px] max-w-[280px] flex-shrink-0 h-full flex flex-col border-r overflow-hidden"
+          className="w-full h-full flex flex-col border-r overflow-hidden"
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
@@ -829,10 +829,10 @@ export default function WealthEngineDashboard() {
         </aside>
 
         {/* ────────────────────────────────────────────────────────────────── */}
-        {/* COLUMN 2: CENTER COLUMN (55% width) — VISUAL ANALYSIS & CHART     */}
+        {/* COLUMN 2: CENTER COLUMN (55% width — w-[55%]) — VISUAL ANALYSIS & CHART */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
-          className="w-[55%] flex-1 min-w-0 h-full flex flex-col border-r overflow-hidden"
+          className="w-full min-w-0 h-full flex flex-col border-r overflow-hidden"
           style={{
             backgroundColor: "var(--bg-root)",
             borderColor: "var(--border-subtle)",
@@ -926,10 +926,12 @@ export default function WealthEngineDashboard() {
             </div>
           </div>
 
-          {/* Body Area */}
-          <div className="flex-1 min-h-0 relative overflow-hidden flex flex-col p-4">
+          {/* Body Area / Constrained Chart Wrapper */}
+          <div className="min-w-0 flex-1 overflow-hidden relative flex flex-col p-4">
             {activeTab === "Chart" && (
-              <Chart symbol={activeTicker} timeframe={activeTf} activeItem={activeItem} />
+              <div className="min-w-0 flex-1 overflow-hidden relative w-full h-full">
+                <Chart symbol={activeTicker} timeframe={activeTf} activeItem={activeItem} />
+              </div>
             )}
 
             {/* Tab: Setup History */}
@@ -1050,10 +1052,10 @@ export default function WealthEngineDashboard() {
         </section>
 
         {/* ────────────────────────────────────────────────────────────────── */}
-        {/* COLUMN 3: RIGHT COLUMN (25% width) — THE TRADE PLAN & EXECUTION    */}
+        {/* COLUMN 3: RIGHT COLUMN (25% width — w-[25%]) — THE TRADE PLAN & EXECUTION */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
-          className="w-[25%] lg:w-[320px] w-[320px] min-w-[320px] max-w-[340px] flex-shrink-0 h-full flex flex-col border-l overflow-hidden"
+          className="w-full h-full overflow-y-auto pl-2 border-l border-slate-800 flex flex-col"
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
