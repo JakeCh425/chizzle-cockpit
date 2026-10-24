@@ -1312,10 +1312,10 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
 
   const cardBorderClass = isReadyToBuy
-    ? "border-emerald-500/40 shadow-[0_0_15px_rgba(52,211,153,0.1)]"
+    ? "border-emerald-500/50 shadow-[0_0_20px_rgba(52,211,153,0.18)] ring-1 ring-emerald-500/30"
     : isInvalidated
-    ? "border-rose-500/30"
-    : "border-white/10 hover:border-white/20";
+    ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
+    : "border-slate-800 hover:border-slate-700";
 
   // Dynamic Historical Win Rate (reflects 75%+ when Scale-Out Mode is ON)
   const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
@@ -1338,7 +1338,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border border-slate-800 shadow-md hover:border-slate-700 ${cardBorderClass}`}
+      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border shadow-md ${cardBorderClass}`}
       data-testid={`trading-card-${d.symbol}`}
     >
       <ReadyRibbon d={d} ver={ver} />

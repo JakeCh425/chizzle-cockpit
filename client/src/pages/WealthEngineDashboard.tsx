@@ -573,7 +573,7 @@ export default function WealthEngineDashboard() {
                           {item.symbol}
                         </span>
                         <span
-                          className={`text-[8.5px] px-1 py-0.2 rounded font-mono font-semibold uppercase ${
+                          className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-semibold uppercase ${
                             item.status === "Ready"
                               ? "bg-emerald-500/20 text-emerald-400"
                               : item.status === "Awaiting Close"
@@ -1096,7 +1096,7 @@ export default function WealthEngineDashboard() {
           <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
             {/* The Setup Card Component */}
             <div
-              className={`rounded-2xl border p-4.5 transition-all duration-300 relative ${statusTint}`}
+              className={`rounded-2xl border p-5 transition-all duration-300 relative ${statusTint}`}
               data-testid="setup-card"
             >
               {/* Card Header & Status Badge */}
@@ -1130,7 +1130,7 @@ export default function WealthEngineDashboard() {
               </div>
 
               {/* EXACTLY THREE LARGE, BOLD DATA POINTS */}
-              <div className="grid grid-cols-3 gap-2 my-4" data-testid="setup-three-bold-datapoints">
+              <div className="grid grid-cols-3 gap-3 my-4 w-full" data-testid="setup-three-bold-datapoints">
                 {/* 1. Buy Target (Entry) */}
                 <div
                   className="p-2.5 rounded-xl border flex flex-col items-center justify-center text-center shadow-md"
