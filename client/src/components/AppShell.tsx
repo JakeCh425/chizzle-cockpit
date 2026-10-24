@@ -7,7 +7,7 @@ import type { Settings, ChizzleScore, Ticker, RegimeState, RegimeInputsRow } fro
 import { chicagoClock, marketSession, useFeedConnection } from "@/lib/priceFeed";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
-  Gauge, ListChecks, History, BookText, Layers,
+  Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
   FileText, Activity, ClipboardList,
 } from "lucide-react";
@@ -20,6 +20,7 @@ interface RegimePayload {
 
 const NAV = [
   { href: "/", label: "Cockpit", icon: Gauge },
+  { href: "/engine", label: "Wealth Studio", icon: LayoutDashboard },
   { href: "/watchlist", label: "Watchlist", icon: ListChecks },
   { href: "/trades", label: "Trades", icon: History },
   { href: "/trade-planner", label: "Trade Planner", icon: ClipboardList },
