@@ -85,7 +85,7 @@ export default function CollapsibleSection({
   action,
   defaultCollapsed = false,
   children,
-  containerClassName = "rounded-lg border border-ink-line bg-ink-panel/30",
+  containerClassName = "w-full rounded-xl border border-slate-800 bg-slate-900/90 shadow-md",
   headerToneClassName = "",
 }: CollapsibleSectionProps) {
   const { collapsed, toggle, setCollapsed } = usePanelCollapsed(id, defaultCollapsed);
@@ -100,8 +100,8 @@ export default function CollapsibleSection({
     <section className={containerClassName} data-testid={`section-${id}`}>
       <div
         className={[
-          "flex items-center justify-between gap-2 px-3 py-2",
-          collapsed ? "" : "border-b border-ink-line",
+          "flex items-center justify-between gap-2 px-4 py-3 sm:px-5",
+          collapsed ? "" : "border-b border-slate-800",
           headerToneClassName,
         ].join(" ")}
       >
@@ -125,7 +125,7 @@ export default function CollapsibleSection({
         </button>
         {action && <div className="flex items-center gap-1.5 shrink-0">{action}</div>}
       </div>
-      {!collapsed && <div>{children}</div>}
+      {!collapsed && <div className="p-4 sm:p-5">{children}</div>}
     </section>
   );
 }
@@ -138,12 +138,12 @@ export function LocalCollapsible({
   const [c, setC] = useState(defaultCollapsed);
   useEffect(() => { /* no-op */ }, []);
   return (
-    <div className="rounded border border-ink-line bg-ink-panel/30">
-      <button onClick={() => setC(v => !v)} className="w-full flex items-center gap-2 px-3 py-2 border-b border-ink-line">
+    <div className="w-full rounded-xl border border-slate-800 bg-slate-900/90 shadow-md">
+      <button onClick={() => setC(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b border-slate-800">
         {c ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
         <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white">{title}</span>
       </button>
-      {!c && <div className="p-3">{children}</div>}
+      {!c && <div className="p-4 sm:p-5">{children}</div>}
     </div>
   );
 }

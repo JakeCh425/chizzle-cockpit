@@ -18,8 +18,8 @@ interface RegimePayload {
 }
 
 const NAV = [
-  { href: "/", label: "Wealth Engine", icon: LayoutDashboard },
-  { href: "/cockpit", label: "Pipeline Cockpit", icon: Gauge },
+  { href: "/", label: "Cockpit", icon: Gauge },
+  { href: "/engine", label: "Wealth Studio", icon: LayoutDashboard },
   { href: "/watchlist", label: "Watchlist", icon: ListChecks },
   { href: "/trades", label: "Trades", icon: History },
   { href: "/trade-planner", label: "Trade Planner", icon: ClipboardList },
@@ -112,9 +112,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : session === "POST" ? "POST" : "MARKET CLOSED";
 
   return (
-    <div className="h-screen w-full max-h-screen overflow-hidden bg-ink-black text-soft-white flex flex-col" data-testid="app-shell-root">
+    <div className="min-h-screen bg-slate-950 text-soft-white flex flex-col" data-testid="app-shell-root">
       {/* Header strip */}
-      <header className="border-b border-ink-line bg-ink-panel/60 backdrop-blur flex-shrink-0 z-30">
+      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
           <BrandMark settings={settings} />
 
@@ -158,7 +158,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               </div>
             </div>
-            <div className="hidden lg:flex flex-col items-end leading-tight border-l border-ink-line/40 pl-5">
+            <div className="hidden lg:flex flex-col items-end leading-tight border-l border-slate-800 pl-5">
               <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">Chizzle</div>
               <div className="flex items-baseline gap-2 leading-tight">
                 <span className={`font-mono-num text-[14px] tabular-nums ${rolling7 >= 90 ? "text-gold-lux" : "text-soft-white"}`}>
@@ -167,7 +167,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <span className="text-[9px] uppercase tracking-wider text-slate-gray">{istate.replace("_", "-")}</span>
               </div>
             </div>
-            <div className="flex flex-col items-end leading-tight border-l border-ink-line/40 pl-5">
+            <div className="flex flex-col items-end leading-tight border-l border-slate-800 pl-5">
               <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">{sessionLabel}</div>
               <div className="font-mono-num text-[12px] tabular-nums leading-tight">
                 {chicagoClock(now)} <span className="text-slate-gray/70">CT</span>
@@ -177,9 +177,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 w-full flex overflow-hidden">
+      <div className="flex-1 flex min-w-0">
         {/* Sidebar */}
-        <aside className={`hidden md:flex flex-col ${collapsed ? "w-14" : "w-52"} h-full border-r border-ink-line bg-ink-panel/40 transition-all duration-200 overflow-y-auto flex-shrink-0`}>
+        <aside className={`hidden md:flex flex-col ${collapsed ? "w-14" : "w-52"} border-r border-slate-800 bg-slate-900/80 transition-all duration-200 flex-shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto`}>
           <nav className="flex-1 py-4 px-2 space-y-1">
             {NAV.map(item => {
               const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));
@@ -192,7 +192,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   className={`flex items-center gap-3 px-2.5 py-2 rounded-sm text-[13px] font-display tracking-wide uppercase transition-colors cursor-pointer
                     ${active
                       ? "bg-neon-blue/10 text-neon-blue border-l-2 border-neon-blue pl-2"
-                      : "text-slate-gray hover:text-soft-white hover:bg-ink-line/50"}`}
+                      : "text-slate-gray hover:text-soft-white hover:bg-slate-800/50"}`}
                 >
                   <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
                   {!collapsed && <span>{labelFor(item.href, item.label)}</span>}
@@ -203,7 +203,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <button
             onClick={() => setCollapsed(c => !c)}
             data-testid="button-collapse-sidebar"
-            className="border-t border-ink-line py-2 px-3 flex items-center gap-2 text-slate-gray hover:text-soft-white text-[11px] font-mono"
+            className="border-t border-slate-800 py-2 px-3 flex items-center gap-2 text-slate-gray hover:text-soft-white text-[11px] font-mono"
           >
             {collapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
             {!collapsed && <span>collapse</span>}
@@ -211,7 +211,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </aside>
 
         {/* Mobile bottom nav */}
-        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-7 border-t border-ink-line bg-ink-panel">
+        <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 grid grid-cols-7 border-t border-slate-800 bg-slate-900">
           {NAV.map(item => {
             const active = location === item.href;
             const Icon = item.icon;
@@ -227,7 +227,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <main className="flex-1 min-h-0 min-w-0 h-full overflow-hidden flex flex-col pb-16 md:pb-0">{children}</main>
+        <main className="flex-1 min-w-0 w-full overflow-y-auto p-4 sm:p-6 pb-16 md:pb-8">{children}</main>
       </div>
     </div>
   );
@@ -242,7 +242,7 @@ function FeedBadge({ state, ageSec }: { state: "CONNECTING" | "LIVE" | "STALE" |
   const tone =
     state === "LIVE" ? "text-neon-blue border-neon-blue/40 bg-neon-blue/10"
     : state === "STALE" ? "text-signal-amber border-signal-amber/40 bg-signal-amber/10"
-    : state === "CONNECTING" ? "text-slate-gray border-ink-line bg-ink-line/20"
+    : state === "CONNECTING" ? "text-slate-gray border-slate-800 bg-slate-900/60"
     : "text-signal-red border-signal-red/40 bg-signal-red/10";
   const dotAnim = state === "LIVE" ? "heartbeat" : state === "CONNECTING" ? "animate-pulse" : "";
   return (

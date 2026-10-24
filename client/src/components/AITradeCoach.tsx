@@ -133,8 +133,8 @@ export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
     "text-slate-gray border-ink-line bg-ink-deep/40";
 
   return (
-    <div className="rounded-md border border-ink-line bg-ink-black" data-testid="panel-ai-coach">
-      <div className="px-3 py-1.5 border-b border-ink-line flex items-center gap-1.5">
+    <div className="w-full rounded-xl border border-slate-800 bg-slate-900 shadow-md" data-testid="panel-ai-coach">
+      <div className="px-4 py-3 sm:px-5 border-b border-slate-800 flex items-center gap-2">
         <GraduationCap className="w-3 h-3 text-neon-blue" />
         <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white">AI Trade Coach</span>
         {timeframe && (
@@ -143,7 +143,7 @@ export default function AITradeCoach({ ticker, bars, timeframe }: Props) {
         <span className="text-[9px] text-slate-gray ml-auto italic">Deterministic · rule-based</span>
         {ticker && <LiveTickerCornerBadge symbol={ticker} compact />}
       </div>
-      <div className="p-3 space-y-2">
+      <div className="p-4 sm:p-5 space-y-3">
         <div className={`rounded border px-2 py-1.5 text-[11px] font-semibold ${alignColor}`}>
           {coach.headline}
         </div>

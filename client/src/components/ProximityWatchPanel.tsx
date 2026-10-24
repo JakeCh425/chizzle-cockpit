@@ -307,7 +307,7 @@ export default function ProximityWatchPanel({ onPrefillPlan, hideWhenNoReady = f
 
   return (
     <div
-      className="bg-ink-black rounded-lg border border-ink-line p-3 space-y-2"
+      className="w-full bg-slate-900/90 rounded-xl border border-slate-800 p-5 space-y-4 shadow-md"
       style={{
         backgroundImage:
           "linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px)",

@@ -2,7 +2,6 @@ import WealthEngineDashboard from "@/pages/WealthEngineDashboard";
 import { useWakeRefresh, WakeSyncLoader } from "@/lib/wakeRefresh";
 import { Switch, Route, Router } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
-import { useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -25,28 +24,14 @@ import TradeDetail from "@/pages/TradeDetail";
 import TagsPage from "@/pages/TagsPage";
 
 function AppRouter() {
-  const [location] = useLocation();
-
-  // Root "/" and dedicated "/engine" or "/dashboard" render the strict 100vh 3-column Chizzle Wealth Engine
-  if (location === "/" || location === "/engine" || location === "/dashboard" || location === "") {
-    return (
-      <Switch>
-        <Route path="/" component={WealthEngineDashboard} />
-        <Route path="/engine" component={WealthEngineDashboard} />
-        <Route path="/dashboard" component={WealthEngineDashboard} />
-        <Route component={WealthEngineDashboard} />
-      </Switch>
-    );
-  }
-
   return (
     <AppShell>
       <Switch>
-        <Route path="/" component={WealthEngineDashboard} />
-        <Route path="/engine" component={WealthEngineDashboard} />
-        <Route path="/dashboard" component={WealthEngineDashboard} />
+        <Route path="/" component={PipelineCockpit} />
         <Route path="/cockpit" component={PipelineCockpit} />
         <Route path="/pipeline" component={PipelineCockpit} />
+        <Route path="/engine" component={WealthEngineDashboard} />
+        <Route path="/dashboard" component={WealthEngineDashboard} />
         <Route path="/advanced" component={Cockpit} />
         <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
         <Route path="/watchlist" component={Watchlist} />

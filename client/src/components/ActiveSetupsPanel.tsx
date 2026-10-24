@@ -242,7 +242,7 @@ export default function ActiveSetupsPanel() {
   const hasSetups = activeSetups.length > 0;
 
   return (
-    <div className="flex flex-col gap-4 rounded-lg border border-ink-line bg-ink-black p-4 shadow-sm" data-testid="section-active-setups">
+    <div className="w-full flex flex-col gap-5 rounded-xl border border-slate-800 bg-slate-900/90 p-5 shadow-md" data-testid="section-active-setups">
       
       {/* Header */}
       <div className="flex items-center justify-between gap-4">

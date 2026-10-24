@@ -164,7 +164,7 @@ export default function DoTodayCard() {
   const style = TONE_STYLES[v.tone];
   
   return (
-    <div className={`flex flex-col sm:flex-row sm:items-center items-start gap-4 rounded-lg border p-4 shadow-sm ${style.border} ${style.bg}`} data-testid="card-do-today">
+    <div className={`w-full flex flex-col sm:flex-row sm:items-center items-start gap-4 rounded-xl border border-slate-800 bg-slate-900/90 p-5 shadow-md ${style.border} ${style.bg}`} data-testid="card-do-today">
       
       {/* Icon & Text Block */}
       <div className="flex min-w-0 flex-1 items-start sm:items-center gap-4">

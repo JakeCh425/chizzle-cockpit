@@ -61,7 +61,7 @@ export default function TradeSummaryPanel({ d }: { d: SwingDecision | undefined 
     try { await navigator.clipboard.writeText(s.text); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked in iframe */ }
   };
   return (
-    <div className="space-y-2.5" data-testid={`trade-summary-${s.symbol}`}>
+    <div className="w-full space-y-4" data-testid={`trade-summary-${s.symbol}`}>
       <ProximityTips symbol={s.symbol} stamp={d?.evaluatedAt ?? null} variant="cockpit" />
       <div className="flex items-start justify-between gap-2">
         <div className="text-sm font-bold text-soft-white" data-testid="text-summary-headline">{s.headline}</div>
@@ -70,9 +70,9 @@ export default function TradeSummaryPanel({ d }: { d: SwingDecision | undefined 
         </button>
       </div>
       <BrokerStep s={s} />
-      <div className="grid gap-2 md:grid-cols-2">
+      <div className="grid gap-3 md:grid-cols-2 w-full">
         {s.sections.map((sec) => (
-          <div key={sec.title} className="rounded border border-ink-line bg-ink-deep px-2.5 py-2" data-testid={`summary-section-${sec.title.toLowerCase().replace(/[^a-z]+/g, "-").replace(/-+$/, "")}`}>
+          <div key={sec.title} className="rounded-lg border border-slate-800 bg-slate-950/60 p-3.5" data-testid={`summary-section-${sec.title.toLowerCase().replace(/[^a-z]+/g, "-").replace(/-+$/, "")}`}>
             <div className="text-[10px] font-mono uppercase tracking-wide text-slate-gray mb-1">{sec.title}</div>
             <ul className="space-y-0.5">
               {sec.lines.map((x, i) => <li key={i} className="text-[11.5px] text-soft-white/90 leading-snug">{x}</li>)}

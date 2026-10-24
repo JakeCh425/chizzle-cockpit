@@ -328,7 +328,7 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`flex flex-col gap-4 rounded-xl p-4 sm:p-5 transition-all duration-300 bg-ink-black/60 backdrop-blur-md border border-ink-line/50 shadow-lg ${activeThemeConfig.containerBorder}`}
+      className={`w-full flex flex-col gap-5 rounded-xl p-5 sm:p-6 transition-all duration-300 bg-slate-900/90 border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
       {...acAttrs(prefs)}
       aria-label={title}
@@ -337,7 +337,7 @@ function ActionCenterInner() {
     >
       
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-4 border-b border-ink-line/50 pb-4">
+      <div className="flex flex-wrap items-center gap-4 border-b border-slate-800 pb-4">
         <button className="rounded-md p-1.5 text-slate-gray transition-colors hover:bg-ink-line hover:text-soft-white" onClick={() => setBoxOpen(!boxOpen)} aria-expanded={boxOpen} aria-controls="ac-body" aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`} data-testid="button-toggle-action-center">
           {boxOpen ? <ChevronDown className="h-5 w-5" aria-hidden /> : <ChevronRight className="h-5 w-5" aria-hidden />}
         </button>
@@ -452,7 +452,7 @@ function ActionCenterInner() {
 
           <PriorityBoard rows={rows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
           
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6" data-testid="ac-cards-grid">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6 w-full" data-testid="ac-cards-grid">
             {loud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
@@ -473,7 +473,7 @@ function ActionCenterInner() {
           </div>
 
           {older.length > 0 && (
-            <div className="flex flex-col rounded-lg border border-dashed border-ink-line/50 bg-ink-black/40 backdrop-blur-md" data-testid="sec-older" data-open={cp.section}>
+            <div className="w-full flex flex-col rounded-xl border border-dashed border-slate-800 bg-slate-950/60 p-4" data-testid="sec-older" data-open={cp.section}>
               <button className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-ink-deep/40" onClick={() => setCp({ ...cp, section: !cp.section })} aria-expanded={cp.section} data-testid="button-toggle-older">
                 {cp.section ? <ChevronDown className="h-4 w-4 shrink-0 text-slate-gray" aria-hidden /> : <ChevronRight className="h-4 w-4 shrink-0 text-slate-gray" aria-hidden />}
                 <span className="text-sm font-bold text-soft-white">Older / not tradeable ({older.length})</span>
@@ -503,7 +503,7 @@ function ActionCenterInner() {
             </div>
           )}
 
-          <div className="grid items-start gap-4 lg:grid-cols-2">
+          <div className="grid items-start gap-6 lg:grid-cols-2 w-full">
             {quiet.length > 0 && (
               <Section id="quiet" title="Watch / No-trade list" def={false} testId="sec-quiet" summary={`${quiet.length} symbols: ${quiet.map((d) => d.symbol).join(", ")}`}>
                 <ul className="flex flex-col gap-2">
@@ -524,7 +524,7 @@ function ActionCenterInner() {
                 d={dlgDecision} group={actionGroupOf(dlgDecision)} ver={activeVersion(dlgDecision, sel)} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} />
             )}
             
-            <div className={`rounded-xl bg-ink-black/60 backdrop-blur-md border border-ink-line/50 p-1 text-soft-white shadow-lg ${quiet.length ? "" : "lg:col-span-2"}`}>
+            <div className={`w-full rounded-xl bg-slate-900 border border-slate-800 p-5 text-soft-white shadow-md ${quiet.length ? "" : "lg:col-span-2"}`}>
               <AlertsPanel open={alertsOpen} onOpenChange={setAlertsOpen} />
             </div>
           </div>

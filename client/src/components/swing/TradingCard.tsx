@@ -565,7 +565,7 @@ export function SparklineChart({
 
   return (
     <div
-      className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-black/40 border border-white/5"
+      className="w-full h-[120px] mt-4 relative overflow-hidden rounded-lg bg-slate-950 border border-slate-800/80"
       data-testid={`sparkline-${symbol}`}
       title="Scroll to zoom • Drag to pan • Double-click to reset"
     >
@@ -1338,13 +1338,13 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`flex flex-col rounded-xl p-5 transition-all duration-200 bg-ink-black/60 backdrop-blur-md border border-ink-line/50 shadow-lg ${cardBorderClass}`}
+      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-slate-900 border border-slate-800 shadow-md hover:border-slate-700 ${cardBorderClass}`}
       data-testid={`trading-card-${d.symbol}`}
     >
       <ReadyRibbon d={d} ver={ver} />
 
       {/* ─── HEADER: Ticker symbol, Lock/Status icon, Pinned +X.XX% Potential Gain Badge ─── */}
-      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-white/10">
+      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-slate-800">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
             {d.symbol}

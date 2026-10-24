@@ -61,7 +61,7 @@ export default function PipelineCockpit() {
 
   return (
     <CockpitTickerProvider>
-    <div className="max-w-[1440px] mx-auto p-3 sm:p-4 lg:p-5 space-y-4">
+    <div className="w-full max-w-[1440px] mx-auto p-4 sm:p-6 space-y-6">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
       {/* READY NOW — only when a decision is ready; hidden otherwise. Same scan as the Action Center. */}
@@ -139,7 +139,7 @@ export default function PipelineCockpit() {
           data-testid="drawer-tools"
         >
           <div
-            className="max-w-4xl w-full bg-ink-black border border-ink-line rounded-md p-4 my-8 space-y-4"
+            className="max-w-4xl w-full bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6 my-8 space-y-4"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between">

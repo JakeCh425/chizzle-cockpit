@@ -559,14 +559,14 @@ export default function SwingWorkspace() {
   const toggleSel = (s: string) => setSelected((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
   return (
-    <div className="space-y-3" data-testid="swing-workspace">
+    <div className="w-full space-y-4" data-testid="swing-workspace">
       <div className="flex flex-wrap items-center gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] font-mono text-signal-amber" role="note" data-testid="banner-practice">
         <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
       </div>
       <DataStatusBanner decisions={(scan.data?.rows ?? []).map((r) => r.decision)} />
       <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} plans={plans.data?.selected} />
-      <div className="grid gap-3 lg:grid-cols-[minmax(280px,340px)_1fr]">
-        <div className="space-y-3 min-w-0">
+      <div className="grid gap-4 lg:grid-cols-[minmax(280px,340px)_1fr] w-full">
+        <div className="space-y-4 min-w-0 w-full">
           <CollapsibleSection id="swing-watchlist" title="Watchlist" hint={DEFAULT_UNIVERSE_LABEL}>
             <WatchlistPanel active={active} onFocus={focus} selected={selected} onToggleSelect={toggleSel} dataStatus={dataStatus} statusBy={statusBy} />
           </CollapsibleSection>
@@ -574,7 +574,7 @@ export default function SwingWorkspace() {
             <ScannerPanel req={req} setReq={setReq} selected={selected} onFocus={focus} active={active} />
           </CollapsibleSection>
         </div>
-        <div className="space-y-3 min-w-0">
+        <div className="space-y-4 min-w-0 w-full">
           <div data-testid="swing-chart-anchor" style={{ scrollMarginTop: 72 }} />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
             {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}

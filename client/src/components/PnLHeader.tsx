@@ -73,7 +73,7 @@ export default function PnLHeader() {
   const isLoading = tradesQ.isLoading || equityQ.isLoading || setupsQ.isLoading;
 
   return (
-    <div className="rounded-md border border-ink-line bg-ink-black p-3" data-testid="header-pnl">
+    <div className="w-full rounded-xl border border-slate-800 bg-slate-900/90 p-5 shadow-md" data-testid="header-pnl">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-4">
         <div>
           <div className="text-[10px] text-slate-gray uppercase tracking-wide">Daily P&amp;L</div>
@@ -128,7 +128,7 @@ export default function PnLHeader() {
         </div>
       </div>
       {openRiskPct >= 5 && (
-        <div className="text-[10px] text-signal-amber mt-2 border-t border-ink-line pt-1.5">
+        <div className="text-[10px] text-signal-amber mt-2 border-t border-slate-800 pt-2">
           Open risk ≥ 5% — reduce position count and tighten monitoring per Chizzle rules.
         </div>
       )}
