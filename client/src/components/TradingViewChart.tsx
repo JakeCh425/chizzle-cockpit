@@ -1313,12 +1313,12 @@ export default function TradingViewChart({
     }
     setupLinesRef.current = [];
     if (!showActiveSetup || !activeSetup) return;
-    const mk = (price: number | null | undefined, color: string, title: string) => {
+    const mk = (price: number | null | undefined, color: string, _title: string) => {
       if (price == null || !Number.isFinite(price)) return;
       try {
         const ln = series.createPriceLine({
           price, color, lineWidth: 1, lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true, title,
+          axisLabelVisible: true, title: "", // Leave title empty to align directly onto the right-hand Y-axis without floating boxes over candles
         });
         setupLinesRef.current.push(ln);
       } catch {}

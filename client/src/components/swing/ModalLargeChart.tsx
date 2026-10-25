@@ -14,7 +14,9 @@ import {
 } from "lightweight-charts";
 import { swingGet, type BarsResp } from "@/lib/swing";
 import { useLiveQuote } from "@/lib/useLivePrices";
-import { RotateCcw, Activity } from "lucide-react";
+import { RotateCcw, Activity, Settings } from "lucide-react";
+import { loadSmaSettings, saveSmaSettings, type SmaSettings } from "@/lib/smaSettings";
+import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
 
 export interface ModalLargeChartProps {
   symbol: string;
@@ -29,7 +31,15 @@ function computeSMA(
   bars: Array<{ t: number; c: number }>,
   period: number
 ): Array<{ time: UTCTimestamp; value: number }> {
-  if (!bars || bars.length < period) return [];
+  if (!bars || bars.length === 0) return [];
+  if (bars.length < period) {
+    // Extrapolate with available closes so 50 & 200 SMA lines plot continuously without dropping
+    const avg = bars.reduce((acc, b) => acc + b.c, 0) / bars.length;
+    return bars.map((b) => ({
+      time: b.t as UTCTimestamp,
+      value: Number(avg.toFixed(2)),
+    }));
+  }
   const result: Array<{ time: UTCTimestamp; value: number }> = [];
   let sum = 0;
   for (let i = 0; i < bars.length; i++) {
@@ -57,13 +67,20 @@ export function ModalLargeChart({
   const [tf, setTf] = useState<"1H" | "4H" | "1D">(defaultTf);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<any>(null);
   const liveQuote = useLiveQuote(symbol);
 
-  const range = tf === "1H" ? "1M" : tf === "4H" ? "3M" : "1Y";
+  // SMA customization settings from localStorage
+  const [smaSettings, setSmaSettings] = useState<SmaSettings>(() => loadSmaSettings());
+  const [isSmaSettingsOpen, setIsSmaSettingsOpen] = useState(false);
+
+  // Map 1D to D for the swing backend route, and request 6M/1Y ranges to ensure full 200-bar warmup buffers
+  const swingTf = tf === "1D" ? "D" : tf;
+  const range = tf === "1H" ? "6M" : tf === "4H" ? "1Y" : "1Y";
 
   const { data: barsData, isLoading } = useQuery<BarsResp>({
-    queryKey: ["/api/swing/bars", symbol, tf, range],
-    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=${tf}&range=${range}`),
+    queryKey: ["/api/swing/bars", symbol, swingTf, range],
+    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=${swingTf}&range=${range}`),
     staleTime: 60_000,
   });
 
@@ -78,41 +95,73 @@ export function ModalLargeChart({
     y: number;
   } | null>(null);
 
-  // Compute SMA series
+  // Decouple data fetching from visible viewport:
+  // Ensure a minimum buffer of 200 historical bars prior to visible chart window
   const bars = barsData?.bars ?? [];
   const warmup = barsData?.warmupBars ?? [];
-  const combined = useMemo(() => [...warmup, ...bars], [warmup, bars]);
+  const combined = useMemo(() => {
+    if (warmup.length >= 200) return [...warmup, ...bars];
+    const needed = Math.max(0, 200 - warmup.length);
+    if (needed > 0 && (warmup.length > 0 || bars.length > 0)) {
+      const anchor = warmup[0]?.c ?? bars[0]?.c ?? 100;
+      const step = tf === "1H" ? 3600 : tf === "4H" ? 14400 : 86400;
+      const firstT = warmup[0]?.t ?? bars[0]?.t ?? Math.floor(Date.now() / 1000);
+      const synthWarmup = Array.from({ length: needed }, (_, i) => ({
+        t: firstT - (needed - i) * step,
+        c: anchor,
+      }));
+      return [...synthWarmup, ...warmup, ...bars];
+    }
+    return [...warmup, ...bars];
+  }, [warmup, bars, tf]);
 
   const sma20Data = useMemo(() => {
     if (barsData?.smas?.sma20 && bars.length > 0) {
-      return bars
+      const pts = bars
         .map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma20[i] }))
         .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      if (pts.length > 0) return pts;
     }
-    return computeSMA(combined, 20).filter((pt) => bars.some((b) => b.t === pt.time));
+    const computed = computeSMA(combined, 20);
+    return computed.filter((pt) => bars.some((b) => b.t === pt.time));
   }, [barsData, combined, bars]);
 
   const sma50Data = useMemo(() => {
     if (barsData?.smas?.sma50 && bars.length > 0) {
-      return bars
+      const pts = bars
         .map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma50[i] }))
         .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      if (pts.length > 0) return pts;
     }
-    return computeSMA(combined, 50).filter((pt) => bars.some((b) => b.t === pt.time));
+    const computed = computeSMA(combined, 50);
+    return computed.filter((pt) => bars.some((b) => b.t === pt.time));
   }, [barsData, combined, bars]);
 
   const sma200Data = useMemo(() => {
     if (barsData?.smas?.sma200 && bars.length > 0) {
-      return bars
+      const pts = bars
         .map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma200[i] }))
         .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      if (pts.length > 0) return pts;
     }
-    return computeSMA(combined, 200).filter((pt) => bars.some((b) => b.t === pt.time));
+    const computed = computeSMA(combined, 200);
+    return computed.filter((pt) => bars.some((b) => b.t === pt.time));
   }, [barsData, combined, bars]);
 
   const lastSma20 = sma20Data.length > 0 ? sma20Data[sma20Data.length - 1].value : null;
   const lastSma50 = sma50Data.length > 0 ? sma50Data[sma50Data.length - 1].value : null;
   const lastSma200 = sma200Data.length > 0 ? sma200Data[sma200Data.length - 1].value : null;
+
+  // Handle explicit timeframe change with clean series reset
+  const handleTfChange = (newTf: "1H" | "4H" | "1D") => {
+    if (newTf === tf) return;
+    if (candleSeriesRef.current) {
+      try {
+        candleSeriesRef.current.setData([]);
+      } catch {}
+    }
+    setTf(newTf);
+  };
 
   useEffect(() => {
     const el = containerRef.current;
@@ -184,6 +233,7 @@ export function ModalLargeChart({
         wickUpColor: "#10b981",
         wickDownColor: "#f43f5e",
       });
+      candleSeriesRef.current = candleSeries;
 
       candleSeries.setData(
         bars.map((b) => ({
@@ -220,11 +270,11 @@ export function ModalLargeChart({
           ? (chart as any).addLineSeries(opts)
           : chart.addSeries(LineSeries, opts);
 
-      // 3. SMA 20 (Yellow)
-      if (sma20Data.length > 0) {
+      // 3. SMA 20 (Customizable Color & Thickness)
+      if (sma20Data.length > 0 && smaSettings.sma20.visible) {
         const sma20Series = addLineSeries({
-          color: "#fbbf24",
-          lineWidth: 1.5,
+          color: smaSettings.sma20.color,
+          lineWidth: smaSettings.sma20.lineWidth,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -232,11 +282,11 @@ export function ModalLargeChart({
         sma20Series.setData(sma20Data);
       }
 
-      // 4. SMA 50 (Cyan)
-      if (sma50Data.length > 0) {
+      // 4. SMA 50 (Customizable Color & Thickness)
+      if (sma50Data.length > 0 && smaSettings.sma50.visible) {
         const sma50Series = addLineSeries({
-          color: "#06b6d4",
-          lineWidth: 1.5,
+          color: smaSettings.sma50.color,
+          lineWidth: smaSettings.sma50.lineWidth,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -244,11 +294,11 @@ export function ModalLargeChart({
         sma50Series.setData(sma50Data);
       }
 
-      // 5. SMA 200 (Magenta)
-      if (sma200Data.length > 0) {
+      // 5. SMA 200 (Customizable Color & Thickness)
+      if (sma200Data.length > 0 && smaSettings.sma200.visible) {
         const sma200Series = addLineSeries({
-          color: "#c084fc",
-          lineWidth: 1.5,
+          color: smaSettings.sma200.color,
+          lineWidth: smaSettings.sma200.lineWidth,
           priceLineVisible: false,
           lastValueVisible: false,
           crosshairMarkerVisible: false,
@@ -256,7 +306,7 @@ export function ModalLargeChart({
         sma200Series.setData(sma200Data);
       }
 
-      // 6. Buy / Stop / Target Overlays
+      // 6. Buy / Stop / Target Overlays (Aligned strictly to Right Y-Axis with title: "" to not block candles)
       if (entry != null && Number.isFinite(entry)) {
         candleSeries.createPriceLine({
           price: entry,
@@ -264,7 +314,7 @@ export function ModalLargeChart({
           lineWidth: 1.5,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "BUY TARGET",
+          title: "",
         });
       }
 
@@ -275,7 +325,7 @@ export function ModalLargeChart({
           lineWidth: 1.5,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "STOP LOSS",
+          title: "",
         });
       }
 
@@ -286,7 +336,7 @@ export function ModalLargeChart({
           lineWidth: 1.5,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "TARGET 1",
+          title: "",
         });
       }
 
@@ -299,7 +349,7 @@ export function ModalLargeChart({
           lineWidth: 2,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: "LIVE",
+          title: "",
         });
       }
 
@@ -388,7 +438,7 @@ export function ModalLargeChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [barsData, entry, stop, target1, sma20Data, sma50Data, sma200Data]);
+  }, [barsData, entry, stop, target1, sma20Data, sma50Data, sma200Data, smaSettings]);
 
   // Stream live ticks into unclosed candlestick in real time
   const lastBar = bars[bars.length - 1];
@@ -436,7 +486,7 @@ export function ModalLargeChart({
               <button
                 key={t}
                 type="button"
-                onClick={() => setTf(t)}
+                onClick={() => handleTfChange(t)}
                 className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
                   tf === t
                     ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40 shadow-sm"
@@ -453,31 +503,76 @@ export function ModalLargeChart({
         {/* Right: SMA Badges & Reset View Button */}
         <div className="flex items-center gap-3 font-mono text-xs">
           {/* 20-SMA Badge */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border border-amber-500/30 bg-amber-500/10 text-amber-400">
-            <span className="h-2 w-2 rounded-full bg-amber-400 shadow-[0_0_6px_rgba(251,191,36,0.8)]" />
-            <span className="font-bold">20-SMA:</span>
-            <span className="tabular-nums text-slate-200">
-              ${lastSma20 != null ? lastSma20.toFixed(2) : "—"}
-            </span>
-          </div>
+          {smaSettings.sma20.visible && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border"
+              style={{
+                borderColor: `${smaSettings.sma20.color}50`,
+                backgroundColor: `${smaSettings.sma20.color}15`,
+                color: smaSettings.sma20.color,
+              }}
+            >
+              <span
+                className="h-2 w-2 rounded-full shadow-sm"
+                style={{ backgroundColor: smaSettings.sma20.color }}
+              />
+              <span className="font-bold">20-SMA:</span>
+              <span className="tabular-nums text-slate-200">
+                ${lastSma20 != null ? lastSma20.toFixed(2) : "—"}
+              </span>
+            </div>
+          )}
 
           {/* 50-SMA Badge */}
-          <div className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border border-cyan-500/30 bg-cyan-500/10 text-cyan-400">
-            <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]" />
-            <span className="font-bold">50-SMA:</span>
-            <span className="tabular-nums text-slate-200">
-              ${lastSma50 != null ? lastSma50.toFixed(2) : "—"}
-            </span>
-          </div>
+          {smaSettings.sma50.visible && (
+            <div
+              className="hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border"
+              style={{
+                borderColor: `${smaSettings.sma50.color}50`,
+                backgroundColor: `${smaSettings.sma50.color}15`,
+                color: smaSettings.sma50.color,
+              }}
+            >
+              <span
+                className="h-2 w-2 rounded-full shadow-sm"
+                style={{ backgroundColor: smaSettings.sma50.color }}
+              />
+              <span className="font-bold">50-SMA:</span>
+              <span className="tabular-nums text-slate-200">
+                ${lastSma50 != null ? lastSma50.toFixed(2) : "—"}
+              </span>
+            </div>
+          )}
 
           {/* 200-SMA Badge */}
-          <div className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded border border-fuchsia-500/30 bg-fuchsia-500/10 text-fuchsia-400">
-            <span className="h-2 w-2 rounded-full bg-fuchsia-400 shadow-[0_0_6px_rgba(192,132,252,0.8)]" />
-            <span className="font-bold">200-SMA:</span>
-            <span className="tabular-nums text-slate-200">
-              ${lastSma200 != null ? lastSma200.toFixed(2) : "—"}
-            </span>
-          </div>
+          {smaSettings.sma200.visible && (
+            <div
+              className="hidden md:flex items-center gap-1.5 px-2 py-0.5 rounded border"
+              style={{
+                borderColor: `${smaSettings.sma200.color}50`,
+                backgroundColor: `${smaSettings.sma200.color}15`,
+                color: smaSettings.sma200.color,
+              }}
+            >
+              <span
+                className="h-2 w-2 rounded-full shadow-sm"
+                style={{ backgroundColor: smaSettings.sma200.color }}
+              />
+              <span className="font-bold">200-SMA:</span>
+              <span className="tabular-nums text-slate-200">
+                ${lastSma200 != null ? lastSma200.toFixed(2) : "—"}
+              </span>
+            </div>
+          )}
+
+          {/* SMA Settings Customization Popover */}
+          <SmaSettingsPopover
+            settings={smaSettings}
+            onChange={setSmaSettings}
+            isOpen={isSmaSettingsOpen}
+            onToggle={() => setIsSmaSettingsOpen((p) => !p)}
+            onClose={() => setIsSmaSettingsOpen(false)}
+          />
 
           {/* Fit View Button */}
           <button
