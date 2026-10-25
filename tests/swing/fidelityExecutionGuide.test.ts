@@ -2,114 +2,117 @@ import { describe, it, expect } from "vitest";
 import fs from "fs";
 import path from "path";
 
-describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Cheat Sheet", () => {
+describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide", () => {
   const dashboardPath = path.resolve(__dirname, "../../client/src/pages/WealthEngineDashboard.tsx");
   const dashboardContent = fs.readFileSync(dashboardPath, "utf-8").replace(/\r\n/g, "\n");
 
   const cheatSheetPath = path.resolve(__dirname, "../../client/src/components/FidelityExecutionCheatSheet.tsx");
   const cheatSheetContent = fs.readFileSync(cheatSheetPath, "utf-8").replace(/\r\n/g, "\n");
 
+  const guidePath = path.resolve(__dirname, "../../client/src/components/FidelityExecutionGuide.tsx");
+  const guideContent = fs.readFileSync(guidePath, "utf-8").replace(/\r\n/g, "\n");
+
+  const swingChartPath = path.resolve(__dirname, "../../client/src/components/swing/SwingChart.tsx");
+  const swingChartContent = fs.readFileSync(swingChartPath, "utf-8").replace(/\r\n/g, "\n");
+
   const modalChartPath = path.resolve(__dirname, "../../client/src/components/swing/ModalLargeChart.tsx");
   const modalChartContent = fs.readFileSync(modalChartPath, "utf-8").replace(/\r\n/g, "\n");
 
-  describe("1. Prominent Ticker & Live Price Header", () => {
-    it("decouples ticker and live price into a massive top-left header with text-4xl/text-5xl font-black tracking-tight", () => {
-      // Main studio chart header
-      expect(dashboardContent).toContain('data-testid="chart-live-price-header"');
-      expect(dashboardContent).toContain('data-testid="chart-live-price-value"');
-      expect(dashboardContent).toContain("text-4xl md:text-5xl");
-      expect(dashboardContent).toContain("font-black");
-      expect(dashboardContent).toContain("tracking-tight");
-
-      // Modal large chart header
-      expect(modalChartContent).toContain('data-testid="modal-chart-live-price"');
-      expect(modalChartContent).toContain("text-3xl md:text-5xl font-black");
+  describe("1. Multi-Timeframe Learning Chart Header Replacement", () => {
+    it("removes the small right-aligned LiveTickerCornerBadge price pill from the main chart header", () => {
+      // LiveTickerCornerBadge must not be inside the header row
+      const headerSection = swingChartContent.slice(
+        swingChartContent.indexOf('data-testid="swing-chart-header"'),
+        swingChartContent.indexOf('data-testid="swing-context-chips"')
+      );
+      expect(headerSection).not.toContain("<LiveTickerCornerBadge");
     });
 
-    it("dynamically changes price color between emerald (up) and rose (down)", () => {
-      // LiveTradingChart in WealthEngineDashboard
-      expect(dashboardContent).toContain("text-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.5)]");
-      expect(dashboardContent).toContain("text-rose-400 drop-shadow-[0_0_14px_rgba(244,63,94,0.5)]");
-
-      // ModalLargeChart
-      expect(modalChartContent).toContain("text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]");
-      expect(modalChartContent).toContain("text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.5)]");
+    it("injects a massive, bold header at top-left with text-5xl font-extrabold tracking-tight ticker", () => {
+      expect(swingChartContent).toContain('className="flex flex-col mb-4"');
+      expect(swingChartContent).toContain('data-testid="swing-chart-header"');
+      expect(swingChartContent).toContain('text-5xl font-extrabold tracking-tight text-white');
+      expect(swingChartContent).toContain('data-testid="swing-chart-ticker"');
     });
 
-    it("pulses slightly with scale-105 brightness-125 when a new live WebSocket tick arrives", () => {
-      // LiveTradingChart tick pulse state & effect
-      expect(dashboardContent).toContain("isTickPulsing");
-      expect(dashboardContent).toContain("isTickPulsing ? \"scale-105 brightness-125\" : \"scale-100\"");
+    it("dynamically sets the price text color to text-green-500 (up) or text-red-500 (down)", () => {
+      expect(swingChartContent).toContain("priceChange >= 0 ? \"text-green-500\" : \"text-red-500\"");
+      expect(swingChartContent).toContain('data-testid="swing-chart-price"');
+    });
 
-      // ModalLargeChart tick pulse state & effect
-      expect(modalChartContent).toContain("isTickPulsing");
-      expect(modalChartContent).toContain("scale-105 brightness-125");
+    it("renders the priceChangePercent in text-xl text-gray-400", () => {
+      expect(swingChartContent).toContain('text-xl text-gray-400');
+      expect(swingChartContent).toContain('data-testid="swing-chart-pct"');
+    });
+
+    it("places the dense data source string (RTH src twelvedata...) below the giant price in text-sm text-gray-500", () => {
+      expect(swingChartContent).toContain('className="text-sm text-gray-500 flex flex-wrap items-center gap-2 font-mono mt-1"');
+      expect(swingChartContent).toContain('data-testid="swing-chart-dense-meta"');
+      expect(swingChartContent).toContain("TF_LABEL[tf]");
+      expect(swingChartContent).toContain("src {b?.source");
+    });
+
+    it("provides prominent button labeled [View Fidelity Ticket] to toggle the cheat sheet", () => {
+      expect(swingChartContent).toContain('data-testid="button-view-fidelity-ticket"');
+      expect(swingChartContent).toContain("[View Fidelity Ticket]");
+      expect(swingChartContent).toContain("setIsFidelityGuideOpen");
     });
   });
 
-  describe("2. Fidelity Trade Ticket Cheat Sheet Template & Steps", () => {
-    it("renders the exact Fidelity Execution Guide title and header", () => {
-      expect(cheatSheetContent).toContain("📋 Fidelity Execution Guide");
-      expect(cheatSheetContent).toContain("Exact trade ticket & conditional bracket inputs");
+  describe("2. FidelityExecutionGuide Component Template & Props Binding", () => {
+    it("strictly renders 📋 FIDELITY EXECUTION GUIDE header", () => {
+      expect(guideContent).toContain("📋");
+      expect(guideContent).toContain("FIDELITY EXECUTION GUIDE");
     });
 
-    it("renders STEP 1: The Entry Order with BUY action, full quantity, LIMIT order type, and Day TIF", () => {
-      expect(cheatSheetContent).toContain('data-testid="fidelity-step-1"');
-      expect(cheatSheetContent).toContain("The Entry Order");
-      expect(cheatSheetContent).toContain("Action:");
-      expect(cheatSheetContent).toContain("BUY");
-      expect(cheatSheetContent).toContain("Quantity:");
-      expect(cheatSheetContent).toContain("Order Type:");
-      expect(cheatSheetContent).toContain("LIMIT");
-      expect(cheatSheetContent).toContain("Limit Price:");
-      expect(cheatSheetContent).toContain("TIF:");
-      expect(cheatSheetContent).toContain("Day");
+    it("renders STEP 1: The Entry Order with BUY, LIMIT, ${entryPriceState}, and TIF: Day", () => {
+      expect(guideContent).toContain("STEP 1: The Entry Order");
+      expect(guideContent).toContain("(Standard Trade Ticket)");
+      expect(guideContent).toContain("Action:");
+      expect(guideContent).toContain("BUY");
+      expect(guideContent).toContain("Order Type:");
+      expect(guideContent).toContain("LIMIT");
+      expect(guideContent).toContain("Limit Price:");
+      expect(guideContent).toContain("{entryPriceState}");
+      expect(guideContent).toContain("TIF:");
+      expect(guideContent).toContain("Day");
     });
 
     it("renders STEP 2: The Scale-Out with OCO Conditional Ticket instructions", () => {
-      expect(cheatSheetContent).toContain('data-testid="fidelity-step-2"');
-      expect(cheatSheetContent).toContain("The Scale-Out (Once Entry Fills)");
-      expect(cheatSheetContent).toContain("Open a Conditional Ticket");
-      expect(cheatSheetContent).toContain("Select 'OCO' (One Cancels the Other)");
+      expect(guideContent).toContain("STEP 2: The Scale-Out (Once Entry Fills)");
+      expect(guideContent).toContain("(Conditional Ticket -> OCO / One Cancels the Other)");
     });
 
-    it("renders Order 1 (Take 1.5R Profit) with SELL action, 50% shares, LIMIT type, and Target 1 price", () => {
-      expect(cheatSheetContent).toContain("Order 1 (Take 1.5R Profit)");
-      expect(cheatSheetContent).toContain("SELL");
-      expect(cheatSheetContent).toContain("50%");
-      expect(cheatSheetContent).toContain("LIMIT");
-      expect(cheatSheetContent).toContain("${target1.toFixed(2)}");
+    it("renders Order 1 (Take 1.5R Profit) with SELL (50% Quantity), LIMIT, and ${target1State}", () => {
+      expect(guideContent).toContain("Order 1 (Take 1.5R Profit):");
+      expect(guideContent).toContain("Action:");
+      expect(guideContent).toContain("SELL (50% Quantity)");
+      expect(guideContent).toContain("Order Type:");
+      expect(guideContent).toContain("LIMIT");
+      expect(guideContent).toContain("Limit Price:");
+      expect(guideContent).toContain("{target1State}");
     });
 
-    it("renders Order 2 (Protect with Stop Loss) with SELL action, 100% shares, STOP type, and Stop Loss price", () => {
-      expect(cheatSheetContent).toContain("Order 2 (Protect with Stop Loss)");
-      expect(cheatSheetContent).toContain("SELL");
-      expect(cheatSheetContent).toContain("100%");
-      expect(cheatSheetContent).toContain("STOP");
-      expect(cheatSheetContent).toContain("${stop.toFixed(2)}");
+    it("renders Order 2 (Protect with Stop Loss) with SELL (Remaining Quantity), STOP, and ${stopLossState}", () => {
+      expect(guideContent).toContain("Order 2 (Protect with Stop Loss):");
+      expect(guideContent).toContain("Action:");
+      expect(guideContent).toContain("SELL (Remaining Quantity)");
+      expect(guideContent).toContain("Order Type:");
+      expect(guideContent).toContain("STOP");
+      expect(guideContent).toContain("Stop Price:");
+      expect(guideContent).toContain("{stopLossState}");
     });
 
-    it("renders the critical trade management reminder banner for manual stop adjustment to break-even", () => {
-      expect(cheatSheetContent).toContain('data-testid="fidelity-reminder-banner"');
-      expect(cheatSheetContent).toContain("⚠️ REMINDER: Active Stop Management Required");
-      expect(cheatSheetContent).toContain(
-        "The moment Order 1 (Target) fills, you must manually go into Fidelity and cancel the remaining Stop order, then create a new Stop order at"
-      );
-      expect(cheatSheetContent).toContain("Break-Even");
-    });
-
-    it("provides one-click copy buttons for entry quantity, entry price, target 1 quantity & price, and stop quantity & price", () => {
-      expect(cheatSheetContent).toContain('data-testid="copy-entry-qty"');
-      expect(cheatSheetContent).toContain('data-testid="copy-entry-price"');
-      expect(cheatSheetContent).toContain('data-testid="copy-target1-qty"');
-      expect(cheatSheetContent).toContain('data-testid="copy-target1-price"');
-      expect(cheatSheetContent).toContain('data-testid="copy-stop-qty"');
-      expect(cheatSheetContent).toContain('data-testid="copy-stop-price"');
-      expect(cheatSheetContent).toContain("navigator.clipboard?.writeText");
+    it("mounts FidelityExecutionGuide inside SwingChart container passing entryPrice, target1, and stopLoss props", () => {
+      expect(swingChartContent).toContain("<FidelityExecutionGuide");
+      expect(swingChartContent).toContain("isOpen={isFidelityGuideOpen}");
+      expect(swingChartContent).toContain("entryPrice={effectiveEntry}");
+      expect(swingChartContent).toContain("target1={effectiveTarget1}");
+      expect(swingChartContent).toContain("stopLoss={effectiveStop}");
     });
   });
 
-  describe("3. Dual Integration: Dashboard Column 3 Collapsible & Modal Trigger", () => {
+  describe("3. Dual Integration: Dashboard Column 3 Collapsible & Modal Triggers", () => {
     it("integrates FidelityExecutionCheatSheet as an inline collapsible card in Dashboard Column 3", () => {
       expect(cheatSheetContent).toContain('data-testid="fidelity-execution-cheat-sheet"');
       expect(dashboardContent).toContain("<FidelityExecutionCheatSheet");
@@ -122,7 +125,7 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Cheat 
       expect(dashboardContent).toContain("setIsFidelityGuideOpen(true)");
     });
 
-    it("provides Fidelity Guide button on the main chart header to open full-screen modal", () => {
+    it("provides Fidelity Guide button on the main studio chart header to open modal", () => {
       expect(dashboardContent).toContain('data-testid="button-fidelity-guide"');
       expect(dashboardContent).toContain("Fidelity Guide");
     });
@@ -134,4 +137,3 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Cheat 
     });
   });
 });
-

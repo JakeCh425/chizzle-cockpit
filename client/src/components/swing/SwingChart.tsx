@@ -22,6 +22,8 @@ import { atrOf, macdSeries, rsiSeries, vwapSeries } from "@shared/marketContext"
 import { dayChipText, dayRaySpan, dimColor, FOCUS_FADE_MS, focusView, isIntradayTf, layoutGutter, mergeNearbyLevels, mergeTolerance, PANE_MIN_H, srBandAlpha, srLabel, touchesAny } from "@shared/chartFocus";
 import { ctParts } from "@shared/marketContext";
 import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
+import { useLiveQuote } from "@/lib/useLivePrices";
+import FidelityExecutionGuide from "@/components/FidelityExecutionGuide";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
 import {
   DAY_COLORS, DrawingEditor, DrawingPrimitive, DrawingToolbar, IndicatorsMenu, POINTS_NEEDED, TOOLBAR_W, paramsFor, useDayOverlays, useDrawings, useIndicatorSettings, visibleOn, type Tool,
@@ -133,6 +135,8 @@ export interface SwingChartProps {
 export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan, alertLevels, lockedPlan }: SwingChartProps) {
   const statusLabel = useLiveStatusLabel();
   const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
+  const liveQuoteStatus = useLiveQuote(symbol);
+  const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
   // Chart controls remember how you last left them (per timeframe for the range).
   const [rangeByTf, setRangeByTf] = usePersistentState<Partial<Record<Tf, typeof RANGES[number]>>>("swing-chart-range", {});
   const range = (rangeByTf[tf] && (RANGES as readonly string[]).includes(rangeByTf[tf]!)) ? rangeByTf[tf]! : DEFAULT_RANGE[tf];
@@ -779,22 +783,73 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     { k: "1H confirmation", v: d.setupStatus === "READY_TO_TRADE" ? "Closed above trigger" : d.lastCompletedBar1H ? `Last closed 1H ${fmtCT(d.lastCompletedBar1H)}` : "—" },
   ] : [];
 
+  // Derived price and trade states for massive header & Fidelity cheat sheet
+  const ticker = symbol ?? decision?.symbol ?? "—";
+  const rawPrice = liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
+  const currentPrice = rawPrice.toFixed(2);
+  const priorClose = liveQuoteStatus.quote?.prevClose ?? (b?.bars && b.bars.length > 1 ? b.bars[0].c : null);
+  const computedChange = priorClose != null && priorClose > 0 ? rawPrice - priorClose : 0;
+  const priceChange = liveQuoteStatus.quote?.change ?? computedChange;
+  const effectivePct = liveQuoteStatus.quote?.changePercent != null
+    ? liveQuoteStatus.quote.changePercent
+    : (priorClose != null && priorClose > 0 ? (computedChange / priorClose) * 100 : 0);
+  const priceChangePercent = `${effectivePct >= 0 ? "+" : ""}${effectivePct.toFixed(2)}`;
+
+  const effectiveEntry = userLevels.find((l) => l.kind === "ENTRY")?.price ?? decision?.entryPrice ?? decision?.currentTrigger ?? decision?.originalTrigger ?? null;
+  const effectiveTarget1 = userLevels.find((l) => l.kind === "T1")?.price ?? decision?.target1 ?? null;
+  const effectiveStop = userLevels.find((l) => l.kind === "STOP")?.price ?? decision?.structuralStop ?? decision?.stopBuffer ?? null;
+
   const btn = (on: boolean) => `px-2 py-0.5 rounded border text-[11px] font-mono ${on ? "border-neon-blue text-soft-white bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"}`;
   return (
     <div className="space-y-2" data-testid="swing-chart">
-      {/* Header (§Q3) */}
-      <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono" data-testid="swing-chart-header">
-        <span className="text-soft-white font-bold">{symbol ?? "—"}</span>
-        <span className="text-neon-blue font-bold" data-testid="text-chart-tf">{TF_LABEL[tf]}</span>
-        <span className="text-slate-gray">{b?.session === "EXTENDED" ? "Extended hours" : "RTH"}</span>
-        <span className="text-slate-gray">src {b?.source ?? d?.dataSource ?? "—"}</span>
-        <span className="text-slate-gray">{d?.exchange ?? b?.exchange ?? ""}</span>
-        <span className="text-slate-gray">quote {fmtCT(d?.quoteTimestamp ?? b?.quoteTimestamp)}</span>
-        <span className="text-slate-gray">last closed bar {fmtCT(b?.lastCompletedBar)}</span>
-        {(d?.dataStatus || b?.dataStatus) && (
-          <span className={`px-1.5 rounded border ${DATA_TONE[d?.dataStatus ?? b!.dataStatus] ?? ""}`} data-testid="badge-chart-data">{d?.dataStatus ?? b?.dataStatus}</span>
-        )}
-        {symbol && <LiveTickerCornerBadge symbol={symbol} showDayRange className="ml-auto" />}
+      {/* Massive Bold Header (Step 1) */}
+      <div className="flex flex-col mb-4" data-testid="swing-chart-header">
+        <div className="flex items-baseline gap-4 flex-wrap">
+          <h1 className="text-5xl font-extrabold tracking-tight text-white" data-testid="swing-chart-ticker">
+            {ticker}
+          </h1>
+          <h2
+            className={`text-5xl font-bold ${priceChange >= 0 ? "text-green-500" : "text-red-500"}`}
+            data-testid="swing-chart-price"
+          >
+            ${currentPrice}
+          </h2>
+          <span className="text-xl text-gray-400" data-testid="swing-chart-pct">
+            {priceChangePercent}%
+          </span>
+          <button
+            type="button"
+            onClick={() => setIsFidelityGuideOpen((prev) => !prev)}
+            className="ml-auto px-3.5 py-1.5 rounded-lg border border-emerald-500/50 bg-emerald-950/80 hover:bg-emerald-900 text-emerald-300 font-mono text-xs font-bold transition-all shadow-md cursor-pointer hover:scale-105 active:scale-95 flex items-center gap-1.5"
+            data-testid="button-view-fidelity-ticket"
+            title="Toggle Fidelity Trade Ticket Cheat Sheet"
+          >
+            <span>[View Fidelity Ticket]</span>
+          </button>
+        </div>
+        {/* Dense data source string placed directly below the giant price */}
+        <div className="text-sm text-gray-500 flex flex-wrap items-center gap-2 font-mono mt-1" data-testid="swing-chart-dense-meta">
+          <span className="text-neon-blue font-bold" data-testid="text-chart-tf">{TF_LABEL[tf]}</span>
+          <span>·</span>
+          <span>{b?.session === "EXTENDED" ? "Extended hours" : "RTH"}</span>
+          <span>·</span>
+          <span>src {b?.source ?? d?.dataSource ?? "—"}</span>
+          {d?.exchange || b?.exchange ? (
+            <>
+              <span>·</span>
+              <span>{d?.exchange ?? b?.exchange}</span>
+            </>
+          ) : null}
+          <span>·</span>
+          <span>quote {fmtCT(d?.quoteTimestamp ?? b?.quoteTimestamp)}</span>
+          <span>·</span>
+          <span>last closed bar {fmtCT(b?.lastCompletedBar)}</span>
+          {(d?.dataStatus || b?.dataStatus) && (
+            <span className={`px-1.5 rounded border text-[11px] ${DATA_TONE[d?.dataStatus ?? b!.dataStatus] ?? ""}`} data-testid="badge-chart-data">
+              {d?.dataStatus ?? b?.dataStatus}
+            </span>
+          )}
+        </div>
       </div>
       {chips.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-1.5" data-testid="swing-context-chips">
@@ -1041,6 +1096,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
         <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
         <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, zIndex: 3 }} data-testid="chart-band-layer" />
+        {/* Floating Absolute-Positioned Fidelity Execution Guide Modal Overlay in the top right of the chart container */}
+        <FidelityExecutionGuide
+          isOpen={isFidelityGuideOpen}
+          onClose={() => setIsFidelityGuideOpen(false)}
+          ticker={ticker}
+          entryPrice={effectiveEntry}
+          target1={effectiveTarget1}
+          stopLoss={effectiveStop}
+        />
         {textAt && (
           <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
             onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
