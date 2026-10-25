@@ -3,7 +3,7 @@ import { Link, useLocation } from "wouter";
 import { ThemeSwitcher } from "./ThemeSwitcher";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
-import { chicagoClock, marketSession, useFeedConnection } from "@/lib/priceFeed";
+import { chicagoClock, marketSession, useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
@@ -252,7 +252,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </span>
           )}
 
-          <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} />
+          <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} marketOpen={isMarketOpen(now)} />
 
           <div className="ml-auto flex items-center gap-3 md:gap-5">
             <ThemeSwitcher />
@@ -375,8 +375,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function FeedBadge({ state, ageSec, source = "FINNHUB" }: { state: "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED"; ageSec: number | null; source?: string }) {
+function FeedBadge({
+  state,
+  ageSec,
+  source = "FINNHUB",
+  marketOpen,
+}: {
+  state: "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED" | "STATIC";
+  ageSec: number | null;
+  source?: string;
+  marketOpen?: boolean;
+}) {
   const isBackup = source && source !== "FINNHUB";
+  const isOpen = marketOpen !== undefined ? marketOpen : isMarketOpen();
   const providerLabel =
     source === "POLYGON" ? "Polygon (Backup)"
     : source === "TWELVEDATA" ? "TwelveData (Backup)"
@@ -387,26 +398,39 @@ function FeedBadge({ state, ageSec, source = "FINNHUB" }: { state: "CONNECTING" 
     : "Finnhub";
 
   const label =
-    state === "LIVE" ? (isBackup ? `🟡 LIVE: ${providerLabel}` : "🟢 LIVE: Finnhub")
-    : state === "STALE" ? `STALE: ${providerLabel}`
-    : state === "CONNECTING" ? "CONNECTING"
-    : "DISCONNECTED";
+    !isOpen || state === "STATIC"
+      ? "STATIC: LAST CLOSE"
+      : state === "LIVE"
+      ? (isBackup ? `🟡 LIVE: ${providerLabel}` : "🟢 LIVE: Finnhub")
+      : state === "STALE" ? `STALE: ${providerLabel}`
+      : state === "CONNECTING" ? "CONNECTING"
+      : "DISCONNECTED";
+
   const tone =
-    state === "LIVE"
+    !isOpen || state === "STATIC"
+      ? "text-slate-300 border-slate-700/60 bg-slate-900/80 shadow-[0_0_8px_rgba(148,163,184,0.15)]"
+      : state === "LIVE"
       ? (isBackup ? "text-amber-300 border-amber-400/50 bg-amber-950/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]" : "text-emerald-300 border-emerald-400/40 bg-emerald-950/40 shadow-[0_0_10px_rgba(52,211,153,0.15)]")
       : state === "STALE" ? "text-signal-amber border-signal-amber/40 bg-signal-amber/10"
       : state === "CONNECTING" ? "text-slate-gray border-slate-800 bg-slate-900/60"
       : "text-signal-red border-signal-red/40 bg-signal-red/10";
-  const dotAnim = state === "LIVE" ? "heartbeat" : state === "CONNECTING" ? "animate-pulse" : "";
+
+  const dotAnim = isOpen && state === "LIVE" ? "heartbeat" : isOpen && state === "CONNECTING" ? "animate-pulse" : "";
   return (
     <div
       data-testid="badge-feed-status"
       className={`hidden sm:flex items-center gap-2 px-2.5 py-1 border ${tone} text-[10px] font-mono font-bold tracking-wider uppercase rounded-full`}
-      title={ageSec != null ? `Last tick ${ageSec}s ago via ${source}` : "Awaiting first tick"}
+      title={
+        !isOpen
+          ? "Market closed (outside regular trading hours) — displaying Last Official Close"
+          : ageSec != null
+          ? `Last tick ${ageSec}s ago via ${source}`
+          : "Awaiting first tick"
+      }
     >
       <span className={`inline-block w-2 h-2 rounded-full bg-current ${dotAnim}`} />
       <span>{label}</span>
-      {ageSec != null && ageSec >= 0 && (
+      {isOpen && ageSec != null && ageSec >= 0 && (
         <span className="font-mono-num tabular-nums text-slate-400 font-normal">{ageSec}s</span>
       )}
     </div>

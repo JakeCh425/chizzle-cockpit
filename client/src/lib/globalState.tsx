@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/lib/wealthWatchlist";
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
-import { ensurePriceFeed, subscribe, isBadTick as checkBadTick, subscribeSymbol } from "@/lib/priceFeed";
+import { ensurePriceFeed, subscribe, isBadTick as checkBadTick, subscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
 
 export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme };
 
@@ -45,6 +45,7 @@ export interface GlobalStateContextType {
   activePrice: number;
   livePrices: Record<string, number>;
   isBadTick: (symbol: string, price: number) => boolean;
+  isMarketOpen: boolean;
 
   // Watchlist
   watchlist: WatchlistItem[];
@@ -357,8 +358,16 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const activePrice = activeTickerData.price;
 
-  // Sub-second streaming micro-ticks for the active ticker ensuring simultaneous real-time updates across Header, Watchlist, Chart
+  // Market hours state tracker
+  const [marketOpen, setMarketOpen] = useState(() => isMarketOpen());
   useEffect(() => {
+    const t = setInterval(() => setMarketOpen(isMarketOpen()), 5000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Sub-second streaming micro-ticks for the active ticker ONLY when market is open
+  useEffect(() => {
+    if (!marketOpen) return;
     const timer = setInterval(() => {
       setLivePrices((prev) => {
         const current = prev[activeTicker] ?? activeItem?.price ?? 100;
@@ -371,15 +380,15 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       });
     }, 1200);
     return () => clearInterval(timer);
-  }, [activeTicker, activeItem?.price]);
+  }, [activeTicker, activeItem?.price, marketOpen]);
 
   // Boot Sequence Diagnostic Logging
   useEffect(() => {
     if (typeof console !== "undefined") {
-      console.log("[Boot:GlobalState] GlobalStateProvider initialized with activeTicker:", activeTicker, "activePrice:", activePrice);
+      console.log("[Boot:GlobalState] GlobalStateProvider initialized with activeTicker:", activeTicker, "activePrice:", activePrice, "marketOpen:", marketOpen);
       console.log("[Boot:GlobalState] Synced watchlist loaded with", syncedWatchlist.length, "items");
     }
-  }, [activeTicker, activePrice, syncedWatchlist.length]);
+  }, [activeTicker, activePrice, syncedWatchlist.length, marketOpen]);
 
   // Timeframe
   const [timeframe, setTimeframe] = useState<"1H" | "4H" | "1D" | "1W">("1H");
@@ -422,6 +431,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       activePrice,
       livePrices,
       isBadTick,
+      isMarketOpen: marketOpen,
       watchlist: syncedWatchlist,
       addTicker,
       removeTicker,
@@ -444,6 +454,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       activePrice,
       livePrices,
       isBadTick,
+      marketOpen,
       syncedWatchlist,
       addTicker,
       removeTicker,

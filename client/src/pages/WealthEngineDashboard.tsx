@@ -1,6 +1,6 @@
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { useFeedConnection } from "@/lib/priceFeed";
+import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { Link } from "wouter";
 import { useGlobalState } from "@/lib/globalState";
@@ -219,9 +219,10 @@ export function LiveTradingChart({
   primaryTarget,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick } = useGlobalState();
+  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen } = useGlobalState();
   const { quote } = useLiveQuote(symbol);
-  const { state: feedState } = useFeedConnection();
+  const { state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
+  const isMarketOpenNow = globalMarketOpen ?? feedMarketOpen ?? isMarketOpen();
 
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
@@ -606,7 +607,7 @@ export function LiveTradingChart({
                 : "bg-slate-800/90 text-slate-400 border border-slate-700 hover:text-white"
             }`}
           >
-            <span className={`h-1.5 w-1.5 rounded-full ${autoScroll ? "bg-cyan-400 animate-pulse shadow-[0_0_6px_#22D3EE]" : "bg-slate-500"}`} />
+            <span className={`h-1.5 w-1.5 rounded-full ${autoScroll && isMarketOpenNow ? "bg-cyan-400 animate-pulse shadow-[0_0_6px_#22D3EE]" : autoScroll ? "bg-cyan-400" : "bg-slate-500"}`} />
             <span>Auto-Scroll: {autoScroll ? "ON" : "OFF"}</span>
           </button>
 
@@ -661,9 +662,11 @@ export function LiveTradingChart({
             <span className={`text-[10px] px-1.5 py-0.5 rounded border ${
               hoveredData?.candle
                 ? "text-cyan-300 bg-cyan-950/60 border-cyan-800/60"
-                : "text-slate-400 bg-slate-900 border-slate-700/60"
+                : isMarketOpenNow
+                ? "text-slate-400 bg-slate-900 border-slate-700/60"
+                : "text-slate-400 bg-slate-900/80 border-slate-700/40"
             }`}>
-              {hoveredData?.candle ? "Hovered Bar" : "Live Bar"}
+              {hoveredData?.candle ? "Hovered Bar" : isMarketOpenNow ? "Live Bar" : "Last Close"}
             </span>
           </div>
         )}
@@ -676,7 +679,7 @@ export function LiveTradingChart({
               isOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
           >
-            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22D3EE]" />
+            <span className={`w-2.5 h-2.5 rounded-full bg-cyan-400 ${isMarketOpenNow ? "animate-pulse" : ""} shadow-[0_0_8px_#22D3EE]`} />
             <span className="font-black text-white">{symbol}</span>
             <span className="text-cyan-300 font-semibold">{item?.setupType ?? "SWING SETUP"}</span>
             <span className="text-slate-400">
@@ -1107,7 +1110,7 @@ export function LiveTradingChart({
                     fontWeight="900"
                     textAnchor="middle"
                   >
-                    ▲ GET IN · LIVE
+                    {isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"}
                   </text>
                 </g>
               );
@@ -1374,7 +1377,8 @@ export default function WealthEngineDashboard() {
   const theme = global?.theme ?? "cyber-neon";
   const activeTheme = THEMES[theme] || THEMES["cyber-neon"];
 
-  const { source: feedSource } = useFeedConnection();
+  const { source: feedSource, state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
+  const marketOpen = global?.isMarketOpen ?? feedMarketOpen ?? isMarketOpen();
 
   const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
   const cycleTheme = () => {
@@ -1494,7 +1498,7 @@ export default function WealthEngineDashboard() {
             className="flex items-center gap-2 px-3 py-1 rounded-full border bg-black/40 border-cyan-500/40 font-mono text-xs shadow-sm"
             data-testid="header-active-ticker-pill"
           >
-            <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_#22D3EE]" />
+            <span className={`h-2 w-2 rounded-full bg-cyan-400 ${marketOpen ? "animate-pulse" : ""} shadow-[0_0_6px_#22D3EE]`} />
             <span className="font-black text-white">{activeTickerData?.symbol ?? activeTicker}</span>
             <span className="font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]" data-testid="header-live-price">
               ${(activeTickerData?.price ?? activePrice).toFixed(2)}
@@ -1506,7 +1510,9 @@ export default function WealthEngineDashboard() {
 
           <div
             className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm font-bold tracking-wider ${
-              feedSource && feedSource !== "FINNHUB"
+              !marketOpen
+                ? "border-slate-700/60 bg-slate-900/80 text-slate-300 shadow-[0_0_10px_rgba(148,163,184,0.15)]"
+                : feedSource && feedSource !== "FINNHUB"
                 ? "border-amber-400/50 bg-amber-950/60 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.2)]"
                 : "border-emerald-400/50 bg-emerald-950/60 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.2)]"
             }`}
@@ -1514,13 +1520,17 @@ export default function WealthEngineDashboard() {
           >
             <span
               className={`h-2 w-2 rounded-full ${
-                feedSource && feedSource !== "FINNHUB"
+                !marketOpen
+                  ? "bg-slate-400 shadow-[0_0_6px_#94A3B8]"
+                  : feedSource && feedSource !== "FINNHUB"
                   ? "bg-amber-400 shadow-[0_0_6px_#F59E0B] animate-pulse"
                   : "bg-emerald-400 shadow-[0_0_6px_#34D399]"
               }`}
             />
             <span>
-              {feedSource && feedSource !== "FINNHUB"
+              {!marketOpen
+                ? "STATIC: LAST CLOSE"
+                : feedSource && feedSource !== "FINNHUB"
                 ? `🟡 LIVE: ${feedSource === "POLYGON" ? "Polygon" : feedSource === "TWELVEDATA" ? "TwelveData" : feedSource} (Backup)`
                 : "🟢 LIVE: WebSocket (Finnhub)"}
             </span>

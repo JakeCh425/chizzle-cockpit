@@ -6,6 +6,9 @@
 // ============================================================================
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo } from "./marketHours";
+
+export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo };
 
 // Match server snapshot shape
 export interface LiveQuote {
@@ -19,7 +22,7 @@ export interface LiveQuote {
   open: number;
   ts: number;
   receivedAt: number; // ms
-  source: "FINNHUB" | "POLYGON" | "TWELVEDATA" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE";
+  source: "FINNHUB" | "POLYGON" | "TWELVEDATA" | "TIINGO_IEX" | "YAHOO" | "NASDAQ" | "SIMULATOR" | "OVERRIDE" | "LAST_CLOSE";
 }
 
 // Backwards-compat alias (older code imports `SimTick`)
@@ -31,26 +34,20 @@ export type SimTick = { symbol: string; price: number; ts: number };
 export type Session = "PRE" | "OPEN" | "MIDDAY" | "CLOSE" | "POST" | "OFF";
 
 export function marketSession(now = new Date()): Session {
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = et.getDay();
-  if (day === 0 || day === 6) return "OFF";
-  const minutes = et.getHours() * 60 + et.getMinutes();
-  if (minutes < 4 * 60) return "OFF";
-  if (minutes < 9 * 60 + 30) return "PRE";
-  if (minutes < 10 * 60 + 30) return "OPEN";
-  if (minutes < 15 * 60) return "MIDDAY";
-  if (minutes < 16 * 60) return "CLOSE";
-  if (minutes < 20 * 60) return "POST";
+  const status = getMarketStatus(now);
+  if (status.session === "REGULAR") {
+    const et = getEtTimeParts(now);
+    if (et.totalSeconds < 10 * 3600 + 30 * 60) return "OPEN";
+    if (et.totalSeconds < 15 * 3600) return "MIDDAY";
+    return "CLOSE";
+  }
+  if (status.session === "PRE") return "PRE";
+  if (status.session === "POST") return "POST";
   return "OFF";
 }
 
-
 export function isMarketHours(now = new Date()): boolean {
-  const et = new Date(now.toLocaleString("en-US", { timeZone: "America/New_York" }));
-  const day = et.getDay();
-  if (day === 0 || day === 6) return false;
-  const minutes = et.getHours() * 60 + et.getMinutes();
-  return minutes >= 9 * 60 + 30 && minutes < 16 * 60;
+  return isMarketOpen(now);
 }
 
 export function chicagoClock(now = new Date()): string {
@@ -77,10 +74,10 @@ export function subscribeTick(l: TickListener): () => void {
   return () => tickListeners.delete(l);
 }
 
-export type ConnState = "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED";
+export type ConnState = "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED" | "STATIC";
 
 let snapshotState: Record<string, LiveQuote> = {};
-let connState: ConnState = "CONNECTING";
+let connState: ConnState = isMarketOpen() ? "CONNECTING" : "STATIC";
 let lastEventAt = 0;
 let es: EventSource | null = null;
 let ws: WebSocket | null = null;
@@ -90,6 +87,15 @@ export function subscribeSymbol(symbol: string) {
   const s = symbol.toUpperCase().split(":").pop()!;
   if (!s || subscribedSymbols.has(s)) return;
   subscribedSymbols.add(s);
+  if (!isMarketOpen()) {
+    fetch(`${API_BASE}/api/prices/${s}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(q => {
+        if (q) applyQuote(q);
+      })
+      .catch(() => {});
+    return;
+  }
   if (ws && ws.readyState === WebSocket.OPEN) {
     try {
       ws.send(JSON.stringify({ type: "subscribe", symbols: [s] }));
@@ -178,6 +184,14 @@ function setConn(next: ConnState) {
 function ensureBackgroundWsReconnect() {
   if (wsReconnectInterval) return;
   wsReconnectInterval = setInterval(() => {
+    // If market is closed, completely disable WebSocket reconnection attempts
+    if (!isMarketOpen()) {
+      if (ws) {
+        try { ws.close(); } catch {}
+        ws = null;
+      }
+      return;
+    }
     // If primary WebSocket is not open, continuously attempt reconnection every 5 seconds
     if (!ws || ws.readyState !== WebSocket.OPEN) {
       console.info("[priceFeed] Background 5s check: attempting primary WebSocket reconnection...");
@@ -186,7 +200,31 @@ function ensureBackgroundWsReconnect() {
   }, 5000);
 }
 
+export async function fetchLastOfficialClose(): Promise<Record<string, LiveQuote>> {
+  try {
+    const res = await fetch(`${API_BASE}/api/prices`);
+    if (!res.ok) return snapshotState;
+    const j = await res.json();
+    if (!j || typeof j !== "object") return snapshotState;
+    const next: Record<string, LiveQuote> = {};
+    for (const k of Object.keys(j)) {
+      if (j[k]) next[k] = j[k];
+    }
+    lastEventAt = Date.now();
+    setSnapshot(next);
+    setConn("STATIC");
+    return next;
+  } catch (err) {
+    console.warn("[priceFeed] Failed to fetch last official close:", err);
+    return snapshotState;
+  }
+}
+
 function fallbackPollOnce() {
+  if (!isMarketOpen()) {
+    fetchLastOfficialClose();
+    return;
+  }
   fetch(`${API_BASE}/api/prices`)
     .then(r => r.ok ? r.json() : null)
     .then(j => {
@@ -200,6 +238,10 @@ function fallbackPollOnce() {
 }
 
 function startFallbackPolling() {
+  if (!isMarketOpen()) {
+    fetchLastOfficialClose();
+    return;
+  }
   if (pollTimer) return;
   fallbackPollOnce();
   pollTimer = setInterval(fallbackPollOnce, isMarketHours() ? 5000 : 10000);
@@ -210,6 +252,12 @@ function stopFallbackPolling() {
 
 
 function connectWS() {
+  if (!isMarketOpen()) {
+    console.info("[Boot:PriceFeed] Market is CLOSED (Weekend/After-Hours). Disabling WebSocket connection attempts.");
+    fetchLastOfficialClose();
+    setConn("STATIC");
+    return;
+  }
   if (typeof window === "undefined" || typeof WebSocket === "undefined") {
     connectSSE();
     return;
@@ -312,12 +360,23 @@ export function reconnectPriceFeed() {
     } catch {}
     es = null;
   }
+  if (!isMarketOpen()) {
+    console.info("[Boot:PriceFeed] reconnectPriceFeed(): Market is CLOSED. Disabling WebSocket connection and fetching last official close.");
+    fetchLastOfficialClose();
+    setConn("STATIC");
+    return;
+  }
   setConn("CONNECTING");
   connectWS();
   fallbackPollOnce();
 }
 
 function connectSSE() {
+  if (!isMarketOpen()) {
+    fetchLastOfficialClose();
+    setConn("STATIC");
+    return;
+  }
   if (typeof window === "undefined" || typeof EventSource === "undefined") {
     startFallbackPolling();
     return;
@@ -378,10 +437,42 @@ export function ensurePriceFeed() {
   if (typeof console !== "undefined") {
     console.log("[Boot:PriceFeed] ensurePriceFeed() starting singleton price feed stream");
   }
-  connectWS();
-  ensureBackgroundWsReconnect();
+
+  const checkMarketHoursFeedMode = () => {
+    if (isMarketOpen()) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) {
+        connectWS();
+      }
+      ensureBackgroundWsReconnect();
+    } else {
+      if (ws) {
+        try {
+          ws.onclose = null;
+          ws.onerror = null;
+          ws.close();
+        } catch {}
+        ws = null;
+      }
+      if (es) {
+        try { es.close(); } catch {}
+        es = null;
+      }
+      stopFallbackPolling();
+      fetchLastOfficialClose();
+      setConn("STATIC");
+    }
+  };
+
+  checkMarketHoursFeedMode();
+
   // Stale-monitor: re-evaluate every 1s based on WebSocket status and lastEventAt
   setInterval(() => {
+    if (!isMarketOpen()) {
+      if (connState !== "STATIC" && connState !== "DISCONNECTED") {
+        setConn("STATIC");
+      }
+      return;
+    }
     // If primary WebSocket is healthy and open, state is always LIVE (no stale lock)
     if (ws && ws.readyState === WebSocket.OPEN) {
       setConn("LIVE");
@@ -393,6 +484,9 @@ export function ensurePriceFeed() {
     else if (age < 5 * 60 * 1000) setConn("STALE");
     else setConn("DISCONNECTED");
   }, 1000);
+
+  // Periodically check for market open/close transitions (every 10 seconds)
+  setInterval(checkMarketHoursFeedMode, 10000);
 }
 
 export function subscribe(l: Listener): () => void {
@@ -418,9 +512,10 @@ export function getLastEventAt(): number {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // React hooks
-export function useFeedConnection(): { state: ConnState; lastEventAt: number; ageSec: number; source: string } {
+export function useFeedConnection(): { state: ConnState; lastEventAt: number; ageSec: number; source: string; isMarketOpen: boolean } {
   const [state, setState] = useState<ConnState>(connState);
   const [tick, setTick] = useState(0);
+  const [marketOpen, setMarketOpen] = useState(() => isMarketOpen());
   const [source, setSource] = useState<string>(() => {
     const snap = getSnapshot();
     const first = Object.values(snap)[0];
@@ -434,12 +529,15 @@ export function useFeedConnection(): { state: ConnState; lastEventAt: number; ag
       const first = Object.values(snap)[0];
       if (first?.source) setSource(first.source);
     });
-    const t = setInterval(() => setTick(x => x + 1), 1000);
+    const t = setInterval(() => {
+      setTick(x => x + 1);
+      setMarketOpen(isMarketOpen());
+    }, 1000);
     return () => { off(); offSnap(); clearInterval(t); };
   }, []);
 
   const ageSec = lastEventAt ? Math.round((Date.now() - lastEventAt) / 1000) : -1;
-  return { state, lastEventAt, ageSec, source };
+  return { state, lastEventAt, ageSec, source, isMarketOpen: marketOpen };
 }
 
 export function useFeedSource(): string {
