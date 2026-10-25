@@ -798,6 +798,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const effectiveEntry = userLevels.find((l) => l.kind === "ENTRY")?.price ?? decision?.entryPrice ?? decision?.currentTrigger ?? decision?.originalTrigger ?? null;
   const effectiveTarget1 = userLevels.find((l) => l.kind === "T1")?.price ?? decision?.target1 ?? null;
   const effectiveStop = userLevels.find((l) => l.kind === "STOP")?.price ?? decision?.structuralStop ?? decision?.stopBuffer ?? null;
+  const effectiveTarget2 = userLevels.find((l) => l.kind === "T2")?.price ?? decision?.target2 ?? (effectiveEntry != null && effectiveStop != null ? +(effectiveEntry + Math.abs(effectiveEntry - effectiveStop) * 2.0).toFixed(2) : (effectiveEntry != null && effectiveTarget1 != null ? +(effectiveEntry + (effectiveTarget1 - effectiveEntry) * (2.0 / 1.5)).toFixed(2) : null));
 
   const btn = (on: boolean) => `px-2 py-0.5 rounded border text-[11px] font-mono ${on ? "border-neon-blue text-soft-white bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"}`;
   return (
@@ -1089,28 +1090,20 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           {b?.visualOnlyNote ?? "15m / 30m are visual only — they never confirm a setup unless Intraday Learning Mode is on."}
         </div>
       )}
-      <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: chartH }}
-        onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area" data-panes={panes} data-focus={focus ? "1" : "0"} data-clean={fv.full ? "0" : "1"}>
-        {drawOn && <DrawingToolbar tool={tool} setTool={(t) => { setTool(t); draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } }} api={dr} selected={selected} hidden={hideDr} setHidden={setHideDr}
-          onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
-          onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
-        <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
-        <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, zIndex: 3 }} data-testid="chart-band-layer" />
-        {/* Floating Absolute-Positioned Fidelity Execution Guide Modal Overlay in the top right of the chart container */}
-        <FidelityExecutionGuide
-          isOpen={isFidelityGuideOpen}
-          onClose={() => setIsFidelityGuideOpen(false)}
-          ticker={ticker}
-          entryPrice={effectiveEntry}
-          target1={effectiveTarget1}
-          stopLoss={effectiveStop}
-        />
-        {textAt && (
-          <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
-            onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
-            <input autoFocus className="w-40 rounded border border-neon-blue bg-[#0b1220] px-1.5 py-0.5 text-[11px] text-[#f1f5f9]" placeholder="Note text, Enter to save" maxLength={80} value={textVal} onChange={(e) => setTextVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setTextAt(null); setTool("select"); } }} data-testid="input-drawing-text" />
-          </form>
-        )}
+      <div className="relative" data-testid="swing-chart-stage-container">
+        <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: chartH }}
+          onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area" data-panes={panes} data-focus={focus ? "1" : "0"} data-clean={fv.full ? "0" : "1"}>
+          {drawOn && <DrawingToolbar tool={tool} setTool={(t) => { setTool(t); draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } }} api={dr} selected={selected} hidden={hideDr} setHidden={setHideDr}
+            onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
+            onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
+          <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
+          <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, zIndex: 3 }} data-testid="chart-band-layer" />
+          {textAt && (
+            <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
+              onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
+              <input autoFocus className="w-40 rounded border border-neon-blue bg-[#0b1220] px-1.5 py-0.5 text-[11px] text-[#f1f5f9]" placeholder="Note text, Enter to save" maxLength={80} value={textVal} onChange={(e) => setTextVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setTextAt(null); setTool("select"); } }} data-testid="input-drawing-text" />
+            </form>
+          )}
         {selected && tool === "select" && <DrawingEditor d={selected} tf={tf} price={decision?.currentPrice ?? null} api={dr} onClose={() => setSelId(null)} right={(gutterOn ? GUTTER_W : 0) + 62} />}
         {drawOn && !dr.ready && !dr.loading && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[9.5px] font-mono text-slate-gray" style={{ left: TOOLBAR_W + 6 }} data-testid="text-drawings-not-ready">Drawings storage not set up</div>}
         {dr.err && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[10px] font-mono text-rose-300" style={{ left: (drawOn ? TOOLBAR_W : 0) + 6 }} role="alert" data-testid="text-drawing-error">{dr.err}</div>}
@@ -1189,6 +1182,18 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
       </div>
+
+      {/* Floating Fidelity Execution Guide Modal Overlay (outside overflow-hidden chart grid) */}
+      <FidelityExecutionGuide
+        isOpen={isFidelityGuideOpen}
+        onClose={() => setIsFidelityGuideOpen(false)}
+        ticker={ticker}
+        entryPrice={effectiveEntry}
+        target1={effectiveTarget1}
+        target2={effectiveTarget2}
+        stopLoss={effectiveStop}
+      />
+    </div>
       {srClear && srLines.length > 0 && (
         <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-gray" data-testid="text-sr-key">
           <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 rounded-sm" style={{ background: "#4ade80" }} /><span className="text-soft-white">Support</span> — where buyers stepped in before (price bounced up)</span>

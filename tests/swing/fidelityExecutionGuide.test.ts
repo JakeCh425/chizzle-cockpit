@@ -68,11 +68,12 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
       expect(guideContent).toContain("FIDELITY EXECUTION GUIDE");
     });
 
-    it("renders STEP 1: The Entry Order with BUY, LIMIT, ${entryPriceState}, and TIF: Day", () => {
-      expect(guideContent).toContain("STEP 1: The Entry Order");
-      expect(guideContent).toContain("(Standard Trade Ticket)");
+    it("renders STEP 1: The Entry with BUY, 100% of planned position, LIMIT, ${entryPriceState}, and TIF: Day", () => {
+      expect(guideContent).toContain("STEP 1: The Entry");
+      expect(guideContent).toContain("(Use a Standard Trade Ticket)");
       expect(guideContent).toContain("Action:");
       expect(guideContent).toContain("BUY");
+      expect(guideContent).toContain("100% of planned position");
       expect(guideContent).toContain("Order Type:");
       expect(guideContent).toContain("LIMIT");
       expect(guideContent).toContain("Limit Price:");
@@ -81,36 +82,59 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
       expect(guideContent).toContain("Day");
     });
 
-    it("renders STEP 2: The Scale-Out with OCO Conditional Ticket instructions", () => {
-      expect(guideContent).toContain("STEP 2: The Scale-Out (Once Entry Fills)");
-      expect(guideContent).toContain("(Conditional Ticket -> OCO / One Cancels the Other)");
+    it("renders STEP 2: The Protection & Scale-Out with OCO Conditional Ticket instructions", () => {
+      expect(guideContent).toContain("STEP 2: The Protection &amp; Scale-Out (Do this immediately after Entry fills)");
+      expect(guideContent).toContain("(Use a Conditional Ticket -> OCO / One Cancels the Other)");
     });
 
-    it("renders Order 1 (Take 1.5R Profit) with SELL (50% Quantity), LIMIT, and ${target1State}", () => {
-      expect(guideContent).toContain("Order 1 (Take 1.5R Profit):");
+    it("renders Order 1 (Lock in 1.5R Profit) with SELL, 50% of shares, LIMIT, and ${target1State}", () => {
+      expect(guideContent).toContain("Order 1 (Lock in 1.5R Profit):");
       expect(guideContent).toContain("Action:");
-      expect(guideContent).toContain("SELL (50% Quantity)");
+      expect(guideContent).toContain("SELL");
+      expect(guideContent).toContain("50% of shares");
       expect(guideContent).toContain("Order Type:");
       expect(guideContent).toContain("LIMIT");
       expect(guideContent).toContain("Limit Price:");
       expect(guideContent).toContain("{target1State}");
     });
 
-    it("renders Order 2 (Protect with Stop Loss) with SELL (Remaining Quantity), STOP, and ${stopLossState}", () => {
-      expect(guideContent).toContain("Order 2 (Protect with Stop Loss):");
+    it("renders Order 2 (Initial Stop Loss) with SELL, 100% of shares, STOP, and ${stopLossState}", () => {
+      expect(guideContent).toContain("Order 2 (Initial Stop Loss):");
       expect(guideContent).toContain("Action:");
-      expect(guideContent).toContain("SELL (Remaining Quantity)");
+      expect(guideContent).toContain("SELL");
+      expect(guideContent).toContain("100% of shares");
       expect(guideContent).toContain("Order Type:");
       expect(guideContent).toContain("STOP");
       expect(guideContent).toContain("Stop Price:");
       expect(guideContent).toContain("{stopLossState}");
     });
 
-    it("mounts FidelityExecutionGuide inside SwingChart container passing entryPrice, target1, and stopLoss props", () => {
+    it("renders STEP 3: The Adjustment with Action 1 (Cancel Initial Stop) and Action 2 (Break-Even Stop at ${entryPriceState})", () => {
+      expect(guideContent).toContain("STEP 3: The Adjustment (Do this the MOMENT Target 1 fills)");
+      expect(guideContent).toContain("(Log into Fidelity to adjust your risk)");
+      expect(guideContent).toContain("CANCEL the remaining initial Stop Loss order.");
+      expect(guideContent).toContain("Action 2: Create a NEW Standard Trade Ticket.");
+      expect(guideContent).toContain("Remaining 50% of shares");
+      expect(guideContent).toContain("STOP (Break-Even)");
+      expect(guideContent).toContain("(Your original entry price)");
+      expect(guideContent).toContain("{entryPriceState}");
+    });
+
+    it("renders STEP 4: The Core Target (Target 2) with ${target2State} and trailing stop guidance", () => {
+      expect(guideContent).toContain("STEP 4: The Core Target (Target 2)");
+      expect(guideContent).toContain("(Set your final limit order)");
+      expect(guideContent).toContain("Remaining 50% of shares");
+      expect(guideContent).toContain("LIMIT");
+      expect(guideContent).toContain("{target2State}");
+      expect(guideContent).toContain("(Alternatively, trail your stop loss up beneath the 1H 20-SMA)");
+    });
+
+    it("mounts FidelityExecutionGuide in SwingChart passing entryPrice, target1, target2, and stopLoss props", () => {
       expect(swingChartContent).toContain("<FidelityExecutionGuide");
       expect(swingChartContent).toContain("isOpen={isFidelityGuideOpen}");
       expect(swingChartContent).toContain("entryPrice={effectiveEntry}");
       expect(swingChartContent).toContain("target1={effectiveTarget1}");
+      expect(swingChartContent).toContain("target2={effectiveTarget2}");
       expect(swingChartContent).toContain("stopLoss={effectiveStop}");
     });
   });
@@ -141,10 +165,21 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
   });
 
   describe("4. UI Refinements: Overflow Scrollbar, Mini-Guide, & Collapsible Setup Cards", () => {
-    it("enables vertical scrolling and sticky header on FidelityExecutionGuide", () => {
-      expect(guideContent).toContain("max-h-[70vh]");
+    it("enables vertical scrolling with custom-scrollbar, max-h-[80vh], and sticky header on FidelityExecutionGuide", () => {
+      expect(guideContent).toContain("max-h-[80vh]");
       expect(guideContent).toContain("overflow-y-auto");
-      expect(guideContent).toContain("sticky top-0");
+      expect(guideContent).toContain("custom-scrollbar");
+      expect(guideContent).toContain("pointer-events-auto");
+      expect(guideContent).toContain("sticky top-0 z-50 bg-slate-950 border-b");
+    });
+
+    it("ensures the parent container in SwingChart does not apply overflow-hidden to cut off the modal", () => {
+      expect(swingChartContent).toContain('data-testid="swing-chart-stage-container"');
+      const stageTag = swingChartContent.slice(
+        swingChartContent.indexOf('<div className="relative" data-testid="swing-chart-stage-container">'),
+        swingChartContent.indexOf('data-testid="swing-chart-stage-container">') + 'data-testid="swing-chart-stage-container">'.length
+      );
+      expect(stageTag).not.toContain("overflow-hidden");
     });
 
     it("renders Quick View mini-guide button and inline broker ticket in InlineTradingCard", () => {
