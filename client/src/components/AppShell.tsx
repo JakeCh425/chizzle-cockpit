@@ -18,15 +18,87 @@ interface RegimePayload {
 }
 
 const NAV = [
-  { href: "/", label: "Cockpit", icon: Gauge },
-  { href: "/engine", label: "Wealth Studio", icon: LayoutDashboard },
-  { href: "/watchlist", label: "Watchlist", icon: ListChecks },
-  { href: "/trades", label: "Trades", icon: History },
-  { href: "/trade-planner", label: "Trade Planner", icon: ClipboardList },
-  { href: "/journal", label: "Journal", icon: BookText },
-  { href: "/leap", label: "LEAP Ladder", icon: Layers },
-  { href: "/analytics", label: "Analytics", icon: BarChart3 },
-  { href: "/settings", label: "Settings", icon: SettingsIcon },
+  {
+    href: "/",
+    label: "Cockpit",
+    icon: Gauge,
+    neonColor: "text-cyan-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(34,211,238,0.8)]",
+    activeClass: "bg-cyan-500/15 text-cyan-400 border-l-4 border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.25)]",
+    hoverColor: "hover:text-cyan-300",
+  },
+  {
+    href: "/engine",
+    label: "Wealth Studio",
+    icon: LayoutDashboard,
+    neonColor: "text-fuchsia-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(217,70,239,0.8)]",
+    activeClass: "bg-fuchsia-500/15 text-fuchsia-400 border-l-4 border-fuchsia-400 shadow-[0_0_12px_rgba(217,70,239,0.25)]",
+    hoverColor: "hover:text-fuchsia-300",
+  },
+  {
+    href: "/watchlist",
+    label: "Watchlist",
+    icon: ListChecks,
+    neonColor: "text-emerald-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(52,211,153,0.8)]",
+    activeClass: "bg-emerald-500/15 text-emerald-400 border-l-4 border-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.25)]",
+    hoverColor: "hover:text-emerald-300",
+  },
+  {
+    href: "/trades",
+    label: "Trades",
+    icon: History,
+    neonColor: "text-orange-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(249,115,22,0.8)]",
+    activeClass: "bg-orange-500/15 text-orange-400 border-l-4 border-orange-400 shadow-[0_0_12px_rgba(249,115,22,0.25)]",
+    hoverColor: "hover:text-orange-300",
+  },
+  {
+    href: "/trade-planner",
+    label: "Trade Planner",
+    icon: ClipboardList,
+    neonColor: "text-teal-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(45,212,191,0.8)]",
+    activeClass: "bg-teal-500/15 text-teal-400 border-l-4 border-teal-400 shadow-[0_0_12px_rgba(45,212,191,0.25)]",
+    hoverColor: "hover:text-teal-300",
+  },
+  {
+    href: "/journal",
+    label: "Journal",
+    icon: BookText,
+    neonColor: "text-amber-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]",
+    activeClass: "bg-amber-500/15 text-amber-400 border-l-4 border-amber-400 shadow-[0_0_12px_rgba(251,191,36,0.25)]",
+    hoverColor: "hover:text-amber-300",
+  },
+  {
+    href: "/leap",
+    label: "LEAP Ladder",
+    icon: Layers,
+    neonColor: "text-violet-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(167,139,250,0.8)]",
+    activeClass: "bg-violet-500/15 text-violet-400 border-l-4 border-violet-400 shadow-[0_0_12px_rgba(167,139,250,0.25)]",
+    hoverColor: "hover:text-violet-300",
+  },
+  {
+    href: "/analytics",
+    label: "Analytics",
+    icon: BarChart3,
+    neonColor: "text-pink-400",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(244,114,182,0.8)]",
+    activeClass: "bg-pink-500/15 text-pink-400 border-l-4 border-pink-400 shadow-[0_0_12px_rgba(244,114,182,0.25)]",
+    hoverColor: "hover:text-pink-300",
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: SettingsIcon,
+    neonColor: "text-slate-200",
+    neonGlow: "drop-shadow-[0_0_8px_rgba(226,232,240,0.6)]",
+    activeClass: "bg-slate-500/15 text-slate-200 border-l-4 border-slate-300 shadow-[0_0_12px_rgba(226,232,240,0.25)]",
+    hoverColor: "hover:text-white",
+  },
 ];
 
 function CandlestickIcon({ color = "#22C55E", className = "h-7 md:h-8 w-3.5 md:w-4 inline-block mx-1.5 align-middle drop-shadow-[0_0_8px_rgba(34,197,94,0.6)]" }: { color?: string; className?: string }) {
@@ -227,13 +299,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={item.href}
                   href={item.href}
                   data-testid={`link-${item.label.toLowerCase().replace(/\s/g, "-")}`}
-                  className={`flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-lg font-display tracking-wide uppercase transition-colors cursor-pointer
+                  className={`flex items-center gap-3.5 px-3 py-2.5 rounded-lg text-lg font-display tracking-wide uppercase transition-all duration-150 cursor-pointer select-none group
                     ${active
-                      ? "bg-neon-blue/15 text-neon-blue border-l-4 border-neon-blue pl-2.5 font-bold shadow-sm"
-                      : "text-slate-400 hover:text-soft-white hover:bg-slate-800/60 font-medium"}`}
+                      ? `${item.activeClass} pl-2.5 font-bold`
+                      : `text-slate-400 ${item.hoverColor} hover:bg-slate-800/60 font-medium`}`}
                 >
-                  <Icon className="w-5 h-5 flex-shrink-0" strokeWidth={2} />
-                  {!collapsed && <span className="text-lg font-display truncate">{labelFor(item.href, item.label)}</span>}
+                  <Icon
+                    className={`w-5 h-5 flex-shrink-0 transition-transform ${
+                      active
+                        ? `${item.neonColor} ${item.neonGlow} scale-105`
+                        : `text-slate-400 group-hover:${item.neonColor} group-hover:scale-105`
+                    }`}
+                    strokeWidth={active ? 2.5 : 2}
+                  />
+                  {!collapsed && (
+                    <span
+                      className={`text-lg font-display truncate transition-colors ${
+                        active
+                          ? `${item.neonColor} ${item.neonGlow}`
+                          : `text-slate-300 group-hover:${item.neonColor}`
+                      }`}
+                    >
+                      {labelFor(item.href, item.label)}
+                    </span>
+                  )}
                 </Link>
               );
             })}
@@ -270,7 +359,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex flex-col items-center justify-center py-2 text-[9px] uppercase tracking-wider cursor-pointer ${active ? "text-neon-blue" : "text-slate-gray"}`}
+                className={`flex flex-col items-center justify-center py-2 text-[9px] uppercase tracking-wider cursor-pointer ${
+                  active ? `${item.neonColor} ${item.neonGlow} font-bold` : "text-slate-gray"
+                }`}
               >
                 <Icon className="w-4 h-4" strokeWidth={1.5} />
               </Link>

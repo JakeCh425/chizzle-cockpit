@@ -2,6 +2,8 @@ import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo } from "react";
 import { useFeedConnection } from "@/lib/priceFeed";
 import { Link } from "wouter";
+import { useGlobalState } from "@/lib/globalState";
+import { TradingTipsCard } from "@/components/swing/TradingTipsCard";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -206,7 +208,7 @@ export interface WatchlistItem {
   t3: number;
 }
 
-const DEFAULT_WATCHLIST: WatchlistItem[] = [
+export const DEFAULT_WATCHLIST: WatchlistItem[] = [
   {
     symbol: "NVDA",
     name: "NVIDIA Corp.",
@@ -364,26 +366,66 @@ export interface ChartProps {
 
 export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  // Dynamically compute candlestick series scaled to the active symbol
-  const candles = useMemo(() => {
+  const { openArmTrade } = useGlobalState();
+
+  // Dynamically compute candlestick series, resolution, and bar width scaled to active timeframe
+  const { candles, candleWidth, barSpacing } = useMemo(() => {
     const p = item?.price ?? 100;
-    const rng = (item?.atr ?? 5) * 1.5;
-    const basePrices = [
-      p - rng * 0.9, p - rng * 0.7, p - rng * 0.8, p - rng * 0.5,
-      p - rng * 0.6, p - rng * 0.3, p - rng * 0.4, p - rng * 0.1,
-      p - rng * 0.2, p + rng * 0.1, p - rng * 0.05, p + rng * 0.2,
-      p + rng * 0.1, p + rng * 0.4, p + rng * 0.25, p + rng * 0.5,
-      p + rng * 0.35, p
-    ];
-    return basePrices.map((close, i) => {
+    const atr = item?.atr ?? 5;
+
+    let count = 18;
+    let width = 16;
+    let spacing = 40;
+    let start = 45;
+    let volatility = 1.4;
+
+    if (timeframe === "1H") {
+      count = 24;
+      width = 12;
+      spacing = 30;
+      start = 35;
+      volatility = 1.1;
+    } else if (timeframe === "4H") {
+      count = 18;
+      width = 16;
+      spacing = 40;
+      start = 45;
+      volatility = 1.4;
+    } else if (timeframe === "1D") {
+      count = 14;
+      width = 20;
+      spacing = 52;
+      start = 45;
+      volatility = 1.8;
+    } else if (timeframe === "1W") {
+      count = 10;
+      width = 26;
+      spacing = 72;
+      start = 45;
+      volatility = 2.4;
+    }
+
+    const rng = atr * volatility;
+    const basePrices = Array.from({ length: count }, (_, i) => {
+      const progress = i / (count - 1);
+      const wave = Math.sin(progress * Math.PI * 2) * (rng * 0.45);
+      const trend = (progress - 1) * (rng * 0.35);
+      return p + wave + trend;
+    });
+    basePrices[count - 1] = p; // Pin the latest candle to the exact current live price
+
+    const generated = basePrices.map((close, i) => {
       const prevClose = i > 0 ? basePrices[i - 1] : close - rng * 0.1;
       const open = prevClose;
-      const high = Math.max(open, close) + rng * 0.15;
-      const low = Math.min(open, close) - rng * 0.15;
-      const x = 50 + i * 40;
+      const wickDelta = rng * (0.1 + ((i % 3) * 0.05));
+      const high = Math.max(open, close) + wickDelta;
+      const low = Math.min(open, close) - wickDelta;
+      const x = start + i * spacing;
       return { x, o: open, c: close, h: high, l: low };
     });
-  }, [item?.price, item?.atr]);
+
+    return { candles: generated, candleWidth: width, barSpacing: spacing };
+  }, [item?.price, item?.atr, timeframe]);
 
   const stopVal = item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
   const targetVal = item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
@@ -448,6 +490,17 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
               ${((item?.price ?? 100) * 0.890).toFixed(2)}
             </span>
           </div>
+
+          {/* Quick Arm Trade button directly from Chart */}
+          <button
+            type="button"
+            data-testid="button-chart-arm-trade"
+            onClick={() => openArmTrade(item.symbol)}
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/50 text-xs font-mono font-bold tracking-wider uppercase transition-colors cursor-pointer shadow-sm ml-1"
+          >
+            <Play className="h-3 w-3 fill-current" />
+            <span>Arm Trade</span>
+          </button>
         </div>
       </div>
 
@@ -562,16 +615,19 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
             const lowY = priceToY(bar.l);
             return (
               <g key={i}>
-                <line x1={bar.x + 8} y1={highY} x2={bar.x + 8} y2={lowY} stroke={bodyColor} strokeWidth="1.5" />
-                <rect x={bar.x} y={top} width="16" height={height} fill={bodyColor} rx="1" />
+                <line x1={bar.x + candleWidth / 2} y1={highY} x2={bar.x + candleWidth / 2} y2={lowY} stroke={bodyColor} strokeWidth="1.5" />
+                <rect x={bar.x} y={top} width={candleWidth} height={height} fill={bodyColor} rx="1" />
               </g>
             );
           })}
 
           {/* Volume Bars */}
-          {[25, 40, 30, 20, 55, 35, 70, 45, 30, 60, 80, 35, 65, 40, 90, 50, 75, 85].map((vh, i) => (
-            <rect key={i} x={50 + i * 40} y={415 - vh} width="16" height={vh} fill="url(#volGrad)" rx="1" />
-          ))}
+          {candles.map((bar, i) => {
+            const vh = 20 + ((i * 17 + 13) % 65);
+            return (
+              <rect key={i} x={bar.x} y={415 - vh} width={candleWidth} height={vh} fill="url(#volGrad)" rx="1" />
+            );
+          })}
         </svg>
       </div>
     </div>
@@ -584,49 +640,48 @@ export const Chart = LiveTradingChart;
 // MAIN COMPONENT: WEALTH ENGINE DASHBOARD
 // ============================================================================
 export default function WealthEngineDashboard() {
-  // Theme state persisted in localStorage
-  const [theme, setTheme] = useState<DashboardTheme>(() => {
-    if (typeof window !== "undefined") {
-      const saved = localStorage.getItem("chizzle-wealth-theme") as DashboardTheme;
-      if (saved && THEMES[saved]) return saved;
-    }
-    return "cyber-neon";
-  });
+  const global = useGlobalState();
+  const [newTickerInput, setNewTickerInput] = useState("");
 
-  const activeTheme = THEMES[theme];
+  const theme = global.theme;
+  const activeTheme = THEMES[theme] || THEMES["cyber-neon"];
 
   const { source: feedSource } = useFeedConnection();
 
   const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
   const cycleTheme = () => {
-    const idx = THEME_ORDER.indexOf(theme);
-    const next: DashboardTheme = THEME_ORDER[(idx + 1) % THEME_ORDER.length];
-    setTheme(next);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("chizzle-wealth-theme", next);
-    }
+    global.cycleTheme();
   };
 
   // Active ticker selection (linked directly to Chart symbol)
-  const [activeTicker, setActiveTicker] = useState("NVDA");
+  const activeTicker = global.activeTicker;
+  const setActiveTicker = global.setActiveTicker;
   const activeSymbol = activeTicker;
   const setActiveSymbol = setActiveTicker;
-  const activeItem = useMemo(
-    () => DEFAULT_WATCHLIST.find((item) => item.symbol === activeTicker) || DEFAULT_WATCHLIST[0],
-    [activeTicker]
-  );
+  const watchlist = global.watchlist;
+  const activeItem = global.activeItem;
+
+  const handleQuickAdd = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newTickerInput.trim()) return;
+    global.addTicker(newTickerInput);
+    setNewTickerInput("");
+  };
 
   // Center column tabs: "Chart" | "Setup History" | "Settings" | "Indicators"
   const [activeTab, setActiveTab] = useState<"Chart" | "Setup History" | "Settings" | "Indicators">("Chart");
 
   // Timeframe selector
-  const [activeTf, setActiveTf] = useState<"1H" | "4H" | "1D" | "1W">("1H");
+  const activeTf = global.timeframe;
+  const setActiveTf = global.setTimeframe;
 
   // Market regime simulation: "GREEN" | "YELLOW" | "RED"
   const [regime, setRegime] = useState<"GREEN" | "YELLOW" | "RED">("GREEN");
 
   // Advanced Metrics accordion state in Right Column
   const [advancedOpen, setAdvancedOpen] = useState(false);
+
+  const openArmTrade = global.openArmTrade;
 
   // Card status background tints
   const statusTint = useMemo(() => {
@@ -854,21 +909,46 @@ export default function WealthEngineDashboard() {
 
           {/* Bottom: Scrollable, Compact Watchlist */}
           <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+            {/* Quick-Add Ticker Input */}
+            <form
+              onSubmit={handleQuickAdd}
+              className="px-3 py-2 border-b flex items-center gap-1.5 bg-black/20 flex-shrink-0"
+              style={{ borderColor: "var(--border-subtle)" }}
+            >
+              <input
+                type="text"
+                data-testid="input-quick-add-ticker"
+                value={newTickerInput}
+                onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
+                placeholder="ADD TICKER (e.g. AMD)..."
+                maxLength={6}
+                className="flex-1 px-2.5 py-1 rounded bg-black/40 border border-white/10 text-xs font-mono font-bold tracking-wider uppercase text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+              />
+              <button
+                type="submit"
+                data-testid="button-quick-add-ticker"
+                className="px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 hover:bg-cyan-500/30 text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
+                title="Add ticker to watchlist"
+              >
+                +
+              </button>
+            </form>
+
             {/* Watchlist Header */}
             <div
-              className="px-4 py-2 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider font-bold"
+              className="px-4 py-2 flex items-center justify-between border-b text-[10px] font-mono uppercase tracking-wider font-bold flex-shrink-0"
               style={{
                 borderColor: "var(--border-subtle)",
                 color: "var(--text-secondary)",
               }}
             >
-              <span>Watchlist ({DEFAULT_WATCHLIST.length})</span>
+              <span>Watchlist ({watchlist.length})</span>
               <span>Price · Chg</span>
             </div>
 
             {/* Internal Scrollable Rows */}
             <div className="flex-1 min-h-0 overflow-y-auto divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-              {DEFAULT_WATCHLIST.map((item) => {
+              {watchlist.map((item) => {
                 const isSelected = item.symbol === activeSymbol;
                 const isPositive = item.change >= 0;
                 return (
@@ -953,6 +1033,11 @@ export default function WealthEngineDashboard() {
                   </div>
                 );
               })}
+            </div>
+
+            {/* Contextual Trading Tips Card directly below the Watchlist */}
+            <div className="p-2 border-t overflow-y-auto max-h-[240px] flex-shrink-0" style={{ borderColor: "var(--border-subtle)" }}>
+              <TradingTipsCard item={activeItem} />
             </div>
           </div>
         </aside>
@@ -1318,6 +1403,7 @@ export default function WealthEngineDashboard() {
                 <button
                   type="button"
                   data-testid="button-arm-practice-trade"
+                  onClick={() => openArmTrade(activeItem.symbol)}
                   className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   style={{
                     backgroundColor: "var(--accent-cyan)",

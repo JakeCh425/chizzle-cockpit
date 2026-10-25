@@ -136,6 +136,105 @@
   --accent-red: #DC2626;
 }
 
+[data-theme="sunset-orange"],
+.theme-sunset-orange {
+  --bg-primary: #18110D;
+  --bg-panel: #27170E;
+  --bg-panel-subtle: #1F130B;
+  --bg-card: #1C1109;
+  --border-color: #F97316;
+  --border-subtle: rgba(249, 115, 22, 0.3);
+  --border-glow: 0 0 15px rgba(249, 115, 22, 0.2);
+  --text-main: #FFF7ED;
+  --text-secondary: #FDBA74;
+  --text-muted: #9A3412;
+  --accent-color: #FB923C;
+  --accent-cyan: #F97316;
+  --accent-blue: #EA580C;
+  --accent-amber: #F97316;
+  --accent-red: #EF4444;
+
+  --background: 24 45% 6%;
+  --foreground: 32 100% 96%;
+  --border: 24 55% 18%;
+  --card: 24 45% 10%;
+  --card-foreground: 32 100% 96%;
+  --card-border: 24 55% 18%;
+  --ink-black: 24 45% 6%;
+  --ink-panel: 24 45% 10%;
+  --ink-line: 24 55% 18%;
+  --neon-blue: 24 95% 53%;
+  --signal-green: 142 85% 58%;
+  --signal-amber: 24 95% 53%;
+  --signal-red: 0 95% 68%;
+}
+
+[data-theme="neon-grape"],
+.theme-neon-grape {
+  --bg-primary: #13091B;
+  --bg-panel: #1F0F2D;
+  --bg-panel-subtle: #190C24;
+  --bg-card: #160B20;
+  --border-color: #D946EF;
+  --border-subtle: rgba(217, 70, 239, 0.3);
+  --border-glow: 0 0 15px rgba(217, 70, 239, 0.2);
+  --text-main: #FDF4FF;
+  --text-secondary: #E879F9;
+  --text-muted: #86198F;
+  --accent-color: #F472B6;
+  --accent-cyan: #D946EF;
+  --accent-blue: #C026D3;
+  --accent-amber: #F59E0B;
+  --accent-red: #EF4444;
+
+  --background: 280 45% 6%;
+  --foreground: 290 100% 98%;
+  --border: 280 50% 20%;
+  --card: 280 45% 11%;
+  --card-foreground: 290 100% 98%;
+  --card-border: 280 50% 20%;
+  --ink-black: 280 45% 6%;
+  --ink-panel: 280 45% 11%;
+  --ink-line: 280 50% 20%;
+  --neon-blue: 292 91% 61%;
+  --signal-green: 142 85% 58%;
+  --signal-amber: 34 100% 62%;
+  --signal-red: 0 95% 68%;
+}
+
+[data-theme="mint-matrix"],
+.theme-mint-matrix {
+  --bg-primary: #040D08;
+  --bg-panel: #081A10;
+  --bg-panel-subtle: #06140D;
+  --bg-card: #05100A;
+  --border-color: #34D399;
+  --border-subtle: rgba(52, 211, 153, 0.3);
+  --border-glow: 0 0 15px rgba(52, 211, 153, 0.2);
+  --text-main: #ECFDF5;
+  --text-secondary: #6EE7B7;
+  --text-muted: #065F46;
+  --accent-color: #34D399;
+  --accent-cyan: #34D399;
+  --accent-blue: #10B981;
+  --accent-amber: #F59E0B;
+  --accent-red: #EF4444;
+
+  --background: 145 50% 4%;
+  --foreground: 145 60% 96%;
+  --border: 145 45% 16%;
+  --card: 145 45% 8%;
+  --card-foreground: 145 60% 96%;
+  --card-border: 145 45% 16%;
+  --ink-black: 145 50% 4%;
+  --ink-panel: 145 45% 8%;
+  --ink-line: 145 45% 16%;
+  --neon-blue: 158 64% 52%;
+  --signal-green: 158 64% 52%;
+  --signal-amber: 34 100% 62%;
+  --signal-red: 0 95% 68%;
+}
+
 /* ============================================================
  * THEME: LIGHT (default) — pearl bg, deep neon accents
  * ============================================================ */

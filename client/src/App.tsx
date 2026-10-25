@@ -56,15 +56,21 @@ function WakeSyncRoot() {
   return <WakeSyncLoader />;
 }
 
+import { GlobalStateProvider } from "@/lib/globalState";
+import { UniversalTradeModal } from "@/components/UniversalTradeModal";
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <Toaster />
-        <WakeSyncRoot />
-        <Router hook={useHashLocation}>
-          <AppRouter />
-        </Router>
+        <GlobalStateProvider>
+          <Toaster />
+          <WakeSyncRoot />
+          <UniversalTradeModal />
+          <Router hook={useHashLocation}>
+            <AppRouter />
+          </Router>
+        </GlobalStateProvider>
       </TooltipProvider>
     </QueryClientProvider>
   );
