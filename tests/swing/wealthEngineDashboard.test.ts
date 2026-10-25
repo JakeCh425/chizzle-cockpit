@@ -284,5 +284,63 @@ describe("Chizzle Wealth Engine — Single-Page Dashboard Studio", () => {
       expect(dashboardContent).toContain("[Boot:LiveTradingChart]");
     });
   });
+
+  describe("8. Single Source of Truth, Strict WebSocket Streaming, Dynamic R Multiples & Live Trading Viewport", () => {
+    const globalStatePath = path.resolve(__dirname, "../../client/src/lib/globalState.tsx");
+    const globalStateContent = fs.readFileSync(globalStatePath, "utf-8").replace(/\r\n/g, "\n");
+
+    const priceFeedPath = path.resolve(__dirname, "../../client/src/lib/priceFeed.ts");
+    const priceFeedContent = fs.readFileSync(priceFeedPath, "utf-8").replace(/\r\n/g, "\n");
+
+    it("creates a single global state store activeTickerData subscribed to by Header, Watchlist, and Chart", () => {
+      expect(globalStateContent).toContain("export interface ActiveTickerData");
+      expect(globalStateContent).toContain("activeTickerData: ActiveTickerData;");
+      expect(globalStateContent).toContain("activeTickerData");
+      expect(dashboardContent).toContain('data-testid="header-active-ticker-pill"');
+      expect(dashboardContent).toContain('data-testid="header-live-price"');
+      expect(dashboardContent).toContain("activeTickerData?.price");
+    });
+
+    it("subscribes active ticker immediately to strict WebSocket stream and exposes sub-second tick listener", () => {
+      expect(priceFeedContent).toContain("subscribeTick");
+      expect(globalStateContent).toContain("subscribeSymbol(activeTicker)");
+      expect(dashboardContent).toContain("historicalCandles");
+      expect(dashboardContent).toContain("activeCandle");
+    });
+
+    it("programmatically calculates dynamic targets based on Entry and Stop Loss strictly enforcing R multiples (1.5R, 2.0R, 3.0R)", () => {
+      expect(globalStateContent).toContain("buyTarget + risk * 1.5");
+      expect(globalStateContent).toContain("buyTarget + risk * 2.0");
+      expect(globalStateContent).toContain("buyTarget + risk * 3.0");
+      expect(dashboardContent).toContain("buyPrice + risk * 1.5");
+      expect(dashboardContent).toContain("buyPrice + risk * 2.0");
+      expect(dashboardContent).toContain("buyPrice + risk * 3.0");
+    });
+
+    it("plots all levels dynamically as horizontal lines on chart (Entry, Stop, T1, T2, T3)", () => {
+      expect(dashboardContent).toContain('data-testid="chart-line-entry"');
+      expect(dashboardContent).toContain('data-testid="chart-line-stop"');
+      expect(dashboardContent).toContain('data-testid="chart-line-t1"');
+      expect(dashboardContent).toContain('data-testid="chart-line-t2"');
+      expect(dashboardContent).toContain('data-testid="chart-line-t3"');
+      expect(dashboardContent).toContain('data-testid="chart-live-price-line"');
+    });
+
+    it("anchors all text labels strictly to the right-hand Y-axis outside the candlestick grid", () => {
+      expect(dashboardContent).toContain('data-testid="chart-label-buy"');
+      expect(dashboardContent).toContain('data-testid="chart-label-stop"');
+      expect(dashboardContent).toContain('data-testid="chart-label-t1"');
+      expect(dashboardContent).toContain('data-testid="chart-label-t2"');
+      expect(dashboardContent).toContain('data-testid="chart-label-t3"');
+      expect(dashboardContent).toContain('data-testid="chart-live-price-badge"');
+    });
+
+    it("enables auto-scrolling on WebSocket ticks and automatically scales Y-axis to fit Stop Loss and highest target T3", () => {
+      expect(dashboardContent).toContain('data-testid="button-auto-scroll"');
+      expect(dashboardContent).toContain("autoScroll");
+      expect(dashboardContent).toContain("Math.min(boundedMin, stopVal");
+      expect(dashboardContent).toContain("Math.max(boundedMax, t3Price");
+    });
+  });
 });
 

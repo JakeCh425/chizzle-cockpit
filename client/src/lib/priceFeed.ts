@@ -69,6 +69,14 @@ type Listener = (snap: Record<string, LiveQuote>) => void;
 const listeners = new Set<Listener>();
 const statusListeners = new Set<(s: ConnState) => void>();
 
+type TickListener = (quote: LiveQuote) => void;
+const tickListeners = new Set<TickListener>();
+
+export function subscribeTick(l: TickListener): () => void {
+  tickListeners.add(l);
+  return () => tickListeners.delete(l);
+}
+
 export type ConnState = "CONNECTING" | "LIVE" | "STALE" | "DISCONNECTED";
 
 let snapshotState: Record<string, LiveQuote> = {};
@@ -158,6 +166,7 @@ function applyQuote(q: LiveQuote) {
   snapshotState = { ...snapshotState, [q.symbol]: q };
   lastEventAt = Date.now();
   listeners.forEach(l => l(snapshotState));
+  tickListeners.forEach(l => l(q));
 }
 
 function setConn(next: ConnState) {

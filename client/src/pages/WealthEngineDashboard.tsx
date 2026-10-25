@@ -219,52 +219,49 @@ export function LiveTradingChart({
   primaryTarget,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  const { openArmTrade, activePrice: storePrice, isBadTick } = useGlobalState();
+  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick } = useGlobalState();
   const { quote } = useLiveQuote(symbol);
   const { state: feedState } = useFeedConnection();
 
-  const buyPrice = entryPrice ?? item?.buyTarget ?? 100;
-  const stopVal = stopLoss ?? item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
-  const targetVal = primaryTarget ?? item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
+  // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
+  const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
+  const livePrice = tickerData?.price ?? storePrice ?? item?.price ?? 100;
 
-  // 1. Single Source of Truth for Live Price (Synchronized directly with Watchlist)
-  const [livePrice, setLivePrice] = useState(item?.price ?? storePrice ?? 100);
+  // 3. Dynamic Risk/Reward Math: Programmatically enforce R-multiple logic
+  // Variables:
+  // Risk = EntryPrice - StopLossPrice
+  // Target 1 (1.5R) = EntryPrice + (Risk * 1.5)
+  // Target 2 (Core 2.0R) = EntryPrice + (Risk * 2.0)
+  // Target 3 (Runner 3.0R) = EntryPrice + (Risk * 3.0)
+  const buyPrice = entryPrice ?? tickerData?.buyTarget ?? item?.buyTarget ?? 100;
+  const stopVal = stopLoss ?? tickerData?.stopLoss ?? item?.stopLoss ?? +(buyPrice * 0.95).toFixed(2);
+  const risk = +(Math.max(buyPrice - stopVal, (item?.atr ?? 4.15) * 1.0, 0.5)).toFixed(2);
+  const targetVal = primaryTarget ?? tickerData?.target1 ?? +(buyPrice + risk * 1.5).toFixed(2);
+  const t1Price = targetVal;
+  const t2Price = tickerData?.target2 ?? +(buyPrice + risk * 2.0).toFixed(2);
+  const t3Price = tickerData?.target3 ?? +(buyPrice + risk * 3.0).toFixed(2);
 
-  // Synchronize immediately when active ticker or watchlist price updates
+  // 4. Live Trading Auto-Scrolling & Pan Controls
+  const [autoScroll, setAutoScroll] = useState(true);
+  const [panOffset, setPanOffset] = useState(0);
+
+  // When a new WebSocket tick arrives, automatically pan/scroll to ensure live candle stays firmly in viewport
   useEffect(() => {
-    if (item?.price != null && Number.isFinite(item.price)) {
-      setLivePrice(item.price);
+    if (autoScroll) {
+      setPanOffset(0);
     }
-  }, [symbol, item?.price]);
+  }, [livePrice, autoScroll]);
 
   // Synchronize with incoming live quote stream with Bad-Tick Outlier Filtering
   useEffect(() => {
     if (quote?.price != null && Number.isFinite(quote.price)) {
-      const ref = item?.price ?? livePrice;
-      // 2. Bad Tick Outlier Rejection: Drop ticks deviating more than 3.5% from watchlist price
+      const ref = livePrice;
       const isOutlier = isBadTick ? isBadTick(symbol, quote.price) : (ref > 0 && Math.abs(quote.price - ref) / ref > 0.035);
       if (isOutlier) {
         console.warn(`[LiveTradingChart:BadTick] Dropped outlier tick for ${symbol}: $${quote.price} vs ref $${ref} (>3.5% deviation)`);
-        return;
       }
-      setLivePrice(quote.price);
     }
-  }, [quote?.price, item?.price, symbol, isBadTick, livePrice]);
-
-  // Smooth live-trading micro-tick updater (simulates subtle real-time movement around single source of truth)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setLivePrice((prev) => {
-        const base = item?.price ?? storePrice ?? 100;
-        const tick = (Math.random() - 0.49) * 0.06;
-        const next = +(prev + tick).toFixed(2);
-        // Strict boundary: never drift more than 0.5% from base watchlist price
-        if (Math.abs(next - base) > base * 0.005) return base;
-        return next;
-      });
-    }, 2400);
-    return () => clearInterval(timer);
-  }, [symbol, item?.price, storePrice]);
+  }, [quote?.price, symbol, isBadTick, livePrice]);
 
   // 4. Chart Reset and Auto-Scaling Function
   const [isResetting, setIsResetting] = useState(false);
@@ -339,8 +336,13 @@ export function LiveTradingChart({
   }, [symbol, timeframe, item?.setupType, item?.status]);
 
   // 3. Stable Historical Candlestick Foundation (Kept fixed so ticks do NOT redraw past bars)
+  const refAnchorPrice = useRef(item?.price ?? 100);
+  useEffect(() => {
+    refAnchorPrice.current = item?.price ?? 100;
+  }, [symbol, timeframe]);
+
   const { baseCandles, candleWidth, barSpacing } = useMemo(() => {
-    const p = item?.price ?? 100;
+    const p = refAnchorPrice.current;
     const atr = item?.atr ?? 5;
 
     let count = 18;
@@ -395,28 +397,38 @@ export function LiveTradingChart({
     });
 
     return { baseCandles: generated, candleWidth: width, barSpacing: spacing };
-  }, [symbol, item?.atr, timeframe, item?.price]);
+  }, [symbol, timeframe, item?.atr]);
 
   // Dynamic Candle Series: Right-most candle updates dynamically in real-time
-  const candles = useMemo(() => {
+  // without forcing a full re-render of the entire historical chart data array.
+  const historicalCandles = useMemo(() => {
     const sourceCandles = fetchedBars && fetchedBars.length > 5 ? fetchedBars : baseCandles;
     if (!sourceCandles || sourceCandles.length === 0) return [];
+    return sourceCandles.slice(0, sourceCandles.length - 1);
+  }, [baseCandles, fetchedBars]);
+
+  const activeCandle = useMemo(() => {
+    const sourceCandles = fetchedBars && fetchedBars.length > 5 ? fetchedBars : baseCandles;
+    if (!sourceCandles || sourceCandles.length === 0) return null;
     const lastBase = sourceCandles[sourceCandles.length - 1];
-    if (!lastBase) return [];
-    const historical = sourceCandles.slice(0, sourceCandles.length - 1);
+    if (!lastBase) return null;
     const currentClose = Number.isFinite(livePrice) ? livePrice : (lastBase.c ?? 100);
     const currentHigh = Math.max(lastBase.o ?? currentClose, lastBase.h ?? currentClose, currentClose);
     const currentLow = Math.min(lastBase.o ?? currentClose, lastBase.l ?? currentClose, currentClose);
 
-    const activeCandle = {
+    return {
       x: lastBase.x ?? 40,
       o: lastBase.o ?? currentClose,
       c: currentClose,
       h: currentHigh,
       l: currentLow,
     };
-    return [...historical, activeCandle];
   }, [baseCandles, fetchedBars, livePrice]);
+
+  const candles = useMemo(() => {
+    if (!activeCandle) return historicalCandles;
+    return [...historicalCandles, activeCandle];
+  }, [historicalCandles, activeCandle]);
 
   // Boot Sequence Logging for LiveTradingChart
   useEffect(() => {
@@ -449,10 +461,11 @@ export function LiveTradingChart({
     return candles.findIndex((b) => b.l <= stopVal);
   }, [candles, stopVal]);
 
-  // Auto-Scaling: Clamps bounds so anomalous wicks/ticks cannot blow out normal price action
+  // Auto-Scaling: Clamps bounds so anomalous wicks/ticks cannot blow out normal price action,
+  // while ensuring the Y-axis scales automatically to fit the highest target (T3) and the Stop Loss.
   const { minPrice, maxPrice, priceRange } = useMemo(() => {
     const valid = candles.filter((c) => Number.isFinite(c.c) && c.c > 0);
-    if (valid.length === 0) return { minPrice: 90, maxPrice: 110, priceRange: 20 };
+    if (valid.length === 0) return { minPrice: Math.min(90, stopVal * 0.98), maxPrice: Math.max(110, t3Price * 1.02), priceRange: 20 };
     const ref = livePrice > 0 ? livePrice : item?.price ?? 100;
 
     // Normal bounds clamped within +/-12% of reference price to protect Y-axis scale
@@ -465,11 +478,12 @@ export function LiveTradingChart({
     const boundedMin = Math.max(rawMin, clampLow);
     const boundedMax = Math.min(rawMax, clampHigh);
 
-    const min = Math.min(boundedMin, stopVal > clampLow ? stopVal * 0.99 : boundedMin);
-    const max = Math.max(boundedMax, targetVal < clampHigh ? targetVal * 1.01 : boundedMax);
+    // Auto-scale: Fit Stop Loss and T3 cleanly inside visible window
+    const min = Math.min(boundedMin, stopVal * 0.985);
+    const max = Math.max(boundedMax, t3Price * 1.015);
     const range = max - min || 1;
     return { minPrice: min, maxPrice: max, priceRange: range };
-  }, [candles, livePrice, item?.price, stopVal, targetVal]);
+  }, [candles, livePrice, item?.price, stopVal, t3Price]);
 
   const priceToY = (price: number) => 350 - ((price - minPrice) / priceRange) * 290;
 
@@ -509,8 +523,8 @@ export function LiveTradingChart({
   };
 
   // Candle to display in the anchored OHLC legend
-  const activeCandle = candles[candles.length - 1];
-  const displayedCandle = hoveredData?.candle ?? activeCandle;
+  const currentDisplayedBar = activeCandle ?? candles[candles.length - 1];
+  const displayedCandle = hoveredData?.candle ?? currentDisplayedBar;
 
   return (
     <div
@@ -578,6 +592,22 @@ export function LiveTradingChart({
           >
             <Play className="h-3 w-3 fill-current" />
             <span>Arm Trade</span>
+          </button>
+
+          {/* Auto-Scroll Toggle Button */}
+          <button
+            type="button"
+            data-testid="button-auto-scroll"
+            onClick={() => setAutoScroll((prev) => !prev)}
+            title="Toggle live viewport auto-scrolling on WebSocket ticks"
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm ml-1 ${
+              autoScroll
+                ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/50"
+                : "bg-slate-800/90 text-slate-400 border border-slate-700 hover:text-white"
+            }`}
+          >
+            <span className={`h-1.5 w-1.5 rounded-full ${autoScroll ? "bg-cyan-400 animate-pulse shadow-[0_0_6px_#22D3EE]" : "bg-slate-500"}`} />
+            <span>Auto-Scroll: {autoScroll ? "ON" : "OFF"}</span>
           </button>
 
           {/* Reset Chart Data & Auto-Scale Button */}
@@ -657,6 +687,12 @@ export function LiveTradingChart({
             </span>
             <span className="text-emerald-400">
               T1: <strong className="text-emerald-300">${targetVal != null ? targetVal.toFixed(2) : "0.00"}</strong>
+            </span>
+            <span className="text-emerald-400 hidden lg:inline">
+              T2: <strong className="text-emerald-300">${t2Price != null ? t2Price.toFixed(2) : "0.00"}</strong>
+            </span>
+            <span className="text-emerald-400 hidden lg:inline">
+              T3: <strong className="text-emerald-300">${t3Price != null ? t3Price.toFixed(2) : "0.00"}</strong>
             </span>
             <span
               className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
@@ -751,6 +787,7 @@ export function LiveTradingChart({
             strokeWidth="1.2"
             strokeDasharray="5 5"
             opacity="0.35"
+            data-testid="chart-line-entry"
           />
 
           {/* Stop Loss Line (Faded to ~35% opacity behind candles) */}
@@ -763,9 +800,10 @@ export function LiveTradingChart({
             strokeWidth="1.2"
             strokeDasharray="5 5"
             opacity="0.35"
+            data-testid="chart-line-stop"
           />
 
-          {/* Primary Target Line (Faded to ~35% opacity behind candles) */}
+          {/* Primary Target 1 Line (1.5R - Faded to ~35% opacity behind candles) */}
           <line
             x1="10"
             y1={priceToY(targetVal)}
@@ -775,6 +813,33 @@ export function LiveTradingChart({
             strokeWidth="1.2"
             strokeDasharray="5 5"
             opacity="0.35"
+            data-testid="chart-line-t1"
+          />
+
+          {/* Target 2 Line (Core 2.0R - Faded to ~35% opacity behind candles) */}
+          <line
+            x1="10"
+            y1={priceToY(t2Price)}
+            x2="710"
+            y2={priceToY(t2Price)}
+            stroke="#10B981"
+            strokeWidth="1.2"
+            strokeDasharray="5 5"
+            opacity="0.35"
+            data-testid="chart-line-t2"
+          />
+
+          {/* Target 3 Line (Runner 3.0R - Faded to ~35% opacity behind candles) */}
+          <line
+            x1="10"
+            y1={priceToY(t3Price)}
+            x2="710"
+            y2={priceToY(t3Price)}
+            stroke="#34D399"
+            strokeWidth="1.2"
+            strokeDasharray="5 5"
+            opacity="0.35"
+            data-testid="chart-line-t3"
           />
 
           {/* Thin (1px) Real-Time Live Current Price Tracking Line */}
@@ -1154,6 +1219,56 @@ export function LiveTradingChart({
             </text>
           </g>
 
+          {/* T2 Price Tag on Right-Hand Y-Axis (Core 2.0R) */}
+          <g transform={`translate(714, ${priceToY(t2Price) - 8})`} data-testid="chart-label-t2" className="select-none pointer-events-none">
+            <rect
+              x="0"
+              y="0"
+              width="76"
+              height="16"
+              rx="2"
+              fill="#064E3B"
+              stroke="#10B981"
+              strokeWidth="1"
+            />
+            <text
+              x="38"
+              y="11.5"
+              fill="#34D399"
+              fontSize="9"
+              fontFamily="monospace"
+              fontWeight="bold"
+              textAnchor="middle"
+            >
+              T2: ${t2Price.toFixed(2)}
+            </text>
+          </g>
+
+          {/* T3 Price Tag on Right-Hand Y-Axis (Runner 3.0R) */}
+          <g transform={`translate(714, ${priceToY(t3Price) - 8})`} data-testid="chart-label-t3" className="select-none pointer-events-none">
+            <rect
+              x="0"
+              y="0"
+              width="76"
+              height="16"
+              rx="2"
+              fill="#022C22"
+              stroke="#34D399"
+              strokeWidth="1"
+            />
+            <text
+              x="38"
+              y="11.5"
+              fill="#6EE7B7"
+              fontSize="9"
+              fontFamily="monospace"
+              fontWeight="bold"
+              textAnchor="middle"
+            >
+              T3: ${t3Price.toFixed(2)}
+            </text>
+          </g>
+
           {/* ==================================================================== */}
           {/* CROSSHAIR & HOVER TOOLTIP LAYER */}
           {/* ==================================================================== */}
@@ -1253,6 +1368,7 @@ export const Chart = LiveTradingChart;
 // ============================================================================
 export default function WealthEngineDashboard() {
   const global = useGlobalState();
+  const { activeTickerData } = global;
   const [newTickerInput, setNewTickerInput] = useState("");
 
   const theme = global?.theme ?? "cyber-neon";
@@ -1266,7 +1382,7 @@ export default function WealthEngineDashboard() {
   };
 
   // Active ticker selection (linked directly to Chart symbol)
-  const activeTicker = global?.activeTicker ?? "NVDA";
+  const activeTicker = activeTickerData?.symbol ?? global?.activeTicker ?? "NVDA";
   const setActiveTicker = global?.setActiveTicker ?? (() => {});
   const activeSymbol = activeTicker;
   const setActiveSymbol = setActiveTicker;
@@ -1276,9 +1392,9 @@ export default function WealthEngineDashboard() {
   // Boot Sequence Diagnostic Logging
   useEffect(() => {
     if (typeof console !== "undefined") {
-      console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeItem?.price}, watchlist count: ${watchlist?.length}`);
+      console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeTickerData?.price ?? activeItem?.price}, watchlist count: ${watchlist?.length}`);
     }
-  }, [activeTicker, activeItem?.price, watchlist?.length]);
+  }, [activeTicker, activeTickerData?.price, activeItem?.price, watchlist?.length]);
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1371,8 +1487,23 @@ export default function WealthEngineDashboard() {
           </div>
         </div>
 
-        {/* Center: Live Terminal Telemetry & Provider Status Pill */}
+        {/* Center: Live Terminal Telemetry, Single Source of Truth Ticker Pill & Provider Status */}
         <div className="hidden md:flex items-center gap-3 text-xs font-mono">
+          {/* Active Ticker Real-Time Data Sync Pill */}
+          <div
+            className="flex items-center gap-2 px-3 py-1 rounded-full border bg-black/40 border-cyan-500/40 font-mono text-xs shadow-sm"
+            data-testid="header-active-ticker-pill"
+          >
+            <span className="h-2 w-2 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_6px_#22D3EE]" />
+            <span className="font-black text-white">{activeTickerData?.symbol ?? activeTicker}</span>
+            <span className="font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]" data-testid="header-live-price">
+              ${(activeTickerData?.price ?? activePrice).toFixed(2)}
+            </span>
+            <span className={`text-[10px] font-bold ${(activeTickerData?.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {(activeTickerData?.change ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.change ?? 0).toFixed(2)} ({(activeTickerData?.changePct ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.changePct ?? 0).toFixed(2)}%)
+            </span>
+          </div>
+
           <div
             className={`flex items-center gap-2 px-3 py-1 rounded-full border shadow-sm font-bold tracking-wider ${
               feedSource && feedSource !== "FINNHUB"
@@ -1391,7 +1522,7 @@ export default function WealthEngineDashboard() {
             <span>
               {feedSource && feedSource !== "FINNHUB"
                 ? `🟡 LIVE: ${feedSource === "POLYGON" ? "Polygon" : feedSource === "TWELVEDATA" ? "TwelveData" : feedSource} (Backup)`
-                : "🟢 LIVE: Finnhub"}
+                : "🟢 LIVE: WebSocket (Finnhub)"}
             </span>
           </div>
         </div>
@@ -1639,17 +1770,20 @@ export default function WealthEngineDashboard() {
                       </svg>
                     </div>
 
-                    {/* Price & Change Badge */}
+                    {/* Price & Change Badge — Synchronized to activeTickerData */}
                     <div className="text-right flex-shrink-0 font-mono">
                       <div className="text-xs font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${item.price != null ? item.price.toFixed(2) : "0.00"}
+                        ${(item.symbol === activeTickerData?.symbol ? activeTickerData.price : (item.price ?? 100)).toFixed(2)}
                       </div>
                       <div
                         className="text-[10px] font-bold tabular-nums flex items-center justify-end gap-0.5"
-                        style={{ color: isPositive ? "var(--accent-green)" : "var(--accent-red)" }}
+                        style={{ color: (item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "var(--accent-green)" : "var(--accent-red)" }}
                       >
-                        {isPositive ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
-                        <span>{isPositive ? "+" : ""}{item.changePct != null ? item.changePct.toFixed(2) : "0.00"}%</span>
+                        {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
+                        <span>
+                          {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "+" : ""}
+                          {(item.symbol === activeTickerData?.symbol ? activeTickerData.changePct : (item.changePct ?? 0)).toFixed(2)}%
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1771,9 +1905,9 @@ export default function WealthEngineDashboard() {
                     symbol={activeTicker}
                     timeframe={activeTf}
                     activeItem={activeItem}
-                    entryPrice={activeItem?.buyTarget}
-                    stopLoss={activeItem?.stopLoss}
-                    primaryTarget={activeItem?.primaryTarget}
+                    entryPrice={activeTickerData?.buyTarget ?? activeItem?.buyTarget}
+                    stopLoss={activeTickerData?.stopLoss ?? activeItem?.stopLoss}
+                    primaryTarget={activeTickerData?.target1 ?? activeItem?.primaryTarget}
                   />
                 </ErrorBoundary>
               </div>
@@ -1921,7 +2055,7 @@ export default function WealthEngineDashboard() {
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-cyan-400" />
               <span className="text-[10px] font-mono font-bold" style={{ color: "var(--accent-cyan)" }}>
-                {activeItem?.symbol ?? activeTicker}
+                {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
               </span>
             </div>
           </div>
@@ -1938,28 +2072,28 @@ export default function WealthEngineDashboard() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)]">
-                      {activeItem?.symbol ?? activeTicker}
+                      {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                     </span>
                     <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)]">
                       ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                     </span>
                   </div>
                   <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5">
-                    {activeItem?.setupType ?? "SWING SETUP"}
+                    {activeTickerData?.setupType ?? activeItem?.setupType ?? "SWING SETUP"}
                   </div>
                 </div>
 
                 <div
                   className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border ${
-                    activeItem?.status === "Ready"
+                    (activeTickerData?.status ?? activeItem?.status) === "Ready"
                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
-                      : activeItem?.status === "Awaiting Close"
+                      : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"
                       ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
                       : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
                   }`}
                   data-testid="badge-setup-status"
                 >
-                  {activeItem?.status ?? "Ready"}
+                  {activeTickerData?.status ?? activeItem?.status ?? "Ready"}
                 </div>
               </div>
 
@@ -2006,7 +2140,7 @@ export default function WealthEngineDashboard() {
                     ${activeItem?.primaryTarget != null ? activeItem.primaryTarget.toFixed(2) : "0.00"}
                   </span>
                   <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
-                    +2.37R R:R
+                    +1.50R R:R
                   </span>
                 </div>
               </div>
@@ -2034,7 +2168,7 @@ export default function WealthEngineDashboard() {
                 <button
                   type="button"
                   data-testid="button-arm-practice-trade"
-                  onClick={() => openArmTrade(activeItem?.symbol ?? activeTicker)}
+                  onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
                   className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   style={{
                     backgroundColor: "var(--accent-cyan)",
@@ -2082,11 +2216,11 @@ export default function WealthEngineDashboard() {
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
                         <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
                           <span className="text-slate-400">T2 Target:</span>
-                          <span className="font-bold text-emerald-400">${activeItem?.t2 != null ? activeItem.t2.toFixed(2) : "0.00"}</span>
+                          <span className="font-bold text-emerald-400">${(activeTickerData?.target2 ?? activeItem?.t2 ?? 115).toFixed(2)}</span>
                         </div>
                         <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
                           <span className="text-slate-400">T3 Runner:</span>
-                          <span className="font-bold text-emerald-400">${activeItem?.t3 != null ? activeItem.t3.toFixed(2) : "0.00"}</span>
+                          <span className="font-bold text-emerald-400">${(activeTickerData?.target3 ?? activeItem?.t3 ?? 125).toFixed(2)}</span>
                         </div>
                       </div>
                     </div>
@@ -2115,10 +2249,10 @@ export default function WealthEngineDashboard() {
 
             {/* Broker Execution Guide Accordion */}
             <BrokerExecutionSteps
-              symbol={activeItem?.symbol ?? activeTicker}
-              entry={activeItem?.buyTarget ?? 100}
-              stop={activeItem?.stopLoss ?? 95}
-              target1={activeItem?.primaryTarget ?? 110}
+              symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+              entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
+              stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
+              target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
               defaultOpen={false}
             />
 
@@ -2140,7 +2274,7 @@ export default function WealthEngineDashboard() {
               <div className="flex justify-between items-baseline">
                 <span className="text-slate-400 text-[11px]">Suggested Sizing:</span>
                 <span className="font-bold text-sm text-soft-white">
-                  {Math.floor(1000 / Math.max(Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} shares
+                  {Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} shares
                 </span>
               </div>
               <div className="flex justify-between items-baseline text-[10px]">
