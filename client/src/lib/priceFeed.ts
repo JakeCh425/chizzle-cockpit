@@ -118,14 +118,43 @@ export async function forceRefreshPrice(symbol?: string): Promise<boolean> {
 
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let wsReconnectInterval: ReturnType<typeof setInterval> | null = null;
 let started = false;
 
+/**
+ * Outlier Rejection / Bad Tick Filter:
+ * Rejects sudden anomalies where an incoming tick is >3.5% away from reference price.
+ */
+export function isBadTick(symbol: string, newPrice: number, referencePrice?: number): boolean {
+  if (!Number.isFinite(newPrice) || newPrice <= 0) return true;
+  const ref = referencePrice ?? snapshotState[symbol]?.price;
+  if (ref && ref > 0) {
+    const deviation = Math.abs(newPrice - ref) / ref;
+    if (deviation > 0.035) {
+      console.warn(`[priceFeed:badTick] Dropped outlier tick for ${symbol}: $${newPrice} vs ref $${ref} (${(deviation * 100).toFixed(1)}% deviation)`);
+      return true;
+    }
+  }
+  return false;
+}
+
 function setSnapshot(next: Record<string, LiveQuote>) {
-  snapshotState = next;
+  const filtered: Record<string, LiveQuote> = {};
+  for (const [sym, q] of Object.entries(next)) {
+    if (isBadTick(sym, q.price, q.prevClose)) {
+      if (snapshotState[sym]) filtered[sym] = snapshotState[sym];
+    } else {
+      filtered[sym] = q;
+    }
+  }
+  snapshotState = filtered;
   listeners.forEach(l => l(snapshotState));
 }
 
 function applyQuote(q: LiveQuote) {
+  if (isBadTick(q.symbol, q.price, q.prevClose)) {
+    return;
+  }
   snapshotState = { ...snapshotState, [q.symbol]: q };
   lastEventAt = Date.now();
   listeners.forEach(l => l(snapshotState));
@@ -135,6 +164,17 @@ function setConn(next: ConnState) {
   if (connState === next) return;
   connState = next;
   statusListeners.forEach(l => l(connState));
+}
+
+function ensureBackgroundWsReconnect() {
+  if (wsReconnectInterval) return;
+  wsReconnectInterval = setInterval(() => {
+    // If primary WebSocket is not open, continuously attempt reconnection every 5 seconds
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      console.info("[priceFeed] Background 5s check: attempting primary WebSocket reconnection...");
+      connectWS();
+    }
+  }, 5000);
 }
 
 function fallbackPollOnce() {
@@ -174,13 +214,22 @@ function connectWS() {
     setConn("CONNECTING");
 
     ws.onopen = () => {
-      setConn(lastEventAt ? "LIVE" : "CONNECTING");
+      console.info("[priceFeed] Primary WebSocket reconnected! Clearing STALE state.");
+      lastEventAt = Date.now();
+      setConn("LIVE");
       stopFallbackPolling();
+      if (es) {
+        try { es.close(); } catch {}
+        es = null;
+      }
       if (subscribedSymbols.size > 0) {
         try {
           ws?.send(JSON.stringify({ type: "subscribe", symbols: Array.from(subscribedSymbols) }));
         } catch {}
       }
+      try {
+        ws?.send(JSON.stringify({ type: "refresh" }));
+      } catch {}
     };
 
     ws.onmessage = (ev) => {
@@ -188,7 +237,11 @@ function connectWS() {
         const j = JSON.parse(ev.data);
         if (j?.type === "hello" && Array.isArray(j?.quotes)) {
           const next: Record<string, LiveQuote> = { ...snapshotState };
-          for (const q of j.quotes as LiveQuote[]) next[q.symbol] = q;
+          for (const q of j.quotes as LiveQuote[]) {
+            if (!isBadTick(q.symbol, q.price, q.prevClose)) {
+              next[q.symbol] = q;
+            }
+          }
           if (Object.keys(next).length) {
             lastEventAt = Date.now();
             setSnapshot(next);
@@ -203,25 +256,22 @@ function connectWS() {
     };
 
     ws.onerror = () => {
-      setConn("DISCONNECTED");
+      ws = null;
       if (!es) connectSSE();
       startFallbackPolling();
+      ensureBackgroundWsReconnect();
     };
 
     ws.onclose = () => {
       ws = null;
-      setConn("DISCONNECTED");
       if (!es) connectSSE();
       startFallbackPolling();
-      if (!reconnectTimer) {
-        reconnectTimer = setTimeout(() => {
-          reconnectTimer = null;
-          connectWS();
-        }, 5000);
-      }
+      ensureBackgroundWsReconnect();
     };
   } catch {
     connectSSE();
+    startFallbackPolling();
+    ensureBackgroundWsReconnect();
   }
 }
 
@@ -312,9 +362,15 @@ function connectSSE() {
 export function ensurePriceFeed() {
   if (started) return;
   started = true;
-  connectSSE();
-  // Stale-monitor: re-evaluate every 1s based on lastEventAt
+  connectWS();
+  ensureBackgroundWsReconnect();
+  // Stale-monitor: re-evaluate every 1s based on WebSocket status and lastEventAt
   setInterval(() => {
+    // If primary WebSocket is healthy and open, state is always LIVE (no stale lock)
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      setConn("LIVE");
+      return;
+    }
     if (!lastEventAt) return;
     const age = Date.now() - lastEventAt;
     if (age < 30000) setConn("LIVE");

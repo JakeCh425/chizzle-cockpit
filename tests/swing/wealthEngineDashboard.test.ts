@@ -187,5 +187,43 @@ describe("Chizzle Wealth Engine — Single-Page Dashboard Studio", () => {
       expect(dashboardContent).toContain("cursor-crosshair");
     });
   });
+
+  describe("6. Data State Synchronization, Bad Tick Outlier Rejection, and Feed Reconnection", () => {
+    const globalStatePath = path.resolve(__dirname, "../../client/src/lib/globalState.tsx");
+    const globalStateContent = fs.readFileSync(globalStatePath, "utf-8").replace(/\r\n/g, "\n");
+
+    const priceFeedPath = path.resolve(__dirname, "../../client/src/lib/priceFeed.ts");
+    const priceFeedContent = fs.readFileSync(priceFeedPath, "utf-8").replace(/\r\n/g, "\n");
+
+    it("synchronizes Watchlist and Chart to single source of truth in globalState", () => {
+      expect(globalStateContent).toContain("activePrice");
+      expect(globalStateContent).toContain("syncedWatchlist");
+      expect(globalStateContent).toContain("livePrices");
+      expect(dashboardContent).toContain("activePrice: storePrice");
+    });
+
+    it("implements bad tick outlier rejection (dropping sudden >3.5% spikes before updating chart)", () => {
+      expect(priceFeedContent).toContain("isBadTick");
+      expect(globalStateContent).toContain("isBadTick");
+      expect(dashboardContent).toContain("isOutlier");
+      expect(dashboardContent).toContain("LiveTradingChart:BadTick");
+    });
+
+    it("continuously attempts WebSocket reconnection every 5s and clears STALE state upon reconnect", () => {
+      expect(priceFeedContent).toContain("ensureBackgroundWsReconnect");
+      expect(priceFeedContent).toContain("5000");
+      expect(priceFeedContent).toContain('setConn("LIVE")');
+      expect(priceFeedContent).toContain("Primary WebSocket reconnected");
+    });
+
+    it("implements Reset Chart Data and auto-scaling function with outlier clamp", () => {
+      expect(dashboardContent).toContain("resetChartData");
+      expect(dashboardContent).toContain('data-testid="button-reset-chart"');
+      expect(dashboardContent).toContain("/api/candles-ohlc/");
+      expect(dashboardContent).toContain("Feed recovered from STALE -> LIVE");
+      expect(dashboardContent).toContain("clampLow");
+      expect(dashboardContent).toContain("clampHigh");
+    });
+  });
 });
 

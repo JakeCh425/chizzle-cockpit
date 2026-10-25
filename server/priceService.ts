@@ -643,6 +643,18 @@ function simulatorQuote(symbol: string): Quote {
 
 // Persist tick + update DB ticker.currentPrice + broadcast over SSE & WebSocket
 function commitQuote(q: Quote) {
+  // Bad Tick / Outlier Rejection Filter:
+  // Reject sudden 4% spikes away from previous cached price or prevClose
+  const prevQuote = quotes.get(q.symbol);
+  const refPrice = prevQuote?.price ?? q.prevClose;
+  if (refPrice && refPrice > 0 && q.price > 0) {
+    const deviation = Math.abs(q.price - refPrice) / refPrice;
+    if (deviation > 0.04) {
+      console.warn(`[priceService:outlier] Rejected bad tick for ${q.symbol}: $${q.price} vs ref $${refPrice} (${(deviation * 100).toFixed(1)}% deviation via ${q.source})`);
+      return;
+    }
+  }
+
   quotes.set(q.symbol, q);
   lastPollOk.set(q.symbol, q.receivedAt);
   lastFetchAt = q.receivedAt;

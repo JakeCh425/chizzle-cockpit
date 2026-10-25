@@ -379,43 +379,102 @@ export function LiveTradingChart({
   primaryTarget,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  const { openArmTrade } = useGlobalState();
+  const { openArmTrade, activePrice: storePrice, isBadTick } = useGlobalState();
   const { quote } = useLiveQuote(symbol);
+  const { state: feedState } = useFeedConnection();
 
   const buyPrice = entryPrice ?? item?.buyTarget ?? 100;
   const stopVal = stopLoss ?? item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
   const targetVal = primaryTarget ?? item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
 
-  // 1. Real-Time Price Tracker state (tick-by-tick updates without full chart rebuild)
-  const [livePrice, setLivePrice] = useState(item?.price ?? 100);
+  // 1. Single Source of Truth for Live Price (Synchronized directly with Watchlist)
+  const [livePrice, setLivePrice] = useState(item?.price ?? storePrice ?? 100);
 
-  // Synchronize when the selected active ticker or base price changes
+  // Synchronize immediately when active ticker or watchlist price updates
   useEffect(() => {
     if (item?.price != null && Number.isFinite(item.price)) {
       setLivePrice(item.price);
     }
   }, [symbol, item?.price]);
 
-  // Synchronize with incoming live quote stream from WebSocket/SSE
+  // Synchronize with incoming live quote stream with Bad-Tick Outlier Filtering
   useEffect(() => {
     if (quote?.price != null && Number.isFinite(quote.price)) {
+      const ref = item?.price ?? livePrice;
+      // 2. Bad Tick Outlier Rejection: Drop ticks deviating more than 3.5% from watchlist price
+      const isOutlier = isBadTick ? isBadTick(symbol, quote.price) : (ref > 0 && Math.abs(quote.price - ref) / ref > 0.035);
+      if (isOutlier) {
+        console.warn(`[LiveTradingChart:BadTick] Dropped outlier tick for ${symbol}: $${quote.price} vs ref $${ref} (>3.5% deviation)`);
+        return;
+      }
       setLivePrice(quote.price);
     }
-  }, [quote?.price]);
+  }, [quote?.price, item?.price, symbol, isBadTick, livePrice]);
 
-  // Smooth live-trading micro-tick updater (simulates real-time tick-by-tick movement)
+  // Smooth live-trading micro-tick updater (simulates subtle real-time movement around single source of truth)
   useEffect(() => {
     const timer = setInterval(() => {
       setLivePrice((prev) => {
-        const base = quote?.price ?? item?.price ?? 100;
-        const tick = (Math.random() - 0.49) * 0.08;
+        const base = item?.price ?? storePrice ?? 100;
+        const tick = (Math.random() - 0.49) * 0.06;
         const next = +(prev + tick).toFixed(2);
-        if (Math.abs(next - base) > base * 0.01) return base;
+        // Strict boundary: never drift more than 0.5% from base watchlist price
+        if (Math.abs(next - base) > base * 0.005) return base;
         return next;
       });
-    }, 2200);
+    }, 2400);
     return () => clearInterval(timer);
-  }, [symbol, item?.price, quote?.price]);
+  }, [symbol, item?.price, storePrice]);
+
+  // 4. Chart Reset and Auto-Scaling Function
+  const [isResetting, setIsResetting] = useState(false);
+  const [fetchedBars, setFetchedBars] = useState<Array<{ o: number; h: number; l: number; c: number; x: number }> | null>(null);
+
+  const resetChartData = useCallback(async (sym = symbol) => {
+    setIsResetting(true);
+    try {
+      // Clear current candlestick series and re-fetch clean historical 1H candles via REST API
+      const res = await fetch(`/api/candles-ohlc/${encodeURIComponent(sym)}?interval=1H`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const ref = item?.price ?? 100;
+          // Filter outliers from historical bars
+          const clean = data.map((b: any, idx: number) => {
+            const o = Number(b.open ?? b.o ?? ref);
+            const h = Number(b.high ?? b.h ?? ref);
+            const l = Number(b.low ?? b.l ?? ref);
+            const c = Number(b.close ?? b.c ?? ref);
+            return { o, h, l, c, x: 40 + idx * 30 };
+          }).filter((b: any) => Number.isFinite(b.c) && b.c > 0 && Math.abs(b.c - ref) / ref < 0.20);
+
+          if (clean.length >= 5) {
+            setFetchedBars(clean.slice(-18));
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[LiveTradingChart] resetChartData fetch failed:", e);
+    } finally {
+      setIsResetting(false);
+    }
+  }, [symbol, item?.price]);
+
+  // Trigger resetChartData on active ticker switch
+  useEffect(() => {
+    setFetchedBars(null);
+    resetChartData(symbol);
+  }, [symbol]);
+
+  // Trigger resetChartData on recovery from stale feed
+  const prevFeedState = useRef(feedState);
+  useEffect(() => {
+    if (prevFeedState.current === "STALE" && feedState === "LIVE") {
+      console.info("[LiveTradingChart] Feed recovered from STALE -> LIVE. Auto-resetting and scaling chart.");
+      resetChartData(symbol);
+    }
+    prevFeedState.current = feedState;
+  }, [feedState, symbol, resetChartData]);
 
   // 2. Auto-Hiding Text Overlay Hook (3.5s display + 1s fade-out, cleanup timer)
   const [isOverlayVisible, setIsOverlayVisible] = useState(true);
@@ -496,13 +555,14 @@ export function LiveTradingChart({
     });
 
     return { baseCandles: generated, candleWidth: width, barSpacing: spacing };
-  }, [symbol, item?.atr, timeframe]);
+  }, [symbol, item?.atr, timeframe, item?.price]);
 
-  // 4. Dynamic Candle Series: Right-most candle updates dynamically in real-time
+  // Dynamic Candle Series: Right-most candle updates dynamically in real-time
   const candles = useMemo(() => {
-    if (!baseCandles || baseCandles.length === 0) return [];
-    const historical = baseCandles.slice(0, baseCandles.length - 1);
-    const lastBase = baseCandles[baseCandles.length - 1];
+    const sourceCandles = fetchedBars && fetchedBars.length > 5 ? fetchedBars : baseCandles;
+    if (!sourceCandles || sourceCandles.length === 0) return [];
+    const historical = sourceCandles.slice(0, sourceCandles.length - 1);
+    const lastBase = sourceCandles[sourceCandles.length - 1];
     const currentClose = livePrice;
     const currentHigh = Math.max(lastBase.o, lastBase.h, currentClose);
     const currentLow = Math.min(lastBase.o, lastBase.l, currentClose);
@@ -515,7 +575,7 @@ export function LiveTradingChart({
       l: currentLow,
     };
     return [...historical, activeCandle];
-  }, [baseCandles, livePrice]);
+  }, [baseCandles, fetchedBars, livePrice]);
 
   // 5. Crosshair & Hover OHLC Tooltip State
   const [hoveredData, setHoveredData] = useState<{
@@ -541,9 +601,28 @@ export function LiveTradingChart({
     return candles.findIndex((b) => b.l <= stopVal);
   }, [candles, stopVal]);
 
-  const minPrice = Math.min(stopVal * 0.98, ...candles.map((c) => c.l));
-  const maxPrice = Math.max(targetVal * 1.02, ...candles.map((c) => c.h));
-  const priceRange = maxPrice - minPrice || 1;
+  // Auto-Scaling: Clamps bounds so anomalous wicks/ticks cannot blow out normal price action
+  const { minPrice, maxPrice, priceRange } = useMemo(() => {
+    const valid = candles.filter((c) => Number.isFinite(c.c) && c.c > 0);
+    if (valid.length === 0) return { minPrice: 90, maxPrice: 110, priceRange: 20 };
+    const ref = livePrice > 0 ? livePrice : item?.price ?? 100;
+
+    // Normal bounds clamped within +/-12% of reference price to protect Y-axis scale
+    const clampLow = ref * 0.88;
+    const clampHigh = ref * 1.12;
+
+    const rawMin = Math.min(...valid.map((c) => c.l));
+    const rawMax = Math.max(...valid.map((c) => c.h));
+
+    const boundedMin = Math.max(rawMin, clampLow);
+    const boundedMax = Math.min(rawMax, clampHigh);
+
+    const min = Math.min(boundedMin, stopVal > clampLow ? stopVal * 0.99 : boundedMin);
+    const max = Math.max(boundedMax, targetVal < clampHigh ? targetVal * 1.01 : boundedMax);
+    const range = max - min || 1;
+    return { minPrice: min, maxPrice: max, priceRange: range };
+  }, [candles, livePrice, item?.price, stopVal, targetVal]);
+
   const priceToY = (price: number) => 350 - ((price - minPrice) / priceRange) * 290;
 
   // Crosshair mouse tracker handler
@@ -651,6 +730,18 @@ export function LiveTradingChart({
           >
             <Play className="h-3 w-3 fill-current" />
             <span>Arm Trade</span>
+          </button>
+
+          {/* Reset Chart Data & Auto-Scale Button */}
+          <button
+            type="button"
+            data-testid="button-reset-chart"
+            onClick={() => resetChartData(symbol)}
+            title="Reset Chart Data & Auto-Scale (clears bad ticks and re-fetches clean historical 1H candles)"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm ml-1"
+          >
+            <RefreshCw className={`h-3 w-3 ${isResetting ? "animate-spin text-cyan-400" : ""}`} />
+            <span>Auto Scale</span>
           </button>
         </div>
       </div>

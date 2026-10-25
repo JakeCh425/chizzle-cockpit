@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/pages/WealthEngineDashboard";
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
+import { ensurePriceFeed, subscribe, isBadTick as checkBadTick } from "@/lib/priceFeed";
 
 export interface UniversalModalState {
   open: boolean;
@@ -13,6 +14,11 @@ export interface GlobalStateContextType {
   // Active Ticker across Cockpit & Wealth Studio
   activeTicker: string;
   setActiveTicker: (ticker: string) => void;
+
+  // Single Source of Truth for Live Prices
+  activePrice: number;
+  livePrices: Record<string, number>;
+  isBadTick: (symbol: string, price: number) => boolean;
 
   // Watchlist
   watchlist: WatchlistItem[];
@@ -198,10 +204,76 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     [watchlist, activeTicker, saveWatchlist, setActiveTicker]
   );
 
-  // Active Item
+  // Single Source of Truth for Live Prices across Watchlist, Chart, Header, and Modals
+  const [livePrices, setLivePrices] = useState<Record<string, number>>(() => {
+    const initial: Record<string, number> = {};
+    for (const item of DEFAULT_WATCHLIST) {
+      initial[item.symbol] = item.price;
+    }
+    return initial;
+  });
+
+  // Outlier / Bad Tick Validator (3.5% threshold)
+  const isBadTick = useCallback(
+    (symbol: string, newPrice: number): boolean => {
+      const current = livePrices[symbol] ?? watchlist.find((i) => i.symbol === symbol)?.price;
+      return checkBadTick(symbol, newPrice, current);
+    },
+    [livePrices, watchlist]
+  );
+
+  // Subscribe to live price stream with bad-tick outlier rejection
+  useEffect(() => {
+    ensurePriceFeed();
+    const unsub = subscribe((snap) => {
+      setLivePrices((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [sym, q] of Object.entries(snap)) {
+          if (q && q.price > 0) {
+            const ref = prev[sym] ?? watchlist.find((i) => i.symbol === sym)?.price;
+            // Validate: If incoming tick is >3.5% away, classify as Bad Tick and drop it
+            if (ref && ref > 0 && Math.abs(q.price - ref) / ref > 0.035) {
+              console.warn(`[globalState:badTick] Dropped outlier tick for ${sym}: $${q.price} vs ref $${ref}`);
+              continue;
+            }
+            if (next[sym] !== q.price) {
+              next[sym] = q.price;
+              changed = true;
+            }
+          }
+        }
+        return changed ? next : prev;
+      });
+    });
+    return unsub;
+  }, [watchlist]);
+
+  // Synchronized watchlist where all items share the exact same price as the live stream
+  const syncedWatchlist = useMemo(() => {
+    return watchlist.map((item) => {
+      const live = livePrices[item.symbol];
+      if (live != null && live > 0 && live !== item.price) {
+        const base = item.price - item.change || live;
+        const chg = +(live - base).toFixed(2);
+        const chgPct = base > 0 ? +((chg / base) * 100).toFixed(2) : item.changePct;
+        return {
+          ...item,
+          price: live,
+          change: chg,
+          changePct: chgPct,
+        };
+      }
+      return item;
+    });
+  }, [watchlist, livePrices]);
+
+  // Active Item (Guaranteed 100% in sync with Watchlist and Chart)
   const activeItem = useMemo(() => {
-    return watchlist.find((item) => item.symbol === activeTicker) || watchlist[0] || DEFAULT_WATCHLIST[0];
-  }, [watchlist, activeTicker]);
+    return syncedWatchlist.find((item) => item.symbol === activeTicker) || syncedWatchlist[0] || DEFAULT_WATCHLIST[0];
+  }, [syncedWatchlist, activeTicker]);
+
+  const activePrice = activeItem.price;
 
   // Timeframe
   const [timeframe, setTimeframe] = useState<"1H" | "4H" | "1D" | "1W">("1H");
@@ -240,7 +312,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     () => ({
       activeTicker,
       setActiveTicker,
-      watchlist,
+      activePrice,
+      livePrices,
+      isBadTick,
+      watchlist: syncedWatchlist,
       addTicker,
       removeTicker,
       activeItem,
@@ -258,7 +333,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     [
       activeTicker,
       setActiveTicker,
-      watchlist,
+      activePrice,
+      livePrices,
+      isBadTick,
+      syncedWatchlist,
       addTicker,
       removeTicker,
       activeItem,
