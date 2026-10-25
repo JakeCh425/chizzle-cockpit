@@ -10,11 +10,12 @@ import { DEFAULT_WATCHLIST, type WatchlistItem } from "@/lib/wealthWatchlist";
 export { DEFAULT_WATCHLIST, type WatchlistItem };
 import { loadSmaSettings, saveSmaSettings, type SmaSettings } from "@/lib/smaSettings";
 import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
+import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheatSheet";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, LayoutDashboard,
-  Maximize2, Crosshair, HelpCircle, Eye, Info, Play
+  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList
 } from "lucide-react";
 
 // ============================================================================
@@ -210,6 +211,7 @@ export interface ChartProps {
   entryPrice?: number;
   stopLoss?: number;
   primaryTarget?: number;
+  onOpenFidelityGuide?: () => void;
 }
 
 export function LiveTradingChart({
@@ -219,6 +221,7 @@ export function LiveTradingChart({
   entryPrice,
   stopLoss,
   primaryTarget,
+  onOpenFidelityGuide,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
   const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen } = useGlobalState();
@@ -229,6 +232,25 @@ export function LiveTradingChart({
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
   const livePrice = tickerData?.price ?? storePrice ?? item?.price ?? 100;
+
+  // Direction for dynamic price coloring (green when up on the day, red when down)
+  const isUp = (tickerData?.change ?? quote?.change ?? item?.change ?? 0) >= 0;
+  const changeAmt = tickerData?.change ?? quote?.change ?? item?.change ?? 0;
+  const changePct = tickerData?.changePct ?? quote?.changePct ?? item?.changePct ?? 0;
+
+  // Pulses slightly when a new live WebSocket tick comes in
+  const [isTickPulsing, setIsTickPulsing] = useState(false);
+  const prevTickPrice = useRef(livePrice);
+
+  useEffect(() => {
+    if (livePrice !== prevTickPrice.current && prevTickPrice.current > 0) {
+      setIsTickPulsing(true);
+      const timer = setTimeout(() => setIsTickPulsing(false), 450);
+      prevTickPrice.current = livePrice;
+      return () => clearTimeout(timer);
+    }
+    prevTickPrice.current = livePrice;
+  }, [livePrice]);
 
   // 3. Dynamic Risk/Reward Math: Programmatically enforce R-multiple logic
   // Variables:
@@ -642,7 +664,89 @@ export function LiveTradingChart({
       }}
       data-testid="chart-placeholder-area"
     >
-      {/* Chart Header Bar: Overlay SMA Labels */}
+      {/* ── 1. Massive, Decoupled Prominent Ticker & Live Price Header ── */}
+      <div
+        className="px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 z-10 select-none shadow-sm"
+        style={{
+          backgroundColor: "var(--bg-panel)",
+          borderColor: "var(--border-subtle)",
+        }}
+      >
+        {/* Massive Ticker Symbol & Dynamic Live Price Display */}
+        <div className="flex flex-wrap items-baseline gap-3 sm:gap-5 font-mono" data-testid="chart-live-price-header">
+          {/* Ticker Symbol (text-4xl md:text-5xl font-black tracking-tight) */}
+          <span className="font-black text-4xl md:text-5xl tracking-tight text-white drop-shadow-md select-none">
+            {symbol}
+          </span>
+
+          {/* Live Price with Dynamic Day-Change Coloring & WebSocket Tick Pulse */}
+          <div
+            className={`flex items-baseline gap-2 transition-transform duration-200 ${
+              isTickPulsing ? "scale-105 brightness-125" : "scale-100"
+            }`}
+          >
+            <span
+              className={`font-black text-4xl md:text-5xl tabular-nums tracking-tight transition-colors duration-200 ${
+                isUp
+                  ? "text-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.5)]"
+                  : "text-rose-400 drop-shadow-[0_0_14px_rgba(244,63,94,0.5)]"
+              }`}
+              data-testid="chart-live-price-value"
+            >
+              ${livePrice.toFixed(2)}
+            </span>
+
+            {/* Pulsing Live indicator dot */}
+            <span
+              className={`h-3 w-3 rounded-full transition-all ${
+                isTickPulsing
+                  ? isUp
+                    ? "bg-emerald-300 ring-4 ring-emerald-400/50 scale-125"
+                    : "bg-rose-300 ring-4 ring-rose-400/50 scale-125"
+                  : isUp
+                  ? "bg-emerald-400 shadow-[0_0_8px_#34D399]"
+                  : "bg-rose-400 shadow-[0_0_8px_#F43F5E]"
+              }`}
+              title={isMarketOpenNow ? "Live Streaming Tick" : "Static Last Close"}
+            />
+          </div>
+
+          {/* Daily Dollar & Pct Change Badge */}
+          <div className="flex items-center gap-2 text-xs font-mono">
+            <span
+              className={`font-bold tabular-nums flex items-center gap-0.5 px-2.5 py-0.5 rounded text-[11px] ${
+                isUp
+                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                  : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+              }`}
+            >
+              {isUp ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
+              <span>
+                {isUp ? "+" : ""}{changeAmt.toFixed(2)} ({isUp ? "+" : ""}{changePct.toFixed(2)}%)
+              </span>
+            </span>
+            <span className="text-slate-400 font-normal">· {timeframe} Live Feed</span>
+          </div>
+        </div>
+
+        {/* Quick Action: Fidelity Execution Guide Modal Button */}
+        <div className="flex items-center gap-2">
+          {onOpenFidelityGuide && (
+            <button
+              type="button"
+              data-testid="button-fidelity-guide"
+              onClick={onOpenFidelityGuide}
+              className="flex items-center gap-2 px-3.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-mono font-bold tracking-wider uppercase transition-all shadow-md cursor-pointer hover:scale-105 active:scale-95"
+              title="Open Fidelity Trade Ticket Cheat Sheet"
+            >
+              <ClipboardList className="h-4 w-4" />
+              <span>Fidelity Guide</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ── 2. Secondary Sub-Bar: Overlay SMA Badges & Viewport Controls ── */}
       <div
         className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10 select-none"
         style={{
@@ -650,17 +754,6 @@ export function LiveTradingChart({
           borderColor: "var(--border-subtle)",
         }}
       >
-        {/* Active Ticker Context with Prominent Live Price */}
-        <div className="flex items-baseline gap-3 font-mono" data-testid="chart-live-price-header">
-          <span className="font-black text-2xl md:text-3xl tracking-tight text-white drop-shadow-sm">
-            {symbol}
-          </span>
-          <span className="font-black text-2xl md:text-3xl tabular-nums tracking-tight text-cyan-400 drop-shadow-[0_0_8px_rgba(6,182,212,0.4)]" data-testid="chart-live-price-value">
-            ${livePrice.toFixed(2)}
-          </span>
-          <span className="text-xs text-slate-400 font-normal">· {timeframe} Live Candlestick Feed</span>
-        </div>
-
         {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
         <div className="flex items-center gap-2.5 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
           {/* 20-SMA */}
@@ -1554,6 +1647,7 @@ export default function WealthEngineDashboard() {
   const global = useGlobalState();
   const { activeTickerData } = global;
   const [newTickerInput, setNewTickerInput] = useState("");
+  const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
 
   const theme = global?.theme ?? "cyber-neon";
   const activeTheme = THEMES[theme] || THEMES["cyber-neon"];
@@ -2099,6 +2193,7 @@ export default function WealthEngineDashboard() {
                     entryPrice={activeTickerData?.buyTarget ?? activeItem?.buyTarget}
                     stopLoss={activeTickerData?.stopLoss ?? activeItem?.stopLoss}
                     primaryTarget={activeTickerData?.target1 ?? activeItem?.primaryTarget}
+                    onOpenFidelityGuide={() => setIsFidelityGuideOpen(true)}
                   />
                 </ErrorBoundary>
               </div>
@@ -2369,6 +2464,17 @@ export default function WealthEngineDashboard() {
                   <Play className="h-3.5 w-3.5 fill-current" />
                   <span>Arm Practice Order</span>
                 </button>
+
+                {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
+                <button
+                  type="button"
+                  data-testid="button-fidelity-ticket-card"
+                  onClick={() => setIsFidelityGuideOpen(true)}
+                  className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  <ClipboardList className="h-4 w-4 text-emerald-400" />
+                  <span>Fidelity Ticket Cheat Sheet</span>
+                </button>
               </div>
 
               {/* COLLAPSED "ADVANCED METRICS" ACCORDION (DROPDOWN) */}
@@ -2438,6 +2544,17 @@ export default function WealthEngineDashboard() {
               </div>
             </div>
 
+            {/* Fidelity Execution Cheat Sheet Component (Inline Collapsible Panel) */}
+            <FidelityExecutionCheatSheet
+              symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+              entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
+              stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
+              target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
+              shares={Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))}
+              isCollapsible
+              defaultCollapsed={false}
+            />
+
             {/* Broker Execution Guide Accordion */}
             <BrokerExecutionSteps
               symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
@@ -2476,6 +2593,19 @@ export default function WealthEngineDashboard() {
           </div>
         </section>
       </main>
+
+      {/* Fidelity Execution Cheat Sheet Modal */}
+      {isFidelityGuideOpen && (
+        <FidelityExecutionCheatSheet
+          symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+          entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
+          stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
+          target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
+          shares={Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))}
+          isOpenModal={isFidelityGuideOpen}
+          onCloseModal={() => setIsFidelityGuideOpen(false)}
+        />
+      )}
     </div>
     </ErrorBoundary>
   );

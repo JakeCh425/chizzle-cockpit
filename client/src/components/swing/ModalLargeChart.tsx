@@ -14,9 +14,10 @@ import {
 } from "lightweight-charts";
 import { swingGet, type BarsResp } from "@/lib/swing";
 import { useLiveQuote } from "@/lib/useLivePrices";
-import { RotateCcw, Activity, Settings } from "lucide-react";
+import { RotateCcw, Activity, Settings, ClipboardList } from "lucide-react";
 import { loadSmaSettings, saveSmaSettings, type SmaSettings } from "@/lib/smaSettings";
 import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
+import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheatSheet";
 
 export interface ModalLargeChartProps {
   symbol: string;
@@ -69,6 +70,24 @@ export function ModalLargeChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<any>(null);
   const liveQuote = useLiveQuote(symbol);
+
+  // Live Tick Pulse State
+  const [isTickPulsing, setIsTickPulsing] = useState(false);
+  const prevPriceRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    if (liveQuote?.price != null) {
+      if (prevPriceRef.current != null && prevPriceRef.current !== liveQuote.price) {
+        setIsTickPulsing(true);
+        const timer = setTimeout(() => setIsTickPulsing(false), 450);
+        return () => clearTimeout(timer);
+      }
+      prevPriceRef.current = liveQuote.price;
+    }
+  }, [liveQuote?.price]);
+
+  // Fidelity Guide Modal State
+  const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
 
   // SMA customization settings from localStorage
   const [smaSettings, setSmaSettings] = useState<SmaSettings>(() => loadSmaSettings());
@@ -470,14 +489,36 @@ export function ModalLargeChart({
       data-testid={`modal-large-chart-container-${symbol}`}
     >
       {/* Chart Top Header & Controls */}
-      <div className="px-4 py-2.5 border-b border-slate-800 bg-slate-900/80 flex flex-wrap items-center justify-between gap-3 select-none">
-        {/* Left: Ticker & Prominent Live Price */}
-        <div className="flex items-baseline gap-3 font-mono">
-          <div className="flex items-baseline gap-2.5">
-            <span className="text-2xl md:text-3xl font-black text-white drop-shadow-sm">{symbol}</span>
-            <span className="text-2xl md:text-3xl font-black tabular-nums text-cyan-400 drop-shadow-[0_0_12px_rgba(6,182,212,0.6)]">
+      <div className="px-4 py-3 border-b border-slate-800 bg-slate-900/90 flex flex-wrap items-center justify-between gap-3 select-none">
+        {/* Left: Ticker & Massive Prominent Live Price */}
+        <div className="flex flex-wrap items-baseline gap-3 md:gap-4 font-mono">
+          <div className="flex items-baseline gap-2.5 md:gap-3">
+            <span className="text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-md">{symbol}</span>
+            <span
+              className={`text-3xl md:text-5xl font-black tabular-nums tracking-tight transition-all duration-200 ${
+                (liveQuote?.change ?? 0) >= 0
+                  ? "text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]"
+                  : "text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.5)]"
+              } ${
+                isTickPulsing
+                  ? "scale-105 brightness-125 ring-2 ring-cyan-400/50 rounded-lg px-1 -mx-1"
+                  : "scale-100"
+              }`}
+              data-testid="modal-chart-live-price"
+            >
               ${liveQuote?.price != null ? liveQuote.price.toFixed(2) : (bars[bars.length - 1]?.c ? bars[bars.length - 1].c.toFixed(2) : "—")}
             </span>
+            {liveQuote?.changePercent != null && (
+              <span
+                className={`text-xs md:text-sm font-bold px-2 py-0.5 rounded ${
+                  (liveQuote?.change ?? 0) >= 0
+                    ? "bg-emerald-950/80 text-emerald-400 border border-emerald-800/60"
+                    : "bg-rose-950/80 text-rose-400 border border-rose-800/60"
+                }`}
+              >
+                {(liveQuote?.change ?? 0) >= 0 ? "+" : ""}{liveQuote.changePercent.toFixed(2)}%
+              </span>
+            )}
           </div>
 
           {/* Timeframe Switcher Pills */}
@@ -501,7 +542,18 @@ export function ModalLargeChart({
         </div>
 
         {/* Right: SMA Badges & Reset View Button */}
-        <div className="flex items-center gap-3 font-mono text-xs">
+        <div className="flex items-center gap-2.5 font-mono text-xs">
+          {/* Fidelity Execution Guide Button */}
+          <button
+            type="button"
+            onClick={() => setIsFidelityGuideOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-emerald-500/40 bg-emerald-950/50 hover:bg-emerald-900/60 text-emerald-300 hover:text-emerald-200 transition-colors cursor-pointer text-[11px] font-bold shadow-sm"
+            title="Open Fidelity Trade Ticket Cheat Sheet"
+            data-testid="button-fidelity-guide-modal"
+          >
+            <ClipboardList className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="hidden sm:inline">Fidelity Guide</span>
+          </button>
           {/* 20-SMA Badge */}
           {smaSettings.sma20.visible && (
             <div
@@ -623,6 +675,16 @@ export function ModalLargeChart({
 
         <div ref={containerRef} className="w-full h-full cursor-crosshair" />
       </div>
+
+      {/* Fidelity Execution Cheat Sheet Modal */}
+      <FidelityExecutionCheatSheet
+        symbol={symbol}
+        entry={entry ?? liveQuote?.price ?? 100}
+        stop={stop ?? ((entry ?? liveQuote?.price ?? 100) * 0.95)}
+        target1={target1 ?? ((entry ?? liveQuote?.price ?? 100) * 1.1)}
+        isOpenModal={isFidelityGuideOpen}
+        onCloseModal={() => setIsFidelityGuideOpen(false)}
+      />
     </div>
   );
 }
