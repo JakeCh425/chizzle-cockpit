@@ -358,15 +358,54 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
 // ============================================================================
 // LIVE TRADING CHART COMPONENT (Bound directly to activeTicker symbol)
 // ============================================================================
+// LIVE TRADING CHART COMPONENT (Bound directly to activeTicker symbol)
+// ============================================================================
 export interface ChartProps {
   symbol: string;
   timeframe: string;
   activeItem: WatchlistItem;
+  entryPrice?: number;
+  stopLoss?: number;
+  primaryTarget?: number;
 }
 
-export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) {
+export function LiveTradingChart({
+  symbol,
+  timeframe,
+  activeItem,
+  entryPrice,
+  stopLoss,
+  primaryTarget,
+}: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
   const { openArmTrade } = useGlobalState();
+
+  const buyPrice = entryPrice ?? item?.buyTarget ?? 100;
+  const stopVal = stopLoss ?? item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
+  const targetVal = primaryTarget ?? item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
+  const livePrice = item?.price ?? 100;
+
+  // 1. Auto-Hiding Text Overlay Hook (3.5s display + 1s fade-out, cleanup timer)
+  const [isOverlayVisible, setIsOverlayVisible] = useState(true);
+  const [shouldRenderOverlay, setShouldRenderOverlay] = useState(true);
+
+  useEffect(() => {
+    setIsOverlayVisible(true);
+    setShouldRenderOverlay(true);
+
+    const fadeTimer = setTimeout(() => {
+      setIsOverlayVisible(false);
+    }, 3500);
+
+    const unmountTimer = setTimeout(() => {
+      setShouldRenderOverlay(false);
+    }, 4500);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(unmountTimer);
+    };
+  }, [symbol, timeframe, item?.setupType, item?.status]);
 
   // Dynamically compute candlestick series, resolution, and bar width scaled to active timeframe
   const { candles, candleWidth, barSpacing } = useMemo(() => {
@@ -427,8 +466,22 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
     return { candles: generated, candleWidth: width, barSpacing: spacing };
   }, [item?.price, item?.atr, timeframe]);
 
-  const stopVal = item?.stopLoss ?? (item?.price ? item.price * 0.95 : 95);
-  const targetVal = item?.primaryTarget ?? (item?.price ? item.price * 1.1 : 110);
+  // 2. Identify key signal marker points across the candles
+  const entryIndex = useMemo(() => {
+    const idx = candles.findIndex(
+      (b, i) => (b.l <= buyPrice && b.h >= buyPrice) || (i > 0 && candles[i - 1].c < buyPrice && b.c >= buyPrice)
+    );
+    return idx !== -1 ? idx : Math.floor(candles.length * 0.5);
+  }, [candles, buyPrice]);
+
+  const targetIndex = useMemo(() => {
+    return candles.findIndex((b) => b.h >= targetVal);
+  }, [candles, targetVal]);
+
+  const stopIndex = useMemo(() => {
+    return candles.findIndex((b) => b.l <= stopVal);
+  }, [candles, stopVal]);
+
   const minPrice = Math.min(stopVal * 0.98, ...candles.map((c) => c.l));
   const maxPrice = Math.max(targetVal * 1.02, ...candles.map((c) => c.h));
   const priceRange = maxPrice - minPrice || 1;
@@ -506,6 +559,38 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
 
       {/* Interactive Candlestick Chart Visualization */}
       <div className="flex-1 min-h-0 relative flex items-center justify-center p-2">
+        {/* 1. Auto-Hiding Text Overlay (Fade-Out Effect with Tailwind Transition) */}
+        {shouldRenderOverlay && (
+          <div
+            data-testid="chart-text-overlay"
+            className={`absolute top-4 left-1/2 -translate-x-1/2 z-20 px-4 py-2 rounded-xl border border-cyan-400/50 bg-slate-950/90 backdrop-blur-md shadow-[0_0_25px_rgba(6,182,212,0.35)] flex items-center gap-3 font-mono text-xs select-none transition-opacity duration-1000 ease-in-out ${
+              isOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
+          >
+            <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22D3EE]" />
+            <span className="font-black text-white">{symbol}</span>
+            <span className="text-cyan-300 font-semibold">{item.setupType}</span>
+            <span className="text-slate-400">
+              Entry: <strong className="text-white">${buyPrice.toFixed(2)}</strong>
+            </span>
+            <span className="text-rose-400">
+              Stop: <strong className="text-rose-300">${stopVal.toFixed(2)}</strong>
+            </span>
+            <span className="text-emerald-400">
+              T1: <strong className="text-emerald-300">${targetVal.toFixed(2)}</strong>
+            </span>
+            <span
+              className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                item.status === "Ready"
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/40"
+                  : "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40"
+              }`}
+            >
+              {item.status}
+            </span>
+          </div>
+        )}
+
         <svg className="w-full h-full select-none" viewBox="0 0 800 420" preserveAspectRatio="none">
           <defs>
             <linearGradient id="volGrad" x1="0" y1="0" x2="0" y2="1">
@@ -587,21 +672,21 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
           </g>
 
           {/* Buy Target Line */}
-          <line x1="40" y1={priceToY(item?.buyTarget ?? 100)} x2="780" y2={priceToY(item?.buyTarget ?? 100)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(item?.buyTarget ?? 100) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            BUY: ${(item?.buyTarget ?? 100).toFixed(2)}
+          <line x1="40" y1={priceToY(buyPrice)} x2="780" y2={priceToY(buyPrice)} stroke="var(--accent-cyan)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(buyPrice) - 5} fill="var(--accent-cyan)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            BUY: ${buyPrice.toFixed(2)}
           </text>
 
           {/* Stop Loss Line */}
-          <line x1="40" y1={priceToY(item?.stopLoss ?? 95)} x2="780" y2={priceToY(item?.stopLoss ?? 95)} stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(item?.stopLoss ?? 95) + 14} fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            STOP: ${(item?.stopLoss ?? 95).toFixed(2)}
+          <line x1="40" y1={priceToY(stopVal)} x2="780" y2={priceToY(stopVal)} stroke="var(--accent-red)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(stopVal) + 14} fill="var(--accent-red)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            STOP: ${stopVal.toFixed(2)}
           </text>
 
           {/* Primary Target Line */}
-          <line x1="40" y1={priceToY(item?.primaryTarget ?? 110)} x2="780" y2={priceToY(item?.primaryTarget ?? 110)} stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
-          <text x="680" y={priceToY(item?.primaryTarget ?? 110) - 5} fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
-            T1: ${(item?.primaryTarget ?? 110).toFixed(2)}
+          <line x1="40" y1={priceToY(targetVal)} x2="780" y2={priceToY(targetVal)} stroke="var(--accent-green)" strokeWidth="1.5" strokeDasharray="5 5" />
+          <text x="680" y={priceToY(targetVal) - 5} fill="var(--accent-green)" fontSize="11" fontFamily="monospace" fontWeight="bold">
+            T1: ${targetVal.toFixed(2)}
           </text>
 
           {/* Dynamic Candlestick Series */}
@@ -628,6 +713,237 @@ export function LiveTradingChart({ symbol, timeframe, activeItem }: ChartProps) 
               <rect key={i} x={bar.x} y={415 - vh} width={candleWidth} height={vh} fill="url(#volGrad)" rx="1" />
             );
           })}
+
+          {/* 2. Live Entry & Exit Signals (Chart Markers directly on candlesticks) */}
+          {/* Entry Signal: Vibrant Green Up-Arrow (▲) & "GET IN" / "ENTRY" Badge */}
+          {entryIndex >= 0 && entryIndex < candles.length && (() => {
+            const bar = candles[entryIndex];
+            const arrowY = priceToY(bar.l) + 6;
+            const badgeY = arrowY + 12;
+            return (
+              <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none">
+                <circle cx={bar.x + candleWidth / 2} cy={arrowY + 6} r="14" fill="#22C55E" opacity="0.25" filter="blur(4px)" />
+                <polygon
+                  points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY + 10} ${bar.x + candleWidth / 2 + 6},${arrowY + 10}`}
+                  fill="#22C55E"
+                  stroke="#16A34A"
+                  strokeWidth="1"
+                />
+                <rect
+                  x={bar.x + candleWidth / 2 - 28}
+                  y={badgeY}
+                  width="56"
+                  height="18"
+                  rx="4"
+                  fill="#052E16"
+                  stroke="#22C55E"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={bar.x + candleWidth / 2}
+                  y={badgeY + 12}
+                  fill="#4ADE80"
+                  fontSize="9"
+                  fontFamily="monospace"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  ▲ GET IN
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* Exit Signal (Target 1): Vibrant Green/Emerald Down-Arrow (▼) & "GET OUT" Badge */}
+          {targetIndex >= 0 && targetIndex < candles.length && (() => {
+            const bar = candles[targetIndex];
+            const arrowY = priceToY(bar.h) - 6;
+            const badgeY = arrowY - 26;
+            return (
+              <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none">
+                <circle cx={bar.x + candleWidth / 2} cy={arrowY - 6} r="14" fill="#34D399" opacity="0.25" filter="blur(4px)" />
+                <polygon
+                  points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY - 10} ${bar.x + candleWidth / 2 + 6},${arrowY - 10}`}
+                  fill="#34D399"
+                  stroke="#059669"
+                  strokeWidth="1"
+                />
+                <rect
+                  x={bar.x + candleWidth / 2 - 32}
+                  y={badgeY}
+                  width="64"
+                  height="18"
+                  rx="4"
+                  fill="#064E3B"
+                  stroke="#34D399"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={bar.x + candleWidth / 2}
+                  y={badgeY + 12}
+                  fill="#A7F3D0"
+                  fontSize="8.5"
+                  fontFamily="monospace"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  ▼ GET OUT
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* Exit Signal (Stop Loss): Bright Red Down-Arrow (▼) & "GET OUT" / "STOP" Badge */}
+          {stopIndex >= 0 && stopIndex < candles.length && (() => {
+            const bar = candles[stopIndex];
+            const arrowY = priceToY(bar.h) - 6;
+            const badgeY = arrowY - 26;
+            return (
+              <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none">
+                <circle cx={bar.x + candleWidth / 2} cy={arrowY - 6} r="14" fill="#EF4444" opacity="0.25" filter="blur(4px)" />
+                <polygon
+                  points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY - 10} ${bar.x + candleWidth / 2 + 6},${arrowY - 10}`}
+                  fill="#EF4444"
+                  stroke="#DC2626"
+                  strokeWidth="1"
+                />
+                <rect
+                  x={bar.x + candleWidth / 2 - 32}
+                  y={badgeY}
+                  width="64"
+                  height="18"
+                  rx="4"
+                  fill="#450A0A"
+                  stroke="#EF4444"
+                  strokeWidth="1.5"
+                />
+                <text
+                  x={bar.x + candleWidth / 2}
+                  y={badgeY + 12}
+                  fill="#FCA5A5"
+                  fontSize="8.5"
+                  fontFamily="monospace"
+                  fontWeight="900"
+                  textAnchor="middle"
+                >
+                  ▼ GET OUT
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* Real-time Dynamic Signal Marker on the Current Live Candle */}
+          {(() => {
+            const currentBar = candles[candles.length - 1];
+            if (!currentBar) return null;
+            const isLiveEntry = livePrice >= buyPrice * 0.995 && livePrice < targetVal;
+            const isLiveTarget = livePrice >= targetVal;
+            const isLiveStop = livePrice <= stopVal;
+
+            if (isLiveTarget) {
+              const arrowY = priceToY(currentBar.h) - 6;
+              const badgeY = arrowY - 26;
+              return (
+                <g key="live-target-marker" data-testid="chart-live-signal-target" className="select-none">
+                  <polygon
+                    points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
+                    fill="#34D399"
+                  />
+                  <rect
+                    x={currentBar.x + candleWidth / 2 - 38}
+                    y={badgeY}
+                    width="76"
+                    height="18"
+                    rx="4"
+                    fill="#064E3B"
+                    stroke="#34D399"
+                    strokeWidth="1.5"
+                  />
+                  <text
+                    x={currentBar.x + candleWidth / 2}
+                    y={badgeY + 12}
+                    fill="#A7F3D0"
+                    fontSize="8"
+                    fontFamily="monospace"
+                    fontWeight="900"
+                    textAnchor="middle"
+                  >
+                    ▼ GET OUT · T1
+                  </text>
+                </g>
+              );
+            }
+
+            if (isLiveStop) {
+              const arrowY = priceToY(currentBar.h) - 6;
+              const badgeY = arrowY - 26;
+              return (
+                <g key="live-stop-marker" data-testid="chart-live-signal-stop" className="select-none">
+                  <polygon
+                    points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
+                    fill="#EF4444"
+                  />
+                  <rect
+                    x={currentBar.x + candleWidth / 2 - 40}
+                    y={badgeY}
+                    width="80"
+                    height="18"
+                    rx="4"
+                    fill="#450A0A"
+                    stroke="#EF4444"
+                    strokeWidth="1.5"
+                  />
+                  <text
+                    x={currentBar.x + candleWidth / 2}
+                    y={badgeY + 12}
+                    fill="#FCA5A5"
+                    fontSize="8"
+                    fontFamily="monospace"
+                    fontWeight="900"
+                    textAnchor="middle"
+                  >
+                    ▼ GET OUT · STOP
+                  </text>
+                </g>
+              );
+            }
+
+            if (isLiveEntry) {
+              const arrowY = priceToY(currentBar.l) + 6;
+              const badgeY = arrowY + 12;
+              return (
+                <g key="live-entry-marker" data-testid="chart-live-signal-entry" className="select-none">
+                  <polygon
+                    points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY + 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY + 10}`}
+                    fill="#22C55E"
+                  />
+                  <rect
+                    x={currentBar.x + candleWidth / 2 - 34}
+                    y={badgeY}
+                    width="68"
+                    height="18"
+                    rx="4"
+                    fill="#052E16"
+                    stroke="#22C55E"
+                    strokeWidth="1.5"
+                  />
+                  <text
+                    x={currentBar.x + candleWidth / 2}
+                    y={badgeY + 12}
+                    fill="#4ADE80"
+                    fontSize="8"
+                    fontFamily="monospace"
+                    fontWeight="900"
+                    textAnchor="middle"
+                  >
+                    ▲ GET IN · LIVE
+                  </text>
+                </g>
+              );
+            }
+
+            return null;
+          })()}
         </svg>
       </div>
     </div>
@@ -1144,7 +1460,14 @@ export default function WealthEngineDashboard() {
           <div className="min-w-0 flex-1 overflow-hidden relative flex flex-col p-4">
             {activeTab === "Chart" && (
               <div className="min-w-0 flex-1 overflow-hidden relative w-full h-full">
-                <Chart symbol={activeTicker} timeframe={activeTf} activeItem={activeItem} />
+                <Chart
+                  symbol={activeTicker}
+                  timeframe={activeTf}
+                  activeItem={activeItem}
+                  entryPrice={activeItem.buyTarget}
+                  stopLoss={activeItem.stopLoss}
+                  primaryTarget={activeItem.primaryTarget}
+                />
               </div>
             )}
 

@@ -487,6 +487,9 @@ interface Props {
    *  the toolbar. Passed in by the parent so this file stays free of
    *  four extra candle fetches. */
   mtfStrip?: React.ReactNode;
+  entryPrice?: number;
+  stopLoss?: number;
+  primaryTarget?: number;
 }
 
 // Phase 5: color mapping for pattern state. Kept as a plain object so the
@@ -532,7 +535,45 @@ function PatternPill({ label, state, details, level, unavailable }: {
   );
 }
 
-export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, barsWarning, regime, height = 380, timeframe = "1D", onTimeframeChange, mtfStrip }: Props) {
+export default function TradingViewChart({
+  ticker,
+  bars: barsRaw,
+  isLoading,
+  barsWarning,
+  regime,
+  height = 380,
+  timeframe = "1D",
+  onTimeframeChange,
+  mtfStrip,
+  entryPrice,
+  stopLoss,
+  primaryTarget,
+}: Props) {
+  // Auto-hiding timeout for chart warning / overlay text (3.5s + 1s fade)
+  const [isWarningVisible, setIsWarningVisible] = useState(true);
+  const [shouldRenderWarning, setShouldRenderWarning] = useState(true);
+
+  useEffect(() => {
+    if (!barsWarning) {
+      setShouldRenderWarning(false);
+      return;
+    }
+    setIsWarningVisible(true);
+    setShouldRenderWarning(true);
+
+    const fadeTimer = setTimeout(() => {
+      setIsWarningVisible(false);
+    }, 3500);
+
+    const unmountTimer = setTimeout(() => {
+      setShouldRenderWarning(false);
+    }, 4500);
+
+    return () => {
+      clearTimeout(fadeTimer);
+      clearTimeout(unmountTimer);
+    };
+  }, [barsWarning, ticker, timeframe]);
   // Defensive: never let a non-array `bars` reach the chart or its
   // indicators/insights. Any upstream shape mismatch would otherwise
   // crash the entire workspace with "t.map is not a function".
@@ -733,6 +774,58 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
 
     chart.timeScale().fitContent();
   }, [bars, chartStyle, t.bull, t.bear]);
+
+  // Live Entry and Exit Signals (Chart Markers) via setMarkers API
+  useEffect(() => {
+    const series = priceSeriesRef.current;
+    if (!series || !bars || bars.length === 0) return;
+
+    const markers: any[] = [];
+    const buyLevel = entryPrice;
+    const stopLevel = stopLoss;
+    const targetLevel = primaryTarget;
+
+    if (buyLevel != null || stopLevel != null || targetLevel != null) {
+      bars.forEach((bar) => {
+        const t = barTime(bar) as UTCTimestamp;
+        if (buyLevel != null && bar.low <= buyLevel && bar.high >= buyLevel) {
+          markers.push({
+            time: t,
+            position: "belowBar",
+            color: "#22C55E",
+            shape: "arrowUp",
+            text: "GET IN",
+          });
+        }
+        if (targetLevel != null && bar.high >= targetLevel) {
+          markers.push({
+            time: t,
+            position: "aboveBar",
+            color: "#34D399",
+            shape: "arrowDown",
+            text: "GET OUT",
+          });
+        }
+        if (stopLevel != null && bar.low <= stopLevel) {
+          markers.push({
+            time: t,
+            position: "aboveBar",
+            color: "#EF4444",
+            shape: "arrowDown",
+            text: "GET OUT",
+          });
+        }
+      });
+    }
+
+    try {
+      if (typeof (series as any).setMarkers === "function") {
+        (series as any).setMarkers(markers);
+      }
+    } catch {
+      // Ignore if chart is rebuilding
+    }
+  }, [bars, entryPrice, stopLoss, primaryTarget]);
 
   // Manage overlay indicator series (SMA/EMA/BB/VWAP + volume histogram).
   useEffect(() => {
@@ -1815,9 +1908,11 @@ export default function TradingViewChart({ ticker, bars: barsRaw, isLoading, bar
               : `No chart data for ${ticker} \u00b7 ${timeframe}\u00a0\u2014 try 1D or 30M.`}
           </div>
         )}
-        {barsWarning && bars && bars.length > 0 && (
+        {shouldRenderWarning && barsWarning && bars && bars.length > 0 && (
           <div
-            className="absolute top-2 left-2 right-2 z-10 rounded-md border border-signal-amber/50 bg-ink-panel/95 px-2 py-1 text-[10px] uppercase tracking-wide text-signal-amber pointer-events-none"
+            className={`absolute top-2 left-2 right-2 z-10 rounded-md border border-signal-amber/50 bg-ink-panel/95 px-2 py-1 text-[10px] uppercase tracking-wide text-signal-amber pointer-events-none transition-opacity duration-1000 ease-in-out ${
+              isWarningVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
             data-testid="chart-bars-warning"
           >
             {barsWarning}

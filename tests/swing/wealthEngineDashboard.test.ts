@@ -121,5 +121,30 @@ describe("Chizzle Wealth Engine — Single-Page Dashboard Studio", () => {
       expect(dashboardContent).toContain("Historical Win Rate");
     });
   });
+
+  describe("4. Auto-Hiding Text Overlay & Live Chart Markers", () => {
+    it("implements auto-hiding text overlay with fade-out classes and timeout cleanup", () => {
+      expect(dashboardContent).toContain('data-testid="chart-text-overlay"');
+      expect(dashboardContent).toContain("transition-opacity duration-1000 ease-in-out");
+      expect(dashboardContent).toContain("opacity-100");
+      expect(dashboardContent).toContain("opacity-0 pointer-events-none");
+      expect(dashboardContent).toContain("clearTimeout");
+    });
+
+    it("renders live Entry and Exit signal markers directly on the candlesticks", () => {
+      expect(dashboardContent).toContain('data-testid="chart-marker-entry"');
+      expect(dashboardContent).toContain("▲ GET IN");
+      expect(dashboardContent).toContain('data-testid="chart-marker-target"');
+      expect(dashboardContent).toContain('data-testid="chart-marker-stop"');
+      expect(dashboardContent).toContain("▼ GET OUT");
+    });
+
+    it("evaluates live real-time price signals on the incoming candle", () => {
+      expect(dashboardContent).toContain("chart-live-signal-");
+      expect(dashboardContent).toContain("entryPrice");
+      expect(dashboardContent).toContain("stopLoss");
+      expect(dashboardContent).toContain("primaryTarget");
+    });
+  });
 });
 
