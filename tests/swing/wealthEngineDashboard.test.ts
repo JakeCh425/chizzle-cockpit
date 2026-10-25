@@ -146,5 +146,46 @@ describe("Chizzle Wealth Engine — Single-Page Dashboard Studio", () => {
       expect(dashboardContent).toContain("primaryTarget");
     });
   });
+
+  describe("5. Unblocked Chart, Real-Time Price Tracker, and Crosshair OHLC Display", () => {
+    it("moves BUY, STOP, T1 and live price labels completely outside the candlestick grid onto the right-hand Y-axis", () => {
+      expect(dashboardContent).toContain('data-testid="chart-label-buy"');
+      expect(dashboardContent).toContain('data-testid="chart-label-stop"');
+      expect(dashboardContent).toContain('data-testid="chart-label-t1"');
+      expect(dashboardContent).toContain('data-testid="chart-live-price-badge"');
+      expect(dashboardContent).toContain("translate(714,");
+    });
+
+    it("fades horizontal target, buy, and stop lines to 30%-40% opacity behind the candlestick series", () => {
+      expect(dashboardContent).toContain('opacity="0.35"');
+      // Ensure lines precede the candlestick mapping in rendering order
+      const buyLineIdx = dashboardContent.indexOf("Buy Target Line (Faded to ~35% opacity behind candles)");
+      const candleLoopIdx = dashboardContent.indexOf("FOREGROUND LAYER: Dynamic Candlestick Series");
+      expect(buyLineIdx).toBeGreaterThan(0);
+      expect(candleLoopIdx).toBeGreaterThan(buyLineIdx);
+    });
+
+    it("shrinks the glowing live price tag dimensions and glow radius", () => {
+      expect(dashboardContent).toContain('width="76"');
+      expect(dashboardContent).toContain('height="18"');
+      expect(dashboardContent).toContain("drop-shadow-[0_0_4px_rgba(6,182,212,0.4)]");
+    });
+
+    it("renders a thin 1px horizontal live price line tracking tick-by-tick without redrawing historical candles", () => {
+      expect(dashboardContent).toContain('data-testid="chart-live-price-line"');
+      expect(dashboardContent).toContain('strokeWidth="1"');
+      expect(dashboardContent).toContain("baseCandles");
+      expect(dashboardContent).toContain("activeCandle");
+    });
+
+    it("enables crosshair tracking lines and anchored OHLC legend display on hover", () => {
+      expect(dashboardContent).toContain('data-testid="chart-crosshair-lines"');
+      expect(dashboardContent).toContain('data-testid="chart-ohlc-legend"');
+      expect(dashboardContent).toContain('data-testid="chart-hover-tooltip"');
+      expect(dashboardContent).toContain("handleSvgMouseMove");
+      expect(dashboardContent).toContain("handleSvgMouseLeave");
+      expect(dashboardContent).toContain("cursor-crosshair");
+    });
+  });
 });
 
