@@ -18,6 +18,9 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
   const modalChartPath = path.resolve(__dirname, "../../client/src/components/swing/ModalLargeChart.tsx");
   const modalChartContent = fs.readFileSync(modalChartPath, "utf-8").replace(/\r\n/g, "\n");
 
+  const tradingCardPath = path.resolve(__dirname, "../../client/src/components/swing/TradingCard.tsx");
+  const tradingCardContent = fs.readFileSync(tradingCardPath, "utf-8").replace(/\r\n/g, "\n");
+
   describe("1. Multi-Timeframe Learning Chart Header Replacement", () => {
     it("removes the small right-aligned LiveTickerCornerBadge price pill from the main chart header", () => {
       // LiveTickerCornerBadge must not be inside the header row
@@ -134,6 +137,40 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
       expect(modalChartContent).toContain('data-testid="button-fidelity-guide-modal"');
       expect(modalChartContent).toContain("<FidelityExecutionCheatSheet");
       expect(modalChartContent).toContain("isOpenModal={isFidelityGuideOpen}");
+    });
+  });
+
+  describe("4. UI Refinements: Overflow Scrollbar, Mini-Guide, & Collapsible Setup Cards", () => {
+    it("enables vertical scrolling and sticky header on FidelityExecutionGuide", () => {
+      expect(guideContent).toContain("max-h-[70vh]");
+      expect(guideContent).toContain("overflow-y-auto");
+      expect(guideContent).toContain("sticky top-0");
+    });
+
+    it("renders Quick View mini-guide button and inline broker ticket in InlineTradingCard", () => {
+      expect(tradingCardContent).toContain('data-testid={`button-mini-guide-${d.symbol}`}');
+      expect(tradingCardContent).toContain("[Fidelity Ticket]");
+      expect(tradingCardContent).toContain('data-testid={`mini-fidelity-guide-${d.symbol}`}');
+      expect(tradingCardContent).toContain("BUY LIMIT:");
+      expect(tradingCardContent).toContain("SELL LIMIT (50%):");
+      expect(tradingCardContent).toContain("SELL STOP:");
+    });
+
+    it("keeps core metrics always visible and wraps card details in collapsible container with accordion toggle", () => {
+      expect(tradingCardContent).toContain('data-testid={`core-metrics-${d.symbol}`}');
+      expect(tradingCardContent).toContain('data-testid={`button-toggle-card-collapse-${d.symbol}`}');
+      expect(tradingCardContent).toContain('data-testid={`card-collapsible-body-${d.symbol}`}');
+      expect(tradingCardContent).toContain("const [isBodyExpanded, setIsBodyExpanded] = useState(true);");
+    });
+
+    it("implements Quick View Broker Guide and collapsible body on Studio Setup Card in WealthEngineDashboard", () => {
+      const refreshedDashboardContent = fs.readFileSync(dashboardPath, "utf-8").replace(/\r\n/g, "\n");
+      expect(refreshedDashboardContent).toContain('data-testid="button-studio-mini-guide"');
+      expect(refreshedDashboardContent).toContain("[Broker Guide]");
+      expect(refreshedDashboardContent).toContain('data-testid="studio-mini-fidelity-guide"');
+      expect(refreshedDashboardContent).toContain('data-testid="button-toggle-setup-card-collapse"');
+      expect(refreshedDashboardContent).toContain('data-testid="studio-setup-card-body"');
+      expect(refreshedDashboardContent).toContain("const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(true);");
     });
   });
 });

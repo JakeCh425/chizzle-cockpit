@@ -11,8 +11,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronRight, CircleDashed, Clock, Eye, LineChart,
-  Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap,
+  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, CircleDashed, Clock, Eye, LineChart,
+  Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap, ClipboardList,
 } from "lucide-react";
 import {
   CandlestickSeries, LineSeries, LineStyle, createChart,
@@ -1281,6 +1281,8 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
   const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
+  const [isBodyExpanded, setIsBodyExpanded] = useState(true);
+  const [isMiniGuideOpen, setIsMiniGuideOpen] = useState(false);
 
   const isCustom = sz.override;
   const activeEntry = isCustom ? sz.E : p.entry;
@@ -1379,7 +1381,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     >
       <ReadyRibbon d={d} ver={ver} />
 
-      {/* ─── HEADER: Ticker symbol, Lock/Status icon, Pinned +X.XX% Potential Gain Badge ─── */}
+      {/* ─── HEADER: Ticker symbol, Lock/Status icon, [Fidelity Ticket] Mini-Guide & Accordion Toggle ─── */}
       <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-[var(--card-border)]">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
@@ -1408,80 +1410,58 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <PendingChip d={d} />
         </div>
 
-        {/* Pinned Potential Gain Badge on Top Right */}
+        {/* Right Actions: [Fidelity Ticket] Mini-Guide Button, Pinned Gain Badge & Collapse Toggle */}
         <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsMiniGuideOpen((prev) => !prev);
+            }}
+            className={`px-2.5 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm ${
+              isMiniGuideOpen
+                ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
+                : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
+            }`}
+            data-testid={`button-mini-guide-${d.symbol}`}
+            title="Toggle Quick View Fidelity Ticket Mini-Guide"
+          >
+            [Fidelity Ticket]
+          </button>
+
           {potentialGainPct > 0 ? (
-            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm">
+            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm hidden sm:inline-block">
               +{potentialGainPct.toFixed(2)}% Potential Gain
             </span>
           ) : (
-            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums">
+            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums hidden sm:inline-block">
               0.00% Potential Gain
             </span>
           )}
-        </div>
-      </div>
 
-      {/* ─── SIGNAL INFO & HISTORICAL EDGE BADGE ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 py-2.5 text-xs text-slate-400">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="tracking-wide">
-            Signal Time: <span className="font-mono text-slate-300">{fmtCT(d.quoteTimestamp)}</span>
-          </span>
-          <span>•</span>
-          <span className="font-semibold text-slate-300">
-            {setupName(d.setupType)}{d.setupTimeframe ? ` (${d.setupTimeframe})` : ""}
-          </span>
-        </div>
-        <span
-          className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-mono font-semibold transition-colors ${
-            scaleOutMode
-              ? "border-emerald-400/50 bg-emerald-950/60 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
-              : "border-cyan-500/30 bg-cyan-950/40 text-cyan-300"
-          }`}
-          title={scaleOutMode ? "Dynamic higher win rate (75%+) with closer 1.5R partial target" : "Historical win rate for this setup structure"}
-          data-testid={`badge-win-rate-${d.symbol}`}
-        >
-          Historical Win Rate: {winRate}%{scaleOutMode ? " (75%+ Win Rate)" : ""}
-        </span>
-      </div>
-
-      {/* ─── LEARNING / SCALE-OUT MODE TOGGLE ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 my-1 shadow-sm">
-        <div className="flex items-center gap-2.5">
+          {/* Accordion Collapse / Expand Toggle */}
           <button
             type="button"
-            role="switch"
-            aria-checked={scaleOutMode}
-            onClick={() => setScaleOutMode(!scaleOutMode)}
-            className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-              scaleOutMode ? "bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]" : "bg-slate-700"
-            }`}
-            data-testid={`toggle-scale-out-${d.symbol}`}
-            title="Toggle 1.5R Partial Profit Scale-Out Mode"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsBodyExpanded((prev) => !prev);
+            }}
+            className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+            data-testid={`button-toggle-card-collapse-${d.symbol}`}
+            title={isBodyExpanded ? "Collapse card details" : "Expand card details"}
+            aria-label={isBodyExpanded ? "Collapse card details" : "Expand card details"}
           >
-            <span
-              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                scaleOutMode ? "translate-x-4" : "translate-x-0"
-              }`}
-            />
+            {isBodyExpanded ? (
+              <ChevronUp className="h-4 w-4 text-cyan-400" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-cyan-400" />
+            )}
           </button>
-          <label
-            onClick={() => setScaleOutMode(!scaleOutMode)}
-            className="text-xs font-semibold text-slate-300 cursor-pointer select-none hover:text-white"
-          >
-            Enable 1.5R Partial Profit (75%+ Win Rate)
-          </label>
         </div>
-        {scaleOutMode && (
-          <span className="rounded border border-cyan-400/40 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm">
-            Scale-Out Active (1.5R • 2R • 3R)
-          </span>
-        )}
       </div>
 
-      {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) ─── */}
-      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner">
+      {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) - ALWAYS VISIBLE ─── */}
+      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner" data-testid={`core-metrics-${d.symbol}`}>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
             Buy Target
@@ -1508,271 +1488,361 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       </div>
 
-      {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and active Target 1 ─── */}
-      <div className="flex flex-col gap-1.5 my-2">
-        <div className="flex items-center justify-between font-mono text-[10px] text-[var(--card-text-secondary)]">
-          <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
-          <span className="text-slate-300">
-            Current: <strong className="text-white tabular-nums">{$(effectivePrice)}</strong> ({progressPct.toFixed(0)}%)
-          </span>
-          <span>
-            {scaleOutMode ? "Target 1 (1.5R): " : "Target 1 (2.0R): "}
-            <strong className="text-white tabular-nums">{$(targets.t1)}</strong>
-          </span>
-        </div>
-        <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--card-bg)] border border-[var(--card-border)]">
-          <div
-            className="h-full rounded-full bg-[var(--card-accent-target)] transition-all duration-300"
-            style={{ width: `${progressPct}%` }}
-          />
-        </div>
-      </div>
-
-      {/* ─── TARGET BADGES: Pill-shaped badges with checkmarks if surpassed ─── */}
-      <div className="flex flex-wrap items-center gap-2 my-2">
-        {scaleOutMode ? (
-          <>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-                t1Passed
-                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-                  : "border-cyan-400/30 bg-cyan-950/50 text-cyan-200"
-              }`}
-              data-testid={`badge-target-1-${d.symbol}`}
-            >
-              {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-              Target 1 (Partial): {$(targets.t1)} (1.5R)
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-                t2Passed
-                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-                  : "border-white/10 bg-slate-800/80 text-slate-300"
-              }`}
-              data-testid={`badge-target-2-${d.symbol}`}
-            >
-              {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-              Target 2 (Core): {$(targets.t2)} (2.0R)
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-                t3Passed
-                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-                  : "border-white/10 bg-slate-800/80 text-slate-300"
-              }`}
-              data-testid={`badge-target-3-${d.symbol}`}
-            >
-              {t3Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-              Target 3 (Runner): {$(targets.t3)} (3.0R)
-            </span>
-          </>
-        ) : (
-          <>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-                t1Passed
-                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-                  : "border-white/10 bg-slate-800/80 text-slate-300"
-              }`}
-              data-testid={`badge-target-1-${d.symbol}`}
-            >
-              {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-              Sell Target 1: {$(targets.t1)} (2.0R)
-            </span>
-            <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
-                t2Passed
-                  ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
-                  : "border-white/10 bg-slate-800/80 text-slate-300"
-              }`}
-              data-testid={`badge-target-2-${d.symbol}`}
-            >
-              {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
-              Sell Target 2: {$(targets.t2)} (3.0R)
-            </span>
-          </>
-        )}
-      </div>
-
-      {/* ─── EXTENDED RUNNER TARGETS CHECKBOX & DISPLAY ─── */}
-      <div className="flex items-center gap-2 mt-1 mb-2">
-        <input
-          id={`chk-extended-${d.symbol}`}
-          type="checkbox"
-          checked={showExtended}
-          onChange={(e) => setShowExtended(e.target.checked)}
-          className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-          data-testid={`checkbox-extended-targets-${d.symbol}`}
-        />
-        <label
-          htmlFor={`chk-extended-${d.symbol}`}
-          className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
-        >
-          Show Extended Runner Targets (4R, 5R, 6R)
-        </label>
-      </div>
-
-      {showExtended && (
+      {/* ─── 'QUICK VIEW' MINI-GUIDE (Directly below Buy Target / Stop Loss numbers) ─── */}
+      {isMiniGuideOpen && (
         <div
-          className="flex flex-col gap-2 rounded-lg border border-purple-500/25 bg-purple-950/20 p-3 my-2 animate-in fade-in duration-200"
-          data-testid={`container-extended-targets-${d.symbol}`}
+          className="my-2 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
+          data-testid={`mini-fidelity-guide-${d.symbol}`}
+          onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono">
-            <span className="font-bold uppercase tracking-wider text-purple-300">
-              Extended Runner Targets (View Only)
-            </span>
-            <span className="text-slate-400">
-              Informational • Does not alter execution logic
-            </span>
+          <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+            <ClipboardList className="h-3.5 w-3.5" />
+            <span>Broker Ticket:</span>
           </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t4Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
-              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                <span>4.00R Runner</span>
-                {t4Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
-              </div>
-              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t4)}</span>
-              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t4)}%</span>
-              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
-            </div>
-
-            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t5Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
-              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                <span>5.00R Runner</span>
-                {t5Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
-              </div>
-              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t5)}</span>
-              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t5)}%</span>
-              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
-            </div>
-
-            <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t6Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
-              <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
-                <span>6.00R Runner</span>
-                {t6Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
-              </div>
-              <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t6)}</span>
-              <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t6)}%</span>
-              <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
-            </div>
+          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold">
+            <span className="text-emerald-400">
+              BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong>
+            </span>
+            <span className="text-slate-500">|</span>
+            <span className="text-cyan-300">
+              SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong>
+            </span>
+            <span className="text-slate-500">|</span>
+            <span className="text-rose-400">
+              SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong>
+            </span>
           </div>
         </div>
       )}
 
-      {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
-      <div className="my-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 text-xs font-medium leading-relaxed text-slate-200">
-        {statusSentence}
-      </div>
+      {/* ─── COLLAPSIBLE BODY (Mini-chart, Sell Target pills, Extended Runners, Action Buttons) ─── */}
+      {isBodyExpanded && (
+        <div className="flex flex-col gap-2 mt-1 animate-in fade-in duration-150" data-testid={`card-collapsible-body-${d.symbol}`}>
+          {/* ─── SIGNAL INFO & HISTORICAL EDGE BADGE ─── */}
+          <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs text-slate-400">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="tracking-wide">
+                Signal Time: <span className="font-mono text-slate-300">{fmtCT(d.quoteTimestamp)}</span>
+              </span>
+              <span>•</span>
+              <span className="font-semibold text-slate-300">
+                {setupName(d.setupType)}{d.setupTimeframe ? ` (${d.setupTimeframe})` : ""}
+              </span>
+            </div>
+            <span
+              className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-mono font-semibold transition-colors ${
+                scaleOutMode
+                  ? "border-emerald-400/50 bg-emerald-950/60 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
+                  : "border-cyan-500/30 bg-cyan-950/40 text-cyan-300"
+              }`}
+              title={scaleOutMode ? "Dynamic higher win rate (75%+) with closer 1.5R partial target" : "Historical win rate for this setup structure"}
+              data-testid={`badge-win-rate-${d.symbol}`}
+            >
+              Historical Win Rate: {winRate}%{scaleOutMode ? " (75%+ Win Rate)" : ""}
+            </span>
+          </div>
 
-      {/* ─── EMBEDDED SPARKLINE CHART (Click to expand large modal chart) ─── */}
-      <div
-        className="cursor-pointer group relative"
-        onClick={(e) => {
-          e.stopPropagation();
-          props.onSeen?.();
-          props.onOpen?.();
-        }}
-        title="Click to view large interactive chart"
-        data-testid={`chart-click-expand-${d.symbol}`}
-      >
-        <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
-        <div className="absolute top-6 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/90 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-300 flex items-center gap-1 shadow-md pointer-events-none">
-          <Maximize2 className="h-3 w-3 text-cyan-400" />
-          <span>Large Chart</span>
-        </div>
-      </div>
+          {/* ─── LEARNING / SCALE-OUT MODE TOGGLE ─── */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 my-1 shadow-sm">
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={scaleOutMode}
+                onClick={() => setScaleOutMode(!scaleOutMode)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  scaleOutMode ? "bg-cyan-500 shadow-[0_0_10px_rgba(6,182,212,0.4)]" : "bg-slate-700"
+                }`}
+                data-testid={`toggle-scale-out-${d.symbol}`}
+                title="Toggle 1.5R Partial Profit Scale-Out Mode"
+              >
+                <span
+                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    scaleOutMode ? "translate-x-4" : "translate-x-0"
+                  }`}
+                />
+              </button>
+              <label
+                onClick={() => setScaleOutMode(!scaleOutMode)}
+                className="text-xs font-semibold text-slate-300 cursor-pointer select-none hover:text-white"
+              >
+                Enable 1.5R Partial Profit (75%+ Win Rate)
+              </label>
+            </div>
+            {scaleOutMode && (
+              <span className="rounded border border-cyan-400/40 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm">
+                Scale-Out Active (1.5R • 2R • 3R)
+              </span>
+            )}
+          </div>
 
-      {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-3 border-t border-ink-line/50">
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Permanently visible Arm Trade action button */}
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
-            onClick={() => {
-              onSeen();
-              openTradeDialog({
-                mode: "arm",
-                decision: d,
-                plan: effectivePlan(d, ver),
-                liveAllowed: live?.allowed ?? null,
-                overrideRequired: group !== "READY",
-              });
+          {/* ─── VISUAL PROGRESS BAR: Tracking current price between Entry and active Target 1 ─── */}
+          <div className="flex flex-col gap-1.5 my-1">
+            <div className="flex items-center justify-between font-mono text-[10px] text-[var(--card-text-secondary)]">
+              <span>Entry: <strong className="text-white tabular-nums">{$(activeEntry)}</strong></span>
+              <span className="text-slate-300">
+                Current: <strong className="text-white tabular-nums">{$(effectivePrice)}</strong> ({progressPct.toFixed(0)}%)
+              </span>
+              <span>
+                {scaleOutMode ? "Target 1 (1.5R): " : "Target 1 (2.0R): "}
+                <strong className="text-white tabular-nums">{$(targets.t1)}</strong>
+              </span>
+            </div>
+            <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--card-bg)] border border-[var(--card-border)]">
+              <div
+                className="h-full rounded-full bg-[var(--card-accent-target)] transition-all duration-300"
+                style={{ width: `${progressPct}%` }}
+              />
+            </div>
+          </div>
+
+          {/* ─── TARGET BADGES: Pill-shaped badges with checkmarks if surpassed ─── */}
+          <div className="flex flex-wrap items-center gap-2 my-1">
+            {scaleOutMode ? (
+              <>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                    t1Passed
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                      : "border-cyan-400/30 bg-cyan-950/50 text-cyan-200"
+                  }`}
+                  data-testid={`badge-target-1-${d.symbol}`}
+                >
+                  {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+                  Target 1 (Partial): {$(targets.t1)} (1.5R)
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                    t2Passed
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                      : "border-white/10 bg-slate-800/80 text-slate-300"
+                  }`}
+                  data-testid={`badge-target-2-${d.symbol}`}
+                >
+                  {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+                  Target 2 (Core): {$(targets.t2)} (2.0R)
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                    t3Passed
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                      : "border-white/10 bg-slate-800/80 text-slate-300"
+                  }`}
+                  data-testid={`badge-target-3-${d.symbol}`}
+                >
+                  {t3Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+                  Target 3 (Runner): {$(targets.t3)} (3.0R)
+                </span>
+              </>
+            ) : (
+              <>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                    t1Passed
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                      : "border-white/10 bg-slate-800/80 text-slate-300"
+                  }`}
+                  data-testid={`badge-target-1-${d.symbol}`}
+                >
+                  {t1Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+                  Sell Target 1: {$(targets.t1)} (2.0R)
+                </span>
+                <span
+                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 font-mono text-xs font-semibold tabular-nums border ${
+                    t2Passed
+                      ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-400"
+                      : "border-white/10 bg-slate-800/80 text-slate-300"
+                  }`}
+                  data-testid={`badge-target-2-${d.symbol}`}
+                >
+                  {t2Passed && <Check className="h-3.5 w-3.5 stroke-[2.5]" />}
+                  Sell Target 2: {$(targets.t2)} (3.0R)
+                </span>
+              </>
+            )}
+          </div>
+
+          {/* ─── EXTENDED RUNNER TARGETS CHECKBOX & DISPLAY ─── */}
+          <div className="flex items-center gap-2 mt-1 mb-1">
+            <input
+              id={`chk-extended-${d.symbol}`}
+              type="checkbox"
+              checked={showExtended}
+              onChange={(e) => setShowExtended(e.target.checked)}
+              className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              data-testid={`checkbox-extended-targets-${d.symbol}`}
+            />
+            <label
+              htmlFor={`chk-extended-${d.symbol}`}
+              className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
+            >
+              Show Extended Runner Targets (4R, 5R, 6R)
+            </label>
+          </div>
+
+          {showExtended && (
+            <div
+              className="flex flex-col gap-2 rounded-lg border border-purple-500/25 bg-purple-950/20 p-3 my-1 animate-in fade-in duration-200"
+              data-testid={`container-extended-targets-${d.symbol}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-1 text-[10px] font-mono">
+                <span className="font-bold uppercase tracking-wider text-purple-300">
+                  Extended Runner Targets (View Only)
+                </span>
+                <span className="text-slate-400">
+                  Informational • Does not alter execution logic
+                </span>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t4Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    <span>4.00R Runner</span>
+                    {t4Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+                  </div>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t4)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t4)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+
+                <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t5Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    <span>5.00R Runner</span>
+                    {t5Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+                  </div>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t5)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t5)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+
+                <div className={`flex flex-col gap-0.5 rounded-md border p-2 ${t6Passed ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400" : "border-white/5 bg-black/40 text-slate-200"}`}>
+                  <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-wider text-slate-400">
+                    <span>6.00R Runner</span>
+                    {t6Passed && <Check className="h-3 w-3 text-emerald-400 stroke-[2.5]" />}
+                  </div>
+                  <span className="font-mono text-sm font-bold tabular-nums text-white">{$(targets.t6)}</span>
+                  <span className="font-mono text-[10px] font-semibold text-emerald-400 tabular-nums">+{targets.gainPct(targets.t6)}%</span>
+                  <span className="text-[9px] font-mono text-slate-400 uppercase tracking-wider">View Only</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
+          <div className="my-1 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 text-xs font-medium leading-relaxed text-slate-200">
+            {statusSentence}
+          </div>
+
+          {/* ─── EMBEDDED SPARKLINE CHART (Click to expand large modal chart) ─── */}
+          <div
+            className="cursor-pointer group relative"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onSeen?.();
+              props.onOpen?.();
             }}
-            data-testid={`button-arm-trade-${d.symbol}`}
-            title="Arm practice trade plan"
+            title="Click to view large interactive chart"
+            data-testid={`chart-click-expand-${d.symbol}`}
           >
-            <Crosshair className="h-4 w-4 text-signal-green" />
-            Arm Trade
-          </button>
+            <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} />
+            <div className="absolute top-6 right-2 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-950/90 border border-cyan-500/50 px-2 py-0.5 rounded text-[10px] font-mono text-cyan-300 flex items-center gap-1 shadow-md pointer-events-none">
+              <Maximize2 className="h-3 w-3 text-cyan-400" />
+              <span>Large Chart</span>
+            </div>
+          </div>
 
-          {/* Permanently visible Adjust Plan action button */}
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
-            onClick={handleAdjustPlan}
-            data-testid={`button-adjust-plan-${d.symbol}`}
-            title="Adjust plan entries and overrides"
-          >
-            <Pencil className="h-4 w-4 text-neon-blue" />
-            Adjust Plan
-          </button>
+          {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-2 border-t border-ink-line/50">
+            <div className="flex flex-wrap items-center gap-2.5">
+              {/* Permanently visible Arm Trade action button */}
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
+                onClick={() => {
+                  onSeen();
+                  openTradeDialog({
+                    mode: "arm",
+                    decision: d,
+                    plan: effectivePlan(d, ver),
+                    liveAllowed: live?.allowed ?? null,
+                    overrideRequired: group !== "READY",
+                  });
+                }}
+                data-testid={`button-arm-trade-${d.symbol}`}
+                title="Arm practice trade plan"
+              >
+                <Crosshair className="h-4 w-4 text-signal-green" />
+                Arm Trade
+              </button>
 
-          {isCustom && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-              onClick={sz.reset}
-              data-testid={`button-levels-reset-${d.symbol}`}
-              title="Reset to Original Engine Plan"
-            >
-              <RotateCcw className="h-3.5 w-3.5 text-cyan-400" />
-              Reset Plan
-            </button>
+              {/* Permanently visible Adjust Plan action button */}
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
+                onClick={handleAdjustPlan}
+                data-testid={`button-adjust-plan-${d.symbol}`}
+                title="Adjust plan entries and overrides"
+              >
+                <Pencil className="h-4 w-4 text-neon-blue" />
+                Adjust Plan
+              </button>
+
+              {isCustom && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+                  onClick={sz.reset}
+                  data-testid={`button-levels-reset-${d.symbol}`}
+                  title="Reset to Original Engine Plan"
+                >
+                  <RotateCcw className="h-3.5 w-3.5 text-cyan-400" />
+                  Reset Plan
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
+                onClick={() => focusSymbol(d.symbol)}
+                title="Focus symbol on chart"
+              >
+                <LineChart className="h-3.5 w-3.5" />
+                Chart
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {props.onOpen && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
+                  onClick={() => { onSeen(); props.onOpen!(); }}
+                  title="Open full dialog view"
+                >
+                  <Maximize2 className="h-3.5 w-3.5" />
+                  Open Card
+                </button>
+              )}
+
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+                onClick={toggleDetails}
+                aria-expanded={detailsOpen}
+                title={detailsOpen ? "Hide detailed sections" : "Show detailed sections"}
+              >
+                {detailsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                {detailsOpen ? "Less" : "Details"}
+              </button>
+            </div>
+          </div>
+
+          {/* ─── EXPANDABLE DETAILED BODY (Funding, Overrides, Readiness) ─── */}
+          {detailsOpen && (
+            <div className="flex flex-col gap-4 pt-4 mt-2 border-t border-white/10 animate-in fade-in duration-200">
+              <CriticalWarnings d={d} ver={ver} />
+              <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
+            </div>
           )}
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
-            onClick={() => focusSymbol(d.symbol)}
-            title="Focus symbol on chart"
-          >
-            <LineChart className="h-3.5 w-3.5" />
-            Chart
-          </button>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {props.onOpen && (
-            <button
-              type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
-              onClick={() => { onSeen(); props.onOpen!(); }}
-              title="Open full dialog view"
-            >
-              <Maximize2 className="h-3.5 w-3.5" />
-              Open Card
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-            onClick={toggleDetails}
-            aria-expanded={detailsOpen}
-            title={detailsOpen ? "Hide detailed sections" : "Show detailed sections"}
-          >
-            {detailsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-            {detailsOpen ? "Less" : "Details"}
-          </button>
-        </div>
-      </div>
-
-      {/* ─── EXPANDABLE DETAILED BODY (Funding, Overrides, Readiness) ─── */}
-      {detailsOpen && (
-        <div className="flex flex-col gap-4 pt-4 mt-4 border-t border-white/10 animate-in fade-in duration-200">
-          <CriticalWarnings d={d} ver={ver} />
-          <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
         </div>
       )}
     </article>

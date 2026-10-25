@@ -1694,6 +1694,8 @@ export default function WealthEngineDashboard() {
 
   // Advanced Metrics accordion state in Right Column
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [isStudioMiniGuideOpen, setIsStudioMiniGuideOpen] = useState(false);
+  const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(true);
 
   const openArmTrade = global?.openArmTrade ?? (() => {});
 
@@ -2369,17 +2371,48 @@ export default function WealthEngineDashboard() {
                   </div>
                 </div>
 
-                <div
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border ${
-                    (activeTickerData?.status ?? activeItem?.status) === "Ready"
-                      ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
-                      : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"
-                      ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
-                      : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
-                  }`}
-                  data-testid="badge-setup-status"
-                >
-                  {activeTickerData?.status ?? activeItem?.status ?? "Ready"}
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsStudioMiniGuideOpen((prev) => !prev)}
+                    className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm ${
+                      isStudioMiniGuideOpen
+                        ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
+                        : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
+                    }`}
+                    data-testid="button-studio-mini-guide"
+                    title="Toggle Quick View Fidelity Ticket Mini-Guide"
+                  >
+                    [Broker Guide]
+                  </button>
+
+                  <div
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border ${
+                      (activeTickerData?.status ?? activeItem?.status) === "Ready"
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
+                        : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                        : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
+                    }`}
+                    data-testid="badge-setup-status"
+                  >
+                    {activeTickerData?.status ?? activeItem?.status ?? "Ready"}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsStudioSetupCardExpanded((prev) => !prev)}
+                    className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                    data-testid="button-toggle-setup-card-collapse"
+                    title={isStudioSetupCardExpanded ? "Collapse card details" : "Expand card details"}
+                    aria-label={isStudioSetupCardExpanded ? "Collapse card details" : "Expand card details"}
+                  >
+                    {isStudioSetupCardExpanded ? (
+                      <ChevronUp className="h-4 w-4 text-cyan-400" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4 text-cyan-400" />
+                    )}
+                  </button>
                 </div>
               </div>
 
@@ -2431,117 +2464,148 @@ export default function WealthEngineDashboard() {
                 </div>
               </div>
 
-              {/* SHORT "BOTTOM LINE" SUMMARY SENTENCE */}
-              <div
-                className="p-3 rounded-xl border text-xs font-sans leading-relaxed my-3"
-                style={{
-                  backgroundColor: "var(--bg-panel-subtle)",
-                  borderColor: "var(--border-subtle)",
-                }}
-                data-testid="setup-bottom-line"
-              >
-                <div className="font-mono text-[9px] font-bold uppercase tracking-wider text-cyan-400 mb-0.5 flex items-center gap-1">
-                  <CheckCircle2 className="h-3 w-3" />
-                  <span>Bottom Line</span>
+              {/* 'QUICK VIEW' MINI-GUIDE (Directly below Buy Target / Stop Loss numbers) */}
+              {isStudioMiniGuideOpen && (
+                <div
+                  className="my-3 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
+                  data-testid="studio-mini-fidelity-guide"
+                >
+                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+                    <ClipboardList className="h-3.5 w-3.5" />
+                    <span>Broker Ticket:</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold">
+                    <span className="text-emerald-400">
+                      BUY LIMIT: <strong className="text-white">${activeItem?.buyTarget != null ? activeItem.buyTarget.toFixed(2) : "0.00"}</strong>
+                    </span>
+                    <span className="text-slate-500">|</span>
+                    <span className="text-cyan-300">
+                      SELL LIMIT (50%): <strong className="text-white">${activeItem?.primaryTarget != null ? activeItem.primaryTarget.toFixed(2) : "0.00"}</strong>
+                    </span>
+                    <span className="text-slate-500">|</span>
+                    <span className="text-rose-400">
+                      SELL STOP: <strong className="text-white">${activeItem?.stopLoss != null ? activeItem.stopLoss.toFixed(2) : "0.00"}</strong>
+                    </span>
+                  </div>
                 </div>
-                <p className="text-slate-300 font-medium">
-                  {activeItem?.bottomLine ?? "Asymmetric swing trade setup."}
-                </p>
-              </div>
+              )}
 
-              {/* Action Buttons */}
-              <div className="space-y-2 mt-4">
-                <button
-                  type="button"
-                  data-testid="button-arm-practice-trade"
-                  onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
-                  className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                  style={{
-                    backgroundColor: "var(--accent-cyan)",
-                    color: "#050914",
-                  }}
-                >
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                  <span>Arm Practice Order</span>
-                </button>
-
-                {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
-                <button
-                  type="button"
-                  data-testid="button-fidelity-ticket-card"
-                  onClick={() => setIsFidelityGuideOpen(true)}
-                  className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  <ClipboardList className="h-4 w-4 text-emerald-400" />
-                  <span>Fidelity Ticket Cheat Sheet</span>
-                </button>
-              </div>
-
-              {/* COLLAPSED "ADVANCED METRICS" ACCORDION (DROPDOWN) */}
-              <div
-                className="mt-4 pt-3 border-t"
-                style={{ borderColor: "var(--border-subtle)" }}
-                data-testid="advanced-metrics-accordion"
-              >
-                <button
-                  type="button"
-                  onClick={() => setAdvancedOpen(!advancedOpen)}
-                  data-testid="button-toggle-advanced-metrics"
-                  className="w-full flex items-center justify-between text-xs font-mono font-bold tracking-wider uppercase py-1 text-slate-300 hover:text-cyan-400 transition-colors cursor-pointer"
-                >
-                  <span className="flex items-center gap-1.5">
-                    <Sliders className="h-3.5 w-3.5 text-cyan-400" />
-                    <span>Advanced Metrics</span>
-                  </span>
-                  {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                </button>
-
-                {advancedOpen && (
+              {/* COLLAPSIBLE BODY (Bottom Line summary, Action Buttons, Advanced Metrics) */}
+              {isStudioSetupCardExpanded && (
+                <div className="space-y-4 animate-in fade-in duration-150" data-testid="studio-setup-card-body">
+                  {/* SHORT "BOTTOM LINE" SUMMARY SENTENCE */}
                   <div
-                    className="mt-3 p-3 rounded-xl border space-y-2.5 font-mono text-xs animate-in fade-in slide-in-from-top-2 duration-200"
+                    className="p-3 rounded-xl border text-xs font-sans leading-relaxed my-3"
                     style={{
                       backgroundColor: "var(--bg-panel-subtle)",
                       borderColor: "var(--border-subtle)",
                     }}
-                    data-testid="advanced-metrics-content"
+                    data-testid="setup-bottom-line"
                   >
-                    {/* Partial Profit Targets */}
-                    <div>
-                      <div className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
-                        Partial Profit Targets
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-[11px]">
-                        <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
-                          <span className="text-slate-400">T2 Target:</span>
-                          <span className="font-bold text-emerald-400">${(activeTickerData?.target2 ?? activeItem?.t2 ?? 115).toFixed(2)}</span>
-                        </div>
-                        <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
-                          <span className="text-slate-400">T3 Runner:</span>
-                          <span className="font-bold text-emerald-400">${(activeTickerData?.target3 ?? activeItem?.t3 ?? 125).toFixed(2)}</span>
-                        </div>
-                      </div>
+                    <div className="font-mono text-[9px] font-bold uppercase tracking-wider text-cyan-400 mb-0.5 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" />
+                      <span>Bottom Line</span>
                     </div>
-
-                    {/* Historical Win Rate */}
-                    <div className="pt-2 border-t border-white/5 flex items-center justify-between">
-                      <span className="text-slate-400">Historical Win Rate:</span>
-                      <span className="font-bold text-cyan-300">{activeItem?.winRate ?? 68.4}% (38 setups)</span>
-                    </div>
-
-                    {/* 14-period ATR */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">14-Period ATR:</span>
-                      <span className="font-bold tabular-nums">${activeItem?.atr != null ? activeItem.atr.toFixed(2) : "4.15"}</span>
-                    </div>
-
-                    {/* Expectancy */}
-                    <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Mathematical Edge:</span>
-                      <span className="font-bold text-emerald-400">+1.62R / Trade</span>
-                    </div>
+                    <p className="text-slate-300 font-medium">
+                      {activeItem?.bottomLine ?? "Asymmetric swing trade setup."}
+                    </p>
                   </div>
-                )}
-              </div>
+
+                  {/* Action Buttons */}
+                  <div className="space-y-2 mt-4">
+                    <button
+                      type="button"
+                      data-testid="button-arm-practice-trade"
+                      onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
+                      className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                      style={{
+                        backgroundColor: "var(--accent-cyan)",
+                        color: "#050914",
+                      }}
+                    >
+                      <Play className="h-3.5 w-3.5 fill-current" />
+                      <span>Arm Practice Order</span>
+                    </button>
+
+                    {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
+                    <button
+                      type="button"
+                      data-testid="button-fidelity-ticket-card"
+                      onClick={() => setIsFidelityGuideOpen(true)}
+                      className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                    >
+                      <ClipboardList className="h-4 w-4 text-emerald-400" />
+                      <span>Fidelity Ticket Cheat Sheet</span>
+                    </button>
+                  </div>
+
+                  {/* COLLAPSED "ADVANCED METRICS" ACCORDION (DROPDOWN) */}
+                  <div
+                    className="mt-4 pt-3 border-t"
+                    style={{ borderColor: "var(--border-subtle)" }}
+                    data-testid="advanced-metrics-accordion"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setAdvancedOpen(!advancedOpen)}
+                      data-testid="button-toggle-advanced-metrics"
+                      className="w-full flex items-center justify-between text-xs font-mono font-bold tracking-wider uppercase py-1 text-slate-300 hover:text-cyan-400 transition-colors cursor-pointer"
+                    >
+                      <span className="flex items-center gap-1.5">
+                        <Sliders className="h-3.5 w-3.5 text-cyan-400" />
+                        <span>Advanced Metrics</span>
+                      </span>
+                      {advancedOpen ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                    </button>
+
+                    {advancedOpen && (
+                      <div
+                        className="mt-3 p-3 rounded-xl border space-y-2.5 font-mono text-xs animate-in fade-in slide-in-from-top-2 duration-200"
+                        style={{
+                          backgroundColor: "var(--bg-panel-subtle)",
+                          borderColor: "var(--border-subtle)",
+                        }}
+                        data-testid="advanced-metrics-content"
+                      >
+                        {/* Partial Profit Targets */}
+                        <div>
+                          <div className="text-[9px] uppercase tracking-wider text-slate-400 font-bold mb-1">
+                            Partial Profit Targets
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-[11px]">
+                            <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
+                              <span className="text-slate-400">T2 Target:</span>
+                              <span className="font-bold text-emerald-400">${(activeTickerData?.target2 ?? activeItem?.t2 ?? 115).toFixed(2)}</span>
+                            </div>
+                            <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
+                              <span className="text-slate-400">T3 Runner:</span>
+                              <span className="font-bold text-emerald-400">${(activeTickerData?.target3 ?? activeItem?.t3 ?? 125).toFixed(2)}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Historical Win Rate */}
+                        <div className="pt-2 border-t border-white/5 flex items-center justify-between">
+                          <span className="text-slate-400">Historical Win Rate:</span>
+                          <span className="font-bold text-cyan-300">{activeItem?.winRate ?? 68.4}% (38 setups)</span>
+                        </div>
+
+                        {/* 14-period ATR */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">14-Period ATR:</span>
+                          <span className="font-bold tabular-nums">${activeItem?.atr != null ? activeItem.atr.toFixed(2) : "4.15"}</span>
+                        </div>
+
+                        {/* Expectancy */}
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-400">Mathematical Edge:</span>
+                          <span className="font-bold text-emerald-400">+1.62R / Trade</span>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* Fidelity Execution Cheat Sheet Component (Inline Collapsible Panel) */}

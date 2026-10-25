@@ -37,11 +37,11 @@ export function FidelityExecutionGuide({
 
   return (
     <div
-      className={`absolute top-3 right-3 z-40 w-96 max-w-[calc(100%-1.5rem)] rounded-xl border border-emerald-500/40 bg-slate-950/95 p-4 shadow-2xl backdrop-blur-md text-slate-100 font-mono text-xs select-none animate-in fade-in zoom-in-95 duration-150 ${className}`}
+      className={`absolute top-3 right-3 z-40 w-96 max-w-[calc(100%-1.5rem)] max-h-[70vh] overflow-y-auto rounded-xl border border-emerald-500/40 bg-slate-950/95 p-4 shadow-2xl backdrop-blur-md text-slate-100 font-mono text-xs select-none animate-in fade-in zoom-in-95 duration-150 ${className}`}
       data-testid="fidelity-execution-guide"
     >
-      {/* Header bar */}
-      <div className="flex items-center justify-between border-b border-slate-800 pb-2.5 mb-3">
+      {/* Sticky Header at the top */}
+      <div className="sticky top-0 z-10 bg-slate-900 border-b border-slate-800 p-3.5 -mx-4 -mt-4 mb-3 rounded-t-xl flex items-center justify-between shadow-md">
         <div className="flex items-center gap-2">
           <span className="text-base">📋</span>
           <h3 className="font-bold text-white text-sm tracking-wide">
