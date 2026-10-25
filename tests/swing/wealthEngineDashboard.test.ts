@@ -225,5 +225,64 @@ describe("Chizzle Wealth Engine — Single-Page Dashboard Studio", () => {
       expect(dashboardContent).toContain("clampHigh");
     });
   });
+
+  describe("7. Error Boundary, Null/Undefined Defenses & Boot Sequence Logging", () => {
+    const appPath = path.resolve(__dirname, "../../client/src/App.tsx");
+    const appContent = fs.readFileSync(appPath, "utf-8").replace(/\r\n/g, "\n");
+
+    const errorBoundaryPath = path.resolve(__dirname, "../../client/src/components/ErrorBoundary.tsx");
+    const errorBoundaryContent = fs.readFileSync(errorBoundaryPath, "utf-8").replace(/\r\n/g, "\n");
+
+    const wealthWatchlistPath = path.resolve(__dirname, "../../client/src/lib/wealthWatchlist.ts");
+    const wealthWatchlistContent = fs.readFileSync(wealthWatchlistPath, "utf-8").replace(/\r\n/g, "\n");
+
+    const globalStatePath = path.resolve(__dirname, "../../client/src/lib/globalState.tsx");
+    const globalStateContent = fs.readFileSync(globalStatePath, "utf-8").replace(/\r\n/g, "\n");
+
+    const priceFeedPath = path.resolve(__dirname, "../../client/src/lib/priceFeed.ts");
+    const priceFeedContent = fs.readFileSync(priceFeedPath, "utf-8").replace(/\r\n/g, "\n");
+
+    it("wraps the Application Root and Wealth Studio routes in Error Boundaries", () => {
+      expect(appContent).toContain('<ErrorBoundary label="Application Root" fullPage>');
+      expect(appContent).toContain('function WealthStudioRoute()');
+      expect(appContent).toContain('<ErrorBoundary label="Wealth Studio" fullPage>');
+      expect(dashboardContent).toContain('<ErrorBoundary label="Wealth Studio Workspace" fullPage>');
+      expect(dashboardContent).toContain('<ErrorBoundary label="Wealth Studio Live Chart">');
+    });
+
+    it("renders detailed error message and stack trace fallback in ErrorBoundary with recovery actions", () => {
+      expect(errorBoundaryContent).toContain('data-testid="error-message-box"');
+      expect(errorBoundaryContent).toContain('data-testid="error-stack-trace"');
+      expect(errorBoundaryContent).toContain('data-testid="button-error-boundary-retry"');
+      expect(errorBoundaryContent).toContain('data-testid="button-error-boundary-reload"');
+      expect(errorBoundaryContent).toContain('data-testid="button-error-boundary-home"');
+      expect(errorBoundaryContent).toContain('data-testid="button-error-boundary-clear"');
+      expect(errorBoundaryContent).toContain("err.stack || info?.componentStack");
+    });
+
+    it("breaks circular dependency by isolating DEFAULT_WATCHLIST in wealthWatchlist.ts", () => {
+      expect(wealthWatchlistContent).toContain("export const DEFAULT_WATCHLIST: WatchlistItem[]");
+      expect(globalStateContent).toContain('from "@/lib/wealthWatchlist"');
+      expect(dashboardContent).toContain('from "@/lib/wealthWatchlist"');
+    });
+
+    it("guards all activeItem and displayedCandle accesses with safe fallbacks and optional chaining", () => {
+      expect(dashboardContent).toContain("activeItem?.status");
+      expect(dashboardContent).toContain("activeItem?.price != null ? activeItem.price.toFixed(2)");
+      expect(dashboardContent).toContain("activeItem?.buyTarget != null ? activeItem.buyTarget.toFixed(2)");
+      expect(dashboardContent).toContain("activeItem?.stopLoss != null ? activeItem.stopLoss.toFixed(2)");
+      expect(dashboardContent).toContain("activeItem?.primaryTarget != null ? activeItem.primaryTarget.toFixed(2)");
+      expect(dashboardContent).toContain("displayedCandle.o != null ? displayedCandle.o.toFixed(2)");
+    });
+
+    it("logs clear breadcrumbs throughout the boot sequence across all lifecycle stages", () => {
+      expect(appContent).toContain("[Boot:App]");
+      expect(appContent).toContain("[Boot:AppRouter]");
+      expect(globalStateContent).toContain("[Boot:GlobalState]");
+      expect(priceFeedContent).toContain("[Boot:PriceFeed]");
+      expect(dashboardContent).toContain("[Boot:WealthStudio]");
+      expect(dashboardContent).toContain("[Boot:LiveTradingChart]");
+    });
+  });
 });
 

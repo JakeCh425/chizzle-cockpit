@@ -1,10 +1,13 @@
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useFeedConnection } from "@/lib/priceFeed";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { Link } from "wouter";
 import { useGlobalState } from "@/lib/globalState";
 import { TradingTipsCard } from "@/components/swing/TradingTipsCard";
+import ErrorBoundary from "@/components/ErrorBoundary";
+import { DEFAULT_WATCHLIST, type WatchlistItem } from "@/lib/wealthWatchlist";
+export { DEFAULT_WATCHLIST, type WatchlistItem };
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -188,173 +191,10 @@ function CandlestickIcon({ color = "#22C55E" }: { color?: string }) {
 }
 
 // ============================================================================
-// MOCK MARKET DATA & INTERFACES
+// MARKET DATA & INTERFACES (Re-exported from @/lib/wealthWatchlist)
 // ============================================================================
-export interface WatchlistItem {
-  symbol: string;
-  name: string;
-  price: number;
-  change: number;
-  changePct: number;
-  sparkline: number[];
-  status: "Ready" | "Awaiting Close" | "Forming" | "Retest";
-  setupType: string;
-  buyTarget: number;
-  stopLoss: number;
-  primaryTarget: number;
-  bottomLine: string;
-  winRate: number;
-  atr: number;
-  t2: number;
-  t3: number;
-}
-
-export const DEFAULT_WATCHLIST: WatchlistItem[] = [
-  {
-    symbol: "NVDA",
-    name: "NVIDIA Corp.",
-    price: 138.50,
-    change: 3.32,
-    changePct: 2.45,
-    sparkline: [132, 133.5, 131, 134, 136, 135.5, 137, 138.5],
-    status: "Ready",
-    setupType: "HIGHER-LOW CONSOLIDATION · 1H",
-    buyTarget: 138.50,
-    stopLoss: 132.80,
-    primaryTarget: 152.00,
-    bottomLine: "High-probability consolidation holding the 20-SMA with a 2.37R reward-to-risk ratio. Triggered and ready for execution.",
-    winRate: 68.4,
-    atr: 4.15,
-    t2: 158.40,
-    t3: 165.00,
-  },
-  {
-    symbol: "QQQ",
-    name: "Invesco QQQ Trust",
-    price: 492.30,
-    change: 4.15,
-    changePct: 0.85,
-    sparkline: [484, 486, 485, 488, 490, 489, 491, 492.3],
-    status: "Ready",
-    setupType: "20-SMA BOUNCE · 4H",
-    buyTarget: 492.50,
-    stopLoss: 485.60,
-    primaryTarget: 508.80,
-    bottomLine: "Tech benchmark holding key 4H moving average support. Favorable asymmetric setup pointing toward multi-week highs.",
-    winRate: 72.1,
-    atr: 5.60,
-    t2: 516.00,
-    t3: 525.00,
-  },
-  {
-    symbol: "SPY",
-    name: "SPDR S&P 500 ETF",
-    price: 582.40,
-    change: 2.90,
-    changePct: 0.50,
-    sparkline: [577, 578, 576, 579, 581, 580, 581.5, 582.4],
-    status: "Awaiting Close",
-    setupType: "BREAKOUT RETEST · DAILY",
-    buyTarget: 583.10,
-    stopLoss: 576.40,
-    primaryTarget: 598.50,
-    bottomLine: "Testing prior all-time high resistance level converted to support. Wait for hourly candle close confirmation above $583.10.",
-    winRate: 64.0,
-    atr: 4.90,
-    t2: 605.00,
-    t3: 615.00,
-  },
-  {
-    symbol: "AAPL",
-    name: "Apple Inc.",
-    price: 232.15,
-    change: -1.25,
-    changePct: -0.54,
-    sparkline: [235, 234, 236, 233, 232, 233.5, 231, 232.15],
-    status: "Forming",
-    setupType: "FLAT BASE PULLBACK · 4H",
-    buyTarget: 234.80,
-    stopLoss: 228.40,
-    primaryTarget: 248.00,
-    bottomLine: "Consolidating near the 50-day SMA. Pattern remains in development; awaiting volume expansion before arming trade.",
-    winRate: 61.5,
-    atr: 3.20,
-    t2: 254.50,
-    t3: 262.00,
-  },
-  {
-    symbol: "TSLA",
-    name: "Tesla Inc.",
-    price: 218.40,
-    change: 7.80,
-    changePct: 3.70,
-    sparkline: [204, 208, 206, 212, 215, 213, 217, 218.4],
-    status: "Ready",
-    setupType: "V-RUN RECLAIM · 1H",
-    buyTarget: 219.00,
-    stopLoss: 209.50,
-    primaryTarget: 242.00,
-    bottomLine: "High momentum momentum reclaim through prior pivot high. Asymmetry favored for swing momentum continuation.",
-    winRate: 59.2,
-    atr: 8.75,
-    t2: 252.00,
-    t3: 265.00,
-  },
-  {
-    symbol: "MSFT",
-    name: "Microsoft Corp.",
-    price: 428.90,
-    change: 1.10,
-    changePct: 0.26,
-    sparkline: [425, 426, 424, 427, 429, 427.5, 428, 428.9],
-    status: "Awaiting Close",
-    setupType: "20-SMA BOUNCE · 1H",
-    buyTarget: 430.00,
-    stopLoss: 423.50,
-    primaryTarget: 445.00,
-    bottomLine: "Healthy retracement back into the 20-period moving average band. Needs clean 1H bar close to confirm bounce.",
-    winRate: 66.8,
-    atr: 4.80,
-    t2: 452.00,
-    t3: 460.00,
-  },
-  {
-    symbol: "AMD",
-    name: "Advanced Micro Devices",
-    price: 156.70,
-    change: -2.10,
-    changePct: -1.32,
-    sparkline: [161, 160, 158, 159, 157, 158.5, 155, 156.7],
-    status: "Forming",
-    setupType: "DOUBLE BOTTOM SUPPORT · 4H",
-    buyTarget: 159.20,
-    stopLoss: 152.00,
-    primaryTarget: 174.00,
-    bottomLine: "Testing macro horizontal demand zone. Monitor for bullish reversal hammer candle before placing orders.",
-    winRate: 58.0,
-    atr: 5.10,
-    t2: 182.00,
-    t3: 190.00,
-  },
-  {
-    symbol: "META",
-    name: "Meta Platforms",
-    price: 594.20,
-    change: 8.60,
-    changePct: 1.47,
-    sparkline: [580, 584, 582, 588, 591, 589, 592, 594.2],
-    status: "Ready",
-    setupType: "TRENDLINE RECLAIM · 1H",
-    buyTarget: 595.00,
-    stopLoss: 584.00,
-    primaryTarget: 622.00,
-    bottomLine: "Clean trendline break with heavy volume support. Risk defined tightly below structural swing low.",
-    winRate: 70.3,
-    atr: 11.20,
-    t2: 635.00,
-    t3: 650.00,
-  },
-];
+// Note: WatchlistItem and DEFAULT_WATCHLIST are imported from @/lib/wealthWatchlist
+// to eliminate circular dependencies with globalState.
 
 // ============================================================================
 // LIVE TRADING CHART COMPONENT (Bound directly to activeTicker symbol)
@@ -561,21 +401,29 @@ export function LiveTradingChart({
   const candles = useMemo(() => {
     const sourceCandles = fetchedBars && fetchedBars.length > 5 ? fetchedBars : baseCandles;
     if (!sourceCandles || sourceCandles.length === 0) return [];
-    const historical = sourceCandles.slice(0, sourceCandles.length - 1);
     const lastBase = sourceCandles[sourceCandles.length - 1];
-    const currentClose = livePrice;
-    const currentHigh = Math.max(lastBase.o, lastBase.h, currentClose);
-    const currentLow = Math.min(lastBase.o, lastBase.l, currentClose);
+    if (!lastBase) return [];
+    const historical = sourceCandles.slice(0, sourceCandles.length - 1);
+    const currentClose = Number.isFinite(livePrice) ? livePrice : (lastBase.c ?? 100);
+    const currentHigh = Math.max(lastBase.o ?? currentClose, lastBase.h ?? currentClose, currentClose);
+    const currentLow = Math.min(lastBase.o ?? currentClose, lastBase.l ?? currentClose, currentClose);
 
     const activeCandle = {
-      x: lastBase.x,
-      o: lastBase.o,
+      x: lastBase.x ?? 40,
+      o: lastBase.o ?? currentClose,
       c: currentClose,
       h: currentHigh,
       l: currentLow,
     };
     return [...historical, activeCandle];
   }, [baseCandles, fetchedBars, livePrice]);
+
+  // Boot Sequence Logging for LiveTradingChart
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log(`[Boot:LiveTradingChart] Mounted/Updated chart for ${symbol} @ $${Number.isFinite(livePrice) ? livePrice.toFixed(2) : "0.00"} (${timeframe}), candles count: ${candles.length}`);
+    }
+  }, [symbol, timeframe, livePrice, candles.length]);
 
   // 5. Crosshair & Hover OHLC Tooltip State
   const [hoveredData, setHoveredData] = useState<{
@@ -725,7 +573,7 @@ export function LiveTradingChart({
           <button
             type="button"
             data-testid="button-chart-arm-trade"
-            onClick={() => openArmTrade(item.symbol)}
+            onClick={() => openArmTrade(item?.symbol ?? symbol)}
             className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/50 text-xs font-mono font-bold tracking-wider uppercase transition-colors cursor-pointer shadow-sm ml-1"
           >
             <Play className="h-3 w-3 fill-current" />
@@ -756,20 +604,21 @@ export function LiveTradingChart({
           >
             <span className="text-cyan-400 font-bold">{symbol}</span>
             <span className="text-slate-400">
-              O: <strong className="text-slate-100">${displayedCandle.o.toFixed(2)}</strong>
+              O: <strong className="text-slate-100">${displayedCandle.o != null ? displayedCandle.o.toFixed(2) : "0.00"}</strong>
             </span>
             <span className="text-slate-400">
-              H: <strong className="text-emerald-400">${displayedCandle.h.toFixed(2)}</strong>
+              H: <strong className="text-emerald-400">${displayedCandle.h != null ? displayedCandle.h.toFixed(2) : "0.00"}</strong>
             </span>
             <span className="text-slate-400">
-              L: <strong className="text-rose-400">${displayedCandle.l.toFixed(2)}</strong>
+              L: <strong className="text-rose-400">${displayedCandle.l != null ? displayedCandle.l.toFixed(2) : "0.00"}</strong>
             </span>
             <span className="text-slate-400">
-              C: <strong className={displayedCandle.c >= displayedCandle.o ? "text-emerald-400" : "text-rose-400"}>
-                ${displayedCandle.c.toFixed(2)}
+              C: <strong className={(displayedCandle.c ?? 0) >= (displayedCandle.o ?? 0) ? "text-emerald-400" : "text-rose-400"}>
+                ${displayedCandle.c != null ? displayedCandle.c.toFixed(2) : "0.00"}
               </strong>
             </span>
             {(() => {
+              if (displayedCandle.o == null || displayedCandle.c == null) return null;
               const chg = displayedCandle.c - displayedCandle.o;
               const chgPct = displayedCandle.o ? (chg / displayedCandle.o) * 100 : 0;
               const isUp = chg >= 0;
@@ -799,24 +648,24 @@ export function LiveTradingChart({
           >
             <span className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse shadow-[0_0_8px_#22D3EE]" />
             <span className="font-black text-white">{symbol}</span>
-            <span className="text-cyan-300 font-semibold">{item.setupType}</span>
+            <span className="text-cyan-300 font-semibold">{item?.setupType ?? "SWING SETUP"}</span>
             <span className="text-slate-400">
-              Entry: <strong className="text-white">${buyPrice.toFixed(2)}</strong>
+              Entry: <strong className="text-white">${buyPrice != null ? buyPrice.toFixed(2) : "0.00"}</strong>
             </span>
             <span className="text-rose-400">
-              Stop: <strong className="text-rose-300">${stopVal.toFixed(2)}</strong>
+              Stop: <strong className="text-rose-300">${stopVal != null ? stopVal.toFixed(2) : "0.00"}</strong>
             </span>
             <span className="text-emerald-400">
-              T1: <strong className="text-emerald-300">${targetVal.toFixed(2)}</strong>
+              T1: <strong className="text-emerald-300">${targetVal != null ? targetVal.toFixed(2) : "0.00"}</strong>
             </span>
             <span
               className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                item.status === "Ready"
+                (item?.status ?? "Ready") === "Ready"
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/40"
                   : "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40"
               }`}
             >
-              {item.status}
+              {item?.status ?? "Ready"}
             </span>
           </div>
         )}
@@ -1378,13 +1227,13 @@ export function LiveTradingChart({
                       filter="drop-shadow(0 2px 5px rgba(0,0,0,0.6))"
                     />
                     <text x="8" y="14" fill="#94A3B8" fontSize="8" fontFamily="monospace">
-                      O: ${hoveredData.candle.o.toFixed(2)} H: ${hoveredData.candle.h.toFixed(2)}
+                      O: ${hoveredData.candle?.o != null ? hoveredData.candle.o.toFixed(2) : "0.00"} H: ${hoveredData.candle?.h != null ? hoveredData.candle.h.toFixed(2) : "0.00"}
                     </text>
                     <text x="8" y="26" fill="#94A3B8" fontSize="8" fontFamily="monospace">
-                      L: ${hoveredData.candle.l.toFixed(2)} C: ${hoveredData.candle.c.toFixed(2)}
+                      L: ${hoveredData.candle?.l != null ? hoveredData.candle.l.toFixed(2) : "0.00"} C: ${hoveredData.candle?.c != null ? hoveredData.candle.c.toFixed(2) : "0.00"}
                     </text>
                     <text x="8" y="38" fill={isUp ? "#4ADE80" : "#F87171"} fontSize="8" fontFamily="monospace" fontWeight="bold">
-                      {isUp ? "+" : ""}{chg.toFixed(2)} ({isUp ? "+" : ""}{((chg / hoveredData.candle.o) * 100).toFixed(2)}%)
+                      {isUp ? "+" : ""}{chg.toFixed(2)} ({isUp ? "+" : ""}{hoveredData.candle?.o ? ((chg / hoveredData.candle.o) * 100).toFixed(2) : "0.00"}%)
                     </text>
                   </g>
                 );
@@ -1406,28 +1255,35 @@ export default function WealthEngineDashboard() {
   const global = useGlobalState();
   const [newTickerInput, setNewTickerInput] = useState("");
 
-  const theme = global.theme;
+  const theme = global?.theme ?? "cyber-neon";
   const activeTheme = THEMES[theme] || THEMES["cyber-neon"];
 
   const { source: feedSource } = useFeedConnection();
 
   const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
   const cycleTheme = () => {
-    global.cycleTheme();
+    global?.cycleTheme?.();
   };
 
   // Active ticker selection (linked directly to Chart symbol)
-  const activeTicker = global.activeTicker;
-  const setActiveTicker = global.setActiveTicker;
+  const activeTicker = global?.activeTicker ?? "NVDA";
+  const setActiveTicker = global?.setActiveTicker ?? (() => {});
   const activeSymbol = activeTicker;
   const setActiveSymbol = setActiveTicker;
-  const watchlist = global.watchlist;
-  const activeItem = global.activeItem;
+  const watchlist = global?.watchlist ?? DEFAULT_WATCHLIST;
+  const activeItem = global?.activeItem || watchlist?.find((i) => i?.symbol === activeTicker) || watchlist?.[0] || DEFAULT_WATCHLIST[0];
+
+  // Boot Sequence Diagnostic Logging
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeItem?.price}, watchlist count: ${watchlist?.length}`);
+    }
+  }, [activeTicker, activeItem?.price, watchlist?.length]);
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTickerInput.trim()) return;
-    global.addTicker(newTickerInput);
+    global?.addTicker?.(newTickerInput);
     setNewTickerInput("");
   };
 
@@ -1435,8 +1291,8 @@ export default function WealthEngineDashboard() {
   const [activeTab, setActiveTab] = useState<"Chart" | "Setup History" | "Settings" | "Indicators">("Chart");
 
   // Timeframe selector
-  const activeTf = global.timeframe;
-  const setActiveTf = global.setTimeframe;
+  const activeTf = global?.timeframe ?? "1H";
+  const setActiveTf = global?.setTimeframe ?? (() => {});
 
   // Market regime simulation: "GREEN" | "YELLOW" | "RED"
   const [regime, setRegime] = useState<"GREEN" | "YELLOW" | "RED">("GREEN");
@@ -1444,11 +1300,11 @@ export default function WealthEngineDashboard() {
   // Advanced Metrics accordion state in Right Column
   const [advancedOpen, setAdvancedOpen] = useState(false);
 
-  const openArmTrade = global.openArmTrade;
+  const openArmTrade = global?.openArmTrade ?? (() => {});
 
-  // Card status background tints
+  // Card status background tints with safe optional chaining
   const statusTint = useMemo(() => {
-    switch (activeItem.status) {
+    switch (activeItem?.status) {
       case "Ready":
         return "bg-emerald-950/20 border-emerald-500/40 shadow-[0_0_20px_rgba(34,197,94,0.12)]";
       case "Awaiting Close":
@@ -1456,15 +1312,16 @@ export default function WealthEngineDashboard() {
       default:
         return "bg-cyan-950/20 border-cyan-500/30 shadow-[0_0_20px_rgba(6,182,212,0.10)]";
     }
-  }, [activeItem.status]);
+  }, [activeItem?.status]);
 
   return (
-    <div
-      style={activeTheme.vars as React.CSSProperties}
-      className="h-screen w-screen max-h-screen max-w-screen overflow-hidden flex flex-col font-sans transition-colors duration-200"
-      data-testid="wealth-engine-dashboard"
-      data-theme={theme}
-    >
+    <ErrorBoundary label="Wealth Studio Workspace" fullPage>
+      <div
+        style={activeTheme.vars as React.CSSProperties}
+        className="h-screen w-screen max-h-screen max-w-screen overflow-hidden flex flex-col font-sans transition-colors duration-200"
+        data-testid="wealth-engine-dashboard"
+        data-theme={theme}
+      >
       {/* ==================================================================== */}
       {/* 1. TOP NAVIGATION BAR */}
       {/* ==================================================================== */}
@@ -1711,9 +1568,10 @@ export default function WealthEngineDashboard() {
 
             {/* Internal Scrollable Rows */}
             <div className="flex-1 min-h-0 overflow-y-auto divide-y" style={{ borderColor: "var(--border-subtle)" }}>
-              {watchlist.map((item) => {
+              {(watchlist || []).map((item) => {
+                if (!item) return null;
                 const isSelected = item.symbol === activeSymbol;
-                const isPositive = item.change >= 0;
+                const isPositive = (item.change ?? 0) >= 0;
                 return (
                   <div
                     key={item.symbol}
@@ -1756,12 +1614,13 @@ export default function WealthEngineDashboard() {
                     <div className="w-14 h-6 flex-shrink-0 px-1">
                       <svg viewBox="0 0 50 20" className="w-full h-full overflow-visible">
                         {(() => {
-                          const min = Math.min(...item.sparkline);
-                          const max = Math.max(...item.sparkline);
+                          const spark = Array.isArray(item.sparkline) && item.sparkline.length > 0 ? item.sparkline : [100, 100];
+                          const min = Math.min(...spark);
+                          const max = Math.max(...spark);
                           const range = max - min || 1;
-                          const points = item.sparkline
+                          const points = spark
                             .map((val, idx) => {
-                              const x = (idx / (item.sparkline.length - 1)) * 48 + 1;
+                              const x = (idx / (spark.length - 1)) * 48 + 1;
                               const y = 19 - ((val - min) / range) * 16;
                               return `${x},${y}`;
                             })
@@ -1783,14 +1642,14 @@ export default function WealthEngineDashboard() {
                     {/* Price & Change Badge */}
                     <div className="text-right flex-shrink-0 font-mono">
                       <div className="text-xs font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${item.price.toFixed(2)}
+                        ${item.price != null ? item.price.toFixed(2) : "0.00"}
                       </div>
                       <div
                         className="text-[10px] font-bold tabular-nums flex items-center justify-end gap-0.5"
                         style={{ color: isPositive ? "var(--accent-green)" : "var(--accent-red)" }}
                       >
                         {isPositive ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
-                        <span>{isPositive ? "+" : ""}{item.changePct.toFixed(2)}%</span>
+                        <span>{isPositive ? "+" : ""}{item.changePct != null ? item.changePct.toFixed(2) : "0.00"}%</span>
                       </div>
                     </div>
                   </div>
@@ -1907,14 +1766,16 @@ export default function WealthEngineDashboard() {
           <div className="min-w-0 flex-1 overflow-hidden relative flex flex-col p-4">
             {activeTab === "Chart" && (
               <div className="min-w-0 flex-1 overflow-hidden relative w-full h-full">
-                <Chart
-                  symbol={activeTicker}
-                  timeframe={activeTf}
-                  activeItem={activeItem}
-                  entryPrice={activeItem.buyTarget}
-                  stopLoss={activeItem.stopLoss}
-                  primaryTarget={activeItem.primaryTarget}
-                />
+                <ErrorBoundary label="Wealth Studio Live Chart">
+                  <Chart
+                    symbol={activeTicker}
+                    timeframe={activeTf}
+                    activeItem={activeItem}
+                    entryPrice={activeItem?.buyTarget}
+                    stopLoss={activeItem?.stopLoss}
+                    primaryTarget={activeItem?.primaryTarget}
+                  />
+                </ErrorBoundary>
               </div>
             )}
 
@@ -1928,7 +1789,7 @@ export default function WealthEngineDashboard() {
                 }}
               >
                 <h3 className="font-mono font-bold text-sm uppercase tracking-wider mb-3" style={{ color: "var(--text-primary)" }}>
-                  Verified Historical Swings ({activeItem.symbol})
+                  Verified Historical Swings ({activeItem?.symbol ?? activeTicker})
                 </h3>
                 <div className="overflow-x-auto">
                   <table className="w-full text-left font-mono text-xs">
@@ -2060,7 +1921,7 @@ export default function WealthEngineDashboard() {
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-cyan-400" />
               <span className="text-[10px] font-mono font-bold" style={{ color: "var(--accent-cyan)" }}>
-                {activeItem.symbol}
+                {activeItem?.symbol ?? activeTicker}
               </span>
             </div>
           </div>
@@ -2077,28 +1938,28 @@ export default function WealthEngineDashboard() {
                 <div>
                   <div className="flex items-center gap-2">
                     <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)]">
-                      {activeItem.symbol}
+                      {activeItem?.symbol ?? activeTicker}
                     </span>
                     <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)]">
-                      ${activeItem.price.toFixed(2)}
+                      ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                     </span>
                   </div>
                   <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5">
-                    {activeItem.setupType}
+                    {activeItem?.setupType ?? "SWING SETUP"}
                   </div>
                 </div>
 
                 <div
                   className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border ${
-                    activeItem.status === "Ready"
+                    activeItem?.status === "Ready"
                       ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
-                      : activeItem.status === "Awaiting Close"
+                      : activeItem?.status === "Awaiting Close"
                       ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
                       : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
                   }`}
                   data-testid="badge-setup-status"
                 >
-                  {activeItem.status}
+                  {activeItem?.status ?? "Ready"}
                 </div>
               </div>
 
@@ -2112,7 +1973,7 @@ export default function WealthEngineDashboard() {
                     Buy Target
                   </span>
                   <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-buy)]">
-                    ${activeItem.buyTarget.toFixed(2)}
+                    ${activeItem?.buyTarget != null ? activeItem.buyTarget.toFixed(2) : "0.00"}
                   </span>
                   <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     Entry Level
@@ -2127,7 +1988,7 @@ export default function WealthEngineDashboard() {
                     Stop Loss
                   </span>
                   <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-stop)]">
-                    ${activeItem.stopLoss.toFixed(2)}
+                    ${activeItem?.stopLoss != null ? activeItem.stopLoss.toFixed(2) : "0.00"}
                   </span>
                   <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     Structural
@@ -2142,7 +2003,7 @@ export default function WealthEngineDashboard() {
                     Primary T1
                   </span>
                   <span className="text-2xl font-black font-mono tabular-nums text-[var(--card-accent-target)]">
-                    ${activeItem.primaryTarget.toFixed(2)}
+                    ${activeItem?.primaryTarget != null ? activeItem.primaryTarget.toFixed(2) : "0.00"}
                   </span>
                   <span className="text-[8.5px] font-mono text-[var(--card-text-secondary)] mt-0.5">
                     +2.37R R:R
@@ -2164,7 +2025,7 @@ export default function WealthEngineDashboard() {
                   <span>Bottom Line</span>
                 </div>
                 <p className="text-slate-300 font-medium">
-                  {activeItem.bottomLine}
+                  {activeItem?.bottomLine ?? "Asymmetric swing trade setup."}
                 </p>
               </div>
 
@@ -2173,7 +2034,7 @@ export default function WealthEngineDashboard() {
                 <button
                   type="button"
                   data-testid="button-arm-practice-trade"
-                  onClick={() => openArmTrade(activeItem.symbol)}
+                  onClick={() => openArmTrade(activeItem?.symbol ?? activeTicker)}
                   className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                   style={{
                     backgroundColor: "var(--accent-cyan)",
@@ -2221,11 +2082,11 @@ export default function WealthEngineDashboard() {
                       <div className="grid grid-cols-2 gap-2 text-[11px]">
                         <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
                           <span className="text-slate-400">T2 Target:</span>
-                          <span className="font-bold text-emerald-400">${activeItem.t2.toFixed(2)}</span>
+                          <span className="font-bold text-emerald-400">${activeItem?.t2 != null ? activeItem.t2.toFixed(2) : "0.00"}</span>
                         </div>
                         <div className="p-1.5 rounded bg-black/30 border border-white/5 flex justify-between">
                           <span className="text-slate-400">T3 Runner:</span>
-                          <span className="font-bold text-emerald-400">${activeItem.t3.toFixed(2)}</span>
+                          <span className="font-bold text-emerald-400">${activeItem?.t3 != null ? activeItem.t3.toFixed(2) : "0.00"}</span>
                         </div>
                       </div>
                     </div>
@@ -2233,13 +2094,13 @@ export default function WealthEngineDashboard() {
                     {/* Historical Win Rate */}
                     <div className="pt-2 border-t border-white/5 flex items-center justify-between">
                       <span className="text-slate-400">Historical Win Rate:</span>
-                      <span className="font-bold text-cyan-300">{activeItem.winRate}% (38 setups)</span>
+                      <span className="font-bold text-cyan-300">{activeItem?.winRate ?? 68.4}% (38 setups)</span>
                     </div>
 
                     {/* 14-period ATR */}
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">14-Period ATR:</span>
-                      <span className="font-bold tabular-nums">${activeItem.atr.toFixed(2)}</span>
+                      <span className="font-bold tabular-nums">${activeItem?.atr != null ? activeItem.atr.toFixed(2) : "4.15"}</span>
                     </div>
 
                     {/* Expectancy */}
@@ -2254,10 +2115,10 @@ export default function WealthEngineDashboard() {
 
             {/* Broker Execution Guide Accordion */}
             <BrokerExecutionSteps
-              symbol={activeItem.symbol}
-              entry={activeItem.buyTarget}
-              stop={activeItem.stopLoss}
-              target1={activeItem.primaryTarget}
+              symbol={activeItem?.symbol ?? activeTicker}
+              entry={activeItem?.buyTarget ?? 100}
+              stop={activeItem?.stopLoss ?? 95}
+              target1={activeItem?.primaryTarget ?? 110}
               defaultOpen={false}
             />
 
@@ -2279,7 +2140,7 @@ export default function WealthEngineDashboard() {
               <div className="flex justify-between items-baseline">
                 <span className="text-slate-400 text-[11px]">Suggested Sizing:</span>
                 <span className="font-bold text-sm text-soft-white">
-                  {Math.floor(1000 / Math.abs(activeItem.buyTarget - activeItem.stopLoss))} shares
+                  {Math.floor(1000 / Math.max(Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} shares
                 </span>
               </div>
               <div className="flex justify-between items-baseline text-[10px]">
@@ -2291,6 +2152,7 @@ export default function WealthEngineDashboard() {
         </section>
       </main>
     </div>
+    </ErrorBoundary>
   );
 }
 

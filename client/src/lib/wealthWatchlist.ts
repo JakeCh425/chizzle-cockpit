@@ -1,0 +1,173 @@
+// ============================================================================
+// WEALTH STUDIO WATCHLIST INTERFACES & DEFAULT DATA
+// Extracted to avoid circular imports between globalState and WealthEngineDashboard
+// ============================================================================
+
+export type DashboardTheme = "cyber-neon" | "stealth" | "arctic" | "sunset-orange" | "neon-grape" | "mint-matrix";
+
+export interface WatchlistItem {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changePct: number;
+  sparkline: number[];
+  status: "Ready" | "Awaiting Close" | "Forming" | "Retest";
+  setupType: string;
+  buyTarget: number;
+  stopLoss: number;
+  primaryTarget: number;
+  bottomLine: string;
+  winRate: number;
+  atr: number;
+  t2: number;
+  t3: number;
+}
+
+export const DEFAULT_WATCHLIST: WatchlistItem[] = [
+  {
+    symbol: "NVDA",
+    name: "NVIDIA Corp.",
+    price: 138.50,
+    change: 3.32,
+    changePct: 2.45,
+    sparkline: [132, 133.5, 131, 134, 136, 135.5, 137, 138.5],
+    status: "Ready",
+    setupType: "HIGHER-LOW CONSOLIDATION · 1H",
+    buyTarget: 138.50,
+    stopLoss: 132.80,
+    primaryTarget: 152.00,
+    bottomLine: "High-probability consolidation holding the 20-SMA with a 2.37R reward-to-risk ratio. Triggered and ready for execution.",
+    winRate: 68.4,
+    atr: 4.15,
+    t2: 158.40,
+    t3: 165.00,
+  },
+  {
+    symbol: "QQQ",
+    name: "Invesco QQQ Trust",
+    price: 492.30,
+    change: 4.15,
+    changePct: 0.85,
+    sparkline: [484, 486, 485, 488, 490, 489, 491, 492.3],
+    status: "Ready",
+    setupType: "20-SMA BOUNCE · 4H",
+    buyTarget: 492.50,
+    stopLoss: 485.60,
+    primaryTarget: 508.80,
+    bottomLine: "Tech benchmark holding key 4H moving average support. Favorable asymmetric setup pointing toward multi-week highs.",
+    winRate: 72.1,
+    atr: 5.60,
+    t2: 516.00,
+    t3: 525.00,
+  },
+  {
+    symbol: "SPY",
+    name: "SPDR S&P 500 ETF",
+    price: 582.40,
+    change: 2.90,
+    changePct: 0.50,
+    sparkline: [577, 578, 576, 579, 581, 580, 581.5, 582.4],
+    status: "Awaiting Close",
+    setupType: "BREAKOUT RETEST · DAILY",
+    buyTarget: 583.10,
+    stopLoss: 576.40,
+    primaryTarget: 598.50,
+    bottomLine: "Testing prior all-time high resistance level converted to support. Wait for hourly candle close confirmation above $583.10.",
+    winRate: 64.0,
+    atr: 4.90,
+    t2: 605.00,
+    t3: 615.00,
+  },
+  {
+    symbol: "AAPL",
+    name: "Apple Inc.",
+    price: 232.15,
+    change: -1.25,
+    changePct: -0.54,
+    sparkline: [235, 234, 236, 233, 232, 233.5, 231, 232.15],
+    status: "Forming",
+    setupType: "FLAT BASE PULLBACK · 4H",
+    buyTarget: 234.80,
+    stopLoss: 228.40,
+    primaryTarget: 248.00,
+    bottomLine: "Consolidating near the 50-day SMA. Pattern remains in development; awaiting volume expansion before arming trade.",
+    winRate: 61.5,
+    atr: 3.20,
+    t2: 254.50,
+    t3: 262.00,
+  },
+  {
+    symbol: "TSLA",
+    name: "Tesla Inc.",
+    price: 218.40,
+    change: 7.80,
+    changePct: 3.70,
+    sparkline: [204, 208, 206, 212, 215, 213, 217, 218.4],
+    status: "Ready",
+    setupType: "V-RUN RECLAIM · 1H",
+    buyTarget: 219.00,
+    stopLoss: 209.50,
+    primaryTarget: 242.00,
+    bottomLine: "High momentum momentum reclaim through prior pivot high. Asymmetry favored for swing momentum continuation.",
+    winRate: 59.2,
+    atr: 8.75,
+    t2: 252.00,
+    t3: 265.00,
+  },
+  {
+    symbol: "MSFT",
+    name: "Microsoft Corp.",
+    price: 428.90,
+    change: 1.10,
+    changePct: 0.26,
+    sparkline: [425, 426, 424, 427, 429, 427.5, 428, 428.9],
+    status: "Awaiting Close",
+    setupType: "20-SMA BOUNCE · 1H",
+    buyTarget: 430.00,
+    stopLoss: 423.50,
+    primaryTarget: 445.00,
+    bottomLine: "Healthy retracement back into the 20-period moving average band. Needs clean 1H bar close to confirm bounce.",
+    winRate: 66.8,
+    atr: 4.80,
+    t2: 452.00,
+    t3: 460.00,
+  },
+  {
+    symbol: "AMD",
+    name: "Advanced Micro Devices",
+    price: 156.70,
+    change: -2.10,
+    changePct: -1.32,
+    sparkline: [161, 160, 158, 159, 157, 158.5, 155, 156.7],
+    status: "Forming",
+    setupType: "DOUBLE BOTTOM SUPPORT · 4H",
+    buyTarget: 159.20,
+    stopLoss: 152.00,
+    primaryTarget: 174.00,
+    bottomLine: "Testing macro horizontal demand zone. Monitor for bullish reversal hammer candle before placing orders.",
+    winRate: 58.0,
+    atr: 5.10,
+    t2: 182.00,
+    t3: 190.00,
+  },
+  {
+    symbol: "META",
+    name: "Meta Platforms",
+    price: 594.20,
+    change: 8.60,
+    changePct: 1.47,
+    sparkline: [580, 584, 582, 588, 591, 589, 592, 594.2],
+    status: "Ready",
+    setupType: "TRENDLINE RECLAIM · 1H",
+    buyTarget: 595.00,
+    stopLoss: 584.00,
+    primaryTarget: 622.00,
+    bottomLine: "Clean trendline break with heavy volume support. Risk defined tightly below structural swing low.",
+    winRate: 70.3,
+    atr: 11.20,
+    t2: 635.00,
+    t3: 650.00,
+  },
+];
+

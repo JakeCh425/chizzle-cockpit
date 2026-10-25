@@ -210,11 +210,15 @@ function connectWS() {
     const host = window.location.host;
     const wsUrl = `${proto}//${host}/ws/prices`;
 
+    if (typeof console !== "undefined") {
+      console.log("[Boot:PriceFeed] Attempting primary WebSocket connection to:", wsUrl);
+    }
+
     ws = new WebSocket(wsUrl);
     setConn("CONNECTING");
 
     ws.onopen = () => {
-      console.info("[priceFeed] Primary WebSocket reconnected! Clearing STALE state.");
+      console.info("[Boot:PriceFeed] Primary WebSocket reconnected! Clearing STALE state.");
       lastEventAt = Date.now();
       setConn("LIVE");
       stopFallbackPolling();
@@ -362,6 +366,9 @@ function connectSSE() {
 export function ensurePriceFeed() {
   if (started) return;
   started = true;
+  if (typeof console !== "undefined") {
+    console.log("[Boot:PriceFeed] ensurePriceFeed() starting singleton price feed stream");
+  }
   connectWS();
   ensureBackgroundWsReconnect();
   // Stale-monitor: re-evaluate every 1s based on WebSocket status and lastEventAt

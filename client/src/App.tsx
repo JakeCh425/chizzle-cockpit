@@ -22,16 +22,28 @@ import SignalHistoryPage from "@/pages/SignalHistory";
 import TradePlanner from "@/pages/TradePlanner";
 import TradeDetail from "@/pages/TradeDetail";
 import TagsPage from "@/pages/TagsPage";
+import ErrorBoundary from "@/components/ErrorBoundary";
+
+function WealthStudioRoute() {
+  return (
+    <ErrorBoundary label="Wealth Studio" fullPage>
+      <WealthEngineDashboard />
+    </ErrorBoundary>
+  );
+}
 
 function AppRouter() {
+  if (typeof window !== "undefined") {
+    console.log("[Boot:AppRouter] Initializing route navigation, current hash:", window.location.hash || "#/");
+  }
   return (
     <AppShell>
       <Switch>
         <Route path="/" component={PipelineCockpit} />
         <Route path="/cockpit" component={PipelineCockpit} />
         <Route path="/pipeline" component={PipelineCockpit} />
-        <Route path="/engine" component={WealthEngineDashboard} />
-        <Route path="/dashboard" component={WealthEngineDashboard} />
+        <Route path="/engine" component={WealthStudioRoute} />
+        <Route path="/dashboard" component={WealthStudioRoute} />
         <Route path="/advanced" component={Cockpit} />
         <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
         <Route path="/watchlist" component={Watchlist} />
@@ -60,19 +72,24 @@ import { GlobalStateProvider } from "@/lib/globalState";
 import { UniversalTradeModal } from "@/components/UniversalTradeModal";
 
 function App() {
+  if (typeof window !== "undefined") {
+    console.log("[Boot:App] Mounting Chizzle Cockpit root application container");
+  }
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <GlobalStateProvider>
-          <Toaster />
-          <WakeSyncRoot />
-          <UniversalTradeModal />
-          <Router hook={useHashLocation}>
-            <AppRouter />
-          </Router>
-        </GlobalStateProvider>
-      </TooltipProvider>
-    </QueryClientProvider>
+    <ErrorBoundary label="Application Root" fullPage>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <GlobalStateProvider>
+            <Toaster />
+            <WakeSyncRoot />
+            <UniversalTradeModal />
+            <Router hook={useHashLocation}>
+              <AppRouter />
+            </Router>
+          </GlobalStateProvider>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
   );
 }
 

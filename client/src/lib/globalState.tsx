@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useMemo, useCallback } from "react";
-import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/pages/WealthEngineDashboard";
+import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/lib/wealthWatchlist";
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
 import { ensurePriceFeed, subscribe, isBadTick as checkBadTick } from "@/lib/priceFeed";
+
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme };
 
 export interface UniversalModalState {
   open: boolean;
@@ -207,8 +209,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   // Single Source of Truth for Live Prices across Watchlist, Chart, Header, and Modals
   const [livePrices, setLivePrices] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
-    for (const item of DEFAULT_WATCHLIST) {
-      initial[item.symbol] = item.price;
+    for (const item of (DEFAULT_WATCHLIST || [])) {
+      if (item?.symbol && item?.price != null) {
+        initial[item.symbol] = item.price;
+      }
     }
     return initial;
   });
@@ -216,7 +220,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   // Outlier / Bad Tick Validator (3.5% threshold)
   const isBadTick = useCallback(
     (symbol: string, newPrice: number): boolean => {
-      const current = livePrices[symbol] ?? watchlist.find((i) => i.symbol === symbol)?.price;
+      const current = livePrices[symbol] ?? watchlist?.find((i) => i?.symbol === symbol)?.price;
       return checkBadTick(symbol, newPrice, current);
     },
     [livePrices, watchlist]
@@ -229,9 +233,9 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       setLivePrices((prev) => {
         let changed = false;
         const next = { ...prev };
-        for (const [sym, q] of Object.entries(snap)) {
+        for (const [sym, q] of Object.entries(snap || {})) {
           if (q && q.price > 0) {
-            const ref = prev[sym] ?? watchlist.find((i) => i.symbol === sym)?.price;
+            const ref = prev[sym] ?? watchlist?.find((i) => i?.symbol === sym)?.price;
             // Validate: If incoming tick is >3.5% away, classify as Bad Tick and drop it
             if (ref && ref > 0 && Math.abs(q.price - ref) / ref > 0.035) {
               console.warn(`[globalState:badTick] Dropped outlier tick for ${sym}: $${q.price} vs ref $${ref}`);
@@ -251,12 +255,14 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   // Synchronized watchlist where all items share the exact same price as the live stream
   const syncedWatchlist = useMemo(() => {
-    return watchlist.map((item) => {
+    const list = Array.isArray(watchlist) && watchlist.length > 0 ? watchlist : (DEFAULT_WATCHLIST || []);
+    return list.map((item) => {
+      if (!item) return item;
       const live = livePrices[item.symbol];
       if (live != null && live > 0 && live !== item.price) {
-        const base = item.price - item.change || live;
+        const base = item.price - (item.change ?? 0) || live;
         const chg = +(live - base).toFixed(2);
-        const chgPct = base > 0 ? +((chg / base) * 100).toFixed(2) : item.changePct;
+        const chgPct = base > 0 ? +((chg / base) * 100).toFixed(2) : (item.changePct ?? 0);
         return {
           ...item,
           price: live,
@@ -270,10 +276,19 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   // Active Item (Guaranteed 100% in sync with Watchlist and Chart)
   const activeItem = useMemo(() => {
-    return syncedWatchlist.find((item) => item.symbol === activeTicker) || syncedWatchlist[0] || DEFAULT_WATCHLIST[0];
+    const list = Array.isArray(syncedWatchlist) && syncedWatchlist.length > 0 ? syncedWatchlist : (DEFAULT_WATCHLIST || []);
+    return list.find((item) => item?.symbol === activeTicker) || list[0] || DEFAULT_WATCHLIST[0];
   }, [syncedWatchlist, activeTicker]);
 
-  const activePrice = activeItem.price;
+  const activePrice = activeItem?.price ?? 100;
+
+  // Boot Sequence Diagnostic Logging
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log("[Boot:GlobalState] GlobalStateProvider initialized with activeTicker:", activeTicker, "activePrice:", activePrice);
+      console.log("[Boot:GlobalState] Synced watchlist loaded with", syncedWatchlist.length, "items");
+    }
+  }, [activeTicker, activePrice, syncedWatchlist.length]);
 
   // Timeframe
   const [timeframe, setTimeframe] = useState<"1H" | "4H" | "1D" | "1W">("1H");
