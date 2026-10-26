@@ -384,7 +384,11 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     else {
       const hollow = type === "Hollow";
       main = chart.addSeries(CandlestickSeries, {
-        upColor: hollow ? "rgba(0,0,0,0)" : "#22c55e", downColor: "#ef4444", borderUpColor: "#22c55e", borderDownColor: "#ef4444", wickUpColor: "#22c55e", wickDownColor: "#ef4444", borderVisible: true,
+        upColor: hollow ? "rgba(0,0,0,0)" : "#26a69a",
+        downColor: "#ef5350",
+        borderVisible: false,
+        wickUpColor: "#26a69a",
+        wickDownColor: "#ef5350",
       });
       // The unfinished bar is drawn faded so it is never mistaken for a closed confirmation.
       main.setData(data.map((b) => ({ time: b.t as UTCTimestamp, open: b.o, high: b.h, low: b.l, close: b.c,
@@ -817,9 +821,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           ...(lastBar.closed
             ? {}
             : {
-                color: hollow ? "rgba(0,0,0,0)" : close >= open ? "#22c55e" : "#ef4444",
-                borderColor: close >= open ? "#22c55e" : "#ef4444",
-                wickColor: close >= open ? "#22c55e" : "#ef4444",
+                color: hollow ? "rgba(0,0,0,0)" : close >= open ? "#26a69a" : "#ef5350",
+                borderColor: close >= open ? "#26a69a" : "#ef5350",
+                wickColor: close >= open ? "#26a69a" : "#ef5350",
               }),
         });
       }
@@ -848,6 +852,32 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     effectiveStop,
     effectiveTarget1
   );
+
+  // De-cluttered native execution markers via series.setMarkers() on the active bar
+  useEffect(() => {
+    const m = markerRef.current;
+    if (!m || disposedRef.current || !data || data.length === 0) return;
+    const base = showInfo ? m.full : m.bare;
+    if (!executionTrigger.signalType) {
+      try { m.plugin.setMarkers(base); } catch {}
+      return;
+    }
+    const lastBar = data[data.length - 1];
+    if (!lastBar) return;
+    const isBuy = executionTrigger.signalType === "BUY";
+    const isTarget = executionTrigger.signalType === "TARGET_HIT";
+    const execMarker: SeriesMarker<Time> = {
+      time: lastBar.t as UTCTimestamp,
+      position: isBuy ? "belowBar" : "aboveBar",
+      color: isBuy ? "#26a69a" : isTarget ? "#26a69a" : "#ef5350",
+      shape: isBuy ? "arrowUp" : "arrowDown",
+      text: isBuy ? "BUY" : isTarget ? "T1 HIT" : "STOP",
+      size: 1,
+    };
+    try {
+      m.plugin.setMarkers([...base, execMarker]);
+    } catch {}
+  }, [executionTrigger.signalType, showInfo, data]);
 
   const btn = (on: boolean) => `px-2 py-0.5 rounded border text-[11px] font-mono ${on ? "border-neon-blue text-soft-white bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"}`;
   return (
@@ -1244,6 +1274,47 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             <button className="ml-2 underline" style={{ pointerEvents: "auto" }} onClick={() => bars.refetch()} data-testid="button-retry-bars">Retry</button>
           </div>
         )}
+
+        {/* Sleek, semi-transparent floating overlay panel: AI Actionable Tips directly on Chart Canvas */}
+        <div
+          data-testid="chart-ai-actionable-tips"
+          className="absolute bottom-4 left-4 z-10 max-w-sm p-4 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-lg text-sm text-gray-200 shadow-lg pointer-events-auto select-none"
+        >
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/60">
+            <div className="flex items-center gap-2">
+              <span className="p-1 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40 text-[10px]">
+                ✨
+              </span>
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-fuchsia-300">
+                AI Actionable Tips
+              </span>
+            </div>
+            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+              {ticker}
+            </span>
+          </div>
+
+          <div className="space-y-1.5 font-sans text-xs">
+            <div className="flex items-start gap-2">
+              <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-200 leading-snug">
+                Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-300 leading-snug">
+                Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-300 leading-snug">
+                Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Floating Fidelity Execution Guide Modal Overlay (outside overflow-hidden chart grid) */}

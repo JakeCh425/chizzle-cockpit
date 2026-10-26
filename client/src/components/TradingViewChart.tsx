@@ -757,13 +757,11 @@ export default function TradingViewChart({
       // Hollow candles: transparent body when close > open (border-only), filled
       // body when close < open. Bullish/bearish coloring is preserved.
       series = chart.addSeries(CandlestickSeries, {
-        upColor: hollow ? "rgba(0,0,0,0)" : t.bull,
-        downColor: hollow ? t.bear : t.bear,
-        borderVisible: true,
-        borderUpColor: t.bull,
-        borderDownColor: t.bear,
-        wickUpColor: lightenHex(t.bull, 0.25),
-        wickDownColor: lightenHex(t.bear, 0.25),
+        upColor: hollow ? "rgba(0,0,0,0)" : "#26a69a",
+        downColor: "#ef5350",
+        borderVisible: false,
+        wickUpColor: "#26a69a",
+        wickDownColor: "#ef5350",
       });
       series.setData(bars.map((b) => ({
         time: barTime(b) as UTCTimestamp,
@@ -775,7 +773,7 @@ export default function TradingViewChart({
     chart.timeScale().fitContent();
   }, [bars, chartStyle, t.bull, t.bear]);
 
-  // Live Entry and Exit Signals (Chart Markers) via setMarkers API
+  // Live Entry and Exit Signals (Native Chart Markers) via setMarkers API
   useEffect(() => {
     const series = priceSeriesRef.current;
     if (!series || !bars || bars.length === 0) return;
@@ -792,27 +790,30 @@ export default function TradingViewChart({
           markers.push({
             time: t,
             position: "belowBar",
-            color: "#22C55E",
+            color: "#26a69a",
             shape: "arrowUp",
-            text: "GET IN",
+            text: "BUY",
+            size: 1,
           });
         }
         if (targetLevel != null && bar.high >= targetLevel) {
           markers.push({
             time: t,
             position: "aboveBar",
-            color: "#34D399",
+            color: "#26a69a",
             shape: "arrowDown",
-            text: "GET OUT",
+            text: "T1 HIT",
+            size: 1,
           });
         }
         if (stopLevel != null && bar.low <= stopLevel) {
           markers.push({
             time: t,
             position: "aboveBar",
-            color: "#EF4444",
+            color: "#ef5350",
             shape: "arrowDown",
-            text: "GET OUT",
+            text: "STOP",
+            size: 1,
           });
         }
       });

@@ -1151,11 +1151,11 @@ export function LiveTradingChart({
           })}
 
           {/* ==================================================================== */}
-          {/* FOREGROUND LAYER: Dynamic Candlestick Series (Paints clearly ON TOP of lines) */}
+          {/* FOREGROUND LAYER: Dynamic Candlestick Series (Modern Institutional Aesthetic) */}
           {/* ==================================================================== */}
           {candles.map((bar, i) => {
             const isUp = bar.c >= bar.o;
-            const bodyColor = isUp ? "var(--accent-green)" : "var(--accent-red)";
+            const bodyColor = isUp ? "#26a69a" : "#ef5350";
             const top = priceToY(Math.max(bar.o, bar.c));
             const bottom = priceToY(Math.min(bar.o, bar.c));
             const height = Math.max(bottom - top, 2);
@@ -1163,14 +1163,14 @@ export function LiveTradingChart({
             const lowY = priceToY(bar.l);
             return (
               <g key={i}>
-                <line x1={bar.x + candleWidth / 2} y1={highY} x2={bar.x + candleWidth / 2} y2={lowY} stroke={bodyColor} strokeWidth="1.5" />
-                <rect x={bar.x} y={top} width={candleWidth} height={height} fill={bodyColor} rx="1" />
+                <line x1={bar.x + candleWidth / 2} y1={highY} x2={bar.x + candleWidth / 2} y2={lowY} stroke={bodyColor} strokeWidth="1.2" opacity="0.9" />
+                <rect x={bar.x} y={top} width={candleWidth} height={height} fill={bodyColor} rx="1" stroke="none" />
               </g>
             );
           })}
 
           {/* ==================================================================== */}
-          {/* SIGNAL MARKERS LAYER (▲ GET IN / ▼ GET OUT badges on candles) */}
+          {/* SIGNAL MARKERS LAYER (▲ BUY / ▼ T1 HIT / STOP badges on candles) */}
           {/* Fades to 15% opacity when mouse cursor hovers in right quadrant */}
           {/* ==================================================================== */}
           <g
@@ -1180,119 +1180,119 @@ export function LiveTradingChart({
               transition: "opacity 300ms ease-in-out",
             }}
           >
-            {/* Entry Signal: Vibrant Green Up-Arrow (▲) & "GET IN" Badge */}
+            {/* Entry Signal: Subtle Green Up-Arrow (▲) & Compact Badge */}
             {entryIndex >= 0 && entryIndex < candles.length && (() => {
               const bar = candles[entryIndex];
-              const arrowY = priceToY(bar.l) + 6;
-              const badgeY = arrowY + 12;
+              const arrowY = priceToY(bar.l) + 4;
+              const badgeY = arrowY + 8;
               return (
                 <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none">
-                  <circle cx={bar.x + candleWidth / 2} cy={arrowY + 6} r="14" fill="#22C55E" opacity="0.25" filter="blur(4px)" />
                   <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY + 10} ${bar.x + candleWidth / 2 + 6},${arrowY + 10}`}
-                    fill="#22C55E"
-                    stroke="#16A34A"
+                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY + 6} ${bar.x + candleWidth / 2 + 4},${arrowY + 6}`}
+                    fill="#26a69a"
+                    stroke="#26a69a"
                     strokeWidth="1"
                   />
                   <rect
-                    x={bar.x + candleWidth / 2 - 28}
+                    x={bar.x + candleWidth / 2 - 30}
                     y={badgeY}
-                    width="56"
-                    height="18"
-                    rx="4"
-                    fill="#052E16"
-                    stroke="#22C55E"
-                    strokeWidth="1.5"
+                    width="60"
+                    height="14"
+                    rx="3"
+                    fill="rgba(5, 46, 22, 0.85)"
+                    stroke="#26a69a"
+                    strokeWidth="1"
                   />
                   <text
                     x={bar.x + candleWidth / 2}
-                    y={badgeY + 12}
+                    y={badgeY + 10}
                     fill="#4ADE80"
-                    fontSize="9"
+                    fontSize="7.5"
                     fontFamily="monospace"
                     fontWeight="900"
                     textAnchor="middle"
                   >
                     {isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"}
                   </text>
+                  <title>Entry Level: ${buyPrice.toFixed(2)}</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Target 1): Vibrant Green/Emerald Down-Arrow (▼) & "GET OUT" Badge */}
+            {/* Exit Signal (Target 1): Subtle Green Down-Arrow (▼) & Compact Badge */}
             {targetIndex >= 0 && targetIndex < candles.length && (() => {
               const bar = candles[targetIndex];
-              const arrowY = priceToY(bar.h) - 6;
-              const badgeY = arrowY - 26;
+              const arrowY = priceToY(bar.h) - 4;
+              const badgeY = arrowY - 18;
               return (
                 <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none">
-                  <circle cx={bar.x + candleWidth / 2} cy={arrowY - 6} r="14" fill="#34D399" opacity="0.25" filter="blur(4px)" />
                   <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY - 10} ${bar.x + candleWidth / 2 + 6},${arrowY - 10}`}
-                    fill="#34D399"
-                    stroke="#059669"
+                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY - 6} ${bar.x + candleWidth / 2 + 4},${arrowY - 6}`}
+                    fill="#26a69a"
+                    stroke="#26a69a"
                     strokeWidth="1"
                   />
                   <rect
-                    x={bar.x + candleWidth / 2 - 32}
+                    x={bar.x + candleWidth / 2 - 24}
                     y={badgeY}
-                    width="64"
-                    height="18"
-                    rx="4"
-                    fill="#064E3B"
-                    stroke="#34D399"
-                    strokeWidth="1.5"
+                    width="48"
+                    height="14"
+                    rx="3"
+                    fill="rgba(6, 78, 59, 0.85)"
+                    stroke="#26a69a"
+                    strokeWidth="1"
                   />
                   <text
                     x={bar.x + candleWidth / 2}
-                    y={badgeY + 12}
+                    y={badgeY + 10}
                     fill="#A7F3D0"
-                    fontSize="8.5"
+                    fontSize="7.5"
                     fontFamily="monospace"
                     fontWeight="900"
                     textAnchor="middle"
                   >
                     ▼ GET OUT
                   </text>
+                  <title>Target 1 Level: ${targetVal.toFixed(2)}</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Stop Loss): Bright Red Down-Arrow (▼) & "GET OUT" / "STOP" Badge */}
+            {/* Exit Signal (Stop Loss): Subtle Red Down-Arrow (▼) & Compact Badge */}
             {stopIndex >= 0 && stopIndex < candles.length && (() => {
               const bar = candles[stopIndex];
-              const arrowY = priceToY(bar.h) - 6;
-              const badgeY = arrowY - 26;
+              const arrowY = priceToY(bar.h) - 4;
+              const badgeY = arrowY - 18;
               return (
                 <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none">
-                  <circle cx={bar.x + candleWidth / 2} cy={arrowY - 6} r="14" fill="#EF4444" opacity="0.25" filter="blur(4px)" />
                   <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 6},${arrowY - 10} ${bar.x + candleWidth / 2 + 6},${arrowY - 10}`}
-                    fill="#EF4444"
-                    stroke="#DC2626"
+                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY - 6} ${bar.x + candleWidth / 2 + 4},${arrowY - 6}`}
+                    fill="#ef5350"
+                    stroke="#ef5350"
                     strokeWidth="1"
                   />
                   <rect
-                    x={bar.x + candleWidth / 2 - 32}
+                    x={bar.x + candleWidth / 2 - 24}
                     y={badgeY}
-                    width="64"
-                    height="18"
-                    rx="4"
-                    fill="#450A0A"
-                    stroke="#EF4444"
-                    strokeWidth="1.5"
+                    width="48"
+                    height="14"
+                    rx="3"
+                    fill="rgba(69, 10, 10, 0.85)"
+                    stroke="#ef5350"
+                    strokeWidth="1"
                   />
                   <text
                     x={bar.x + candleWidth / 2}
-                    y={badgeY + 12}
+                    y={badgeY + 10}
                     fill="#FCA5A5"
-                    fontSize="8.5"
+                    fontSize="7.5"
                     fontFamily="monospace"
                     fontWeight="900"
                     textAnchor="middle"
                   >
                     ▼ GET OUT
                   </text>
+                  <title>Stop Loss Level: ${stopVal.toFixed(2)}</title>
                 </g>
               );
             })()}
@@ -1303,112 +1303,112 @@ export function LiveTradingChart({
               if (!currentBar) return null;
 
               if (executionTrigger.isTargetHit) {
-                const arrowY = priceToY(currentBar.h) - 6;
-                const badgeY = arrowY - 26;
+                const arrowY = priceToY(currentBar.h) - 5;
+                const badgeY = arrowY - 20;
                 return (
                   <g key="live-target-marker" data-testid="chart-marker-target-hit chart-live-signal-target" className="select-none">
-                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 6} r="16" fill="#34D399" opacity="0.35" filter="blur(4px)" />
                     <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
-                      fill="#34D399"
-                      stroke="#059669"
+                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY - 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY - 7}`}
+                      fill="#26a69a"
+                      stroke="#26a69a"
                       strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 75}
+                      x={currentBar.x + candleWidth / 2 - 28}
                       y={badgeY}
-                      width="150"
-                      height="20"
-                      rx="4"
-                      fill="#064E3B"
-                      stroke="#34D399"
-                      strokeWidth="1.5"
+                      width="56"
+                      height="15"
+                      rx="3"
+                      fill="rgba(6, 78, 59, 0.9)"
+                      stroke="#26a69a"
+                      strokeWidth="1"
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 13.5}
+                      y={badgeY + 11}
                       fill="#A7F3D0"
-                      fontSize="9"
+                      fontSize="8"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      [ SELL - TARGET HIT ]
+                      T1 HIT
                     </text>
+                    <title>[ SELL - TARGET HIT ]</title>
                   </g>
                 );
               }
 
               if (executionTrigger.isStopHit) {
-                const arrowY = priceToY(currentBar.h) - 6;
-                const badgeY = arrowY - 26;
+                const arrowY = priceToY(currentBar.h) - 5;
+                const badgeY = arrowY - 20;
                 return (
                   <g key="live-stop-marker" data-testid="chart-marker-stop-hit chart-live-signal-stop" className="select-none">
-                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 6} r="16" fill="#EF4444" opacity="0.35" filter="blur(4px)" />
                     <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
-                      fill="#EF4444"
-                      stroke="#DC2626"
+                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY - 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY - 7}`}
+                      fill="#ef5350"
+                      stroke="#ef5350"
                       strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 70}
+                      x={currentBar.x + candleWidth / 2 - 24}
                       y={badgeY}
-                      width="140"
-                      height="20"
-                      rx="4"
-                      fill="#450A0A"
-                      stroke="#EF4444"
-                      strokeWidth="1.5"
+                      width="48"
+                      height="15"
+                      rx="3"
+                      fill="rgba(69, 10, 10, 0.9)"
+                      stroke="#ef5350"
+                      strokeWidth="1"
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 13.5}
+                      y={badgeY + 11}
                       fill="#FCA5A5"
-                      fontSize="9"
+                      fontSize="8"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      [ SELL - STOP HIT ]
+                      STOP
                     </text>
+                    <title>[ SELL - STOP HIT ]</title>
                   </g>
                 );
               }
 
               if (executionTrigger.isBuySignal) {
-                const arrowY = priceToY(currentBar.l) + 6;
-                const badgeY = arrowY + 12;
+                const arrowY = priceToY(currentBar.l) + 5;
+                const badgeY = arrowY + 10;
                 return (
                   <g key="live-entry-marker" data-testid="chart-marker-buy-signal chart-live-signal-entry" className="select-none">
-                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY + 6} r="16" fill="#22C55E" opacity="0.35" filter="blur(4px)" />
                     <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY + 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY + 10}`}
-                      fill="#22C55E"
-                      stroke="#16A34A"
+                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY + 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY + 7}`}
+                      fill="#26a69a"
+                      stroke="#26a69a"
                       strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 82}
+                      x={currentBar.x + candleWidth / 2 - 24}
                       y={badgeY}
-                      width="164"
-                      height="20"
-                      rx="4"
-                      fill="#052E16"
-                      stroke="#22C55E"
-                      strokeWidth="1.5"
+                      width="48"
+                      height="15"
+                      rx="3"
+                      fill="rgba(5, 46, 22, 0.9)"
+                      stroke="#26a69a"
+                      strokeWidth="1"
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 13.5}
+                      y={badgeY + 11}
                       fill="#4ADE80"
-                      fontSize="9"
+                      fontSize="8"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      [ BUY SIGNAL - EXECUTE ]
+                      BUY
                     </text>
+                    <title>[ BUY SIGNAL - EXECUTE ]</title>
                   </g>
                 );
               }
@@ -1666,6 +1666,47 @@ export function LiveTradingChart({
             </g>
           )}
         </svg>
+
+        {/* Sleek, semi-transparent floating overlay panel: AI Actionable Tips directly on Chart Canvas */}
+        <div
+          data-testid="chart-ai-actionable-tips"
+          className="absolute bottom-4 left-4 z-10 max-w-sm p-4 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-lg text-sm text-gray-200 shadow-lg pointer-events-auto select-none"
+        >
+          <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/60">
+            <div className="flex items-center gap-2">
+              <div className="p-1 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40">
+                <Sparkles className="h-3.5 w-3.5" />
+              </div>
+              <span className="font-mono text-xs font-bold uppercase tracking-wider text-fuchsia-300">
+                AI Actionable Tips
+              </span>
+            </div>
+            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+              {symbol}
+            </span>
+          </div>
+
+          <div className="space-y-1.5 font-sans text-xs">
+            <div className="flex items-start gap-2">
+              <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-200 leading-snug">
+                Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-300 leading-snug">
+                Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
+              </p>
+            </div>
+            <div className="flex items-start gap-2">
+              <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+              <p className="text-slate-300 leading-snug">
+                Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
+              </p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -2385,30 +2426,30 @@ export default function WealthEngineDashboard() {
           <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
             {/* The Setup Card Component */}
             <div
-              className={`rounded-2xl border p-5 transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
+              className={`rounded-2xl border overflow-hidden transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
               data-testid="setup-card"
             >
               {/* Card Header & Status Badge */}
-              <div className="flex items-center justify-between pb-3 mb-3 border-b border-[var(--card-border)]">
-                <div>
+              <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden" data-testid="studio-setup-card-header">
+                <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)]">
+                    <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)] shrink-0">
                       {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                     </span>
-                    <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)]">
+                    <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)] shrink-0">
                       ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                     </span>
                   </div>
-                  <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5">
+                  <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5 truncate">
                     {activeTickerData?.setupType ?? activeItem?.setupType ?? "SWING SETUP"}
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <button
                     type="button"
                     onClick={() => setIsStudioMiniGuideOpen((prev) => !prev)}
-                    className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm ${
+                    className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
                       isStudioMiniGuideOpen
                         ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                         : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
@@ -2419,8 +2460,21 @@ export default function WealthEngineDashboard() {
                     [Broker Guide]
                   </button>
 
+                  {/* Potential Gain Badge */}
+                  {(() => {
+                    const buy = activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 0;
+                    const tgt = activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 0;
+                    const gainPct = buy > 0 && tgt > buy ? ((tgt - buy) / buy) * 100 : 0;
+                    if (gainPct <= 0) return null;
+                    return (
+                      <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-0.5 font-mono text-[10px] font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0 hidden sm:inline-block">
+                        +{gainPct.toFixed(2)}% Potential Gain
+                      </span>
+                    );
+                  })()}
+
                   <div
-                    className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border ${
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 ${
                       (activeTickerData?.status ?? activeItem?.status) === "Ready"
                         ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
                         : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"

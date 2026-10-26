@@ -243,14 +243,13 @@ export function ModalLargeChart({
     let cleanupEvents = () => {};
 
     if (bars.length > 0) {
-      // 1. Candlestick Series
+      // 1. Candlestick Series (Institutional TradingView Premium aesthetic)
       const candleSeries = chart.addSeries(CandlestickSeries, {
-        upColor: "#10b981",
-        downColor: "#f43f5e",
-        borderUpColor: "#10b981",
-        borderDownColor: "#f43f5e",
-        wickUpColor: "#10b981",
-        wickDownColor: "#f43f5e",
+        upColor: "#26a69a",
+        downColor: "#ef5350",
+        borderVisible: false,
+        wickUpColor: "#26a69a",
+        wickDownColor: "#ef5350",
       });
       candleSeriesRef.current = candleSeries;
 

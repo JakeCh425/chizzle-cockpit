@@ -371,12 +371,11 @@ export function SparklineChart({
     const bars = barsData?.bars ?? [];
     if (bars.length > 0) {
       const candleSeries = chart.addSeries(CandlestickSeries, {
-        upColor: "#10b981",
-        downColor: "#f43f5e",
-        borderUpColor: "#10b981",
-        borderDownColor: "#f43f5e",
-        wickUpColor: "#10b981",
-        wickDownColor: "#f43f5e",
+        upColor: "#26a69a",
+        downColor: "#ef5350",
+        borderVisible: false,
+        wickUpColor: "#26a69a",
+        wickDownColor: "#ef5350",
       });
 
       candleSeries.setData(
@@ -1385,7 +1384,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl p-5 transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer`}
+      className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer`}
       onClick={(e) => {
         if ((e.target as HTMLElement).closest("button, a, input, select, textarea, details, [role='button'], [data-prevent-modal='true']")) {
           return;
@@ -1400,12 +1399,12 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       <ReadyRibbon d={d} ver={ver} />
 
       {/* ─── TOP ROW: Ticker symbol, Live Price, Status Badge & [Fidelity Ticket] Mini-Guide ─── */}
-      <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-[var(--card-border)]">
-        <div className="flex flex-wrap items-center gap-2.5">
-          <span className="font-mono text-2xl font-bold tracking-tight text-white">
+      <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden">
+        <div className="flex flex-wrap items-center gap-2.5 min-w-0">
+          <span className="font-mono text-2xl font-bold tracking-tight text-white shrink-0">
             {d.symbol}
           </span>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`inline-header-price-${d.symbol}`}>
               {$(effectivePrice)}
             </span>
@@ -1414,14 +1413,14 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
           {isCustom && (
             <span
-              className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm"
+              className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm shrink-0"
               data-testid={`badge-custom-plan-${d.symbol}`}
             >
               Custom Plan
             </span>
           )}
           {isNew && (
-            <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
+            <span className="rounded-md bg-cyan-500/20 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300 shrink-0">
               NEW
             </span>
           )}
@@ -1436,7 +1435,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
               e.stopPropagation();
               setIsMiniGuideOpen((prev) => !prev);
             }}
-            className={`px-2.5 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm ${
+            className={`px-2.5 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
               isMiniGuideOpen
                 ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                 : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
@@ -1448,11 +1447,11 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           </button>
 
           {potentialGainPct > 0 ? (
-            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm hidden sm:inline-block">
+            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0">
               +{potentialGainPct.toFixed(2)}% Potential Gain
             </span>
           ) : (
-            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums hidden sm:inline-block">
+            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums shrink-0">
               0.00% Potential Gain
             </span>
           )}
