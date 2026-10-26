@@ -260,13 +260,24 @@ export function LiveTradingChart({
   // Target 1 (1.5R) = EntryPrice + (Risk * 1.5)
   // Target 2 (Core 2.0R) = EntryPrice + (Risk * 2.0)
   // Target 3 (Runner 3.0R) = EntryPrice + (Risk * 3.0)
-  const buyPrice = entryPrice ?? tickerData?.buyTarget ?? item?.buyTarget ?? 100;
-  const stopVal = stopLoss ?? tickerData?.stopLoss ?? item?.stopLoss ?? +(buyPrice * 0.95).toFixed(2);
+  const isTargetSafe = useCallback((val: number | undefined | null) => {
+    if (val == null || !Number.isFinite(val) || val <= 0) return false;
+    if (livePrice <= 0) return true;
+    return Math.abs(val - livePrice) / livePrice < 0.4;
+  }, [livePrice]);
+
+  const rawBuyPrice = entryPrice ?? tickerData?.buyTarget ?? item?.buyTarget;
+  const buyPrice = isTargetSafe(rawBuyPrice) ? rawBuyPrice! : livePrice;
+  const rawStopVal = stopLoss ?? tickerData?.stopLoss ?? item?.stopLoss;
+  const stopVal = isTargetSafe(rawStopVal) ? rawStopVal! : +(buyPrice * 0.95).toFixed(2);
   const risk = +(Math.max(buyPrice - stopVal, (item?.atr ?? 4.15) * 1.0, 0.5)).toFixed(2);
-  const targetVal = primaryTarget ?? tickerData?.target1 ?? +(buyPrice + risk * 1.5).toFixed(2);
+  const rawTargetVal = primaryTarget ?? tickerData?.target1;
+  const targetVal = isTargetSafe(rawTargetVal) ? rawTargetVal! : +(buyPrice + risk * 1.5).toFixed(2);
   const t1Price = targetVal;
-  const t2Price = tickerData?.target2 ?? +(buyPrice + risk * 2.0).toFixed(2);
-  const t3Price = tickerData?.target3 ?? +(buyPrice + risk * 3.0).toFixed(2);
+  const rawT2 = tickerData?.target2;
+  const t2Price = isTargetSafe(rawT2) ? rawT2! : +(buyPrice + risk * 2.0).toFixed(2);
+  const rawT3 = tickerData?.target3;
+  const t3Price = isTargetSafe(rawT3) ? rawT3! : +(buyPrice + risk * 3.0).toFixed(2);
 
   // 4. Live Trading Auto-Scrolling & Pan Controls
   const [autoScroll, setAutoScroll] = useState(true);
@@ -663,15 +674,60 @@ export function LiveTradingChart({
   const sma50Path = useMemo(() => makeSmaPath(sma50Points), [sma50Points]);
   const sma200Path = useMemo(() => makeSmaPath(sma200Points), [sma200Points]);
 
+  // Dynamic Buy Zone: checks if price pulls back to within 0.5% of 20-SMA
+  const isPullbackTo20Sma = useMemo(() => {
+    if (!latestSma20 || latestSma20 <= 0 || !livePrice || livePrice <= 0) return false;
+    return Math.abs(livePrice - latestSma20) / latestSma20 <= 0.005;
+  }, [livePrice, latestSma20]);
+
+  // Right-hand Y-Axis Labels: Collision Avoidance Pass (guarantee minimum 18px separation)
+  const yAxisPillPositions = useMemo(() => {
+    const items = [
+      { id: "live", idealY: priceToY(livePrice) - 9 },
+      { id: "buy", idealY: priceToY(buyPrice) - 8 },
+      { id: "stop", idealY: priceToY(stopVal) - 8 },
+      { id: "t1", idealY: priceToY(targetVal) - 8 },
+      { id: "t2", idealY: priceToY(t2Price) - 8 },
+      { id: "t3", idealY: priceToY(t3Price) - 8 },
+    ];
+
+    // Sort ascending by idealY (from top of chart to bottom)
+    items.sort((a, b) => a.idealY - b.idealY);
+
+    const minGap = 18;
+    // Forward pass: push downward if overlapping
+    for (let i = 1; i < items.length; i++) {
+      if (items[i].idealY < items[i - 1].idealY + minGap) {
+        items[i].idealY = items[i - 1].idealY + minGap;
+      }
+    }
+
+    // Backward pass: if bottom-most exceeded 394px, push upward
+    if (items[items.length - 1].idealY > 394) {
+      items[items.length - 1].idealY = 394;
+      for (let i = items.length - 2; i >= 0; i--) {
+        if (items[i].idealY > items[i + 1].idealY - minGap) {
+          items[i].idealY = items[i + 1].idealY - minGap;
+        }
+      }
+    }
+
+    const posMap: Record<string, number> = {};
+    for (const item of items) {
+      posMap[item.id] = Math.max(8, Math.min(394, item.idealY));
+    }
+    return posMap;
+  }, [livePrice, buyPrice, stopVal, targetVal, t2Price, t3Price, minPrice, priceRange]);
+
   // Hover fading: when cursor enters the right quadrant (x >= 520), transition trade labels/lines to 15% opacity
   const isRightQuadrantHovered = Boolean(hoveredData && hoveredData.x >= 520);
 
   return (
     <div
-      className="w-full h-full flex-1 min-h-0 rounded-xl border flex flex-col relative overflow-hidden shadow-2xl"
+      className="w-full h-full flex-1 min-h-0 rounded-xl border flex flex-col relative overflow-hidden shadow-2xl font-mono"
       style={{
-        backgroundColor: "var(--bg-panel)",
-        borderColor: "var(--border-subtle)",
+        backgroundColor: "#0B0E14",
+        borderColor: "rgba(255, 255, 255, 0.08)",
       }}
       data-testid="chart-placeholder-area"
     >
@@ -679,8 +735,8 @@ export function LiveTradingChart({
       <div
         className="px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 z-10 select-none shadow-sm"
         style={{
-          backgroundColor: "var(--bg-panel)",
-          borderColor: "var(--border-subtle)",
+          backgroundColor: "#05080E",
+          borderColor: "rgba(255, 255, 255, 0.08)",
         }}
       >
         {/* Massive Ticker Symbol & Dynamic Live Price Display */}
@@ -758,6 +814,16 @@ export function LiveTradingChart({
             </div>
           )}
 
+          {isPullbackTo20Sma && (
+            <div
+              data-testid="badge-ready-to-buy-zone"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_15px_rgba(52,211,153,0.35)] animate-pulse"
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>[ READY TO BUY · 20-SMA ZONE ]</span>
+            </div>
+          )}
+
           {onOpenFidelityGuide && (
             <button
               type="button"
@@ -777,8 +843,8 @@ export function LiveTradingChart({
       <div
         className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10 select-none"
         style={{
-          backgroundColor: "var(--bg-panel-subtle)",
-          borderColor: "var(--border-subtle)",
+          backgroundColor: "#080C12",
+          borderColor: "rgba(255, 255, 255, 0.08)",
         }}
       >
         {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
@@ -992,14 +1058,24 @@ export function LiveTradingChart({
               <stop offset="0%" stopColor="var(--accent-cyan)" stopOpacity="0.25" />
               <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity="0.0" />
             </linearGradient>
+            <radialGradient id="buyZoneGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#00FF66" stopOpacity="0.12" />
+              <stop offset="60%" stopColor="#26A69A" stopOpacity="0.04" />
+              <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            </radialGradient>
           </defs>
 
-          {/* Background Grid Lines */}
+          {/* Dynamic 20-SMA Pullback Buy Zone Highlight */}
+          {isPullbackTo20Sma && (
+            <rect x="0" y="0" width="710" height="420" fill="url(#buyZoneGlow)" data-testid="chart-buy-zone-highlight" />
+          )}
+
+          {/* Background Grid Lines (Bloomberg terminal dotted 5% white) */}
           {[80, 160, 240, 320].map((y) => (
-            <line key={y} x1="0" y1={y} x2="710" y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+            <line key={y} x1="0" y1={y} x2="710" y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="2 4" />
           ))}
           {[140, 280, 420, 560].map((x) => (
-            <line key={x} x1={x} y1="0" x2={x} y2="420" stroke="rgba(255,255,255,0.05)" strokeDasharray="4 4" />
+            <line key={x} x1={x} y1="0" x2={x} y2="420" stroke="rgba(255,255,255,0.05)" strokeDasharray="2 4" />
           ))}
 
           {/* Dedicated Right-Hand Y-Axis Divider Line */}
@@ -1430,7 +1506,7 @@ export function LiveTradingChart({
             }}
           >
             {/* Compact Shrunk Glowing Live Price Tag on the Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${priceToY(livePrice) - 9})`} data-testid="chart-live-price-badge" className="select-none">
+            <g transform={`translate(714, ${yAxisPillPositions.live})`} data-testid="chart-live-price-badge" className="select-none">
               <rect
                 x="0"
                 y="0"
@@ -1454,7 +1530,7 @@ export function LiveTradingChart({
             </g>
 
             {/* BUY Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${priceToY(buyPrice) - 8})`} data-testid="chart-label-buy" className="select-none pointer-events-none">
+            <g transform={`translate(714, ${yAxisPillPositions.buy})`} data-testid="chart-label-buy" className="select-none pointer-events-none">
               <rect
                 x="0"
                 y="0"
@@ -1479,7 +1555,7 @@ export function LiveTradingChart({
             </g>
 
             {/* STOP Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${priceToY(stopVal) - 8})`} data-testid="chart-label-stop" className="select-none pointer-events-none">
+            <g transform={`translate(714, ${yAxisPillPositions.stop})`} data-testid="chart-label-stop" className="select-none pointer-events-none">
               <rect
                 x="0"
                 y="0"
@@ -1504,7 +1580,7 @@ export function LiveTradingChart({
             </g>
 
             {/* T1 Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${priceToY(targetVal) - 8})`} data-testid="chart-label-t1" className="select-none pointer-events-none">
+            <g transform={`translate(714, ${yAxisPillPositions.t1})`} data-testid="chart-label-t1" className="select-none pointer-events-none">
               <rect
                 x="0"
                 y="0"
@@ -1529,7 +1605,7 @@ export function LiveTradingChart({
             </g>
 
             {/* T2 Price Tag on Right-Hand Y-Axis (Core 2.0R) */}
-            <g transform={`translate(714, ${priceToY(t2Price) - 8})`} data-testid="chart-label-t2" className="select-none pointer-events-none">
+            <g transform={`translate(714, ${yAxisPillPositions.t2})`} data-testid="chart-label-t2" className="select-none pointer-events-none">
               <rect
                 x="0"
                 y="0"
@@ -1554,7 +1630,7 @@ export function LiveTradingChart({
             </g>
 
             {/* T3 Price Tag on Right-Hand Y-Axis (Runner 3.0R) */}
-            <g transform={`translate(714, ${priceToY(t3Price) - 8})`} data-testid="chart-label-t3" className="select-none pointer-events-none">
+            <g transform={`translate(714, ${yAxisPillPositions.t3})`} data-testid="chart-label-t3" className="select-none pointer-events-none">
               <rect
                 x="0"
                 y="0"
@@ -2263,12 +2339,13 @@ export default function WealthEngineDashboard() {
               <div className="min-w-0 flex-1 overflow-hidden relative w-full h-full">
                 <ErrorBoundary label="Wealth Studio Live Chart">
                   <Chart
+                    key={`${activeTicker}-${activeTf}`}
                     symbol={activeTicker}
                     timeframe={activeTf}
                     activeItem={activeItem}
-                    entryPrice={activeTickerData?.buyTarget ?? activeItem?.buyTarget}
-                    stopLoss={activeTickerData?.stopLoss ?? activeItem?.stopLoss}
-                    primaryTarget={activeTickerData?.target1 ?? activeItem?.primaryTarget}
+                    entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? activeItem?.buyTarget) : activeItem?.buyTarget}
+                    stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? activeItem?.stopLoss) : activeItem?.stopLoss}
+                    primaryTarget={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? activeItem?.primaryTarget) : activeItem?.primaryTarget}
                     onOpenFidelityGuide={() => setIsFidelityGuideOpen(true)}
                   />
                 </ErrorBoundary>

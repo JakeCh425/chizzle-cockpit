@@ -85,16 +85,16 @@ const OVERLAY_LABEL: Record<Overlay, string> = { sma20: "SMA20", sma50: "SMA50",
 
 /** SMA key — colors match the lines drawn on the chart. */
 export const SMA_META = [
-  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#2563eb", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
-  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#dc2626", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
-  { key: "sma200" as const, n: 200, label: "SMA 200", color: "#c026d3", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
+  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#00FFFF", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
+  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#FF00FF", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
+  { key: "sma200" as const, n: 200, label: "SMA 200", color: "#FFD700", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
 ];
 export type SmaKey = typeof SMA_META[number]["key"];
 
 export const DEFAULT_SMA_COLORS: Record<SmaKey, string> = {
-  sma20: "#2563eb",  // Blue for SMA 20
-  sma50: "#dc2626",  // Dark Red for SMA 50
-  sma200: "#c026d3", // Magenta for SMA 200
+  sma20: "#00FFFF",  // Bright Cyan (#00FFFF)
+  sma50: "#FF00FF",  // Magenta/Pink (#FF00FF)
+  sma200: "#FFD700", // Golden Yellow (#FFD700)
 };
 
 export const DEFAULT_SMA_WIDTHS: Record<SmaKey, number> = {
@@ -345,7 +345,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const idx = new Map<number, number>(); sr.t.forEach((t, i) => idx.set(t, i));
     return { idx, sr };
   }, [ctxQ.data, data, ov.ext, tf]);
-  const ctxUsedRef = useRef<"ctx" | "local">("local");
+  const ctxUsedRef = useRef<"ctx" | "local" | "server">("local");
   const intraday = tf === "15m" || tf === "30m" || tf === "1H" || tf === "4H";
   const gutterOn = gutterOnPlan || dayLines.length > 0 || srLines.length > 0;
 
@@ -365,11 +365,23 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     if (!el || !data.length) return;
     const chart = createChart(el, {
       height: 380, autoSize: true,
-      layout: { background: { color: "#050a13" }, textColor: "#94a3b8", fontSize: 11 },
-      grid: { vertLines: { color: "#111a2b" }, horzLines: { color: "#111a2b" } },
-      rightPriceScale: { borderColor: "#1e293b" },
-      timeScale: { borderColor: "#1e293b", timeVisible: intraday, secondsVisible: false,
-        tickMarkFormatter: (t: Time) => ctFmt(Number(t), false) },
+      layout: {
+        background: { color: "#0B0E14" },
+        textColor: "#94a3b8",
+        fontSize: 11,
+        fontFamily: "'Roboto Mono', 'Fira Code', 'Courier New', monospace",
+      },
+      grid: {
+        vertLines: { color: "rgba(255, 255, 255, 0.05)", style: LineStyle.Dotted },
+        horzLines: { color: "rgba(255, 255, 255, 0.05)", style: LineStyle.Dotted },
+      },
+      rightPriceScale: { borderColor: "rgba(255, 255, 255, 0.08)" },
+      timeScale: {
+        borderColor: "rgba(255, 255, 255, 0.08)",
+        timeVisible: intraday,
+        secondsVisible: false,
+        tickMarkFormatter: (t: Time) => ctFmt(Number(t), false),
+      },
       localization: { timeFormatter: (t: Time) => ctFmt(Number(t), intraday) + (intraday ? " CT" : "") },
       crosshair: { mode: 0 },
     });
@@ -528,12 +540,12 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     planLinesRef.current = [];
     if (ov.plan && overlay) for (const l of overlay.levels.filter((x) => x.current)) {
       const line = main.createPriceLine({ price: l.price, color: LEVEL_COLOR[l.kind], lineWidth: l.kind === "ENTRY" ? 2 : 1,
-        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: false, title: "" });
-      planLinesRef.current.push({ line, title: "", axis: false });
+        lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: true, title: l.kind });
+      planLinesRef.current.push({ line, title: l.kind, axis: true });
     }
     if (ov.plan) for (const u of userLevels) {
-      const line = main.createPriceLine({ price: u.price, color: u.color, lineWidth: 1, lineStyle: LineStyle.LargeDashed, lineVisible: vis, axisLabelVisible: false, title: "" });
-      planLinesRef.current.push({ line, title: "", axis: false });
+      const line = main.createPriceLine({ price: u.price, color: u.color, lineWidth: 1, lineStyle: LineStyle.LargeDashed, lineVisible: vis, axisLabelVisible: true, title: u.name });
+      planLinesRef.current.push({ line, title: u.name, axis: true });
     }
     if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : srEffective))) {
       const retest = z.kind === "RETEST";
@@ -879,6 +891,13 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     } catch {}
   }, [executionTrigger.signalType, showInfo, data]);
 
+  // Dynamic Buy Zone: checks if price pulls back to within 0.5% of 20-SMA
+  const isPullbackTo20Sma = useMemo(() => {
+    const s20 = smaLast.sma20;
+    if (!s20 || s20 <= 0 || !rawPrice || rawPrice <= 0) return false;
+    return Math.abs(rawPrice - s20) / s20 <= 0.005;
+  }, [rawPrice, smaLast.sma20]);
+
   const btn = (on: boolean) => `px-2 py-0.5 rounded border text-[11px] font-mono ${on ? "border-neon-blue text-soft-white bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"}`;
   return (
     <div className="space-y-2" data-testid="swing-chart">
@@ -909,6 +928,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
               }`}
             >
               <span>[{executionTrigger.activeSignalText}]</span>
+            </div>
+          )}
+          {isPullbackTo20Sma && (
+            <div
+              data-testid="badge-ready-to-buy-zone"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_12px_rgba(52,211,153,0.35)] animate-pulse"
+            >
+              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>[ READY TO BUY · 20-SMA ZONE ]</span>
             </div>
           )}
           <button
@@ -1186,6 +1214,16 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       <div className="relative" data-testid="swing-chart-stage-container">
         <div className="relative rounded border border-ink-line overflow-hidden" style={{ height: chartH }}
           onMouseEnter={() => setHoverChart(true)} onMouseLeave={() => setHoverChart(false)} data-testid="chart-hover-area" data-panes={panes} data-focus={focus ? "1" : "0"} data-clean={fv.full ? "0" : "1"}>
+          {/* Dynamic 20-SMA Pullback Buy Zone Glow */}
+          {isPullbackTo20Sma && (
+            <div
+              data-testid="chart-buy-zone-highlight"
+              className="absolute inset-0 pointer-events-none animate-pulse z-0"
+              style={{
+                background: "radial-gradient(circle at 50% 50%, rgba(38, 166, 154, 0.16) 0%, rgba(0, 255, 102, 0.05) 50%, transparent 80%)",
+              }}
+            />
+          )}
           {drawOn && <DrawingToolbar tool={tool} setTool={(t) => { setTool(t); draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } }} api={dr} selected={selected} hidden={hideDr} setHidden={setHideDr}
             onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
             onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}

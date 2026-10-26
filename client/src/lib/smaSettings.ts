@@ -15,9 +15,9 @@ export interface SmaSettings {
 }
 
 export const DEFAULT_SMA_SETTINGS: SmaSettings = {
-  sma20: { color: "#22d3ee", lineWidth: 2, visible: true },   // Electric Cyan
-  sma50: { color: "#fbbf24", lineWidth: 2, visible: true },   // Amber Gold
-  sma200: { color: "#c084fc", lineWidth: 2, visible: true },  // Violet Magenta
+  sma20: { color: "#00FFFF", lineWidth: 2, visible: true },   // Bright Cyan (#00FFFF)
+  sma50: { color: "#FF00FF", lineWidth: 2, visible: true },   // Magenta/Pink (#FF00FF)
+  sma200: { color: "#FFD700", lineWidth: 2, visible: true },  // Golden Yellow (#FFD700)
 };
 
 export const STORAGE_KEY_SMA = "chizzle-sma-settings";

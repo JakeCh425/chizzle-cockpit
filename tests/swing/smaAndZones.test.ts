@@ -11,15 +11,15 @@ describe("Chart Upgrades — SMA Visibility, S/R Shading Removal & Line Thicknes
   });
 
   it("DEFAULT_SMA_COLORS matches the terminal neon theme", () => {
-    expect(DEFAULT_SMA_COLORS.sma20).toBe("#2563eb");
-    expect(DEFAULT_SMA_COLORS.sma50).toBe("#dc2626");
-    expect(DEFAULT_SMA_COLORS.sma200).toBe("#c026d3");
+    expect(DEFAULT_SMA_COLORS.sma20).toBe("#00FFFF");
+    expect(DEFAULT_SMA_COLORS.sma50).toBe("#FF00FF");
+    expect(DEFAULT_SMA_COLORS.sma200).toBe("#FFD700");
   });
 
   it("Sparkline chart defaults align with SwingChart theme", () => {
-    expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#2563eb");
-    expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#dc2626");
-    expect(DEFAULT_SPARK_SMA_COLORS.sma200).toBe("#c026d3");
+    expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#00FFFF");
+    expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#FF00FF");
+    expect(DEFAULT_SPARK_SMA_COLORS.sma200).toBe("#FFD700");
   });
 
   it("SMA_META contains 20, 50, and 200 period configurations", () => {

@@ -277,9 +277,9 @@ function computeSMA(
 }
 
 export const DEFAULT_SPARK_SMA_COLORS = {
-  sma20: "#2563eb", // Blue
-  sma50: "#dc2626", // Dark Red
-  sma200: "#c026d3", // Magenta
+  sma20: "#00FFFF", // Bright Cyan (#00FFFF)
+  sma50: "#FF00FF", // Magenta/Pink (#FF00FF)
+  sma200: "#FFD700", // Golden Yellow (#FFD700)
 };
 
 export function SparklineChart({
