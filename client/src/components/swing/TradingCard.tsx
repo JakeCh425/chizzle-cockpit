@@ -43,6 +43,7 @@ import { useCardBg } from "./CardStyle";
 import { ProximityTips } from "./ProximityTips";
 import { useFreshness } from "@/lib/freshness";
 import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessResult } from "@shared/cardFreshness";
+import { useGlobalState } from "@/lib/globalState";
 
 // ─── UTILS & CONSTANTS ─────────────────────────────────────────────────────
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
@@ -1275,13 +1276,19 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
   const liveQuote = useLiveQuote(d.symbol);
-  const effectivePrice = liveQuote.price ?? d.currentPrice;
+  const global = useGlobalState();
+  // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
+  const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
+
   const [detailsOpen, setDetailsOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
 
   const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
   const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
-  const [isBodyExpanded, setIsBodyExpanded] = useState(true);
+  // Compact state by default; user toggles Expand Details to reveal deeper diagnostics
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [isBodyExpanded, setIsBodyExpanded] = useState(false);
   const [isMiniGuideOpen, setIsMiniGuideOpen] = useState(false);
 
   const isCustom = sz.override;
@@ -1291,6 +1298,15 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   // Compute targets based on Scale-Out Mode (defaults: T1=2.0R, T2=3.0R)
   const targets = computeTargetLevels(activeEntry, activeStop, isCustom ? sz.activeT1 : p.t1, isCustom ? sz.activeT2 : p.t2, scaleOutMode);
+
+  // Position Sizing & Funding Summary
+  const positionShares = sz.sizing?.shares && sz.sizing.shares > 0
+    ? sz.sizing.shares
+    : (activeRisk && activeRisk > 0 ? Math.max(1, Math.floor(1000 / activeRisk)) : 100);
+  const fundingAllocated = sz.sizing?.positionCost != null && sz.sizing.positionCost > 0
+    ? sz.sizing.positionCost
+    : positionShares * (activeEntry ?? 100);
+  const targetRMultiple = targets.t1R != null && Number.isFinite(targets.t1R) ? targets.t1R.toFixed(1) : (scaleOutMode ? "1.5" : "2.0");
 
   // Potential Gain calculation to active Target 1 (1.5R when Scale-Out Mode ON, else 2.0R)
   const potentialGainPct = activeEntry != null && targets.t1 != null && activeEntry > 0
@@ -1381,7 +1397,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     >
       <ReadyRibbon d={d} ver={ver} />
 
-      {/* ─── HEADER: Ticker symbol, Lock/Status icon, [Fidelity Ticket] Mini-Guide & Accordion Toggle ─── */}
+      {/* ─── TOP ROW: Ticker symbol, Live Price, Status Badge & [Fidelity Ticket] Mini-Guide ─── */}
       <div className="flex items-center justify-between gap-3 pt-1 pb-3 border-b border-[var(--card-border)]">
         <div className="flex flex-wrap items-center gap-2.5">
           <span className="font-mono text-2xl font-bold tracking-tight text-white">
@@ -1410,7 +1426,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <PendingChip d={d} />
         </div>
 
-        {/* Right Actions: [Fidelity Ticket] Mini-Guide Button, Pinned Gain Badge & Collapse Toggle */}
+        {/* Right Actions: [Fidelity Ticket] Mini-Guide Button & Pinned Gain Badge */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
@@ -1439,19 +1455,19 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
             </span>
           )}
 
-          {/* Accordion Collapse / Expand Toggle */}
+          {/* Accordion Collapse / Expand Toggle Icon */}
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              setIsBodyExpanded((prev) => !prev);
+              setIsExpanded((prev) => !prev);
             }}
             className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
             data-testid={`button-toggle-card-collapse-${d.symbol}`}
-            title={isBodyExpanded ? "Collapse card details" : "Expand card details"}
-            aria-label={isBodyExpanded ? "Collapse card details" : "Expand card details"}
+            title={isExpanded ? "Collapse card details" : "Expand card details"}
+            aria-label={isExpanded ? "Collapse card details" : "Expand card details"}
           >
-            {isBodyExpanded ? (
+            {isExpanded ? (
               <ChevronUp className="h-4 w-4 text-cyan-400" />
             ) : (
               <ChevronDown className="h-4 w-4 text-cyan-400" />
@@ -1460,7 +1476,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       </div>
 
-      {/* ─── CORE METRICS: 3-COLUMN LAYOUT (Buy Target, Stop Loss, Return %) - ALWAYS VISIBLE ─── */}
+      {/* ─── MIDDLE ROW: 3-COLUMN CORE METRICS (Buy Target, Stop Loss, Return %) - ALWAYS VISIBLE ─── */}
       <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner" data-testid={`core-metrics-${d.symbol}`}>
         <div className="flex flex-col gap-1">
           <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
@@ -1488,7 +1504,119 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       </div>
 
-      {/* ─── 'QUICK VIEW' MINI-GUIDE (Directly below Buy Target / Stop Loss numbers) ─── */}
+      {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
+      <div
+        className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner"
+        data-testid={`setup-card-summary-strip-${d.symbol}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-400 font-semibold uppercase text-[10px]">Funding Allocated:</span>
+          <strong className="text-emerald-400 font-bold">${fundingAllocated.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        </div>
+        <span className="text-slate-600 hidden sm:inline">|</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-400 font-semibold uppercase text-[10px]">Position Size:</span>
+          <strong className="text-cyan-300 font-bold">{positionShares} Shares</strong>
+        </div>
+        <span className="text-slate-600 hidden sm:inline">|</span>
+        <div className="flex items-center gap-1.5">
+          <span className="text-slate-400 font-semibold uppercase text-[10px]">Target R-Multiple:</span>
+          <strong className="text-emerald-400 font-bold">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+        </div>
+      </div>
+
+      {/* ─── BOTTOM ROW: Action buttons (Arm Trade, Adjust Plan, Expand Details) ─── */}
+      <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-[var(--card-border)]">
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Arm Trade action button */}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
+            onClick={() => {
+              onSeen();
+              openTradeDialog({
+                mode: "arm",
+                decision: d,
+                plan: effectivePlan(d, ver),
+                liveAllowed: live?.allowed ?? null,
+                overrideRequired: group !== "READY",
+              });
+            }}
+            data-testid={`button-arm-trade-${d.symbol}`}
+            title="Arm practice trade plan"
+          >
+            <Crosshair className="h-3.5 w-3.5 text-signal-green" />
+            <span>Arm Trade</span>
+          </button>
+
+          {/* Adjust Plan action button */}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
+            onClick={handleAdjustPlan}
+            data-testid={`button-adjust-plan-${d.symbol}`}
+            title="Adjust plan entries and overrides"
+          >
+            <Pencil className="h-3.5 w-3.5 text-neon-blue" />
+            <span>Adjust Plan</span>
+          </button>
+
+          {isCustom && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+              onClick={sz.reset}
+              data-testid={`button-levels-reset-${d.symbol}`}
+              title="Reset to Original Engine Plan"
+            >
+              <RotateCcw className="h-3 w-3 text-cyan-400" />
+              <span>Reset</span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
+            onClick={() => focusSymbol(d.symbol)}
+            title="Focus symbol on chart"
+          >
+            <LineChart className="h-3 w-3" />
+            <span>Chart</span>
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          {props.onOpen && (
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
+              onClick={() => { onSeen(); props.onOpen!(); }}
+              title="Open full dialog view"
+            >
+              <Maximize2 className="h-3 w-3" />
+              <span>Open Card</span>
+            </button>
+          )}
+
+          {/* Expand Details Chevron Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsExpanded((prev) => !prev);
+            }}
+            className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-3 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer shadow-sm"
+            data-testid={`button-toggle-expand-details-${d.symbol}`}
+            title={isExpanded ? "Collapse deep diagnostics" : "Expand deep diagnostics"}
+            aria-expanded={isExpanded}
+          >
+            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-cyan-400" /> : <ChevronDown className="h-3.5 w-3.5 text-cyan-400" />}
+            <span>{isExpanded ? "Collapse Details" : "Expand Details"}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ─── 'QUICK VIEW' MINI-GUIDE (Below core numbers when toggled) ─── */}
       {isMiniGuideOpen && (
         <div
           className="my-2 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
@@ -1515,9 +1643,13 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       )}
 
-      {/* ─── COLLAPSIBLE BODY (Mini-chart, Sell Target pills, Extended Runners, Action Buttons) ─── */}
-      {isBodyExpanded && (
-        <div className="flex flex-col gap-2 mt-1 animate-in fade-in duration-150" data-testid={`card-collapsible-body-${d.symbol}`}>
+      {/* ─── EXPANDED STATE (Accordion): All deeper diagnostics inside collapsible container ─── */}
+      {isExpanded && (
+        <div
+          className="flex flex-col gap-2.5 pt-3 mt-2 border-t border-[var(--card-border)] animate-in fade-in duration-200"
+          data-testid={`card-expanded-details-${d.symbol}`}
+        >
+          <div data-testid={`card-collapsible-body-${d.symbol}`} className="flex flex-col gap-2.5">
           {/* ─── SIGNAL INFO & HISTORICAL EDGE BADGE ─── */}
           <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs text-slate-400">
             <div className="flex flex-wrap items-center gap-2">
@@ -1750,99 +1882,12 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
             </div>
           </div>
 
-          {/* ─── CARD FOOTER / ACTION BUTTONS ─── */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-2 border-t border-ink-line/50">
-            <div className="flex flex-wrap items-center gap-2.5">
-              {/* Permanently visible Arm Trade action button */}
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
-                onClick={() => {
-                  onSeen();
-                  openTradeDialog({
-                    mode: "arm",
-                    decision: d,
-                    plan: effectivePlan(d, ver),
-                    liveAllowed: live?.allowed ?? null,
-                    overrideRequired: group !== "READY",
-                  });
-                }}
-                data-testid={`button-arm-trade-${d.symbol}`}
-                title="Arm practice trade plan"
-              >
-                <Crosshair className="h-4 w-4 text-signal-green" />
-                Arm Trade
-              </button>
-
-              {/* Permanently visible Adjust Plan action button */}
-              <button
-                type="button"
-                className="flex items-center gap-2 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-4 py-2 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
-                onClick={handleAdjustPlan}
-                data-testid={`button-adjust-plan-${d.symbol}`}
-                title="Adjust plan entries and overrides"
-              >
-                <Pencil className="h-4 w-4 text-neon-blue" />
-                Adjust Plan
-              </button>
-
-              {isCustom && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1.5 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-                  onClick={sz.reset}
-                  data-testid={`button-levels-reset-${d.symbol}`}
-                  title="Reset to Original Engine Plan"
-                >
-                  <RotateCcw className="h-3.5 w-3.5 text-cyan-400" />
-                  Reset Plan
-                </button>
-              )}
-
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
-                onClick={() => focusSymbol(d.symbol)}
-                title="Focus symbol on chart"
-              >
-                <LineChart className="h-3.5 w-3.5" />
-                Chart
-              </button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              {props.onOpen && (
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
-                  onClick={() => { onSeen(); props.onOpen!(); }}
-                  title="Open full dialog view"
-                >
-                  <Maximize2 className="h-3.5 w-3.5" />
-                  Open Card
-                </button>
-              )}
-
-              <button
-                type="button"
-                className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-                onClick={toggleDetails}
-                aria-expanded={detailsOpen}
-                title={detailsOpen ? "Hide detailed sections" : "Show detailed sections"}
-              >
-                {detailsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                {detailsOpen ? "Less" : "Details"}
-              </button>
-            </div>
+          {/* ─── EXPANDABLE DEEP DIAGNOSTICS BODY (Funding, Overrides, Readiness) ─── */}
+          <div className="flex flex-col gap-4 pt-3 mt-1 border-t border-ink-line/40 animate-in fade-in duration-200" data-testid={`card-deep-diagnostics-${d.symbol}`}>
+            <CriticalWarnings d={d} ver={ver} />
+            <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
           </div>
-
-          {/* ─── EXPANDABLE DETAILED BODY (Funding, Overrides, Readiness) ─── */}
-          {detailsOpen && (
-            <div className="flex flex-col gap-4 pt-4 mt-2 border-t border-white/10 animate-in fade-in duration-200">
-              <CriticalWarnings d={d} ver={ver} />
-              <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
-            </div>
-          )}
+          </div>
         </div>
       )}
     </article>

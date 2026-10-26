@@ -4,6 +4,7 @@ import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { Link } from "wouter";
 import { useGlobalState } from "@/lib/globalState";
+import { useExecutionTriggers } from "@/hooks/useExecutionTriggers";
 import { TradingTipsCard } from "@/components/swing/TradingTipsCard";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import { DEFAULT_WATCHLIST, type WatchlistItem } from "@/lib/wealthWatchlist";
@@ -473,6 +474,15 @@ export function LiveTradingChart({
     return [...historicalCandles, activeCandle];
   }, [historicalCandles, activeCandle]);
 
+  // Actionable Execution Triggers: Compare live candle close & live price against Entry, StopLoss, and Target
+  const executionTrigger = useExecutionTriggers(
+    livePrice,
+    activeCandle?.c,
+    buyPrice,
+    stopVal,
+    targetVal
+  );
+
   // Boot Sequence Logging for LiveTradingChart
   useEffect(() => {
     if (typeof console !== "undefined") {
@@ -729,8 +739,24 @@ export function LiveTradingChart({
           </div>
         </div>
 
-        {/* Quick Action: Fidelity Execution Guide Modal Button */}
-        <div className="flex items-center gap-2">
+        {/* Quick Action: Execution Alert Pill & Fidelity Execution Guide Modal Button */}
+        <div className="flex items-center gap-3">
+          {executionTrigger.activeSignalText && (
+            <div
+              data-testid="chart-execution-alert"
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-black tracking-wider uppercase border shadow-lg animate-pulse ${
+                executionTrigger.signalType === "BUY"
+                  ? "bg-emerald-500/25 text-emerald-300 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)]"
+                  : executionTrigger.signalType === "TARGET_HIT"
+                  ? "bg-emerald-500/25 text-emerald-300 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)]"
+                  : "bg-rose-500/25 text-rose-300 border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.5)]"
+              }`}
+            >
+              <span className="h-2 w-2 rounded-full bg-current animate-ping" />
+              <span>[{executionTrigger.activeSignalText}]</span>
+            </div>
+          )}
+
           {onOpenFidelityGuide && (
             <button
               type="button"
@@ -1270,28 +1296,28 @@ export function LiveTradingChart({
               );
             })()}
 
-            {/* Real-time Dynamic Signal Marker on the Current Live Candle */}
+            {/* Real-time Dynamic Actionable Execution Trigger Marker on the Current Live Candle */}
             {(() => {
               const currentBar = candles[candles.length - 1];
               if (!currentBar) return null;
-              const isLiveEntry = livePrice >= buyPrice * 0.995 && livePrice < targetVal;
-              const isLiveTarget = livePrice >= targetVal;
-              const isLiveStop = livePrice <= stopVal;
 
-              if (isLiveTarget) {
+              if (executionTrigger.isTargetHit) {
                 const arrowY = priceToY(currentBar.h) - 6;
                 const badgeY = arrowY - 26;
                 return (
-                  <g key="live-target-marker" data-testid="chart-live-signal-target" className="select-none">
+                  <g key="live-target-marker" data-testid="chart-marker-target-hit chart-live-signal-target" className="select-none">
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 6} r="16" fill="#34D399" opacity="0.35" filter="blur(4px)" />
                     <polygon
                       points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
                       fill="#34D399"
+                      stroke="#059669"
+                      strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 38}
+                      x={currentBar.x + candleWidth / 2 - 75}
                       y={badgeY}
-                      width="76"
-                      height="18"
+                      width="150"
+                      height="20"
                       rx="4"
                       fill="#064E3B"
                       stroke="#34D399"
@@ -1299,33 +1325,36 @@ export function LiveTradingChart({
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 12}
+                      y={badgeY + 13.5}
                       fill="#A7F3D0"
-                      fontSize="8"
+                      fontSize="9"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      ▼ GET OUT · T1
+                      [ SELL - TARGET HIT ]
                     </text>
                   </g>
                 );
               }
 
-              if (isLiveStop) {
+              if (executionTrigger.isStopHit) {
                 const arrowY = priceToY(currentBar.h) - 6;
                 const badgeY = arrowY - 26;
                 return (
-                  <g key="live-stop-marker" data-testid="chart-live-signal-stop" className="select-none">
+                  <g key="live-stop-marker" data-testid="chart-marker-stop-hit chart-live-signal-stop" className="select-none">
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 6} r="16" fill="#EF4444" opacity="0.35" filter="blur(4px)" />
                     <polygon
                       points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY - 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY - 10}`}
                       fill="#EF4444"
+                      stroke="#DC2626"
+                      strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 40}
+                      x={currentBar.x + candleWidth / 2 - 70}
                       y={badgeY}
-                      width="80"
-                      height="18"
+                      width="140"
+                      height="20"
                       rx="4"
                       fill="#450A0A"
                       stroke="#EF4444"
@@ -1333,33 +1362,36 @@ export function LiveTradingChart({
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 12}
+                      y={badgeY + 13.5}
                       fill="#FCA5A5"
-                      fontSize="8"
+                      fontSize="9"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      ▼ GET OUT · STOP
+                      [ SELL - STOP HIT ]
                     </text>
                   </g>
                 );
               }
 
-              if (isLiveEntry) {
+              if (executionTrigger.isBuySignal) {
                 const arrowY = priceToY(currentBar.l) + 6;
                 const badgeY = arrowY + 12;
                 return (
-                  <g key="live-entry-marker" data-testid="chart-live-signal-entry" className="select-none">
+                  <g key="live-entry-marker" data-testid="chart-marker-buy-signal chart-live-signal-entry" className="select-none">
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY + 6} r="16" fill="#22C55E" opacity="0.35" filter="blur(4px)" />
                     <polygon
                       points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 6},${arrowY + 10} ${currentBar.x + candleWidth / 2 + 6},${arrowY + 10}`}
                       fill="#22C55E"
+                      stroke="#16A34A"
+                      strokeWidth="1"
                     />
                     <rect
-                      x={currentBar.x + candleWidth / 2 - 34}
+                      x={currentBar.x + candleWidth / 2 - 82}
                       y={badgeY}
-                      width="68"
-                      height="18"
+                      width="164"
+                      height="20"
                       rx="4"
                       fill="#052E16"
                       stroke="#22C55E"
@@ -1367,14 +1399,14 @@ export function LiveTradingChart({
                     />
                     <text
                       x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 12}
+                      y={badgeY + 13.5}
                       fill="#4ADE80"
-                      fontSize="8"
+                      fontSize="9"
                       fontFamily="monospace"
                       fontWeight="900"
                       textAnchor="middle"
                     >
-                      {isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"}
+                      [ BUY SIGNAL - EXECUTE ]
                     </text>
                   </g>
                 );
@@ -1645,7 +1677,7 @@ export const Chart = LiveTradingChart;
 // ============================================================================
 export default function WealthEngineDashboard() {
   const global = useGlobalState();
-  const { activeTickerData } = global;
+  const { activeTickerData, activePrice, livePrices } = global;
   const [newTickerInput, setNewTickerInput] = useState("");
   const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
 
@@ -1671,9 +1703,9 @@ export default function WealthEngineDashboard() {
   // Boot Sequence Diagnostic Logging
   useEffect(() => {
     if (typeof console !== "undefined") {
-      console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeTickerData?.price ?? activeItem?.price}, watchlist count: ${watchlist?.length}`);
+      console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeTickerData?.price ?? activePrice ?? activeItem?.price}, watchlist count: ${watchlist?.length}`);
     }
-  }, [activeTicker, activeTickerData?.price, activeItem?.price, watchlist?.length]);
+  }, [activeTicker, activeTickerData?.price, activePrice, activeItem?.price, watchlist?.length]);
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1695,7 +1727,7 @@ export default function WealthEngineDashboard() {
   // Advanced Metrics accordion state in Right Column
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [isStudioMiniGuideOpen, setIsStudioMiniGuideOpen] = useState(false);
-  const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(true);
+  const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(false);
 
   const openArmTrade = global?.openArmTrade ?? (() => {});
 
@@ -1778,7 +1810,7 @@ export default function WealthEngineDashboard() {
             <span className={`h-2 w-2 rounded-full bg-cyan-400 ${marketOpen ? "animate-pulse" : ""} shadow-[0_0_6px_#22D3EE]`} />
             <span className="font-black text-white">{activeTickerData?.symbol ?? activeTicker}</span>
             <span className="font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]" data-testid="header-live-price">
-              ${(activeTickerData?.price ?? activePrice).toFixed(2)}
+              ${(activeTickerData?.price ?? activePrice ?? 0).toFixed(2)}
             </span>
             <span className={`text-[10px] font-bold ${(activeTickerData?.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(activeTickerData?.change ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.change ?? 0).toFixed(2)} ({(activeTickerData?.changePct ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.changePct ?? 0).toFixed(2)}%)
@@ -2490,12 +2522,74 @@ export default function WealthEngineDashboard() {
                 </div>
               )}
 
-              {/* COLLAPSIBLE BODY (Bottom Line summary, Action Buttons, Advanced Metrics) */}
+              {/* NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple */}
+              <div
+                className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 my-3 rounded-xl border border-[var(--card-border)] bg-black/40 font-mono text-xs shadow-inner"
+                data-testid="studio-setup-summary-strip"
+              >
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Funding Allocated:</span>
+                  <strong className="text-emerald-400 font-bold">$10,000.00</strong>
+                </div>
+                <span className="text-slate-600 hidden sm:inline">|</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Position Size:</span>
+                  <strong className="text-cyan-300 font-bold">
+                    {Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} Shares
+                  </strong>
+                </div>
+                <span className="text-slate-600 hidden sm:inline">|</span>
+                <div className="flex items-center gap-1.5">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Target R-Multiple:</span>
+                  <strong className="text-emerald-400 font-bold">+1.50R Target</strong>
+                </div>
+              </div>
+
+              {/* BOTTOM ROW: Action buttons (Arm Trade, Adjust Plan, Expand Details) */}
+              <div className="flex items-center gap-2 pt-2 border-t border-[var(--card-border)]" data-testid="studio-setup-card-action-bar">
+                <button
+                  type="button"
+                  data-testid="button-arm-practice-trade"
+                  onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
+                  className="flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  style={{
+                    backgroundColor: "var(--accent-cyan)",
+                    color: "#050914",
+                  }}
+                >
+                  <Play className="h-3.5 w-3.5 fill-current" />
+                  <span>Arm Trade</span>
+                </button>
+
+                <button
+                  type="button"
+                  data-testid="button-studio-adjust-plan"
+                  onClick={() => setIsFidelityGuideOpen(true)}
+                  className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  title="Adjust Plan & Fidelity Execution Ticket"
+                >
+                  Adjust Plan
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsStudioSetupCardExpanded((prev) => !prev)}
+                  className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-cyan-500/30 bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  data-testid="button-studio-expand-details"
+                  aria-label={isStudioSetupCardExpanded ? "Collapse Details" : "Expand Details"}
+                  title={isStudioSetupCardExpanded ? "Collapse Details" : "Expand Details"}
+                >
+                  <span>{isStudioSetupCardExpanded ? "Collapse" : "Expand Details"}</span>
+                  {isStudioSetupCardExpanded ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+                </button>
+              </div>
+
+              {/* COLLAPSIBLE ACCORDION BODY (Bottom Line summary, Fidelity Ticket, Advanced Metrics) */}
               {isStudioSetupCardExpanded && (
-                <div className="space-y-4 animate-in fade-in duration-150" data-testid="studio-setup-card-body">
+                <div className="space-y-4 pt-3 mt-3 border-t border-[var(--card-border)] animate-in fade-in duration-150" data-testid="studio-setup-card-body">
                   {/* SHORT "BOTTOM LINE" SUMMARY SENTENCE */}
                   <div
-                    className="p-3 rounded-xl border text-xs font-sans leading-relaxed my-3"
+                    className="p-3 rounded-xl border text-xs font-sans leading-relaxed my-1"
                     style={{
                       backgroundColor: "var(--bg-panel-subtle)",
                       borderColor: "var(--border-subtle)",
@@ -2511,33 +2605,16 @@ export default function WealthEngineDashboard() {
                     </p>
                   </div>
 
-                  {/* Action Buttons */}
-                  <div className="space-y-2 mt-4">
-                    <button
-                      type="button"
-                      data-testid="button-arm-practice-trade"
-                      onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
-                      className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                      style={{
-                        backgroundColor: "var(--accent-cyan)",
-                        color: "#050914",
-                      }}
-                    >
-                      <Play className="h-3.5 w-3.5 fill-current" />
-                      <span>Arm Practice Order</span>
-                    </button>
-
-                    {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
-                    <button
-                      type="button"
-                      data-testid="button-fidelity-ticket-card"
-                      onClick={() => setIsFidelityGuideOpen(true)}
-                      className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                      <ClipboardList className="h-4 w-4 text-emerald-400" />
-                      <span>Fidelity Ticket Cheat Sheet</span>
-                    </button>
-                  </div>
+                  {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
+                  <button
+                    type="button"
+                    data-testid="button-fidelity-ticket-card"
+                    onClick={() => setIsFidelityGuideOpen(true)}
+                    className="w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ClipboardList className="h-4 w-4 text-emerald-400" />
+                    <span>Fidelity Ticket Cheat Sheet</span>
+                  </button>
 
                   {/* COLLAPSED "ADVANCED METRICS" ACCORDION (DROPDOWN) */}
                   <div

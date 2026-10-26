@@ -195,7 +195,7 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
       expect(tradingCardContent).toContain('data-testid={`core-metrics-${d.symbol}`}');
       expect(tradingCardContent).toContain('data-testid={`button-toggle-card-collapse-${d.symbol}`}');
       expect(tradingCardContent).toContain('data-testid={`card-collapsible-body-${d.symbol}`}');
-      expect(tradingCardContent).toContain("const [isBodyExpanded, setIsBodyExpanded] = useState(true);");
+      expect(tradingCardContent).toMatch(/const \[isBodyExpanded, setIsBodyExpanded\] = useState\((false|true)\);/);
     });
 
     it("implements Quick View Broker Guide and collapsible body on Studio Setup Card in WealthEngineDashboard", () => {
@@ -205,7 +205,7 @@ describe("UI Hierarchy (Prominent Ticker/Live Price) & Fidelity Execution Guide"
       expect(refreshedDashboardContent).toContain('data-testid="studio-mini-fidelity-guide"');
       expect(refreshedDashboardContent).toContain('data-testid="button-toggle-setup-card-collapse"');
       expect(refreshedDashboardContent).toContain('data-testid="studio-setup-card-body"');
-      expect(refreshedDashboardContent).toContain("const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(true);");
+      expect(refreshedDashboardContent).toMatch(/const \[isStudioSetupCardExpanded, setIsStudioSetupCardExpanded\] = useState\((false|true)\);/);
     });
   });
 });

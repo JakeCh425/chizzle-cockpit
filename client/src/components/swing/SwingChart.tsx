@@ -23,6 +23,8 @@ import { dayChipText, dayRaySpan, dimColor, FOCUS_FADE_MS, focusView, isIntraday
 import { ctParts } from "@shared/marketContext";
 import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { useLiveQuote } from "@/lib/useLivePrices";
+import { useGlobalState } from "@/lib/globalState";
+import { useExecutionTriggers } from "@/hooks/useExecutionTriggers";
 import FidelityExecutionGuide from "@/components/FidelityExecutionGuide";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
 import {
@@ -784,8 +786,10 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   ] : [];
 
   // Derived price and trade states for massive header & Fidelity cheat sheet
+  const global = useGlobalState();
   const ticker = symbol ?? decision?.symbol ?? "—";
-  const rawPrice = liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
+  const globalPrice = (symbol ? global.livePrices[symbol] : null) ?? (symbol === global.activeTicker ? global.activePrice : null);
+  const rawPrice = globalPrice ?? liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
   const currentPrice = rawPrice.toFixed(2);
   const priorClose = liveQuoteStatus.quote?.prevClose ?? (b?.bars && b.bars.length > 1 ? b.bars[0].c : null);
   const computedChange = priorClose != null && priorClose > 0 ? rawPrice - priorClose : 0;
@@ -799,6 +803,15 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const effectiveTarget1 = userLevels.find((l) => l.kind === "T1")?.price ?? decision?.target1 ?? null;
   const effectiveStop = userLevels.find((l) => l.kind === "STOP")?.price ?? decision?.structuralStop ?? decision?.stopBuffer ?? null;
   const effectiveTarget2 = userLevels.find((l) => l.kind === "T2")?.price ?? decision?.target2 ?? (effectiveEntry != null && effectiveStop != null ? +(effectiveEntry + Math.abs(effectiveEntry - effectiveStop) * 2.0).toFixed(2) : (effectiveEntry != null && effectiveTarget1 != null ? +(effectiveEntry + (effectiveTarget1 - effectiveEntry) * (2.0 / 1.5)).toFixed(2) : null));
+
+  const lastBarClose = b?.bars && b.bars.length > 0 ? b.bars[b.bars.length - 1].c : null;
+  const executionTrigger = useExecutionTriggers(
+    rawPrice,
+    lastBarClose,
+    effectiveEntry,
+    effectiveStop,
+    effectiveTarget1
+  );
 
   const btn = (on: boolean) => `px-2 py-0.5 rounded border text-[11px] font-mono ${on ? "border-neon-blue text-soft-white bg-neon-blue/10" : "border-ink-line text-slate-gray hover:text-soft-white"}`;
   return (
@@ -818,6 +831,20 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           <span className="text-xl text-gray-400" data-testid="swing-chart-pct">
             {priceChangePercent}%
           </span>
+          {executionTrigger.activeSignalText && (
+            <div
+              data-testid="chart-execution-alert"
+              className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border shadow-md animate-pulse ${
+                executionTrigger.signalType === "BUY"
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/50 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
+                  : executionTrigger.signalType === "TARGET_HIT"
+                  ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/50 shadow-[0_0_12px_rgba(52,211,153,0.35)]"
+                  : "bg-rose-500/20 text-rose-300 border-rose-400/50 shadow-[0_0_12px_rgba(244,63,94,0.35)]"
+              }`}
+            >
+              <span>[{executionTrigger.activeSignalText}]</span>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => setIsFidelityGuideOpen((prev) => !prev)}

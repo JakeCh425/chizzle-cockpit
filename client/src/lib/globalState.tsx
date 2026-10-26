@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/lib/wealthWatchlist";
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
-import { ensurePriceFeed, subscribe, isBadTick as checkBadTick, subscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
+import { ensurePriceFeed, subscribe, subscribeTick, isBadTick as checkBadTick, subscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
 
 export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme };
 
@@ -251,10 +251,17 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     [livePrices, watchlist]
   );
 
-  // Subscribe to live price stream with bad-tick outlier rejection
+  // Single WebSocket connection manager at the root: subscribes to all watchlisted tickers
   useEffect(() => {
     ensurePriceFeed();
-    const unsub = subscribe((snap) => {
+
+    // Subscribe all watchlisted symbols to live feed
+    for (const item of watchlist || []) {
+      if (item?.symbol) subscribeSymbol(item.symbol);
+    }
+    if (activeTicker) subscribeSymbol(activeTicker);
+
+    const unsubSnap = subscribe((snap) => {
       setLivePrices((prev) => {
         let changed = false;
         const next = { ...prev };
@@ -275,8 +282,24 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         return changed ? next : prev;
       });
     });
-    return unsub;
-  }, [watchlist]);
+
+    const unsubTick = subscribeTick((q) => {
+      if (!q || !q.symbol || q.price <= 0) return;
+      setLivePrices((prev) => {
+        const ref = prev[q.symbol] ?? watchlist?.find((i) => i?.symbol === q.symbol)?.price;
+        if (ref && ref > 0 && Math.abs(q.price - ref) / ref > 0.035) {
+          return prev;
+        }
+        if (prev[q.symbol] === q.price) return prev;
+        return { ...prev, [q.symbol]: q.price };
+      });
+    });
+
+    return () => {
+      unsubSnap();
+      unsubTick();
+    };
+  }, [watchlist, activeTicker]);
 
   // Synchronized watchlist where all items share the exact same price as the live stream
   const syncedWatchlist = useMemo(() => {
@@ -481,5 +504,18 @@ export function useGlobalState(): GlobalStateContextType {
     throw new Error("useGlobalState must be used within a GlobalStateProvider");
   }
   return ctx;
+}
+
+/**
+ * Hook to consume live synchronized price data from the Global WebSocket Store for any symbol.
+ */
+export function useGlobalPrice(symbol?: string): { price: number | null; change: number; changePct: number; isUp: boolean } {
+  const global = useGlobalState();
+  const sym = (symbol || global.activeTicker || "").toUpperCase().split(":").pop()!;
+  const price = global.livePrices[sym] ?? (sym === global.activeTicker ? global.activePrice : null);
+  const item = global.watchlist.find((i) => i.symbol === sym) || (sym === global.activeTicker ? global.activeItem : null);
+  const change = (price != null && item?.price != null) ? +(price - (item.price - (item.change ?? 0))).toFixed(2) : (item?.change ?? 0);
+  const changePct = item?.price ? +((change / item.price) * 100).toFixed(2) : (item?.changePct ?? 0);
+  return { price, change, changePct, isUp: change >= 0 };
 }
 
