@@ -29,11 +29,11 @@ describe("Chart Overhaul & SMA Customization Engine", () => {
   describe("1. SMA Settings Persistence & Customization", () => {
     it("loads default SMA settings when localStorage is empty", () => {
       const settings = loadSmaSettings();
-      expect(settings.sma20.color).toBe("#00FFFF");
+      expect(settings.sma20.color).toBe("#22D3EE");
       expect(settings.sma20.lineWidth).toBe(2);
       expect(settings.sma20.visible).toBe(true);
 
-      expect(settings.sma50.color).toBe("#FF00FF");
+      expect(settings.sma50.color).toBe("#F43F5E");
       expect(settings.sma50.lineWidth).toBe(2);
       expect(settings.sma50.visible).toBe(true);
 

@@ -11,14 +11,14 @@ describe("Chart Upgrades — SMA Visibility, S/R Shading Removal & Line Thicknes
   });
 
   it("DEFAULT_SMA_COLORS matches the terminal neon theme", () => {
-    expect(DEFAULT_SMA_COLORS.sma20).toBe("#00FFFF");
-    expect(DEFAULT_SMA_COLORS.sma50).toBe("#FF00FF");
+    expect(DEFAULT_SMA_COLORS.sma20).toBe("#22D3EE");
+    expect(DEFAULT_SMA_COLORS.sma50).toBe("#F43F5E");
     expect(DEFAULT_SMA_COLORS.sma200).toBe("#FFD700");
   });
 
   it("Sparkline chart defaults align with SwingChart theme", () => {
-    expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#00FFFF");
-    expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#FF00FF");
+    expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#22D3EE");
+    expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#F43F5E");
     expect(DEFAULT_SPARK_SMA_COLORS.sma200).toBe("#FFD700");
   });
 

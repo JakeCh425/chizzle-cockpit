@@ -15,8 +15,8 @@ export interface SmaSettings {
 }
 
 export const DEFAULT_SMA_SETTINGS: SmaSettings = {
-  sma20: { color: "#00FFFF", lineWidth: 2, visible: true },   // Bright Cyan (#00FFFF)
-  sma50: { color: "#FF00FF", lineWidth: 2, visible: true },   // Magenta/Pink (#FF00FF)
+  sma20: { color: "#22D3EE", lineWidth: 2, visible: true },   // Blue (#22D3EE)
+  sma50: { color: "#F43F5E", lineWidth: 2, visible: true },   // Red/Magenta (#F43F5E)
   sma200: { color: "#FFD700", lineWidth: 2, visible: true },  // Golden Yellow (#FFD700)
 };
 

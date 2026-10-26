@@ -277,8 +277,8 @@ function computeSMA(
 }
 
 export const DEFAULT_SPARK_SMA_COLORS = {
-  sma20: "#00FFFF", // Bright Cyan (#00FFFF)
-  sma50: "#FF00FF", // Magenta/Pink (#FF00FF)
+  sma20: "#22D3EE", // Blue (#22D3EE)
+  sma50: "#F43F5E", // Red/Magenta (#F43F5E)
   sma200: "#FFD700", // Golden Yellow (#FFD700)
 };
 

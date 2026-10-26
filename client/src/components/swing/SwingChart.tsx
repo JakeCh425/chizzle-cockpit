@@ -85,15 +85,15 @@ const OVERLAY_LABEL: Record<Overlay, string> = { sma20: "SMA20", sma50: "SMA50",
 
 /** SMA key — colors match the lines drawn on the chart. */
 export const SMA_META = [
-  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#00FFFF", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
-  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#FF00FF", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
+  { key: "sma20" as const, n: 20, label: "SMA 20", color: "#22D3EE", role: "Short-term trend", desc: "Average close of the last 20 bars. Price holding above it = short-term momentum; the engine uses it as the trailing-stop reference." },
+  { key: "sma50" as const, n: 50, label: "SMA 50", color: "#F43F5E", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
   { key: "sma200" as const, n: 200, label: "SMA 200", color: "#FFD700", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
 ];
 export type SmaKey = typeof SMA_META[number]["key"];
 
 export const DEFAULT_SMA_COLORS: Record<SmaKey, string> = {
-  sma20: "#00FFFF",  // Bright Cyan (#00FFFF)
-  sma50: "#FF00FF",  // Magenta/Pink (#FF00FF)
+  sma20: "#22D3EE",  // Blue (#22D3EE)
+  sma50: "#F43F5E",  // Red/Magenta (#F43F5E)
   sma200: "#FFD700", // Golden Yellow (#FFD700)
 };
 

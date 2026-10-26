@@ -16,7 +16,7 @@ import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, LayoutDashboard,
-  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList
+  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList, Compass, ShieldCheck
 } from "lucide-react";
 
 // ============================================================================
@@ -726,7 +726,7 @@ export function LiveTradingChart({
     <div
       className="w-full h-full flex-1 min-h-0 rounded-xl border flex flex-col relative overflow-hidden shadow-2xl font-mono"
       style={{
-        backgroundColor: "#0B0E14",
+        backgroundColor: "#0B1220",
         borderColor: "rgba(255, 255, 255, 0.08)",
       }}
       data-testid="chart-placeholder-area"
@@ -735,7 +735,7 @@ export function LiveTradingChart({
       <div
         className="px-5 py-3.5 border-b flex flex-wrap items-center justify-between gap-3 z-10 select-none shadow-sm"
         style={{
-          backgroundColor: "#05080E",
+          backgroundColor: "#0E1726",
           borderColor: "rgba(255, 255, 255, 0.08)",
         }}
       >
@@ -755,8 +755,8 @@ export function LiveTradingChart({
             <span
               className={`font-black text-4xl md:text-5xl tabular-nums tracking-tight transition-colors duration-200 ${
                 isUp
-                  ? "text-emerald-400 drop-shadow-[0_0_14px_rgba(52,211,153,0.5)]"
-                  : "text-rose-400 drop-shadow-[0_0_14px_rgba(244,63,94,0.5)]"
+                  ? "text-[#00E676] drop-shadow-[0_0_14px_rgba(0,230,118,0.4)]"
+                  : "text-[#FF5252] drop-shadow-[0_0_14px_rgba(255,82,82,0.4)]"
               }`}
               data-testid="chart-live-price-value"
             >
@@ -771,8 +771,8 @@ export function LiveTradingChart({
                     ? "bg-emerald-300 ring-4 ring-emerald-400/50 scale-125"
                     : "bg-rose-300 ring-4 ring-rose-400/50 scale-125"
                   : isUp
-                  ? "bg-emerald-400 shadow-[0_0_8px_#34D399]"
-                  : "bg-rose-400 shadow-[0_0_8px_#F43F5E]"
+                  ? "bg-[#00E676] shadow-[0_0_8px_#00E676]"
+                  : "bg-[#FF5252] shadow-[0_0_8px_#FF5252]"
               }`}
               title={isMarketOpenNow ? "Live Streaming Tick" : "Static Last Close"}
             />
@@ -783,8 +783,8 @@ export function LiveTradingChart({
             <span
               className={`font-bold tabular-nums flex items-center gap-0.5 px-2.5 py-0.5 rounded text-[11px] ${
                 isUp
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                  : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                  ? "bg-emerald-500/15 text-[#00E676] border border-emerald-500/30"
+                  : "bg-rose-500/15 text-[#FF5252] border border-rose-500/30"
               }`}
             >
               {isUp ? <ArrowUpRight className="h-3.5 w-3.5" /> : <ArrowDownRight className="h-3.5 w-3.5" />}
@@ -796,17 +796,52 @@ export function LiveTradingChart({
           </div>
         </div>
 
-        {/* Quick Action: Execution Alert Pill & Fidelity Execution Guide Modal Button */}
-        <div className="flex items-center gap-3">
+        {/* Floating HUD Badges & Action Controls */}
+        <div className="flex flex-wrap items-center gap-2.5">
+          {/* Floating HUD: 4H Trend State Pill */}
+          <div
+            data-testid="hud-4h-trend-pill"
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${
+              (item?.changePct ?? 0) >= 0
+                ? "bg-emerald-500/10 text-[#00E676] border-emerald-500/30"
+                : "bg-rose-500/10 text-[#FF5252] border-rose-500/30"
+            }`}
+          >
+            <Compass className="h-3.5 w-3.5" />
+            <span>4H: {(item?.changePct ?? 0) >= 0 ? "BULLISH" : "BEARISH"}</span>
+          </div>
+
+          {/* Floating HUD: Daily Regime Classification Pill */}
+          <div
+            data-testid="hud-day-classification-pill"
+            className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm bg-cyan-500/10 text-cyan-300 border-cyan-500/30"
+          >
+            <ShieldCheck className="h-3.5 w-3.5" />
+            <span>SWING DAY</span>
+          </div>
+
+          {/* Floating HUD: Setup Status Pill with Soft Opacity */}
+          <div
+            data-testid="hud-setup-status-pill"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${
+              (item?.status ?? "Ready") === "Ready"
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                : "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
+            }`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            <span>{item?.status ?? "READY"}</span>
+          </div>
+
           {executionTrigger.activeSignalText && (
             <div
               data-testid="chart-execution-alert"
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-black tracking-wider uppercase border shadow-lg animate-pulse ${
+              className={`flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border shadow-lg animate-pulse ${
                 executionTrigger.signalType === "BUY"
-                  ? "bg-emerald-500/25 text-emerald-300 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)]"
+                  ? "bg-emerald-500/25 text-[#00E676] border-emerald-400 shadow-[0_0_15px_rgba(0,230,118,0.4)]"
                   : executionTrigger.signalType === "TARGET_HIT"
-                  ? "bg-emerald-500/25 text-emerald-300 border-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.5)]"
-                  : "bg-rose-500/25 text-rose-300 border-rose-400 shadow-[0_0_15px_rgba(244,63,94,0.5)]"
+                  ? "bg-emerald-500/25 text-[#00E676] border-emerald-400 shadow-[0_0_15px_rgba(0,230,118,0.4)]"
+                  : "bg-rose-500/25 text-[#FF5252] border-rose-400 shadow-[0_0_15px_rgba(255,82,82,0.4)]"
               }`}
             >
               <span className="h-2 w-2 rounded-full bg-current animate-ping" />
@@ -817,9 +852,9 @@ export function LiveTradingChart({
           {isPullbackTo20Sma && (
             <div
               data-testid="badge-ready-to-buy-zone"
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-emerald-300 shadow-[0_0_15px_rgba(52,211,153,0.35)] animate-pulse"
+              className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-[#00E676] shadow-[0_0_15px_rgba(0,230,118,0.35)] animate-pulse"
             >
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-ping" />
+              <span className="h-2 w-2 rounded-full bg-[#00E676] animate-ping" />
               <span>[ READY TO BUY · 20-SMA ZONE ]</span>
             </div>
           )}
@@ -843,7 +878,7 @@ export function LiveTradingChart({
       <div
         className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10 select-none"
         style={{
-          backgroundColor: "#080C12",
+          backgroundColor: "#0B1220",
           borderColor: "rgba(255, 255, 255, 0.08)",
         }}
       >
@@ -1231,7 +1266,7 @@ export function LiveTradingChart({
           {/* ==================================================================== */}
           {candles.map((bar, i) => {
             const isUp = bar.c >= bar.o;
-            const bodyColor = isUp ? "#26a69a" : "#ef5350";
+            const bodyColor = isUp ? "#00E676" : "#FF5252";
             const top = priceToY(Math.max(bar.o, bar.c));
             const bottom = priceToY(Math.min(bar.o, bar.c));
             const height = Math.max(bottom - top, 2);
@@ -1246,7 +1281,7 @@ export function LiveTradingChart({
           })}
 
           {/* ==================================================================== */}
-          {/* SIGNAL MARKERS LAYER (▲ BUY / ▼ T1 HIT / STOP badges on candles) */}
+          {/* SIGNAL MARKERS LAYER: Minimalist Geometric Chevrons & Alignment Dots */}
           {/* Fades to 15% opacity when mouse cursor hovers in right quadrant */}
           {/* ==================================================================== */}
           <g
@@ -1256,119 +1291,62 @@ export function LiveTradingChart({
               transition: "opacity 300ms ease-in-out",
             }}
           >
-            {/* Entry Signal: Subtle Green Up-Arrow (▲) & Compact Badge */}
+            {/* Entry Signal: Minimalist Micro-Chevron (▲ GET IN) */}
             {entryIndex >= 0 && entryIndex < candles.length && (() => {
               const bar = candles[entryIndex];
               const arrowY = priceToY(bar.l) + 4;
-              const badgeY = arrowY + 8;
               return (
-                <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none">
-                  <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY + 6} ${bar.x + candleWidth / 2 + 4},${arrowY + 6}`}
-                    fill="#26a69a"
-                    stroke="#26a69a"
-                    strokeWidth="1"
+                <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none pointer-events-none">
+                  <path
+                    d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY + 8} L ${bar.x + candleWidth / 2} ${arrowY + 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY + 8}`}
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
-                  <rect
-                    x={bar.x + candleWidth / 2 - 30}
-                    y={badgeY}
-                    width="60"
-                    height="14"
-                    rx="3"
-                    fill="rgba(5, 46, 22, 0.85)"
-                    stroke="#26a69a"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x={bar.x + candleWidth / 2}
-                    y={badgeY + 10}
-                    fill="#4ADE80"
-                    fontSize="7.5"
-                    fontFamily="monospace"
-                    fontWeight="900"
-                    textAnchor="middle"
-                  >
-                    {isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"}
-                  </text>
-                  <title>Entry Level: ${buyPrice.toFixed(2)}</title>
+                  <circle cx={bar.x + candleWidth / 2} cy={arrowY + 1.5} r="1.5" fill="#00E676" />
+                  <title>{isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"} · Entry Level: ${buyPrice.toFixed(2)}</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Target 1): Subtle Green Down-Arrow (▼) & Compact Badge */}
+            {/* Exit Signal (Target 1): Minimalist Micro-Chevron (▼ GET OUT) */}
             {targetIndex >= 0 && targetIndex < candles.length && (() => {
               const bar = candles[targetIndex];
               const arrowY = priceToY(bar.h) - 4;
-              const badgeY = arrowY - 18;
               return (
-                <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none">
-                  <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY - 6} ${bar.x + candleWidth / 2 + 4},${arrowY - 6}`}
-                    fill="#26a69a"
-                    stroke="#26a69a"
-                    strokeWidth="1"
+                <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none pointer-events-none">
+                  <path
+                    d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${bar.x + candleWidth / 2} ${arrowY - 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
-                  <rect
-                    x={bar.x + candleWidth / 2 - 24}
-                    y={badgeY}
-                    width="48"
-                    height="14"
-                    rx="3"
-                    fill="rgba(6, 78, 59, 0.85)"
-                    stroke="#26a69a"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x={bar.x + candleWidth / 2}
-                    y={badgeY + 10}
-                    fill="#A7F3D0"
-                    fontSize="7.5"
-                    fontFamily="monospace"
-                    fontWeight="900"
-                    textAnchor="middle"
-                  >
-                    ▼ GET OUT
-                  </text>
-                  <title>Target 1 Level: ${targetVal.toFixed(2)}</title>
+                  <circle cx={bar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#00E676" />
+                  <title>▼ GET OUT · Target 1 Level: ${targetVal.toFixed(2)}</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Stop Loss): Subtle Red Down-Arrow (▼) & Compact Badge */}
+            {/* Exit Signal (Stop Loss): Minimalist Micro-Chevron (▼ GET OUT) */}
             {stopIndex >= 0 && stopIndex < candles.length && (() => {
               const bar = candles[stopIndex];
               const arrowY = priceToY(bar.h) - 4;
-              const badgeY = arrowY - 18;
               return (
-                <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none">
-                  <polygon
-                    points={`${bar.x + candleWidth / 2},${arrowY} ${bar.x + candleWidth / 2 - 4},${arrowY - 6} ${bar.x + candleWidth / 2 + 4},${arrowY - 6}`}
-                    fill="#ef5350"
-                    stroke="#ef5350"
-                    strokeWidth="1"
+                <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none pointer-events-none">
+                  <path
+                    d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${bar.x + candleWidth / 2} ${arrowY - 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
+                    fill="none"
+                    stroke="#FF5252"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
                   />
-                  <rect
-                    x={bar.x + candleWidth / 2 - 24}
-                    y={badgeY}
-                    width="48"
-                    height="14"
-                    rx="3"
-                    fill="rgba(69, 10, 10, 0.85)"
-                    stroke="#ef5350"
-                    strokeWidth="1"
-                  />
-                  <text
-                    x={bar.x + candleWidth / 2}
-                    y={badgeY + 10}
-                    fill="#FCA5A5"
-                    fontSize="7.5"
-                    fontFamily="monospace"
-                    fontWeight="900"
-                    textAnchor="middle"
-                  >
-                    ▼ GET OUT
-                  </text>
-                  <title>Stop Loss Level: ${stopVal.toFixed(2)}</title>
+                  <circle cx={bar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#FF5252" />
+                  <title>▼ GET OUT · Stop Loss Level: ${stopVal.toFixed(2)}</title>
                 </g>
               );
             })()}
@@ -1379,111 +1357,54 @@ export function LiveTradingChart({
               if (!currentBar) return null;
 
               if (executionTrigger.isTargetHit) {
-                const arrowY = priceToY(currentBar.h) - 5;
-                const badgeY = arrowY - 20;
+                const arrowY = priceToY(currentBar.h) - 4;
                 return (
-                  <g key="live-target-marker" data-testid="chart-marker-target-hit chart-live-signal-target" className="select-none">
-                    <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY - 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY - 7}`}
-                      fill="#26a69a"
-                      stroke="#26a69a"
-                      strokeWidth="1"
+                  <g key="live-target-marker" data-testid="chart-marker-target-hit chart-live-signal-target" className="select-none pointer-events-none">
+                    <path
+                      d={`M ${currentBar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${currentBar.x + candleWidth / 2} ${arrowY - 3} L ${currentBar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
+                      fill="none"
+                      stroke="#00E676"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     />
-                    <rect
-                      x={currentBar.x + candleWidth / 2 - 28}
-                      y={badgeY}
-                      width="56"
-                      height="15"
-                      rx="3"
-                      fill="rgba(6, 78, 59, 0.9)"
-                      stroke="#26a69a"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 11}
-                      fill="#A7F3D0"
-                      fontSize="8"
-                      fontFamily="monospace"
-                      fontWeight="900"
-                      textAnchor="middle"
-                    >
-                      T1 HIT
-                    </text>
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#00E676" />
                     <title>[ SELL - TARGET HIT ]</title>
                   </g>
                 );
               }
 
               if (executionTrigger.isStopHit) {
-                const arrowY = priceToY(currentBar.h) - 5;
-                const badgeY = arrowY - 20;
+                const arrowY = priceToY(currentBar.h) - 4;
                 return (
-                  <g key="live-stop-marker" data-testid="chart-marker-stop-hit chart-live-signal-stop" className="select-none">
-                    <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY - 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY - 7}`}
-                      fill="#ef5350"
-                      stroke="#ef5350"
-                      strokeWidth="1"
+                  <g key="live-stop-marker" data-testid="chart-marker-stop-hit chart-live-signal-stop" className="select-none pointer-events-none">
+                    <path
+                      d={`M ${currentBar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${currentBar.x + candleWidth / 2} ${arrowY - 3} L ${currentBar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
+                      fill="none"
+                      stroke="#FF5252"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     />
-                    <rect
-                      x={currentBar.x + candleWidth / 2 - 24}
-                      y={badgeY}
-                      width="48"
-                      height="15"
-                      rx="3"
-                      fill="rgba(69, 10, 10, 0.9)"
-                      stroke="#ef5350"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 11}
-                      fill="#FCA5A5"
-                      fontSize="8"
-                      fontFamily="monospace"
-                      fontWeight="900"
-                      textAnchor="middle"
-                    >
-                      STOP
-                    </text>
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#FF5252" />
                     <title>[ SELL - STOP HIT ]</title>
                   </g>
                 );
               }
 
               if (executionTrigger.isBuySignal) {
-                const arrowY = priceToY(currentBar.l) + 5;
-                const badgeY = arrowY + 10;
+                const arrowY = priceToY(currentBar.l) + 4;
                 return (
-                  <g key="live-entry-marker" data-testid="chart-marker-buy-signal chart-live-signal-entry" className="select-none">
-                    <polygon
-                      points={`${currentBar.x + candleWidth / 2},${arrowY} ${currentBar.x + candleWidth / 2 - 4},${arrowY + 7} ${currentBar.x + candleWidth / 2 + 4},${arrowY + 7}`}
-                      fill="#26a69a"
-                      stroke="#26a69a"
-                      strokeWidth="1"
+                  <g key="live-entry-marker" data-testid="chart-marker-buy-signal chart-live-signal-entry" className="select-none pointer-events-none">
+                    <path
+                      d={`M ${currentBar.x + candleWidth / 2 - 4} ${arrowY + 8} L ${currentBar.x + candleWidth / 2} ${arrowY + 3} L ${currentBar.x + candleWidth / 2 + 4} ${arrowY + 8}`}
+                      fill="none"
+                      stroke="#00E676"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                     />
-                    <rect
-                      x={currentBar.x + candleWidth / 2 - 24}
-                      y={badgeY}
-                      width="48"
-                      height="15"
-                      rx="3"
-                      fill="rgba(5, 46, 22, 0.9)"
-                      stroke="#26a69a"
-                      strokeWidth="1"
-                    />
-                    <text
-                      x={currentBar.x + candleWidth / 2}
-                      y={badgeY + 11}
-                      fill="#4ADE80"
-                      fontSize="8"
-                      fontFamily="monospace"
-                      fontWeight="900"
-                      textAnchor="middle"
-                    >
-                      BUY
-                    </text>
+                    <circle cx={currentBar.x + candleWidth / 2} cy={arrowY + 1.5} r="1.5" fill="#00E676" />
                     <title>[ BUY SIGNAL - EXECUTE ]</title>
                   </g>
                 );

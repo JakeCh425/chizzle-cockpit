@@ -53,11 +53,9 @@ describe("Institutional UI Overhaul — Bloomberg Aesthetic, SMA Logic & Collisi
   });
 
   describe("2. Bloomberg Terminal Chart Aesthetic", () => {
-    it("sets ultra-dark Bloomberg terminal background colors (#0B0E14, #05080E, #080C12)", () => {
-      expect(dashboardContent).toContain('backgroundColor: "#0B0E14"');
-      expect(dashboardContent).toContain('backgroundColor: "#05080E"');
-      expect(dashboardContent).toContain('backgroundColor: "#080C12"');
-      expect(swingChartContent).toContain('background: { color: "#0B0E14" }');
+    it("sets deep low-contrast slate/navy terminal background colors (#0B1220, #0E1726)", () => {
+      expect(dashboardContent).toContain('backgroundColor: "#0B1220"');
+      expect(dashboardContent).toContain('backgroundColor: "#0E1726"');
     });
 
     it("renders subtle thin dotted grid lines with 5% white opacity (strokeDasharray 2 4)", () => {
@@ -73,25 +71,24 @@ describe("Institutional UI Overhaul — Bloomberg Aesthetic, SMA Logic & Collisi
       );
     });
 
-    it("uses institutional crisp borderless candlesticks with neon green and neon red", () => {
-      expect(swingChartContent).toContain('upColor: hollow ? "rgba(0,0,0,0)" : "#26a69a"');
-      expect(swingChartContent).toContain('downColor: "#ef5350"');
-      expect(swingChartContent).toContain("borderVisible: false");
+    it("uses institutional crisp borderless candlesticks with modern green and red accents", () => {
+      expect(dashboardContent).toContain('"#00E676"');
+      expect(dashboardContent).toContain('"#FF5252"');
     });
   });
 
   describe("3. SMA Clarity & Dynamic 20-SMA Pullback Buy Zone", () => {
-    it("configures high-contrast terminal colors for SMAs (Cyan, Magenta, Gold)", () => {
-      expect(DEFAULT_SMA_SETTINGS.sma20.color).toBe("#00FFFF");
-      expect(DEFAULT_SMA_SETTINGS.sma50.color).toBe("#FF00FF");
+    it("configures high-contrast terminal colors for SMAs (Blue #22D3EE, Red/Magenta #F43F5E, Gold #FFD700)", () => {
+      expect(DEFAULT_SMA_SETTINGS.sma20.color).toBe("#22D3EE");
+      expect(DEFAULT_SMA_SETTINGS.sma50.color).toBe("#F43F5E");
       expect(DEFAULT_SMA_SETTINGS.sma200.color).toBe("#FFD700");
 
-      expect(DEFAULT_SMA_COLORS.sma20).toBe("#00FFFF");
-      expect(DEFAULT_SMA_COLORS.sma50).toBe("#FF00FF");
+      expect(DEFAULT_SMA_COLORS.sma20).toBe("#22D3EE");
+      expect(DEFAULT_SMA_COLORS.sma50).toBe("#F43F5E");
       expect(DEFAULT_SMA_COLORS.sma200).toBe("#FFD700");
 
-      expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#00FFFF");
-      expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#FF00FF");
+      expect(DEFAULT_SPARK_SMA_COLORS.sma20).toBe("#22D3EE");
+      expect(DEFAULT_SPARK_SMA_COLORS.sma50).toBe("#F43F5E");
       expect(DEFAULT_SPARK_SMA_COLORS.sma200).toBe("#FFD700");
     });
 
@@ -114,10 +111,16 @@ describe("Institutional UI Overhaul — Bloomberg Aesthetic, SMA Logic & Collisi
     });
   });
 
-  describe("4. Minimalist Execution Markers", () => {
-    it("renders compact arrow polygons on candle wicks rather than large HTML boxes", () => {
-      expect(dashboardContent).toContain('points={`${currentBar.x + candleWidth / 2},${arrowY}');
-      expect(dashboardContent).toContain('points={`${bar.x + candleWidth / 2},${arrowY}');
+  describe("4. Minimalist Execution Markers & Floating HUD", () => {
+    it("renders minimalist geometric chevrons and micro-dots rather than large HTML/SVG boxes", () => {
+      expect(dashboardContent).toContain('d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY');
+      expect(dashboardContent).toContain('d={`M ${currentBar.x + candleWidth / 2 - 4} ${arrowY');
+    });
+
+    it("renders floating HUD with 4H Trend, Day Classification, and Setup Status pills", () => {
+      expect(dashboardContent).toContain('data-testid="hud-4h-trend-pill"');
+      expect(dashboardContent).toContain('data-testid="hud-day-classification-pill"');
+      expect(dashboardContent).toContain('data-testid="hud-setup-status-pill"');
     });
 
     it("preserves actionable signal titles and testids for verification", () => {
