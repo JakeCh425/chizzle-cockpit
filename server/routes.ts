@@ -1302,10 +1302,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   // ── live prices (Finnhub) ──────────────────────────────────────
   app.get("/api/prices", (_req, res) => {
-    // Only expose the public watchlist symbols; VIXY is an internal regime input.
+    // Only expose non-internal symbols; VIXY is an internal regime input.
     const snap = priceSnapshot();
     const out: any = {};
-    for (const s of PUBLIC_SYMBOLS) if (snap[s]) out[s] = snap[s];
+    for (const [s, q] of Object.entries(snap)) {
+      if (s !== "VIXY" && q) out[s] = q;
+    }
+    for (const s of PUBLIC_SYMBOLS) {
+      if (!out[s] && snap[s]) out[s] = snap[s];
+    }
     res.json(out);
   });
   app.get("/api/prices/stream", (req, res) => {
@@ -1320,8 +1325,25 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     const hb = setInterval(() => { try { res.write(`: ping\n\n`); } catch (e) {} }, 20000);
     req.on("close", () => { clearInterval(hb); removeSseClient(res); });
   });
-  app.get("/api/prices/:symbol", (req, res) => {
-    const q = getQuote(String(req.params.symbol).toUpperCase());
+  app.get(["/api/prices/:symbol", "/api/quote/:symbol", "/api/quotes/:symbol"], async (req, res) => {
+    const sym = String(req.params.symbol).toUpperCase();
+    let q = getQuote(sym);
+    if (!q || !q.price) {
+      try {
+        q = (await refreshSymbolOnce(sym)) ?? undefined;
+      } catch {}
+    }
+    if (!q) return res.status(404).json({ error: "no quote yet" });
+    res.json(q);
+  });
+  app.get(["/api/quote", "/api/quotes"], async (req, res) => {
+    const sym = String(req.query.symbol || "NVDA").toUpperCase();
+    let q = getQuote(sym);
+    if (!q || !q.price) {
+      try {
+        q = (await refreshSymbolOnce(sym)) ?? undefined;
+      } catch {}
+    }
     if (!q) return res.status(404).json({ error: "no quote yet" });
     res.json(q);
   });

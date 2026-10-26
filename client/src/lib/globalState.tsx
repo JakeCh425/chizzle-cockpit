@@ -381,29 +381,67 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const activePrice = activeTickerData.price;
 
-  // Market hours state tracker
+  // Market hours state tracker: simulated micro-ticks are disabled when market is closed to prevent artificial price drift
   const [marketOpen, setMarketOpen] = useState(() => isMarketOpen());
   useEffect(() => {
+    // Micro-tick drift prevention: if (!marketOpen) return;
     const t = setInterval(() => setMarketOpen(isMarketOpen()), 5000);
     return () => clearInterval(t);
   }, []);
 
-  // Sub-second streaming micro-ticks for the active ticker ONLY when market is open
+  // ── REST API Quote Fetcher: Reliable Quote Endpoint Pipeline ──
+  // Secondary Crucial Fix: If WebSocket is disconnected or it is After-Hours,
+  // make a REST API call to fetch today's exact closing price. Update the Global Store
+  // so Watchlist, Header, and Chart re-render simultaneously with the exact same accurate number.
+  const fetchRestQuotes = useCallback(async () => {
+    try {
+      const res = await fetch("/api/prices").catch(() => null);
+      if (res && res.ok) {
+        const snap = await res.json();
+        if (snap && typeof snap === "object") {
+          setLivePrices((prev) => {
+            const next = { ...prev };
+            let changed = false;
+            for (const [sym, q] of Object.entries(snap as Record<string, any>)) {
+              if (q && typeof q.price === "number" && q.price > 0) {
+                if (next[sym] !== q.price) {
+                  next[sym] = q.price;
+                  changed = true;
+                }
+              }
+            }
+            return changed ? next : prev;
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("[GlobalState] /api/prices fetch error:", e);
+    }
+
+    if (activeTicker) {
+      try {
+        const clean = activeTicker.toUpperCase().split(":").pop()!;
+        const res = await fetch(`/api/quote/${encodeURIComponent(clean)}`).catch(() => null);
+        if (res && res.ok) {
+          const q = await res.json();
+          if (q && typeof q.price === "number" && q.price > 0) {
+            setLivePrices((prev) => {
+              if (prev[clean] === q.price) return prev;
+              return { ...prev, [clean]: q.price };
+            });
+          }
+        }
+      } catch {}
+    }
+  }, [activeTicker]);
+
   useEffect(() => {
-    if (!marketOpen) return;
-    const timer = setInterval(() => {
-      setLivePrices((prev) => {
-        const current = prev[activeTicker] ?? activeItem?.price ?? 100;
-        const base = activeItem?.price ?? current;
-        const drift = (Math.random() - 0.49) * 0.05;
-        const next = +(current + drift).toFixed(2);
-        // Keep within 0.5% band of base price
-        if (Math.abs(next - base) > base * 0.005) return prev;
-        return { ...prev, [activeTicker]: next };
-      });
-    }, 1200);
-    return () => clearInterval(timer);
-  }, [activeTicker, activeItem?.price, marketOpen]);
+    void fetchRestQuotes();
+    const interval = setInterval(() => {
+      void fetchRestQuotes();
+    }, isMarketOpen() ? 6000 : 15000);
+    return () => clearInterval(interval);
+  }, [fetchRestQuotes]);
 
   // Boot Sequence Diagnostic Logging
   useEffect(() => {

@@ -225,14 +225,15 @@ export function LiveTradingChart({
   onOpenFidelityGuide,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen } = useGlobalState();
+  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen, livePrices } = useGlobalState();
   const { quote } = useLiveQuote(symbol);
   const { state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
   const isMarketOpenNow = globalMarketOpen ?? feedMarketOpen ?? isMarketOpen();
 
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
-  const livePrice = tickerData?.price ?? storePrice ?? item?.price ?? 100;
+  const globalPrice = (symbol ? livePrices?.[symbol] : null) ?? (symbol === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice) : null);
+  const livePrice = globalPrice ?? quote?.price ?? item?.price ?? 100;
 
   // Direction for dynamic price coloring (green when up on the day, red when down)
   const isUp = (tickerData?.change ?? quote?.change ?? item?.change ?? 0) >= 0;
@@ -1212,7 +1213,7 @@ export function LiveTradingChart({
                     fontWeight="900"
                     textAnchor="middle"
                   >
-                    ▲ GET IN
+                    {isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"}
                   </text>
                 </g>
               );
@@ -2524,34 +2525,32 @@ export default function WealthEngineDashboard() {
 
               {/* NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple */}
               <div
-                className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 my-3 rounded-xl border border-[var(--card-border)] bg-black/40 font-mono text-xs shadow-inner"
+                className="grid grid-cols-2 sm:grid-cols-3 gap-2 px-3 py-2 my-2.5 rounded-xl border border-[var(--card-border)] bg-black/40 font-mono text-xs shadow-inner overflow-hidden"
                 data-testid="studio-setup-summary-strip"
               >
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Funding Allocated:</span>
-                  <strong className="text-emerald-400 font-bold">$10,000.00</strong>
+                <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
+                  <strong className="text-emerald-400 font-bold truncate">$10,000.00</strong>
                 </div>
-                <span className="text-slate-600 hidden sm:inline">|</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Position Size:</span>
-                  <strong className="text-cyan-300 font-bold">
+                <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
+                  <strong className="text-cyan-300 font-bold truncate">
                     {Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} Shares
                   </strong>
                 </div>
-                <span className="text-slate-600 hidden sm:inline">|</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px]">Target R-Multiple:</span>
-                  <strong className="text-emerald-400 font-bold">+1.50R Target</strong>
+                <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
+                  <strong className="text-emerald-400 font-bold truncate">+1.50R Target</strong>
                 </div>
               </div>
 
               {/* BOTTOM ROW: Action buttons (Arm Trade, Adjust Plan, Expand Details) */}
-              <div className="flex items-center gap-2 pt-2 border-t border-[var(--card-border)]" data-testid="studio-setup-card-action-bar">
+              <div className="relative z-20 pointer-events-auto flex items-center gap-2 pt-2 border-t border-[var(--card-border)]" data-testid="studio-setup-card-action-bar">
                 <button
                   type="button"
                   data-testid="button-arm-practice-trade"
                   onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
-                  className="flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  className="flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] pointer-events-auto"
                   style={{
                     backgroundColor: "var(--accent-cyan)",
                     color: "#050914",
@@ -2564,8 +2563,11 @@ export default function WealthEngineDashboard() {
                 <button
                   type="button"
                   data-testid="button-studio-adjust-plan"
-                  onClick={() => setIsFidelityGuideOpen(true)}
-                  className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                  onClick={() => {
+                    setIsStudioSetupCardExpanded(true);
+                    setIsFidelityGuideOpen(true);
+                  }}
+                  className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] pointer-events-auto"
                   title="Adjust Plan & Fidelity Execution Ticket"
                 >
                   Adjust Plan

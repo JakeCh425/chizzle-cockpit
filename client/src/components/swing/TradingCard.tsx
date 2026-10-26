@@ -1344,6 +1344,8 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   const handleAdjustPlan = () => {
     onSeen();
+    setIsExpanded(true);
+    setIsBodyExpanded(true);
     setDetailsOpen(true);
     setTimeout(() => {
       const details = document.querySelector(`[data-testid="details-override-${d.symbol}"]`) as HTMLDetailsElement;
@@ -1506,32 +1508,30 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
       {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
       <div
-        className="flex flex-wrap items-center justify-between gap-2 px-3.5 py-2 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner"
+        className="grid grid-cols-2 sm:grid-cols-3 gap-2 px-3 py-2 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden"
         data-testid={`setup-card-summary-strip-${d.symbol}`}
       >
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-semibold uppercase text-[10px]">Funding Allocated:</span>
-          <strong className="text-emerald-400 font-bold">${fundingAllocated.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
+          <strong className="text-emerald-400 font-bold truncate">${fundingAllocated.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
         </div>
-        <span className="text-slate-600 hidden sm:inline">|</span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-semibold uppercase text-[10px]">Position Size:</span>
-          <strong className="text-cyan-300 font-bold">{positionShares} Shares</strong>
+        <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
+          <strong className="text-cyan-300 font-bold truncate">{positionShares} Shares</strong>
         </div>
-        <span className="text-slate-600 hidden sm:inline">|</span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-slate-400 font-semibold uppercase text-[10px]">Target R-Multiple:</span>
-          <strong className="text-emerald-400 font-bold">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+        <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
+          <strong className="text-emerald-400 font-bold truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
         </div>
       </div>
 
       {/* ─── BOTTOM ROW: Action buttons (Arm Trade, Adjust Plan, Expand Details) ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-[var(--card-border)]">
+      <div className="relative z-20 pointer-events-auto flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-[var(--card-border)]">
         <div className="flex flex-wrap items-center gap-2">
           {/* Arm Trade action button */}
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm"
+            className="flex items-center gap-1.5 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm pointer-events-auto"
             onClick={() => {
               onSeen();
               openTradeDialog({
@@ -1552,7 +1552,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           {/* Adjust Plan action button */}
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm"
+            className="flex items-center gap-1.5 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm pointer-events-auto"
             onClick={handleAdjustPlan}
             data-testid={`button-adjust-plan-${d.symbol}`}
             title="Adjust plan entries and overrides"

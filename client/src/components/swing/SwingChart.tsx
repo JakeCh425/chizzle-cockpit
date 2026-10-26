@@ -791,6 +791,42 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const globalPrice = (symbol ? global.livePrices[symbol] : null) ?? (symbol === global.activeTicker ? global.activePrice : null);
   const rawPrice = globalPrice ?? liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
   const currentPrice = rawPrice.toFixed(2);
+
+  // Stream live ticks into unclosed candlestick in real time without redrawing entire historical dataset
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main || disposedRef.current || !data || data.length === 0 || !Number.isFinite(rawPrice) || rawPrice <= 0) return;
+    const lastBar = data[data.length - 1];
+    if (!lastBar) return;
+    const time = lastBar.t as UTCTimestamp;
+    const open = lastBar.o;
+    const high = Math.max(lastBar.h, rawPrice);
+    const low = Math.min(lastBar.l, rawPrice);
+    const close = rawPrice;
+    try {
+      if (type === "Line" || type === "Area") {
+        main.update({ time, value: close });
+      } else {
+        const hollow = type === "Hollow";
+        main.update({
+          time,
+          open,
+          high,
+          low,
+          close,
+          ...(lastBar.closed
+            ? {}
+            : {
+                color: hollow ? "rgba(0,0,0,0)" : close >= open ? "#22c55e" : "#ef4444",
+                borderColor: close >= open ? "#22c55e" : "#ef4444",
+                wickColor: close >= open ? "#22c55e" : "#ef4444",
+              }),
+        });
+      }
+    } catch {
+      // Safely handle during chart re-render or teardown
+    }
+  }, [rawPrice, type, data]);
   const priorClose = liveQuoteStatus.quote?.prevClose ?? (b?.bars && b.bars.length > 1 ? b.bars[0].c : null);
   const computedChange = priorClose != null && priorClose > 0 ? rawPrice - priorClose : 0;
   const priceChange = liveQuoteStatus.quote?.change ?? computedChange;
