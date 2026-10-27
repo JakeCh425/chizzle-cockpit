@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useGlobalState } from "@/lib/globalState";
 
 export interface PositionSizerInput {
@@ -31,18 +31,14 @@ export const DEFAULT_RISK_PERCENTAGE = 1.0;
  * Pure calculation function for risk-based position sizing.
  */
 export function calculatePositionSize(input: PositionSizerInput): PositionSizerResult {
-  const accountEquity =
-    typeof input.accountEquity === "number" && !isNaN(input.accountEquity) && input.accountEquity > 0
-      ? input.accountEquity
-      : DEFAULT_ACCOUNT_EQUITY;
+  const safeEquity = Number(input?.accountEquity) || DEFAULT_ACCOUNT_EQUITY;
+  const accountEquity = safeEquity > 0 ? safeEquity : DEFAULT_ACCOUNT_EQUITY;
 
-  const riskPercentage =
-    typeof input.riskPercentage === "number" && !isNaN(input.riskPercentage) && input.riskPercentage > 0
-      ? input.riskPercentage
-      : DEFAULT_RISK_PERCENTAGE;
+  const safeRiskPct = Number(input?.riskPercentage) || DEFAULT_RISK_PERCENTAGE;
+  const riskPercentage = safeRiskPct > 0 ? safeRiskPct : DEFAULT_RISK_PERCENTAGE;
 
-  const entry = typeof input.entryPrice === "number" && !isNaN(input.entryPrice) ? input.entryPrice : 0;
-  const stop = typeof input.stopLossPrice === "number" && !isNaN(input.stopLossPrice) ? input.stopLossPrice : 0;
+  const entry = typeof input?.entryPrice === "number" && !isNaN(input.entryPrice) ? input.entryPrice : 0;
+  const stop = typeof input?.stopLossPrice === "number" && !isNaN(input.stopLossPrice) ? input.stopLossPrice : 0;
 
   // Formula: dollarRiskPerShare = |entryPrice - stopLossPrice|
   const rawRiskPerShare = Math.abs(entry - stop);
@@ -101,23 +97,40 @@ export function usePositionSizer(input?: PositionSizerInput): PositionSizerResul
 
   try {
     const global = useGlobalState();
-    globalEquity = global.accountEquity;
-    globalRiskPct = global.riskPercentage;
+    globalEquity = global?.accountEquity ?? (global as any)?.equity;
+    globalRiskPct = global?.riskPercentage;
   } catch {
     // Graceful fallback outside GlobalStateProvider
   }
 
-  const effectiveEquity = input?.accountEquity ?? globalEquity ?? DEFAULT_ACCOUNT_EQUITY;
-  const effectiveRiskPct = input?.riskPercentage ?? globalRiskPct ?? DEFAULT_RISK_PERCENTAGE;
+  const accountEquity = input?.accountEquity ?? globalEquity ?? DEFAULT_ACCOUNT_EQUITY;
+  const safeEquity = Number(accountEquity) || DEFAULT_ACCOUNT_EQUITY;
+  const effectiveRiskPct = Number(input?.riskPercentage ?? globalRiskPct) || DEFAULT_RISK_PERCENTAGE;
+
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log('[Risk Engine] Account Equity:', safeEquity);
+    }
+  }, [safeEquity]);
 
   return useMemo(() => {
-    return calculatePositionSize({
-      accountEquity: effectiveEquity,
-      riskPercentage: effectiveRiskPct,
-      entryPrice: input?.entryPrice,
-      stopLossPrice: input?.stopLossPrice,
-    });
-  }, [effectiveEquity, effectiveRiskPct, input?.entryPrice, input?.stopLossPrice]);
+    try {
+      return calculatePositionSize({
+        accountEquity: safeEquity,
+        riskPercentage: effectiveRiskPct,
+        entryPrice: input?.entryPrice,
+        stopLossPrice: input?.stopLossPrice,
+      });
+    } catch (err) {
+      console.warn("[usePositionSizer] Calculation error fallback:", err);
+      return calculatePositionSize({
+        accountEquity: DEFAULT_ACCOUNT_EQUITY,
+        riskPercentage: DEFAULT_RISK_PERCENTAGE,
+        entryPrice: 0,
+        stopLossPrice: 0,
+      });
+    }
+  }, [safeEquity, effectiveRiskPct, input?.entryPrice, input?.stopLossPrice]);
 }
 
 export default usePositionSizer;

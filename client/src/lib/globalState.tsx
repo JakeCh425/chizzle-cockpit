@@ -370,8 +370,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         // Dynamically align trade levels if stale seed price deviates by >8% from live price
         const isBuyAligned = item.buyTarget != null && Math.abs(item.buyTarget - live) / live <= 0.08;
         const buyTarget = isBuyAligned ? item.buyTarget : live;
-        const isStopAligned = item.stopLoss != null && item.stopLoss < buyTarget && (buyTarget - item.stopLoss) / buyTarget <= 0.08 && (buyTarget - item.stopLoss) / buyTarget >= 0.015;
-        const stopLoss = isStopAligned ? item.stopLoss : +(buyTarget * 0.96).toFixed(2);
+        const isStopAligned = item.stopLoss != null && item.stopLoss < buyTarget && (buyTarget - item.stopLoss) / buyTarget <= 0.08 && (buyTarget - item.stopLoss) / buyTarget >= 0.012;
+        const stopLoss = isStopAligned ? item.stopLoss : +(buyTarget - Math.max((item.atr ?? (live * 0.025)) * 1.2, 0.5)).toFixed(2);
         const risk = +(Math.max(buyTarget - stopLoss, (item.atr ?? (live * 0.03)), 0.5)).toFixed(2);
         const primaryTarget = +(buyTarget + risk * 1.5).toFixed(2);
         const t2 = +(buyTarget + risk * 2.0).toFixed(2);
@@ -421,8 +421,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     // Target 3 (Runner 3.0R) = EntryPrice + (Risk * 3.0)
     const isBaseBuyAligned = base.buyTarget != null && Math.abs(base.buyTarget - live) / live <= 0.08;
     const buyTarget = isBaseBuyAligned ? base.buyTarget : live;
-    const isBaseStopAligned = base.stopLoss != null && base.stopLoss < buyTarget && (buyTarget - base.stopLoss) / buyTarget <= 0.08 && (buyTarget - base.stopLoss) / buyTarget >= 0.015;
-    const stopLoss = isBaseStopAligned ? base.stopLoss : +(buyTarget * 0.96).toFixed(2);
+    const isBaseStopAligned = base.stopLoss != null && base.stopLoss < buyTarget && (buyTarget - base.stopLoss) / buyTarget <= 0.08 && (buyTarget - base.stopLoss) / buyTarget >= 0.012;
+    const stopLoss = isBaseStopAligned ? base.stopLoss : +(buyTarget - Math.max((base.atr ?? (live * 0.025)) * 1.2, 0.5)).toFixed(2);
     const risk = +(Math.max(Math.abs(buyTarget - stopLoss), (base.atr ?? (live * 0.03)) * 1.0, 0.5)).toFixed(2);
     const target1 = +(buyTarget + risk * 1.5).toFixed(2);
     const target2 = +(buyTarget + risk * 2.0).toFixed(2);

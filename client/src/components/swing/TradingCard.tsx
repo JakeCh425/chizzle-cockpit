@@ -1270,13 +1270,22 @@ export function EarlyLookLine({ d }: any) {
 }
 
 export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; collapsed?: boolean }) {
-  const { d, group, ver, setupKey, isNew, onSeen } = props;
+  const { d, group, ver, equity: propEquity, setupKey, isNew, onSeen } = props;
   const sz = useCardSizing(d, props.ver);
   const p = effectivePlan(d, ver);
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
   const liveQuote = useLiveQuote(d.symbol);
   const global = useGlobalState();
+  const accountEquity = propEquity ?? global?.accountEquity ?? (global as any)?.equity ?? 25000;
+  const safeEquity = Number(accountEquity) || 25000;
+
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log('[Risk Engine] Account Equity:', safeEquity);
+    }
+  }, [safeEquity]);
+
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
   const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
@@ -1303,7 +1312,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
 
   const sizer = usePositionSizer({
-    accountEquity: equity,
+    accountEquity: safeEquity,
     entryPrice: activeEntry,
     stopLossPrice: activeStop,
     riskPercentage: cardRiskPctOverride ?? undefined,

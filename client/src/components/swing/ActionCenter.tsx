@@ -316,7 +316,8 @@ function ActionCenterInner() {
   
   const sel = plans.data?.selected;
   const acct = useAccountSnapshot();
-  const equity = acct.equity;
+  const safeEquity = Number(acct?.equity) || 25000;
+  const equity = safeEquity;
   const expiryBars = settings.data?.expiryBars4h ?? 2;
   const minRr = settings.data?.minRrT1 ?? null;
   const markSeen = (k: string) => { if (!seen.includes(k)) setSeen([...seen.slice(-199), k]); };

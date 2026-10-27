@@ -5,15 +5,26 @@ import { useGlobalState } from "@/lib/globalState";
 export const RISK_PERCENTAGE_OPTIONS = [0.5, 1.0, 1.5, 2.0];
 
 export function RiskSettingsBar() {
-  const { accountEquity, setAccountEquity, riskPercentage, setRiskPercentage } = useGlobalState();
+  const global = useGlobalState();
+  const accountEquity = global?.accountEquity ?? (global as any)?.equity ?? 25000;
+  const safeEquity = Number(accountEquity) || 25000;
+  const setAccountEquity = global?.setAccountEquity ?? (() => {});
+  const riskPercentage = Number(global?.riskPercentage) || 1.0;
+  const setRiskPercentage = global?.setRiskPercentage ?? (() => {});
   const [isOpen, setIsOpen] = useState(false);
-  const [tempEquity, setTempEquity] = useState(String(accountEquity));
+  const [tempEquity, setTempEquity] = useState(String(safeEquity));
   const popoverRef = useRef<HTMLDivElement>(null);
 
-  // Sync tempEquity when accountEquity changes externally
+  // Sync tempEquity when safeEquity changes externally
   useEffect(() => {
-    setTempEquity(String(accountEquity));
-  }, [accountEquity]);
+    setTempEquity(String(safeEquity));
+  }, [safeEquity]);
+
+  useEffect(() => {
+    if (typeof console !== "undefined") {
+      console.log('[Risk Engine] Account Equity:', safeEquity);
+    }
+  }, [safeEquity]);
 
   // Click outside listener
   useEffect(() => {
@@ -57,7 +68,7 @@ export function RiskSettingsBar() {
       >
         <Sliders className="h-3.5 w-3.5 text-cyan-400" />
         <span className="tabular-nums">
-          ${accountEquity.toLocaleString()}
+          ${safeEquity.toLocaleString()}
         </span>
         <span className="text-slate-400 font-normal">·</span>
         <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-black">

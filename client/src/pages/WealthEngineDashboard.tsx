@@ -552,12 +552,20 @@ export function LiveTradingChart({
     targetVal
   );
 
-  // Boot Sequence Logging for LiveTradingChart
+  // Diagnostic & Boot Sequence Logging for LiveTradingChart
   useEffect(() => {
     if (typeof console !== "undefined") {
+      console.log('[Wealth Studio] Active Ticker:', symbol, 'Current Price:', currentRefPrice);
+      console.log('[Wealth Studio] Calculated Trade Levels:', {
+        entryPrice: buyPrice,
+        stopLossPrice: stopVal,
+        t1: t1Price,
+        t2: t2Price,
+        t3: t3Price,
+      });
       console.log(`[Boot:LiveTradingChart] Mounted/Updated chart for ${symbol} @ $${Number.isFinite(livePrice) ? livePrice.toFixed(2) : "0.00"} (${timeframe}), candles count: ${candles.length}`);
     }
-  }, [symbol, timeframe, livePrice, candles.length]);
+  }, [symbol, timeframe, livePrice, currentRefPrice, buyPrice, stopVal, t1Price, t2Price, t3Price, candles.length]);
 
   // 5. Crosshair & Hover OHLC Tooltip State
   const [hoveredData, setHoveredData] = useState<{
@@ -1848,14 +1856,62 @@ export default function WealthEngineDashboard() {
   const activeSymbol = activeTicker;
   const setActiveSymbol = setActiveTicker;
   const watchlist = global?.watchlist ?? DEFAULT_WATCHLIST;
-  const activeItem = global?.activeItem || watchlist?.find((i) => i?.symbol === activeTicker) || watchlist?.[0] || DEFAULT_WATCHLIST[0];
+  const baseActiveItem = (global?.activeItem?.symbol === activeTicker ? global.activeItem : null)
+    || watchlist?.find((i) => i?.symbol === activeTicker)
+    || DEFAULT_WATCHLIST.find((i) => i?.symbol === activeTicker)
+    || watchlist?.[0]
+    || DEFAULT_WATCHLIST[0];
 
-  // Boot Sequence Diagnostic Logging
+  const safeEquity = Number(global?.accountEquity ?? (global as any)?.equity) || 25000;
+
+  // Dynamic trade levels derivation strictly for active ticker
+  const currentPrice =
+    (activeTicker ? livePrices?.[activeTicker] : null) ??
+    (activeTickerData?.symbol === activeTicker ? activeTickerData?.price : null) ??
+    activePrice ??
+    baseActiveItem?.price ??
+    (activeTicker === "NVDA" ? 216.0 : 100.0);
+
+  const isBuyAligned = baseActiveItem?.buyTarget != null && Math.abs(baseActiveItem.buyTarget - currentPrice) / currentPrice <= 0.08;
+  const entryPriceVal = isBuyAligned ? baseActiveItem.buyTarget! : currentPrice;
+
+  const isStopAligned = baseActiveItem?.stopLoss != null && baseActiveItem.stopLoss < entryPriceVal &&
+    (entryPriceVal - baseActiveItem.stopLoss) / entryPriceVal <= 0.08 && (entryPriceVal - baseActiveItem.stopLoss) / entryPriceVal >= 0.012;
+  const stopLossVal = isStopAligned ? baseActiveItem.stopLoss! : +(entryPriceVal - Math.max((baseActiveItem?.atr ?? (currentPrice * 0.025)) * 1.2, 0.5)).toFixed(2);
+
+  const riskVal = +(Math.max(Math.abs(entryPriceVal - stopLossVal), 0.5)).toFixed(2);
+  const t1Val = +(entryPriceVal + riskVal * 1.5).toFixed(2);
+  const t2Val = +(entryPriceVal + riskVal * 2.0).toFixed(2);
+  const t3Val = +(entryPriceVal + riskVal * 3.0).toFixed(2);
+
+  const activeItem = useMemo(() => {
+    return {
+      ...baseActiveItem,
+      symbol: activeTicker,
+      price: currentPrice,
+      buyTarget: activeTickerData?.symbol === activeTicker ? (activeTickerData.buyTarget ?? entryPriceVal) : entryPriceVal,
+      stopLoss: activeTickerData?.symbol === activeTicker ? (activeTickerData.stopLoss ?? stopLossVal) : stopLossVal,
+      primaryTarget: activeTickerData?.symbol === activeTicker ? (activeTickerData.target1 ?? t1Val) : t1Val,
+      t2: t2Val,
+      t3: t3Val,
+    };
+  }, [baseActiveItem, activeTicker, currentPrice, activeTickerData, entryPriceVal, stopLossVal, t1Val, t2Val, t3Val]);
+
+  // Diagnostic Console Logging
   useEffect(() => {
     if (typeof console !== "undefined") {
+      console.log('[Wealth Studio] Active Ticker:', activeTicker, 'Current Price:', currentPrice);
+      console.log('[Wealth Studio] Calculated Trade Levels:', {
+        entryPrice: entryPriceVal,
+        stopLossPrice: stopLossVal,
+        t1: t1Val,
+        t2: t2Val,
+        t3: t3Val,
+      });
+      console.log('[Risk Engine] Account Equity:', safeEquity);
       console.log(`[Boot:WealthStudio] WealthEngineDashboard mounted. activeTicker: ${activeTicker}, activePrice: ${activeTickerData?.price ?? activePrice ?? activeItem?.price}, watchlist count: ${watchlist?.length}`);
     }
-  }, [activeTicker, activeTickerData?.price, activePrice, activeItem?.price, watchlist?.length]);
+  }, [activeTicker, currentPrice, entryPriceVal, stopLossVal, t1Val, t2Val, t3Val, safeEquity, activeTickerData?.price, activePrice, activeItem?.price, watchlist?.length]);
 
   const handleQuickAdd = (e: React.FormEvent) => {
     e.preventDefault();
@@ -1882,8 +1938,9 @@ export default function WealthEngineDashboard() {
   // Dynamic Risk-Based Position Sizer State & Calculation for Studio Setup Card
   const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
   const cardSizing = usePositionSizer({
-    entryPrice: activeItem?.buyTarget ?? activeTickerData?.buyTarget ?? activePrice,
-    stopLossPrice: activeItem?.stopLoss ?? activeTickerData?.stopLoss,
+    accountEquity: safeEquity,
+    entryPrice: activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal,
+    stopLossPrice: activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal,
     riskPercentage: cardRiskPctOverride ?? undefined,
   });
 
@@ -2922,10 +2979,10 @@ export default function WealthEngineDashboard() {
             {/* Fidelity Execution Cheat Sheet Component (Inline Collapsible Panel) */}
             <FidelityExecutionCheatSheet
               symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
-              entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
-              stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
-              target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
-              shares={Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))}
+              entry={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+              stop={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+              target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
+              shares={cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))}
               isCollapsible
               defaultCollapsed={false}
             />
@@ -2933,9 +2990,9 @@ export default function WealthEngineDashboard() {
             {/* Broker Execution Guide Accordion */}
             <BrokerExecutionSteps
               symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
-              entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
-              stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
-              target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
+              entry={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+              stop={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+              target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
               defaultOpen={false}
             />
 
@@ -2957,12 +3014,12 @@ export default function WealthEngineDashboard() {
               <div className="flex justify-between items-baseline">
                 <span className="text-slate-400 text-[11px]">Suggested Sizing:</span>
                 <span className="font-bold text-sm text-soft-white">
-                  {Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} shares
+                  {cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))} shares
                 </span>
               </div>
               <div className="flex justify-between items-baseline text-[10px]">
                 <span className="text-slate-500">Max Dollar Risk:</span>
-                <span className="text-red-400 font-bold">$1,000.00</span>
+                <span className="text-red-400 font-bold">${cardSizing.totalDollarRiskAllowed.toFixed(2)}</span>
               </div>
             </div>
           </div>
@@ -2973,10 +3030,10 @@ export default function WealthEngineDashboard() {
       {isFidelityGuideOpen && (
         <FidelityExecutionCheatSheet
           symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
-          entry={activeTickerData?.buyTarget ?? activeItem?.buyTarget ?? 100}
-          stop={activeTickerData?.stopLoss ?? activeItem?.stopLoss ?? 95}
-          target1={activeTickerData?.target1 ?? activeItem?.primaryTarget ?? 110}
-          shares={Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))}
+          entry={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+          stop={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+          target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
+          shares={cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))}
           isOpenModal={isFidelityGuideOpen}
           onCloseModal={() => setIsFidelityGuideOpen(false)}
         />
