@@ -26,6 +26,8 @@ import {
 } from "@/hooks/useTradeReadiness";
 import { useCandleSetupConfirmation, type CandleData } from "@/hooks/useCandleSetupConfirmation";
 import { usePreCloseAlert, PRE_CLOSE_ALERT_MESSAGE } from "@/hooks/usePreCloseAlert";
+import { useOffScreenPreEntryAlerts } from "@/hooks/useOffScreenPreEntryAlerts";
+import { NotificationsAndAlertsPanel } from "@/components/NotificationsAndAlertsPanel";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -2337,8 +2339,8 @@ export default function WealthEngineDashboard() {
     setNewTickerInput("");
   };
 
-  // Center column tabs: "Chart" | "Setup History" | "Settings" | "Indicators"
-  const [activeTab, setActiveTab] = useState<"Chart" | "Setup History" | "Settings" | "Indicators">("Chart");
+  // Center column tabs: "Chart" | "Setup History" | "Settings" | "Notifications & Alerts" | "Indicators"
+  const [activeTab, setActiveTab] = useState<"Chart" | "Setup History" | "Settings" | "Notifications & Alerts" | "Indicators">("Chart");
 
   // Timeframe selector
   const activeTf = global?.timeframe ?? "1H";
@@ -2474,6 +2476,15 @@ export default function WealthEngineDashboard() {
     symbol: activeTicker,
     isSetupForming,
     entryPrice: entryPriceVal,
+  });
+
+  // Off-Screen Pre-Entry Alerts (Telegram & SMS Notifications — Proximity <= 0.25% OR Time-Based :57 when FORMING)
+  const offScreenAlerts = useOffScreenPreEntryAlerts({
+    ticker: activeTicker,
+    currentPrice,
+    entryPrice: entryPriceVal,
+    target1: t1Val,
+    status: activeTickerData?.status ?? activeItem?.status ?? (isSetupForming ? "FORMING" : "Ready"),
   });
 
   const readinessScore = useMemo(() => {
@@ -2978,6 +2989,20 @@ export default function WealthEngineDashboard() {
                 Settings
               </button>
               <button
+                onClick={() => setActiveTab("Notifications & Alerts")}
+                data-testid="tab-notifications-alerts"
+                className={`px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
+                  activeTab === "Notifications & Alerts" ? "shadow-sm border font-bold" : "opacity-70 hover:opacity-100"
+                }`}
+                style={{
+                  borderColor: activeTab === "Notifications & Alerts" ? "var(--border-main)" : "transparent",
+                  backgroundColor: activeTab === "Notifications & Alerts" ? "var(--bg-panel-subtle)" : "transparent",
+                  color: activeTab === "Notifications & Alerts" ? "var(--accent-cyan)" : "var(--text-secondary)",
+                }}
+              >
+                Notifications &amp; Alerts
+              </button>
+              <button
                 onClick={() => setActiveTab("Indicators")}
                 data-testid="tab-indicators"
                 className={`px-3 py-1.5 rounded-md font-semibold transition-all cursor-pointer ${
@@ -3085,33 +3110,65 @@ export default function WealthEngineDashboard() {
             {/* Tab: Settings */}
             {activeTab === "Settings" && (
               <div
+                className="w-full h-full flex-1 overflow-y-auto rounded-xl border p-6 shadow-xl space-y-6"
+                style={{
+                  backgroundColor: "var(--bg-panel)",
+                  borderColor: "var(--border-subtle)",
+                }}
+              >
+                <div>
+                  <h3 className="font-mono font-bold text-sm uppercase tracking-wider mb-4" style={{ color: "var(--text-primary)" }}>
+                    Studio & Chart Preferences
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
+                    <div className="p-4 rounded-lg border bg-black/20" style={{ borderColor: "var(--border-subtle)" }}>
+                      <div className="font-bold text-sm mb-1">Candlestick Styling</div>
+                      <div className="text-slate-400 text-[11px] mb-3">Institutional hollow vs solid candlesticks</div>
+                      <select className="w-full p-2 rounded bg-black/40 border border-white/10 text-white">
+                        <option>Solid Bull / Solid Bear</option>
+                        <option>Hollow Bullish Bars</option>
+                      </select>
+                    </div>
+                    <div className="p-4 rounded-lg border bg-black/20" style={{ borderColor: "var(--border-subtle)" }}>
+                      <div className="font-bold text-sm mb-1">Price Scale Mode</div>
+                      <div className="text-slate-400 text-[11px] mb-3">Linear arithmetic vs logarithmic scale</div>
+                      <select className="w-full p-2 rounded bg-black/40 border border-white/10 text-white">
+                        <option>Arithmetic (Regular)</option>
+                        <option>Logarithmic (Percentage)</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Notifications & Alerts Settings Tab Section */}
+                <NotificationsAndAlertsPanel
+                  settings={offScreenAlerts.settings}
+                  onUpdateSettings={offScreenAlerts.updateSettings}
+                  onSendTestAlert={offScreenAlerts.sendTestPreEntryAlert}
+                  activeTicker={activeTicker}
+                  entryPrice={entryPriceVal}
+                  target1={t1Val}
+                />
+              </div>
+            )}
+
+            {/* Tab: Notifications & Alerts */}
+            {activeTab === "Notifications & Alerts" && (
+              <div
                 className="w-full h-full flex-1 overflow-y-auto rounded-xl border p-6 shadow-xl"
                 style={{
                   backgroundColor: "var(--bg-panel)",
                   borderColor: "var(--border-subtle)",
                 }}
               >
-                <h3 className="font-mono font-bold text-sm uppercase tracking-wider mb-4" style={{ color: "var(--text-primary)" }}>
-                  Studio & Chart Preferences
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
-                  <div className="p-4 rounded-lg border bg-black/20" style={{ borderColor: "var(--border-subtle)" }}>
-                    <div className="font-bold text-sm mb-1">Candlestick Styling</div>
-                    <div className="text-slate-400 text-[11px] mb-3">Institutional hollow vs solid candlesticks</div>
-                    <select className="w-full p-2 rounded bg-black/40 border border-white/10 text-white">
-                      <option>Solid Bull / Solid Bear</option>
-                      <option>Hollow Bullish Bars</option>
-                    </select>
-                  </div>
-                  <div className="p-4 rounded-lg border bg-black/20" style={{ borderColor: "var(--border-subtle)" }}>
-                    <div className="font-bold text-sm mb-1">Price Scale Mode</div>
-                    <div className="text-slate-400 text-[11px] mb-3">Linear arithmetic vs logarithmic scale</div>
-                    <select className="w-full p-2 rounded bg-black/40 border border-white/10 text-white">
-                      <option>Arithmetic (Regular)</option>
-                      <option>Logarithmic (Percentage)</option>
-                    </select>
-                  </div>
-                </div>
+                <NotificationsAndAlertsPanel
+                  settings={offScreenAlerts.settings}
+                  onUpdateSettings={offScreenAlerts.updateSettings}
+                  onSendTestAlert={offScreenAlerts.sendTestPreEntryAlert}
+                  activeTicker={activeTicker}
+                  entryPrice={entryPriceVal}
+                  target1={t1Val}
+                />
               </div>
             )}
 

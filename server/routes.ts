@@ -2439,6 +2439,45 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Off-Screen Pre-Entry Alerts (Telegram & Twilio SMS Settings + Dispatch) ──
+  let savedOffScreenAlertSettings = {
+    phoneNumber: "",
+    telegramChatId: "",
+    smsEnabled: false,
+    telegramEnabled: false,
+  };
+
+  app.get("/api/alerts/offscreen-settings", (_req, res) => {
+    res.json(savedOffScreenAlertSettings);
+  });
+
+  app.post("/api/alerts/offscreen-settings", (req, res) => {
+    const body = req.body || {};
+    savedOffScreenAlertSettings = {
+      phoneNumber: typeof body.phoneNumber === "string" ? body.phoneNumber : savedOffScreenAlertSettings.phoneNumber,
+      telegramChatId: typeof body.telegramChatId === "string" ? body.telegramChatId : savedOffScreenAlertSettings.telegramChatId,
+      smsEnabled: typeof body.smsEnabled === "boolean" ? body.smsEnabled : savedOffScreenAlertSettings.smsEnabled,
+      telegramEnabled: typeof body.telegramEnabled === "boolean" ? body.telegramEnabled : savedOffScreenAlertSettings.telegramEnabled,
+    };
+    res.json({ ok: true, settings: savedOffScreenAlertSettings });
+  });
+
+  app.post("/api/alerts/pre-entry", async (req, res) => {
+    try {
+      const { serverlessPreEntryAlertHandler } = await import("./alert-dispatcher");
+      const result = await serverlessPreEntryAlertHandler({
+        body: {
+          ...req.body,
+          phoneNumber: req.body?.phoneNumber || savedOffScreenAlertSettings.phoneNumber,
+          chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
+        },
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   // ── reset ─────────────────────────────────────────────────────
   app.post("/api/reset", async (_req, res) => {
     try { await storage.resetAll(); res.json({ ok: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }
