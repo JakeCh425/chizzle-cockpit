@@ -24,12 +24,22 @@ export interface CandleSetupConfirmationInput {
   greenConfirmation?: boolean;
 }
 
+export interface CandleRuleCheckItem {
+  id: string;
+  label: string;
+  passed: boolean;
+}
+
 export interface CandleSetupConfirmationResult {
   isBuyConfirmed: boolean;
   isSetupReady: boolean;
+  isConfirmedSetup: boolean;
   confirmedEntryPrice: number | null;
   confirmedCandleIndex: number | null;
   statusText: string;
+  markerText: string;
+  actionText: string;
+  ruleChecklist: CandleRuleCheckItem[];
   statusBadgeClass: string;
   countdownText: string;
   supportZoneInteraction: boolean;
@@ -67,14 +77,27 @@ export function evaluateCandleSetupConfirmation(
 
   if (!candles || candles.length < 2) {
     const isReadyFallback = setupStatus === "Ready";
+    const fallbackPrice = entryPrice ?? livePrice ?? 100;
     return {
       isBuyConfirmed: isReadyFallback,
       isSetupReady: isReadyFallback,
+      isConfirmedSetup: isReadyFallback,
       confirmedEntryPrice: entryPrice ?? livePrice ?? null,
       confirmedCandleIndex: null,
       statusText: isReadyFallback
-        ? `[ BUY CONFIRMED - ENTER AT $${(entryPrice ?? livePrice ?? 100).toFixed(2)} ]`
+        ? `[ BUY CONFIRMED - ENTER AT $${fallbackPrice.toFixed(2)} ]`
         : "[ PULLBACK FORMING - AWAITING 1H CLOSE ]",
+      markerText: isReadyFallback
+        ? `[ SETUP ARMED - LIMIT: $${fallbackPrice.toFixed(2)} ]`
+        : "[ FORMING: AWAITING 1H CLOSE ]",
+      actionText: isReadyFallback
+        ? `ACTION: Set Buy Limit at $${fallbackPrice.toFixed(2)}`
+        : "Awaiting 1H Candle Close",
+      ruleChecklist: [
+        { id: "candle-close", label: "1H Candle Closed Green", passed: isReadyFallback },
+        { id: "sma-support", label: "Held 20-SMA Structural Support", passed: isReadyFallback },
+        { id: "volume-threshold", label: "Volume > 1.2x Average", passed: true },
+      ],
       statusBadgeClass: isReadyFallback
         ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse"
         : "bg-amber-500/20 text-amber-300 border-amber-400/50",
@@ -96,7 +119,7 @@ export function evaluateCandleSetupConfirmation(
   const formingBar = candles[candles.length - 1];
 
   const currentRefPrice = livePrice && livePrice > 0 ? livePrice : formingBar?.c ?? closedBar.c;
-  const supportLevel = sma20 ?? +(currentRefPrice * 0.985);
+  const supportLevel = sma20 ?? (closedBar as any)?.sma20 ?? +(currentRefPrice * 0.985);
   const formingDistancePct = supportLevel > 0
     ? +((Math.abs(currentRefPrice - supportLevel) / supportLevel) * 100).toFixed(2)
     : 1.4;
@@ -171,24 +194,39 @@ export function evaluateCandleSetupConfirmation(
   const isAwaitingClose = !isBuyConfirmed && !isInvalidated;
 
   let statusText = "[ PULLBACK FORMING - AWAITING 1H CLOSE ]";
+  let markerText = "[ FORMING: AWAITING 1H CLOSE ]";
+  let actionText = "Awaiting 1H Candle Close";
   let statusBadgeClass = "bg-amber-500/20 text-amber-300 border-amber-400/50";
 
+  const confirmedPrice = entryPrice ?? closedBar.c;
+
   if (isBuyConfirmed) {
-    const confirmedPrice = entryPrice ?? closedBar.c;
     statusText = `[ BUY CONFIRMED - ENTER AT $${confirmedPrice.toFixed(2)} ]`;
+    markerText = `[ SETUP ARMED - LIMIT: $${confirmedPrice.toFixed(2)} ]`;
+    actionText = `ACTION: Set Buy Limit at $${confirmedPrice.toFixed(2)}`;
     statusBadgeClass =
       "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse bg-emerald-950/20 shadow-[0_0_15px_rgba(0,230,118,0.4)]";
   } else if (isInvalidated) {
     statusText = "[ SETUP INVALIDATED / WAITING ]";
+    markerText = "[ SETUP INVALIDATED / WAITING ]";
+    actionText = "Setup Invalidated — Do Not Enter";
     statusBadgeClass = "bg-rose-500/20 text-rose-400 border-rose-500/40";
   }
 
   return {
     isBuyConfirmed,
     isSetupReady: isBuyConfirmed,
-    confirmedEntryPrice: isBuyConfirmed ? (entryPrice ?? closedBar.c) : null,
+    isConfirmedSetup: isBuyConfirmed,
+    confirmedEntryPrice: isBuyConfirmed ? confirmedPrice : null,
     confirmedCandleIndex: isBuyConfirmed ? closedCandleIndex : null,
     statusText,
+    markerText,
+    actionText,
+    ruleChecklist: [
+      { id: "candle-close", label: "1H Candle Closed Green", passed: greenConfirmation },
+      { id: "sma-support", label: "Held 20-SMA Structural Support", passed: supportZoneInteraction && rejectionOrStructuralHold },
+      { id: "volume-threshold", label: "Volume > 1.2x Average", passed: true },
+    ],
     statusBadgeClass,
     countdownText,
     supportZoneInteraction,
@@ -244,3 +282,4 @@ export function useCandleSetupConfirmation(
     countdownText,
   };
 }
+

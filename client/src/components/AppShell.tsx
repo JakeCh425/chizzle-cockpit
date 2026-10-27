@@ -284,7 +284,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <div className="flex-1 flex min-w-0">
+      <div className="flex-1 flex min-w-0 max-w-full overflow-hidden">
         {/* Sidebar (with adjustable drag-handle) */}
         <aside
           style={{ width: collapsed ? 56 : sidebarWidth }}
@@ -369,7 +369,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <main className="flex-1 w-full min-h-screen overflow-x-hidden p-6 pb-16 md:pb-8">{children}</main>
+        <main
+          className={`flex-1 min-w-0 w-full max-w-full overflow-x-hidden ${
+            location === "/engine" || location === "/dashboard"
+              ? "p-0 h-[calc(100vh-3.5rem)] overflow-hidden"
+              : "min-h-screen p-6 pb-16 md:pb-8"
+          }`}
+        >
+          {children}
+        </main>
       </div>
     </div>
   );

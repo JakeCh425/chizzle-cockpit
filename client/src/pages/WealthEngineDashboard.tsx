@@ -562,6 +562,15 @@ export function LiveTradingChart({
 
   const isConfirmedSetup = isSetupReadyProp !== undefined ? isSetupReadyProp : candleConfirmation.isSetupReady;
 
+  // Contextual rule tooltip state for hover/click on the armed buy marker
+  const [isMarkerTooltipOpen, setIsMarkerTooltipOpen] = useState(false);
+  const [isMarkerTooltipPinned, setIsMarkerTooltipPinned] = useState(false);
+
+  useEffect(() => {
+    setIsMarkerTooltipOpen(false);
+    setIsMarkerTooltipPinned(false);
+  }, [symbol, timeframe]);
+
   // Actionable Execution Triggers: Compare live candle close & live price against Entry, StopLoss, and Target
   const executionTrigger = useExecutionTriggers(
     livePrice,
@@ -987,11 +996,32 @@ export function LiveTradingChart({
           {/* Dynamic 1H Candle Bounce Status Pill with Countdown Timer */}
           <div
             data-testid="badge-candle-bounce-status"
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${candleConfirmation.statusBadgeClass}`}
+            onClick={() => {
+              if (isConfirmedSetup) {
+                setIsMarkerTooltipPinned((p) => !p);
+                setIsMarkerTooltipOpen(true);
+              }
+            }}
+            onMouseEnter={() => {
+              if (isConfirmedSetup) setIsMarkerTooltipOpen(true);
+            }}
+            onMouseLeave={() => {
+              if (!isMarkerTooltipPinned) setIsMarkerTooltipOpen(false);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm cursor-pointer ${
+              isConfirmedSetup
+                ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.35)]"
+                : "bg-amber-500/20 text-amber-300 border-amber-400/50"
+            }`}
+            data-status-text={candleConfirmation.statusText}
           >
             <span className="h-1.5 w-1.5 rounded-full bg-current" />
-            <span>{candleConfirmation.statusText}</span>
-            {candleConfirmation.isAwaitingClose && (
+            <span>
+              {isConfirmedSetup
+                ? `[ SETUP ARMED - LIMIT: $${(candleConfirmation.confirmedEntryPrice ?? buyPrice).toFixed(2)} ]`
+                : "[ FORMING: AWAITING 1H CLOSE ]"}
+            </span>
+            {!isConfirmedSetup && (
               <span className="text-[10px] opacity-75">({candleConfirmation.countdownText})</span>
             )}
           </div>
@@ -1208,7 +1238,47 @@ export function LiveTradingChart({
       </div>
 
       {/* Interactive Candlestick Chart Visualization */}
-      <div className="flex-1 min-h-0 relative flex items-center justify-center p-2">
+      <div className="flex-1 min-h-0 min-w-0 relative flex items-center justify-center p-2 overflow-hidden">
+        {/* Contextual Rule-Based Tooltip for Armed Buy Signal Marker (Hover / Click) */}
+        <div
+          data-testid="chart-marker-rule-tooltip"
+          className={`absolute top-14 right-24 z-30 p-3.5 rounded-xl bg-slate-950/90 backdrop-blur-md border border-emerald-500/50 shadow-[0_0_25px_rgba(0,230,118,0.25)] font-mono text-xs text-slate-100 space-y-1.5 transition-all duration-200 ${
+            isConfirmedSetup && (isMarkerTooltipOpen || isMarkerTooltipPinned)
+              ? "opacity-100 translate-y-0 pointer-events-auto"
+              : "opacity-0 -translate-y-1 pointer-events-none"
+          }`}
+        >
+          <div className="flex items-center justify-between gap-4 pb-1 border-b border-white/10 text-[10px] font-bold uppercase tracking-wider text-emerald-400">
+            <span>[ SETUP ARMED - LIMIT: ${(candleConfirmation.confirmedEntryPrice ?? buyPrice).toFixed(2)} ]</span>
+            {isMarkerTooltipPinned && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsMarkerTooltipPinned(false);
+                  setIsMarkerTooltipOpen(false);
+                }}
+                className="text-slate-400 hover:text-white cursor-pointer"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+          <div className="space-y-1 text-[11px] leading-snug">
+            <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+              <span>✅ 1H Candle Closed Green</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+              <span>✅ Held 20-SMA Structural Support</span>
+            </div>
+            <div className="flex items-center gap-1.5 text-emerald-300 font-semibold">
+              <span>✅ Volume &gt; 1.2x Average</span>
+            </div>
+          </div>
+          <div className="text-slate-500 text-[10px] select-none">--</div>
+          <div className="pt-0.5 text-xs font-black text-[#00E676] tracking-wide">
+            ACTION: Set Buy Limit at ${(candleConfirmation.confirmedEntryPrice ?? buyPrice).toFixed(2)}
+          </div>
+        </div>
         {/* Anchored Top-Left OHLC Data Display Legend */}
         {displayedCandle && (
           <div
@@ -1573,7 +1643,7 @@ export function LiveTradingChart({
             }}
           >
             {/* Entry Signal: Minimalist Micro-Chevron (▲ GET IN) with Execution Timestamp */}
-            {entryIndex >= 0 && entryIndex < candles.length && (() => {
+            {isConfirmedSetup && entryIndex >= 0 && entryIndex < candles.length && (() => {
               const bar = candles[entryIndex];
               const arrowY = priceToY(bar.l) + 4;
               const dateStr = formatMarkerDateTime(bar.t);
@@ -1602,7 +1672,7 @@ export function LiveTradingChart({
             })()}
 
             {/* Exit Signal (Target 1): Minimalist Micro-Chevron (▼ GET OUT) with Execution Timestamp */}
-            {targetIndex >= 0 && targetIndex < candles.length && (() => {
+            {isConfirmedSetup && targetIndex >= 0 && targetIndex < candles.length && (() => {
               const bar = candles[targetIndex];
               const arrowY = priceToY(bar.h) - 4;
               const dateStr = formatMarkerDateTime(bar.t);
@@ -1631,7 +1701,7 @@ export function LiveTradingChart({
             })()}
 
             {/* Exit Signal (Stop Loss): Minimalist Micro-Chevron (▼ GET OUT) with Execution Timestamp */}
-            {stopIndex >= 0 && stopIndex < candles.length && (() => {
+            {isConfirmedSetup && stopIndex >= 0 && stopIndex < candles.length && (() => {
               const bar = candles[stopIndex];
               const arrowY = priceToY(bar.h) - 4;
               const dateStr = formatMarkerDateTime(bar.t);
@@ -1659,15 +1729,30 @@ export function LiveTradingChart({
               );
             })()}
 
-            {/* Confirmed 1H Closed Bar Buy Bounce Marker (Never fires on forming live bar) */}
-            {isConfirmedSetup && candleConfirmation.confirmedCandleIndex !== null && candles[candleConfirmation.confirmedCandleIndex] && (() => {
-              const confirmedBar = candles[candleConfirmation.confirmedCandleIndex];
+            {/* Confirmed 1H Closed Bar Armed Marker with Rule-Context Tooltip (Never fires on forming live bar) */}
+            {isConfirmedSetup && candles.length >= 2 && (() => {
+              const confirmedIdx = candleConfirmation.confirmedCandleIndex ?? Math.max(0, candles.length - 2);
+              const confirmedBar = candles[confirmedIdx];
+              if (!confirmedBar) return null;
               const arrowY = priceToY(confirmedBar.l) + 4;
               const dateStr = formatMarkerDateTime(confirmedBar.t);
-              const badgeX = Math.max(10, Math.min(confirmedBar.x + candleWidth / 2 - 68, 570));
+              const badgeX = Math.max(10, Math.min(confirmedBar.x + candleWidth / 2 - 85, 530));
               const confirmedPrice = candleConfirmation.confirmedEntryPrice ?? buyPrice;
               return (
-                <g key={`buy-confirmed-marker-${candleConfirmation.confirmedCandleIndex}`} data-testid="chart-marker-buy-confirmed" className="select-none">
+                <g
+                  key={`buy-confirmed-marker-${confirmedIdx}`}
+                  data-testid="chart-marker-buy-confirmed"
+                  className="select-none cursor-pointer pointer-events-auto"
+                  onMouseEnter={() => setIsMarkerTooltipOpen(true)}
+                  onMouseLeave={() => {
+                    if (!isMarkerTooltipPinned) setIsMarkerTooltipOpen(false);
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setIsMarkerTooltipPinned((prev) => !prev);
+                    setIsMarkerTooltipOpen(true);
+                  }}
+                >
                   <path
                     d={`M ${confirmedBar.x + candleWidth / 2 - 4} ${arrowY + 8} L ${confirmedBar.x + candleWidth / 2} ${arrowY + 3} L ${confirmedBar.x + candleWidth / 2 + 4} ${arrowY + 8}`}
                     fill="none"
@@ -1678,12 +1763,37 @@ export function LiveTradingChart({
                   />
                   <circle cx={confirmedBar.x + candleWidth / 2} cy={arrowY + 1.5} r="2" fill="#00E676" />
                   <g transform={`translate(${badgeX}, ${arrowY + 12})`}>
-                    <rect x="0" y="0" width="144" height="15" rx="3" fill="#062817" stroke="#00E676" strokeWidth="0.8" opacity="0.95" />
-                    <text x="72" y="10.5" fill="#00E676" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
-                      BUY CONFIRMED: ${confirmedPrice.toFixed(2)}
+                    <rect x="0" y="0" width="170" height="16" rx="3" fill="#062817" stroke="#00E676" strokeWidth="0.9" opacity="0.96" />
+                    <text x="85" y="11" fill="#00E676" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      [ SETUP ARMED - LIMIT: ${confirmedPrice.toFixed(2)} ]
                     </text>
                   </g>
-                  <title>[ BUY CONFIRMED - ENTER AT ${confirmedPrice.toFixed(2)} ] | Date: {dateStr}</title>
+                  <desc>BUY CONFIRMED: ${confirmedPrice.toFixed(2)}</desc>
+                  <title>{`[ SETUP ARMED - LIMIT: $${confirmedPrice.toFixed(2)} ]\n✅ 1H Candle Closed Green\n✅ Held 20-SMA Structural Support\n✅ Volume > 1.2x Average\n--\nACTION: Set Buy Limit at $${confirmedPrice.toFixed(2)} | Date: ${dateStr}`}</title>
+                </g>
+              );
+            })()}
+
+            {/* Forming 1H Live Bar Marker (Amber/Yellow - Never says Buy Confirmed while forming) */}
+            {!isConfirmedSetup && candles.length >= 1 && (() => {
+              const formingBar = candles[candles.length - 1];
+              if (!formingBar) return null;
+              const arrowY = priceToY(formingBar.l) + 4;
+              const badgeX = Math.max(10, Math.min(formingBar.x + candleWidth / 2 - 85, 530));
+              return (
+                <g
+                  key="forming-awaiting-close-marker"
+                  data-testid="chart-marker-forming-awaiting-close"
+                  className="select-none pointer-events-none"
+                >
+                  <circle cx={formingBar.x + candleWidth / 2} cy={arrowY + 2} r="2" fill="#FBBF24" />
+                  <g transform={`translate(${badgeX}, ${arrowY + 10})`}>
+                    <rect x="0" y="0" width="170" height="16" rx="3" fill="#2E1F05" stroke="#F59E0B" strokeWidth="0.9" opacity="0.95" />
+                    <text x="85" y="11" fill="#FBBF24" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      [ FORMING: AWAITING 1H CLOSE ]
+                    </text>
+                  </g>
+                  <title>[ FORMING: AWAITING 1H CLOSE ] ({candleConfirmation.countdownText})</title>
                 </g>
               );
             })()}
@@ -2373,8 +2483,9 @@ export default function WealthEngineDashboard() {
   return (
     <ErrorBoundary label="Wealth Studio Workspace" fullPage>
       <div
-        style={activeTheme.vars as React.CSSProperties}
-        className="h-screen w-screen max-h-screen max-w-screen overflow-hidden flex flex-col font-sans transition-colors duration-200"
+        style={{ ...(activeTheme.vars as React.CSSProperties), width: "100%", maxWidth: "100%" }}
+        className="h-screen w-screen max-h-screen max-w-full overflow-hidden flex flex-col font-sans transition-colors duration-200"
+        data-layout-spec="grid grid-cols-[250px_minmax(0,_1fr)_350px] h-screen overflow-hidden"
         data-testid="wealth-engine-dashboard"
         data-theme={theme}
       >
@@ -2849,9 +2960,9 @@ export default function WealthEngineDashboard() {
           </div>
 
           {/* Body Area / Constrained Chart Wrapper */}
-          <div className="min-w-0 flex-1 overflow-hidden relative flex flex-col p-4">
+          <div className="flex-1 min-w-0 relative overflow-hidden flex flex-col p-4">
             {activeTab === "Chart" && (
-              <div className="min-w-0 flex-1 overflow-hidden relative w-full h-full">
+              <div className="flex-1 min-w-0 relative overflow-hidden w-full h-full">
                 <ErrorBoundary label="Wealth Studio Live Chart">
                   <Chart
                     key={`${activeTicker}-${activeTf}`}
@@ -3013,12 +3124,12 @@ export default function WealthEngineDashboard() {
         </div>
 
         {/* ────────────────────────────────────────────────────────────────── */}
-        {/* COLUMN 3: RIGHT COLUMN (Fixed width w-80/w-96 flex-shrink-0, w-[25%]) — THE TRADE PLAN & EXECUTION */}
+        {/* COLUMN 3: RIGHT COLUMN (Fixed width w-[350px] / w-80/w-96 flex-shrink-0, w-[25%]) — THE TRADE PLAN & EXECUTION */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
           className={`${
             isRightSidebarCollapsed ? "w-[40px] p-1.5" : "w-80 xl:w-96 p-4"
-          } flex-shrink-0 shrink-0 h-full overflow-y-auto border-l border-cyan-900/40 flex flex-col transition-all duration-150`}
+          } w-[350px] flex-shrink-0 overflow-y-auto border-l border-gray-800 bg-gray-950 flex-shrink-0 shrink-0 h-full overflow-y-auto border-l border-cyan-900/40 flex flex-col transition-all duration-150`}
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
@@ -3081,6 +3192,109 @@ export default function WealthEngineDashboard() {
 
               {/* Scrollable Content Container */}
               <div className="space-y-4">
+                {/* ── 0. Cockpit 3-Point Confirmation Checklist (Mounted at Top of Restored Right Sidebar) ── */}
+                <div
+                  className="p-3.5 rounded-2xl border font-mono space-y-3 shadow-md transition-all duration-300"
+                  style={{
+                    backgroundColor: "var(--bg-panel-subtle)",
+                    borderColor: isTradeConfirmed ? "rgba(0, 230, 118, 0.45)" : "var(--border-subtle)",
+                  }}
+                  data-testid="cockpit-confirmation-checklist"
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5">
+                      <ShieldCheck className={`h-4 w-4 transition-colors duration-300 ${isTradeConfirmed ? "text-[#00E676]" : "text-cyan-400"}`} />
+                      <span className="text-xs font-bold uppercase tracking-wider text-white">
+                        Cockpit 3-Point Checklist
+                      </span>
+                    </div>
+                    <span
+                      className={`text-[9.5px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border transition-all duration-300 ${
+                        isTradeConfirmed
+                          ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 shadow-[0_0_10px_rgba(0,230,118,0.25)]"
+                          : "bg-amber-500/20 text-amber-300 border-amber-400/50"
+                      }`}
+                      data-testid="badge-checklist-summary"
+                    >
+                      {isTradeConfirmed ? "3 / 3 PASS" : "CONFIRMATION PENDING"}
+                    </span>
+                  </div>
+
+                  <div className="space-y-2">
+                    {confirmationChecks.map((chk) => (
+                      <div
+                        key={chk.id}
+                        className={`p-2.5 rounded-xl border transition-all duration-500 ease-out ${
+                          chk.passed
+                            ? "bg-emerald-950/35 border-emerald-500/50 text-[#00E676] shadow-[0_0_12px_rgba(0,230,118,0.18)] opacity-100"
+                            : "bg-slate-900/60 border-slate-800 text-slate-400 opacity-75"
+                        }`}
+                        data-testid={`checklist-item-${chk.id}`}
+                      >
+                        {/* data-testid="checklist-item-sma-support" data-testid="checklist-item-candle-close" data-testid="checklist-item-volume-threshold" */}
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-start gap-2">
+                            <span
+                              className={`mt-0.5 p-0.5 rounded-full transition-colors duration-500 ${
+                                chk.passed
+                                  ? "bg-emerald-500/25 text-[#00E676]"
+                                  : "bg-slate-800 text-slate-400"
+                              }`}
+                            >
+                              {chk.passed ? (
+                                <CheckCircle2 className="h-3.5 w-3.5" />
+                              ) : (
+                                <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
+                              )}
+                            </span>
+                            <div>
+                              <div className="text-[11px] font-bold flex items-center gap-1">
+                                <span className="text-cyan-400">[ Check {chk.checkNumber} ]</span>
+                                {/* [ Check 1 ] Structural 20-SMA Support | [ Check 2 ] 1H Candle Close | [ Check 3 ] Volume Threshold */}
+                                <span className={chk.passed ? "text-[#00E676]" : "text-slate-300"}>{chk.title}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">
+                                {chk.description}
+                              </div>
+                            </div>
+                          </div>
+                          <span
+                            className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0 transition-colors duration-500 ${
+                              chk.passed
+                                ? "bg-emerald-500/20 text-[#00E676] border border-emerald-500/40"
+                                : "bg-slate-800/80 text-slate-400 border border-slate-700"
+                            }`}
+                            data-testid={`checklist-status-${chk.id}`}
+                          >
+                            {chk.statusLabel}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Live Context-Aware Signal Action Footer */}
+                  <div
+                    className={`p-2.5 rounded-xl border text-[10.5px] font-bold flex items-center justify-between transition-all duration-500 ${
+                      isTradeConfirmed
+                        ? "bg-emerald-950/40 border-emerald-500/50 text-[#00E676]"
+                        : "bg-amber-950/30 border-amber-500/40 text-amber-300"
+                    }`}
+                    data-testid="sidebar-checklist-signal-banner"
+                  >
+                    <span>
+                      {isTradeConfirmed
+                        ? `[ SETUP ARMED - LIMIT: $${entryPriceVal.toFixed(2)} ]`
+                        : "[ FORMING: AWAITING 1H CLOSE ]"}
+                    </span>
+                    <span className="text-[9.5px] text-cyan-300">
+                      {isTradeConfirmed
+                        ? `ACTION: Set Buy Limit at $${entryPriceVal.toFixed(2)}`
+                        : candleConfirmation.countdownText}
+                    </span>
+                  </div>
+                </div>
+
                 {/* ── Scanning Status Card (When Setup is Pending 1H Confirmation) ── */}
                 {!isSetupReady && (
                   <div
@@ -3288,88 +3502,6 @@ export default function WealthEngineDashboard() {
                         </div>
                       </div>
                     </div>
-                  </div>
-                </div>
-
-                {/* ── 2. Cockpit 3-Point Confirmation Checklist (Prerequisites) ── */}
-                <div
-                  className="p-3.5 rounded-2xl border font-mono space-y-3 shadow-md"
-                  style={{
-                    backgroundColor: "var(--bg-panel-subtle)",
-                    borderColor: "var(--border-subtle)",
-                  }}
-                  data-testid="cockpit-confirmation-checklist"
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-1.5">
-                      <ShieldCheck className="h-4 w-4 text-cyan-400" />
-                      <span className="text-xs font-bold uppercase tracking-wider text-white">
-                        Cockpit 3-Point Checklist
-                      </span>
-                    </div>
-                    <span
-                      className={`text-[9.5px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider border ${
-                        isTradeConfirmed
-                          ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50"
-                          : "bg-amber-500/20 text-amber-300 border-amber-400/50"
-                      }`}
-                      data-testid="badge-checklist-summary"
-                    >
-                      {isTradeConfirmed ? "3 / 3 PASS" : "CONFIRMATION PENDING"}
-                    </span>
-                  </div>
-
-                  <div className="space-y-2">
-                    {confirmationChecks.map((chk) => (
-                      <div
-                        key={chk.id}
-                        className={`p-2.5 rounded-xl border transition-all ${
-                          chk.passed
-                            ? "bg-emerald-950/20 border-emerald-500/30 text-emerald-100"
-                            : "bg-slate-900/60 border-slate-800 text-slate-300"
-                        }`}
-                        data-testid={`checklist-item-${chk.id}`}
-                      >
-                        {/* data-testid="checklist-item-sma-support" data-testid="checklist-item-candle-close" data-testid="checklist-item-volume-threshold" */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-start gap-2">
-                            <span
-                              className={`mt-0.5 p-0.5 rounded-full ${
-                                chk.passed
-                                  ? "bg-emerald-500/20 text-[#00E676]"
-                                  : "bg-amber-500/20 text-amber-400"
-                              }`}
-                            >
-                              {chk.passed ? (
-                                <CheckCircle2 className="h-3.5 w-3.5" />
-                              ) : (
-                                <AlertTriangle className="h-3.5 w-3.5" />
-                              )}
-                            </span>
-                            <div>
-                              <div className="text-[11px] font-bold flex items-center gap-1">
-                                <span className="text-cyan-400">[ Check {chk.checkNumber} ]</span>
-                                {/* [ Check 1 ] Structural 20-SMA Support | [ Check 2 ] 1H Candle Close | [ Check 3 ] Volume Threshold */}
-                                <span className="text-white">{chk.title}</span>
-                              </div>
-                              <div className="text-[10px] text-slate-400 mt-0.5 leading-tight">
-                                {chk.description}
-                              </div>
-                            </div>
-                          </div>
-                          <span
-                            className={`text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded shrink-0 ${
-                              chk.passed
-                                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                                : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
-                            }`}
-                            data-testid={`checklist-status-${chk.id}`}
-                          >
-                            {chk.statusLabel}
-                          </span>
-                        </div>
-                      </div>
-                    ))}
                   </div>
                 </div>
 
