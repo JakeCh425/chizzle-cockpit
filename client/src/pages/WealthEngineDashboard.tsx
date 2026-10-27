@@ -15,6 +15,7 @@ import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheat
 import { RiskSettingsBar } from "@/components/swing/RiskSettingsBar";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
 import { useTradeReadiness, TRADE_LOCKED_TOOLTIP, TRADE_CONFIRMED_BADGE, TRADE_PENDING_BADGE } from "@/hooks/useTradeReadiness";
+import { useCandleSetupConfirmation, type CandleData } from "@/hooks/useCandleSetupConfirmation";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -215,6 +216,7 @@ export interface ChartProps {
   entryPrice?: number;
   stopLoss?: number;
   primaryTarget?: number;
+  isSetupReady?: boolean;
   onOpenFidelityGuide?: () => void;
   onTimeframeChange?: (tf: "1H" | "4H" | "1D" | "1W") => void;
 }
@@ -226,6 +228,7 @@ export function LiveTradingChart({
   entryPrice,
   stopLoss,
   primaryTarget,
+  isSetupReady: isSetupReadyProp,
   onOpenFidelityGuide,
   onTimeframeChange,
 }: ChartProps) {
@@ -545,6 +548,19 @@ export function LiveTradingChart({
     if (!activeCandle) return historicalCandles;
     return [...historicalCandles, activeCandle];
   }, [historicalCandles, activeCandle]);
+
+  // Strict 1-Hour Candle Close Confirmation Engine
+  const candleConfirmation = useCandleSetupConfirmation({
+    candles,
+    timeframe,
+    sma20: smaSettings.smaFastPeriod ? +(currentRefPrice * 0.985) : undefined,
+    sma50: smaSettings.smaSlowPeriod ? +(currentRefPrice * 0.970) : undefined,
+    entryPrice: buyPrice,
+    livePrice,
+    setupStatus: item?.status,
+  });
+
+  const isConfirmedSetup = isSetupReadyProp !== undefined ? isSetupReadyProp : candleConfirmation.isSetupReady;
 
   // Actionable Execution Triggers: Compare live candle close & live price against Entry, StopLoss, and Target
   const executionTrigger = useExecutionTriggers(
@@ -968,6 +984,18 @@ export function LiveTradingChart({
             <span>{item?.status ?? "READY"}</span>
           </div>
 
+          {/* Dynamic 1H Candle Bounce Status Pill with Countdown Timer */}
+          <div
+            data-testid="badge-candle-bounce-status"
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${candleConfirmation.statusBadgeClass}`}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-current" />
+            <span>{candleConfirmation.statusText}</span>
+            {candleConfirmation.isAwaitingClose && (
+              <span className="text-[10px] opacity-75">({candleConfirmation.countdownText})</span>
+            )}
+          </div>
+
           {executionTrigger.activeSignalText && (
             <div
               data-testid="chart-execution-alert"
@@ -1368,78 +1396,83 @@ export function LiveTradingChart({
 
           {/* ==================================================================== */}
           {/* BACKGROUND LAYER: Faded Dashed Horizontal Target Lines (30% - 40% opacity) */}
+          {/* Only rendered when setup is confirmed ready / armed */}
           {/* Fades down to 15% opacity when mouse hovers the right quadrant to prevent candle obstruction */}
           {/* ==================================================================== */}
 
-          {/* Buy Target Line (Faded to ~35% opacity behind candles) */}
-          <line
-            x1="10"
-            y1={priceToY(buyPrice)}
-            x2="710"
-            y2={priceToY(buyPrice)}
-            stroke="var(--accent-cyan)"
-            strokeWidth="1.2"
-            strokeDasharray="5 5"
-            opacity="0.35"
-            style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
-            data-testid="chart-line-entry"
-          />
+          {isConfirmedSetup && (
+            <React.Fragment key="confirmed-trade-lines">
+              {/* Buy Target Line (Faded to ~35% opacity behind candles) */}
+              <line
+                x1="10"
+                y1={priceToY(buyPrice)}
+                x2="710"
+                y2={priceToY(buyPrice)}
+                stroke="var(--accent-cyan)"
+                strokeWidth="1.2"
+                strokeDasharray="5 5"
+                opacity="0.35"
+                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                data-testid="chart-line-entry"
+              />
 
-          {/* Stop Loss Line (Faded to ~35% opacity behind candles) */}
-          <line
-            x1="10"
-            y1={priceToY(stopVal)}
-            x2="710"
-            y2={priceToY(stopVal)}
-            stroke="var(--accent-red)"
-            strokeWidth="1.2"
-            strokeDasharray="5 5"
-            opacity="0.35"
-            style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
-            data-testid="chart-line-stop"
-          />
+              {/* Stop Loss Line (Faded to ~35% opacity behind candles) */}
+              <line
+                x1="10"
+                y1={priceToY(stopVal)}
+                x2="710"
+                y2={priceToY(stopVal)}
+                stroke="var(--accent-red)"
+                strokeWidth="1.2"
+                strokeDasharray="5 5"
+                opacity="0.35"
+                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                data-testid="chart-line-stop"
+              />
 
-          {/* Primary Target 1 Line (1.5R - Faded to ~35% opacity behind candles) */}
-          <line
-            x1="10"
-            y1={priceToY(targetVal)}
-            x2="710"
-            y2={priceToY(targetVal)}
-            stroke="var(--accent-green)"
-            strokeWidth="1.2"
-            strokeDasharray="5 5"
-            opacity="0.35"
-            style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
-            data-testid="chart-line-t1"
-          />
+              {/* Primary Target 1 Line (1.5R - Faded to ~35% opacity behind candles) */}
+              <line
+                x1="10"
+                y1={priceToY(targetVal)}
+                x2="710"
+                y2={priceToY(targetVal)}
+                stroke="var(--accent-green)"
+                strokeWidth="1.2"
+                strokeDasharray="5 5"
+                opacity="0.35"
+                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                data-testid="chart-line-t1"
+              />
 
-          {/* Target 2 Line (Core 2.0R - Faded to ~35% opacity behind candles) */}
-          <line
-            x1="10"
-            y1={priceToY(t2Price)}
-            x2="710"
-            y2={priceToY(t2Price)}
-            stroke="#10B981"
-            strokeWidth="1.2"
-            strokeDasharray="5 5"
-            opacity="0.35"
-            style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
-            data-testid="chart-line-t2"
-          />
+              {/* Target 2 Line (Core 2.0R - Faded to ~35% opacity behind candles) */}
+              <line
+                x1="10"
+                y1={priceToY(t2Price)}
+                x2="710"
+                y2={priceToY(t2Price)}
+                stroke="#10B981"
+                strokeWidth="1.2"
+                strokeDasharray="5 5"
+                opacity="0.35"
+                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                data-testid="chart-line-t2"
+              />
 
-          {/* Target 3 Line (Runner 3.0R - Faded to ~35% opacity behind candles) */}
-          <line
-            x1="10"
-            y1={priceToY(t3Price)}
-            x2="710"
-            y2={priceToY(t3Price)}
-            stroke="#34D399"
-            strokeWidth="1.2"
-            strokeDasharray="5 5"
-            opacity="0.35"
-            style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
-            data-testid="chart-line-t3"
-          />
+              {/* Target 3 Line (Runner 3.0R - Faded to ~35% opacity behind candles) */}
+              <line
+                x1="10"
+                y1={priceToY(t3Price)}
+                x2="710"
+                y2={priceToY(t3Price)}
+                stroke="#34D399"
+                strokeWidth="1.2"
+                strokeDasharray="5 5"
+                opacity="0.35"
+                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                data-testid="chart-line-t3"
+              />
+            </React.Fragment>
+          )}
 
           {/* Thin (1px) Real-Time Live Current Price Tracking Line */}
           <line
@@ -1626,6 +1659,35 @@ export function LiveTradingChart({
               );
             })()}
 
+            {/* Confirmed 1H Closed Bar Buy Bounce Marker (Never fires on forming live bar) */}
+            {isConfirmedSetup && candleConfirmation.confirmedCandleIndex !== null && candles[candleConfirmation.confirmedCandleIndex] && (() => {
+              const confirmedBar = candles[candleConfirmation.confirmedCandleIndex];
+              const arrowY = priceToY(confirmedBar.l) + 4;
+              const dateStr = formatMarkerDateTime(confirmedBar.t);
+              const badgeX = Math.max(10, Math.min(confirmedBar.x + candleWidth / 2 - 68, 570));
+              const confirmedPrice = candleConfirmation.confirmedEntryPrice ?? buyPrice;
+              return (
+                <g key={`buy-confirmed-marker-${candleConfirmation.confirmedCandleIndex}`} data-testid="chart-marker-buy-confirmed" className="select-none">
+                  <path
+                    d={`M ${confirmedBar.x + candleWidth / 2 - 4} ${arrowY + 8} L ${confirmedBar.x + candleWidth / 2} ${arrowY + 3} L ${confirmedBar.x + candleWidth / 2 + 4} ${arrowY + 8}`}
+                    fill="none"
+                    stroke="#00E676"
+                    strokeWidth="2.5"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <circle cx={confirmedBar.x + candleWidth / 2} cy={arrowY + 1.5} r="2" fill="#00E676" />
+                  <g transform={`translate(${badgeX}, ${arrowY + 12})`}>
+                    <rect x="0" y="0" width="144" height="15" rx="3" fill="#062817" stroke="#00E676" strokeWidth="0.8" opacity="0.95" />
+                    <text x="72" y="10.5" fill="#00E676" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      BUY CONFIRMED: ${confirmedPrice.toFixed(2)}
+                    </text>
+                  </g>
+                  <title>[ BUY CONFIRMED - ENTER AT ${confirmedPrice.toFixed(2)} ] | Date: {dateStr}</title>
+                </g>
+              );
+            })()}
+
             {/* Real-time Dynamic Actionable Execution Trigger Marker on the Current Live Candle */}
             {(() => {
               const currentBar = candles[candles.length - 1];
@@ -1667,7 +1729,7 @@ export function LiveTradingChart({
                 );
               }
 
-              if (executionTrigger.isBuySignal) {
+              if (executionTrigger.isBuySignal && isConfirmedSetup) {
                 const arrowY = priceToY(currentBar.l) + 4;
                 return (
                   <g key="live-entry-marker" data-testid="chart-marker-buy-signal chart-live-signal-entry" className="select-none pointer-events-none">
@@ -1725,130 +1787,135 @@ export function LiveTradingChart({
               </text>
             </g>
 
-            {/* BUY Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${yAxisPillPositions.buy})`} data-testid="chart-label-buy" className="select-none pointer-events-none">
-              <rect
-                x="0"
-                y="0"
-                width="76"
-                height="16"
-                rx="2"
-                fill="#082A3A"
-                stroke="var(--accent-cyan)"
-                strokeWidth="1"
-              />
-              <text
-                x="38"
-                y="11.5"
-                fill="var(--accent-cyan)"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                BUY: ${buyPrice.toFixed(2)}
-              </text>
-            </g>
+            {/* BUY, STOP, and Target Pills: Only rendered when setup is confirmed ready / armed */}
+            {isConfirmedSetup && (
+              <React.Fragment key="confirmed-y-axis-labels">
+                {/* BUY Price Tag on Right-Hand Y-Axis */}
+                <g transform={`translate(714, ${yAxisPillPositions.buy})`} data-testid="chart-label-buy" className="select-none pointer-events-none">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="76"
+                    height="16"
+                    rx="2"
+                    fill="#082A3A"
+                    stroke="var(--accent-cyan)"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="38"
+                    y="11.5"
+                    fill="var(--accent-cyan)"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    BUY: ${buyPrice.toFixed(2)}
+                  </text>
+                </g>
 
-            {/* STOP Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${yAxisPillPositions.stop})`} data-testid="chart-label-stop" className="select-none pointer-events-none">
-              <rect
-                x="0"
-                y="0"
-                width="76"
-                height="16"
-                rx="2"
-                fill="#2E0E14"
-                stroke="var(--accent-red)"
-                strokeWidth="1"
-              />
-              <text
-                x="38"
-                y="11.5"
-                fill="var(--accent-red)"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                STOP: ${stopVal.toFixed(2)}
-              </text>
-            </g>
+                {/* STOP Price Tag on Right-Hand Y-Axis */}
+                <g transform={`translate(714, ${yAxisPillPositions.stop})`} data-testid="chart-label-stop" className="select-none pointer-events-none">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="76"
+                    height="16"
+                    rx="2"
+                    fill="#2E0E14"
+                    stroke="var(--accent-red)"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="38"
+                    y="11.5"
+                    fill="var(--accent-red)"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    STOP: ${stopVal.toFixed(2)}
+                  </text>
+                </g>
 
-            {/* T1 Price Tag on Right-Hand Y-Axis */}
-            <g transform={`translate(714, ${yAxisPillPositions.t1})`} data-testid="chart-label-t1" className="select-none pointer-events-none">
-              <rect
-                x="0"
-                y="0"
-                width="76"
-                height="16"
-                rx="2"
-                fill="#0D2E1F"
-                stroke="var(--accent-green)"
-                strokeWidth="1"
-              />
-              <text
-                x="38"
-                y="11.5"
-                fill="var(--accent-green)"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                T1: ${targetVal.toFixed(2)}
-              </text>
-            </g>
+                {/* T1 Price Tag on Right-Hand Y-Axis */}
+                <g transform={`translate(714, ${yAxisPillPositions.t1})`} data-testid="chart-label-t1" className="select-none pointer-events-none">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="76"
+                    height="16"
+                    rx="2"
+                    fill="#0D2E1F"
+                    stroke="var(--accent-green)"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="38"
+                    y="11.5"
+                    fill="var(--accent-green)"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    T1: ${targetVal.toFixed(2)}
+                  </text>
+                </g>
 
-            {/* T2 Price Tag on Right-Hand Y-Axis (Core 2.0R) */}
-            <g transform={`translate(714, ${yAxisPillPositions.t2})`} data-testid="chart-label-t2" className="select-none pointer-events-none">
-              <rect
-                x="0"
-                y="0"
-                width="76"
-                height="16"
-                rx="2"
-                fill="#064E3B"
-                stroke="#10B981"
-                strokeWidth="1"
-              />
-              <text
-                x="38"
-                y="11.5"
-                fill="#34D399"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                T2: ${t2Price.toFixed(2)}
-              </text>
-            </g>
+                {/* T2 Price Tag on Right-Hand Y-Axis (Core 2.0R) */}
+                <g transform={`translate(714, ${yAxisPillPositions.t2})`} data-testid="chart-label-t2" className="select-none pointer-events-none">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="76"
+                    height="16"
+                    rx="2"
+                    fill="#064E3B"
+                    stroke="#10B981"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="38"
+                    y="11.5"
+                    fill="#34D399"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    T2: ${t2Price.toFixed(2)}
+                  </text>
+                </g>
 
-            {/* T3 Price Tag on Right-Hand Y-Axis (Runner 3.0R) */}
-            <g transform={`translate(714, ${yAxisPillPositions.t3})`} data-testid="chart-label-t3" className="select-none pointer-events-none">
-              <rect
-                x="0"
-                y="0"
-                width="76"
-                height="16"
-                rx="2"
-                fill="#022C22"
-                stroke="#34D399"
-                strokeWidth="1"
-              />
-              <text
-                x="38"
-                y="11.5"
-                fill="#6EE7B7"
-                fontSize="9"
-                fontFamily="monospace"
-                fontWeight="bold"
-                textAnchor="middle"
-              >
-                T3: ${t3Price.toFixed(2)}
-              </text>
-            </g>
+                {/* T3 Price Tag on Right-Hand Y-Axis (Runner 3.0R) */}
+                <g transform={`translate(714, ${yAxisPillPositions.t3})`} data-testid="chart-label-t3" className="select-none pointer-events-none">
+                  <rect
+                    x="0"
+                    y="0"
+                    width="76"
+                    height="16"
+                    rx="2"
+                    fill="#022C22"
+                    stroke="#34D399"
+                    strokeWidth="1"
+                  />
+                  <text
+                    x="38"
+                    y="11.5"
+                    fill="#6EE7B7"
+                    fontSize="9"
+                    fontFamily="monospace"
+                    fontWeight="bold"
+                    textAnchor="middle"
+                  >
+                    T3: ${t3Price.toFixed(2)}
+                  </text>
+                </g>
+              </React.Fragment>
+            )}
           </g>
 
           {/* ==================================================================== */}
@@ -2176,14 +2243,63 @@ export default function WealthEngineDashboard() {
 
   const openArmTrade = global?.openArmTrade ?? (() => {});
 
-  // Right-hand panel collapse state
-  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
+  // Right-hand panel resize & collapse state (Default 320px [w-80], clamped between 260px and 500px, 40px icon rail when collapsed)
+  const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(320);
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState<boolean>(false);
+  const previousRightWidthRef = useRef<number>(320);
+  const isResizingRightRef = useRef<boolean>(false);
+
+  const toggleRightSidebarCollapse = useCallback(() => {
+    setIsRightSidebarCollapsed((prev) => {
+      if (!prev) {
+        previousRightWidthRef.current = rightSidebarWidth;
+        return true;
+      } else {
+        setRightSidebarWidth(Math.max(260, Math.min(500, previousRightWidthRef.current || 320)));
+        return false;
+      }
+    });
+  }, [rightSidebarWidth]);
+
+  const startResizingRight = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingRightRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizingRightRef.current) return;
+      const newWidth = window.innerWidth - moveEvent.clientX;
+      const clampedWidth = Math.max(260, Math.min(500, newWidth));
+      setRightSidebarWidth(clampedWidth);
+      setIsRightSidebarCollapsed(false);
+    };
+
+    const onMouseUp = () => {
+      isResizingRightRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, []);
 
   // Dynamic Trade Proximity Meter Calculation
   const sma20Price = +(currentPrice * 0.985).toFixed(2);
   const proximityPct = Math.abs(currentPrice - sma20Price) / currentPrice * 100;
   const is1HGreenAboveSupport = (activeItem?.status === "Ready") || ((activeTickerData?.changePct ?? activeItem?.changePct ?? 0) >= 0);
   const isVolumeElevated = true; // tracking >1.2x avg benchmark
+
+  // Candle Setup Confirmation Hook
+  const candleConfirmation = useCandleSetupConfirmation({
+    candles: [],
+    entryPrice: activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? activeItem?.buyTarget) : activeItem?.buyTarget,
+    livePrice: currentPrice,
+    setupStatus: activeTickerData?.status ?? activeItem?.status,
+  });
 
   // Cockpit Confirmation Gatekeeper Hook (useTradeReadiness)
   const tradeReadiness = useTradeReadiness({
@@ -2193,8 +2309,10 @@ export default function WealthEngineDashboard() {
     sma20Price,
     proximityPct,
     changePct: activeTickerData?.changePct ?? activeItem?.changePct ?? 0,
+    candleConfirmation: (activeItem?.status === "Ready" || activeTickerData?.status === "Ready") ? true : undefined,
   });
   const { isTradeConfirmed, checks: confirmationChecks } = tradeReadiness;
+  const isSetupReady = isTradeConfirmed;
 
   const readinessScore = useMemo(() => {
     let distScore = 0;
@@ -2743,6 +2861,7 @@ export default function WealthEngineDashboard() {
                     entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? activeItem?.buyTarget) : activeItem?.buyTarget}
                     stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? activeItem?.stopLoss) : activeItem?.stopLoss}
                     primaryTarget={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? activeItem?.primaryTarget) : activeItem?.primaryTarget}
+                    isSetupReady={isSetupReady}
                     onOpenFidelityGuide={() => setIsFidelityGuideOpen(true)}
                     onTimeframeChange={setActiveTf}
                   />
@@ -2868,24 +2987,53 @@ export default function WealthEngineDashboard() {
         </section>
 
         {/* ────────────────────────────────────────────────────────────────── */}
+        {/* RESIZER SPLITTER HANDLE: Main Chart Canvas <-> Right Sidebar */}
+        {/* ────────────────────────────────────────────────────────────────── */}
+        <div
+          data-testid="sidebar-resizer-right"
+          onMouseDown={startResizingRight}
+          className="w-1.5 hover:w-2 shrink-0 z-30 cursor-col-resize flex items-center justify-center group transition-all select-none bg-black/40 hover:bg-cyan-500/40 active:bg-cyan-500/70 border-r border-cyan-900/30 relative"
+          title="Drag to resize right sidebar (260px - 500px). Double click to toggle collapse."
+          onDoubleClick={toggleRightSidebarCollapse}
+        >
+          {/* Subtle Chevron Button on Resizer Handle */}
+          <button
+            type="button"
+            data-testid="button-resizer-collapse-toggle"
+            onClick={(e) => {
+              e.stopPropagation();
+              toggleRightSidebarCollapse();
+            }}
+            className="flex items-center justify-center w-4 h-7 rounded-full bg-slate-900/90 border border-cyan-500/50 text-cyan-400 hover:text-white hover:bg-cyan-950 shadow-md transition-all cursor-pointer z-40 -ml-2"
+            title={isRightSidebarCollapsed ? "Expand Right Sidebar" : "Collapse Right Sidebar"}
+            aria-label="Toggle Sidebar Collapse"
+          >
+            {isRightSidebarCollapsed ? <ChevronLeft className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+          </button>
+        </div>
+
+        {/* ────────────────────────────────────────────────────────────────── */}
         {/* COLUMN 3: RIGHT COLUMN (Fixed width w-80/w-96 flex-shrink-0, w-[25%]) — THE TRADE PLAN & EXECUTION */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
           className={`${
-            isRightSidebarCollapsed ? "w-16" : "w-80 xl:w-96"
-          } flex-shrink-0 shrink-0 h-full overflow-y-auto border-l border-cyan-900/40 p-4 flex flex-col transition-all duration-300`}
+            isRightSidebarCollapsed ? "w-[40px] p-1.5" : "w-80 xl:w-96 p-4"
+          } flex-shrink-0 shrink-0 h-full overflow-y-auto border-l border-cyan-900/40 flex flex-col transition-all duration-150`}
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
+            width: isRightSidebarCollapsed ? 40 : rightSidebarWidth,
+            minWidth: isRightSidebarCollapsed ? 40 : 260,
+            maxWidth: isRightSidebarCollapsed ? 40 : 500,
           }}
           data-testid="column-right"
         >
           {isRightSidebarCollapsed ? (
-            <div className="flex flex-col items-center gap-3 py-2">
+            <div data-testid="collapsed-sidebar-icon-rail" className="flex flex-col items-center gap-3 py-2 w-full">
               <button
                 type="button"
                 data-testid="button-toggle-right-sidebar"
-                onClick={() => setIsRightSidebarCollapsed(false)}
+                onClick={toggleRightSidebarCollapse}
                 className="p-1.5 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                 title="Expand Asset & Proximity Panel"
               >
@@ -2922,7 +3070,7 @@ export default function WealthEngineDashboard() {
                   <button
                     type="button"
                     data-testid="button-toggle-right-sidebar"
-                    onClick={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
+                    onClick={toggleRightSidebarCollapse}
                     className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
                     title="Collapse Panel"
                   >
@@ -2933,6 +3081,30 @@ export default function WealthEngineDashboard() {
 
               {/* Scrollable Content Container */}
               <div className="space-y-4">
+                {/* ── Scanning Status Card (When Setup is Pending 1H Confirmation) ── */}
+                {!isSetupReady && (
+                  <div
+                    className="p-3.5 rounded-2xl border border-amber-500/40 bg-amber-950/20 font-mono space-y-2 shadow-lg"
+                    data-testid="scanning-status-card"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-amber-300 font-bold text-xs uppercase tracking-wider">
+                        <Activity className="h-4 w-4 animate-spin text-amber-400" />
+                        <span>Scanning for 20-SMA Pullback Setup...</span>
+                      </div>
+                      <span className="text-[9.5px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-400/40 font-bold">
+                        {candleConfirmation.countdownText}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-300 leading-relaxed">
+                      Scanning for 20-SMA Pullback Setup... Price currently extended +{proximityPct.toFixed(1)}% from support.
+                    </div>
+                    <div className="text-[10px] text-amber-400/80 flex items-center gap-1">
+                      <Info className="h-3.5 w-3.5 shrink-0" />
+                      <span>Trade levels and execution will unlock once the 1H candle closes green above the 20-SMA.</span>
+                    </div>
+                  </div>
+                )}
                 {/* ── 1. Detailed Quote Strip & Proximity Header ── */}
                 <div
                   className="p-3.5 rounded-2xl border font-mono space-y-2.5 shadow-md"

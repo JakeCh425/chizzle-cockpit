@@ -171,3 +171,4 @@ describe("Wealth Studio Right-Sidebar Layout & Cockpit Confirmation Gatekeeper",
     });
   });
 });
+
