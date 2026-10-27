@@ -4,7 +4,11 @@ export interface TradeReadinessInput {
   symbol?: string;
   status?: string;
   currentPrice?: number;
+  entryPrice?: number;
   sma20Price?: number;
+  atr?: number;
+  maxEntryTolerance?: number;
+  tolerancePct?: number;
   proximityPct?: number;
   changePct?: number;
   // Direct boolean overrides if provided by upstream feed or user toggle
@@ -22,11 +26,31 @@ export interface TradeCheckItem {
   statusLabel: string;
 }
 
+export interface EntryChaseEvaluation {
+  entryPrice: number;
+  currentPrice: number;
+  maxEntryTolerance: number;
+  maxAllowedEntryPrice: number;
+  isWithinChaseBuffer: boolean;
+  isEntryMissed: boolean;
+  chaseStatusBadge: "[ GREEN / READY TO ARM ]" | "[ ENTRY MISSED - DO NOT CHASE ]";
+  primaryActionLabel: "Arm Trade" | "[ SET PULLBACK LIMIT ]";
+  isMarketExecutionDisabled: boolean;
+  pullbackLimitPrice: number;
+}
+
 export interface TradeReadinessResult {
   candleConfirmation: boolean;
   smaSupportHeld: boolean;
   volumeBenchmarkPassed: boolean;
   isTradeConfirmed: boolean;
+  isWithinChaseBuffer: boolean;
+  isEntryMissed: boolean;
+  maxEntryTolerance: number;
+  maxAllowedEntryPrice: number;
+  chaseStatusBadge: "[ GREEN / READY TO ARM ]" | "[ ENTRY MISSED - DO NOT CHASE ]";
+  primaryActionLabel: "Arm Trade" | "[ SET PULLBACK LIMIT ]";
+  pullbackLimitPrice: number;
   statusBadge: {
     text: string;
     badgeClass: string;
@@ -39,6 +63,73 @@ export interface TradeReadinessResult {
 export const TRADE_LOCKED_TOOLTIP = "Trade locked. Awaiting Cockpit 1H candle confirmation.";
 export const TRADE_CONFIRMED_BADGE = "[ ⚡ ALL RULES MET — READY TO ARM ]";
 export const TRADE_PENDING_BADGE = "[ 🔒 CONFIRMATION PENDING: AWAITING 1H GREEN CLOSE ]";
+export const TRADE_READY_TO_ARM_BADGE = "[ GREEN / READY TO ARM ]";
+export const TRADE_ENTRY_MISSED_BADGE = "[ ENTRY MISSED - DO NOT CHASE ]";
+export const ENTRY_MISSED_RETEST_WARNING = "ENTRY MISSED, WAIT FOR RETEST";
+export const SET_PULLBACK_LIMIT_LABEL = "[ SET PULLBACK LIMIT ]";
+
+/**
+ * Computes the Max Chase Proximity Buffer (`maxEntryTolerance`) tied to the asset's ATR
+ * or a fixed percentage (0.15% to 0.25% of entry/current price).
+ */
+export function calculateMaxEntryTolerance(params: {
+  entryPrice: number;
+  currentPrice?: number;
+  atr?: number;
+  tolerancePct?: number;
+}): number {
+  const { entryPrice, currentPrice = 0, atr, tolerancePct = 0.0025 } = params || {};
+  const basePrice = entryPrice > 0 ? entryPrice : currentPrice;
+  if (!Number.isFinite(basePrice) || basePrice <= 0) return 0;
+
+  const clampedPct = Math.max(0.0015, Math.min(0.0025, tolerancePct));
+  const pctTolerance = basePrice * clampedPct;
+
+  if (atr != null && Number.isFinite(atr) && atr > 0) {
+    // Tie to asset's ATR (0.10 * ATR) bounded within [0.15%, 0.25%] of price so small ticks pass without degrading R:R
+    const minTol = basePrice * 0.0015;
+    const maxTol = basePrice * 0.0025;
+    return +(Math.min(maxTol, Math.max(minTol, atr * 0.1))).toFixed(4);
+  }
+
+  return +pctTolerance.toFixed(4);
+}
+
+/**
+ * Evaluates whether currentPrice is within the Max Chase Proximity Buffer:
+ * - If currentPrice <= entryPrice + maxEntryTolerance -> [ GREEN / READY TO ARM ]
+ * - If currentPrice > entryPrice + maxEntryTolerance  -> [ ENTRY MISSED - DO NOT CHASE ] (disables market execution, enables [ SET PULLBACK LIMIT ])
+ */
+export function evaluateEntryChaseStatus(params: {
+  entryPrice: number;
+  currentPrice: number;
+  atr?: number;
+  maxEntryTolerance?: number;
+  tolerancePct?: number;
+}): EntryChaseEvaluation {
+  const { entryPrice, currentPrice, atr, tolerancePct = 0.0025 } = params;
+  const maxEntryTolerance =
+    params.maxEntryTolerance != null && Number.isFinite(params.maxEntryTolerance)
+      ? params.maxEntryTolerance
+      : calculateMaxEntryTolerance({ entryPrice, currentPrice, atr, tolerancePct });
+
+  const maxAllowedEntryPrice = +(entryPrice + maxEntryTolerance).toFixed(4);
+  const isWithinChaseBuffer = entryPrice <= 0 || currentPrice <= entryPrice + maxEntryTolerance + 1e-9;
+  const isEntryMissed = entryPrice > 0 && currentPrice > entryPrice + maxEntryTolerance + 1e-9;
+
+  return {
+    entryPrice,
+    currentPrice,
+    maxEntryTolerance,
+    maxAllowedEntryPrice,
+    isWithinChaseBuffer,
+    isEntryMissed,
+    chaseStatusBadge: isEntryMissed ? TRADE_ENTRY_MISSED_BADGE : TRADE_READY_TO_ARM_BADGE,
+    primaryActionLabel: isEntryMissed ? SET_PULLBACK_LIMIT_LABEL : "Arm Trade",
+    isMarketExecutionDisabled: isEntryMissed,
+    pullbackLimitPrice: +(entryPrice > 0 ? entryPrice : currentPrice).toFixed(2),
+  };
+}
 
 /**
  * Pure calculation function for Cockpit Trade Readiness Gatekeeper.
@@ -47,13 +138,36 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
   const {
     status,
     currentPrice = 0,
+    entryPrice = 0,
     sma20Price = 0,
+    atr,
+    maxEntryTolerance: explicitTolerance,
+    tolerancePct = 0.0025,
     proximityPct = 0,
     changePct = 0,
     candleConfirmation: explicitCandle,
     smaSupportHeld: explicitSma,
     volumeBenchmarkPassed: explicitVol,
   } = input || {};
+
+  // Evaluate Max Chase Proximity Buffer when entryPrice is provided
+  const chaseEval = evaluateEntryChaseStatus({
+    entryPrice,
+    currentPrice,
+    atr,
+    maxEntryTolerance: explicitTolerance,
+    tolerancePct,
+  });
+
+  const isStatusExtendedOrRetest =
+    status === "Retest" ||
+    status === "Extended" ||
+    status === "WATCH_RETEST" ||
+    status === "WATCH_EXTENDED" ||
+    status === "ENTRY_MISSED";
+
+  const isEntryMissed = chaseEval.isEntryMissed || isStatusExtendedOrRetest;
+  const isWithinChaseBuffer = !isEntryMissed;
 
   // 1. Structural 20-SMA Support: Is price actively bouncing/holding support?
   let smaSupportHeld = false;
@@ -91,14 +205,23 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
     volumeBenchmarkPassed = true;
   }
 
-  // Gatekeeper Rule Enforcement:
-  // const isTradeConfirmed = candleConfirmation === true && smaSupportHeld === true && volumeBenchmarkPassed === true;
-  const isTradeConfirmed =
+  // Gatekeeper Rule Enforcement + Max Chase Proximity Buffer:
+  // If currentPrice > entryPrice + maxEntryTolerance, isEntryMissed is true -> disables market execution!
+  const rulesMet =
     candleConfirmation === true &&
     smaSupportHeld === true &&
     volumeBenchmarkPassed === true;
 
-  const statusBadge = isTradeConfirmed
+  const isTradeConfirmed = rulesMet && isWithinChaseBuffer;
+
+  const statusBadge = isEntryMissed
+    ? {
+        text: TRADE_ENTRY_MISSED_BADGE,
+        badgeClass:
+          "bg-rose-500/20 text-rose-300 border-rose-500/50 bg-rose-950/30 shadow-[0_0_15px_rgba(244,63,94,0.3)]",
+        isConfirmed: false,
+      }
+    : isTradeConfirmed
     ? {
         text: TRADE_CONFIRMED_BADGE,
         badgeClass:
@@ -111,7 +234,9 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
         isConfirmed: false,
       };
 
-  const lockMessage = !isTradeConfirmed
+  const lockMessage = isEntryMissed
+    ? "Entry missed — price exceeded Max Chase tolerance. Market execution disabled; use [ SET PULLBACK LIMIT ] to stage a limit buy at original 20-SMA support."
+    : !isTradeConfirmed
     ? TRADE_LOCKED_TOOLTIP
     : "All rules met. Ready to arm practice trade.";
 
@@ -147,6 +272,13 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
     smaSupportHeld,
     volumeBenchmarkPassed,
     isTradeConfirmed,
+    isWithinChaseBuffer,
+    isEntryMissed,
+    maxEntryTolerance: chaseEval.maxEntryTolerance,
+    maxAllowedEntryPrice: chaseEval.maxAllowedEntryPrice,
+    chaseStatusBadge: isEntryMissed ? TRADE_ENTRY_MISSED_BADGE : TRADE_READY_TO_ARM_BADGE,
+    primaryActionLabel: isEntryMissed ? SET_PULLBACK_LIMIT_LABEL : "Arm Trade",
+    pullbackLimitPrice: chaseEval.pullbackLimitPrice,
     statusBadge,
     lockMessage,
     checks,
@@ -161,7 +293,11 @@ export function useTradeReadiness(input: TradeReadinessInput): TradeReadinessRes
     input?.symbol,
     input?.status,
     input?.currentPrice,
+    input?.entryPrice,
     input?.sma20Price,
+    input?.atr,
+    input?.maxEntryTolerance,
+    input?.tolerancePct,
     input?.proximityPct,
     input?.changePct,
     input?.candleConfirmation,

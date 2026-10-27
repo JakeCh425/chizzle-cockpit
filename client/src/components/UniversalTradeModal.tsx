@@ -10,12 +10,10 @@ export function UniversalTradeModal() {
   const { toast } = useToast();
 
   const symbol = universalModal.symbol || activeItem.symbol || "NVDA";
+  const isPullbackLimit = (universalModal.customSetup as any)?.orderType === "PULLBACK_LIMIT";
   const item = useMemo(() => {
-    return (
-      watchlist.find((w) => w.symbol === symbol) ||
-      (universalModal.customSetup as any) ||
-      activeItem
-    );
+    const base = watchlist.find((w) => w.symbol === symbol) || activeItem;
+    return universalModal.customSetup ? { ...base, ...(universalModal.customSetup as any) } : base;
   }, [watchlist, symbol, universalModal.customSetup, activeItem]);
 
   // Form State
@@ -29,16 +27,20 @@ export function UniversalTradeModal() {
   // Sync inputs when modal opens or symbol changes
   useEffect(() => {
     if (universalModal.open) {
-      const e = item?.buyTarget ?? item?.price ?? 100;
+      const e = (universalModal.customSetup as any)?.buyTarget ?? item?.buyTarget ?? item?.price ?? 100;
       const s = item?.stopLoss ?? +(e * 0.95).toFixed(2);
       const t = item?.primaryTarget ?? +(e * 1.10).toFixed(2);
       setEntryPrice(+e.toFixed(2));
       setStopLoss(+s.toFixed(2));
       setPrimaryTarget(+t.toFixed(2));
-      setNotes(`Practice swing trade on ${symbol} via Wealth Studio.`);
+      setNotes(
+        isPullbackLimit
+          ? `Pullback Limit Buy Order staged at structural 20-SMA support ($${e.toFixed(2)}) for ${symbol} — waiting for retest.`
+          : `Practice swing trade on ${symbol} via Wealth Studio.`
+      );
       setIsSubmitting(false);
     }
-  }, [universalModal.open, symbol, item]);
+  }, [universalModal.open, symbol, item, universalModal.customSetup, isPullbackLimit]);
 
   // Live Position Math
   const perShareRisk = Math.max(0.01, entryPrice - stopLoss);

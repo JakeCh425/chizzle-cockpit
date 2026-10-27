@@ -1603,29 +1603,50 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
       </div>
 
-      {/* ─── BOTTOM ROW: Action buttons (Arm Trade, Adjust Plan, Expand Details) ─── */}
+      {/* ─── BOTTOM ROW: Action buttons (Arm Trade / Set Pullback Limit, Adjust Plan, Expand Details) ─── */}
       <div className="relative z-20 pointer-events-auto flex flex-wrap items-center justify-between gap-2 pt-2.5 mt-1 border-t border-[var(--card-border)]">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Arm Trade action button */}
-          <button
-            type="button"
-            className="flex items-center gap-1.5 rounded-md bg-signal-green/10 text-signal-green border border-signal-green/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-signal-green/20 transition-colors cursor-pointer shadow-sm pointer-events-auto"
-            onClick={() => {
-              onSeen();
-              openTradeDialog({
-                mode: "arm",
-                decision: d,
-                plan: effectivePlan(d, ver),
-                liveAllowed: live?.allowed ?? null,
-                overrideRequired: group !== "READY",
-              });
-            }}
-            data-testid={`button-arm-trade-${d.symbol}`}
-            title="Arm practice trade plan"
-          >
-            <Crosshair className="h-3.5 w-3.5 text-signal-green" />
-            <span>Arm Trade</span>
-          </button>
+          {/* Primary Action Button: Switches to [ SET PULLBACK LIMIT ] when ENTRY MISSED / WAIT FOR RETEST */}
+          {(() => {
+            const isMissedEntryRetest =
+              f.state === "MISSED_ENTRY" ||
+              d.setupStatus === "WATCH_RETEST" ||
+              d.setupStatus === "WATCH_EXTENDED";
+            const basePlan = effectivePlan(d, ver);
+            const pullbackLimitPrice = d.entryPrice ?? activeEntry ?? basePlan.entry;
+            return (
+              <button
+                type="button"
+                className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto ${
+                  isMissedEntryRetest
+                    ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
+                    : "bg-signal-green/10 text-signal-green border border-signal-green/40 hover:bg-signal-green/20"
+                }`}
+                onClick={() => {
+                  onSeen();
+                  openTradeDialog({
+                    mode: "arm",
+                    decision: d,
+                    plan: isMissedEntryRetest && pullbackLimitPrice != null
+                      ? { ...basePlan, entry: pullbackLimitPrice }
+                      : basePlan,
+                    liveAllowed: live?.allowed ?? null,
+                    overrideRequired: group !== "READY",
+                  });
+                }}
+                data-testid={`button-arm-trade-${d.symbol}`}
+                data-action-mode={isMissedEntryRetest ? "pullback-limit" : "arm-trade"}
+                title={
+                  isMissedEntryRetest
+                    ? `Stage a limit buy order at original 20-SMA entry (${$(pullbackLimitPrice)})`
+                    : "Arm practice trade plan"
+                }
+              >
+                <Crosshair className={`h-3.5 w-3.5 ${isMissedEntryRetest ? "text-amber-300" : "text-signal-green"}`} />
+                <span>{isMissedEntryRetest ? "[ SET PULLBACK LIMIT ]" : "Arm Trade"}</span>
+              </button>
+            );
+          })()}
 
           {/* Adjust Plan action button */}
           <button

@@ -14,8 +14,18 @@ import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
 import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheatSheet";
 import { RiskSettingsBar } from "@/components/swing/RiskSettingsBar";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
-import { useTradeReadiness, TRADE_LOCKED_TOOLTIP, TRADE_CONFIRMED_BADGE, TRADE_PENDING_BADGE } from "@/hooks/useTradeReadiness";
+import {
+  useTradeReadiness,
+  TRADE_LOCKED_TOOLTIP,
+  TRADE_CONFIRMED_BADGE,
+  TRADE_PENDING_BADGE,
+  TRADE_READY_TO_ARM_BADGE,
+  TRADE_ENTRY_MISSED_BADGE,
+  SET_PULLBACK_LIMIT_LABEL,
+  ENTRY_MISSED_RETEST_WARNING,
+} from "@/hooks/useTradeReadiness";
 import { useCandleSetupConfirmation, type CandleData } from "@/hooks/useCandleSetupConfirmation";
+import { usePreCloseAlert, PRE_CLOSE_ALERT_MESSAGE } from "@/hooks/usePreCloseAlert";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -2411,18 +2421,60 @@ export default function WealthEngineDashboard() {
     setupStatus: activeTickerData?.status ?? activeItem?.status,
   });
 
-  // Cockpit Confirmation Gatekeeper Hook (useTradeReadiness)
+  // Cockpit Confirmation Gatekeeper Hook (useTradeReadiness) with Max Chase Proximity Buffer
   const tradeReadiness = useTradeReadiness({
     symbol: activeTicker,
     status: activeTickerData?.status ?? activeItem?.status,
     currentPrice,
+    entryPrice: entryPriceVal,
     sma20Price,
+    atr: activeItem?.atr ?? activeTickerData?.atr,
     proximityPct,
     changePct: activeTickerData?.changePct ?? activeItem?.changePct ?? 0,
     candleConfirmation: (activeItem?.status === "Ready" || activeTickerData?.status === "Ready") ? true : undefined,
   });
-  const { isTradeConfirmed, checks: confirmationChecks } = tradeReadiness;
+  const {
+    isTradeConfirmed,
+    isEntryMissed,
+    isWithinChaseBuffer,
+    maxEntryTolerance,
+    maxAllowedEntryPrice,
+    chaseStatusBadge,
+    pullbackLimitPrice,
+    checks: confirmationChecks,
+  } = tradeReadiness;
   const isSetupReady = isTradeConfirmed;
+
+  // Automated "Retest" Limit Orders (The Pullback Method)
+  const [stagedPullbackOrders, setStagedPullbackOrders] = useState<Record<string, number>>({});
+  const stagedPullbackPrice = stagedPullbackOrders[activeTicker] ?? null;
+
+  const handleStagePullbackLimit = useCallback(() => {
+    const targetSymbol = activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker;
+    const limitEntry = +(entryPriceVal).toFixed(2);
+    setStagedPullbackOrders((prev) => ({ ...prev, [targetSymbol]: limitEntry }));
+    openArmTrade(targetSymbol, {
+      ...activeItem,
+      symbol: targetSymbol,
+      buyTarget: limitEntry,
+      stopLoss: stopLossVal,
+      primaryTarget: t1Val,
+      t2: t2Val,
+      t3: t3Val,
+      orderType: "PULLBACK_LIMIT",
+    } as any);
+  }, [activeTickerData?.symbol, activeItem, activeTicker, entryPriceVal, stopLossVal, t1Val, t2Val, t3Val, openArmTrade]);
+
+  // Pre-Close Alert System (1H Candle Timing — triggers 3m before top of the hour when setup is forming)
+  const isSetupForming =
+    !isTradeConfirmed ||
+    activeItem?.status === "Forming" ||
+    activeItem?.status === "Awaiting Close";
+  const preCloseAlert = usePreCloseAlert({
+    symbol: activeTicker,
+    isSetupForming,
+    entryPrice: entryPriceVal,
+  });
 
   const readinessScore = useMemo(() => {
     let distScore = 0;
@@ -3192,6 +3244,51 @@ export default function WealthEngineDashboard() {
 
               {/* Scrollable Content Container */}
               <div className="space-y-4">
+                {/* ── Pre-Close Alert Toast Banner (3 Minutes Before Top of Hour when Setup is Forming) ── */}
+                {(preCloseAlert.isPreCloseAlertActive || isSetupForming) && (
+                  <div
+                    className={`p-3 rounded-2xl border font-mono text-xs transition-all duration-300 shadow-lg ${
+                      preCloseAlert.isPreCloseAlertActive
+                        ? "bg-amber-950/80 border-amber-400 text-amber-200 shadow-[0_0_20px_rgba(251,191,36,0.35)] animate-pulse"
+                        : "bg-slate-900/70 border-amber-500/30 text-amber-300/90"
+                    }`}
+                    data-testid="pre-close-alert-toast"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 font-black text-[10.5px] uppercase tracking-wider text-amber-300">
+                        <Zap className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span>{PRE_CLOSE_ALERT_MESSAGE}</span>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          data-testid="button-toggle-pre-close-audio"
+                          onClick={() => preCloseAlert.setAudioEnabled(!preCloseAlert.audioEnabled)}
+                          className={`px-1.5 py-0.5 rounded text-[9px] font-bold border cursor-pointer transition-colors ${
+                            preCloseAlert.audioEnabled
+                              ? "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
+                              : "bg-slate-800 text-slate-400 border-slate-700"
+                          }`}
+                          title="Toggle 3-minute pre-close audio chime"
+                        >
+                          {preCloseAlert.audioEnabled ? "🔔 CHIME ON" : "🔕 MUTED"}
+                        </button>
+                        {preCloseAlert.isPreCloseAlertActive && (
+                          <button
+                            type="button"
+                            data-testid="button-dismiss-pre-close-alert"
+                            onClick={preCloseAlert.dismissPreCloseAlert}
+                            className="p-0.5 rounded text-amber-300 hover:text-white cursor-pointer"
+                            title="Dismiss pre-close alert"
+                          >
+                            <X className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* ── 0. Cockpit 3-Point Confirmation Checklist (Mounted at Top of Restored Right Sidebar) ── */}
                 <div
                   className="p-3.5 rounded-2xl border font-mono space-y-3 shadow-md transition-all duration-300"
@@ -3554,7 +3651,7 @@ export default function WealthEngineDashboard() {
                         );
                       })()}
 
-                      {/* Gatekeeper Status Badge */}
+                      {/* Gatekeeper Status Badge & Max Chase Proximity Status */}
                       <div
                         className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 ${
                           tradeReadiness.statusBadge.badgeClass
@@ -3562,10 +3659,12 @@ export default function WealthEngineDashboard() {
                         data-testid="badge-setup-status"
                         title={tradeReadiness.lockMessage}
                       >
-                        {isTradeConfirmed
+                        {isEntryMissed
+                          ? TRADE_ENTRY_MISSED_BADGE
+                          : isTradeConfirmed
                           ? "[ ⚡ ALL RULES MET — READY TO ARM ]"
                           : "[ 🔒 CONFIRMATION PENDING: AWAITING 1H GREEN CLOSE ]"}
-                        {/* Status badge compatibility tokens: [ READY TO TRADE ] [ AWAITING 1H CLOSE ] [ PULLBACK FORMING ] */}
+                        {/* Status badge compatibility tokens: [ READY TO TRADE ] [ AWAITING 1H CLOSE ] [ PULLBACK FORMING ] [ GREEN / READY TO ARM ] [ ENTRY MISSED - DO NOT CHASE ] */}
                       </div>
 
                       <button
@@ -3598,6 +3697,27 @@ export default function WealthEngineDashboard() {
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-900/80 border border-emerald-500/25" data-testid="trade-level-buy">
                         <span className="text-emerald-400 font-bold uppercase tracking-wider">BUY LIMIT:</span>
                         <span className="text-sm font-black text-white tabular-nums">${entryPriceVal.toFixed(2)}</span>
+                      </div>
+                      <div
+                        className={`flex items-center justify-between p-1.5 rounded bg-slate-900/80 border ${
+                          isEntryMissed ? "border-rose-500/40" : "border-emerald-500/30"
+                        }`}
+                        data-testid="trade-level-max-chase-buffer"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-cyan-300 font-bold uppercase tracking-wider">MAX CHASE BUFFER:</span>
+                          <span className="text-[9px] text-slate-400 font-normal">
+                            (+${maxEntryTolerance.toFixed(2)} · Max ${maxAllowedEntryPrice.toFixed(2)})
+                          </span>
+                        </div>
+                        <span
+                          className={`text-[10px] font-black tabular-nums ${
+                            isEntryMissed ? "text-rose-400" : "text-[#00E676]"
+                          }`}
+                          data-testid="badge-max-chase-status"
+                        >
+                          {chaseStatusBadge}
+                        </span>
                       </div>
                       <div className="flex items-center justify-between p-1.5 rounded bg-slate-900/80 border border-rose-500/25" data-testid="trade-level-stop">
                         <span className="text-rose-400 font-bold uppercase tracking-wider">STOP LOSS:</span>
@@ -3777,8 +3897,30 @@ export default function WealthEngineDashboard() {
                     </div>
                   </div>
 
-                  {/* BOTTOM ROW: Action buttons with Cockpit Gatekeeper enforcement */}
+                  {/* BOTTOM ROW: Action buttons with Cockpit Gatekeeper & Automated Pullback Limit enforcement */}
                   <div className="relative z-20 p-3 pt-2 border-t border-[var(--card-border)] space-y-2" data-testid="studio-setup-card-action-bar">
+                    {isEntryMissed && (
+                      <div
+                        className="p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-300 text-[10px] font-mono flex items-center justify-between gap-1.5"
+                        data-testid="entry-missed-retest-notice"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <AlertTriangle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
+                          <span>{ENTRY_MISSED_RETEST_WARNING} — Price exceeded Max Chase (${maxAllowedEntryPrice.toFixed(2)}). Stage a Pullback Limit at ${pullbackLimitPrice.toFixed(2)}.</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {stagedPullbackPrice != null && (
+                      <div
+                        className="p-2 rounded-lg bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-mono flex items-center justify-between gap-2"
+                        data-testid="staged-pullback-limit-badge"
+                      >
+                        <span>✅ PULLBACK LIMIT STAGED AT 20-SMA SUPPORT: <strong>${stagedPullbackPrice.toFixed(2)}</strong></span>
+                        <span className="text-[9px] uppercase text-cyan-300 font-bold">Awaiting Retest Fill</span>
+                      </div>
+                    )}
+
                     {!isTradeConfirmed && (
                       <div
                         className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono flex items-center gap-1.5"
@@ -3790,6 +3932,22 @@ export default function WealthEngineDashboard() {
                     )}
 
                     <div className="flex flex-wrap items-center gap-2">
+                      {/* Automated "Retest" Limit Order Button (The Pullback Method) */}
+                      <button
+                        type="button"
+                        data-testid="button-set-pullback-limit"
+                        onClick={handleStagePullbackLimit}
+                        title={`Stage a limit buy order at original 20-SMA entry ($${entryPriceVal.toFixed(2)})`}
+                        className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
+                          isEntryMissed
+                            ? "flex-1 bg-amber-400 text-slate-950 ring-2 ring-amber-300 shadow-[0_0_20px_rgba(251,191,36,0.45)] font-black"
+                            : "border border-amber-400/40 bg-amber-500/15 text-amber-300 hover:bg-amber-500/25"
+                        }`}
+                      >
+                        <Crosshair className="h-3.5 w-3.5" />
+                        <span>{SET_PULLBACK_LIMIT_LABEL}</span>
+                      </button>
+
                       <button
                         type="button"
                         data-testid="button-arm-practice-trade"
