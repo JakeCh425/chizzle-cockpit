@@ -134,7 +134,7 @@ export interface RTarget { r: number; price: number; pctMove: number; grossProfi
 export function rTargets(entry: number, stop: number, shares: number, extended: boolean): RTarget[] {
   if (!(fin(entry) && fin(stop) && entry > stop && stop > 0)) return [];
   const R = r2(entry - stop);
-  return (extended ? [2, 3, 4, 5, 6] : [2, 3]).map((k) => {
+  return (extended ? [1.5, 2, 3, 4, 5, 6] : [1.5, 2, 3]).map((k) => {
     const price = r2(entry + k * R);
     return { r: k, price, pctMove: ((price - entry) / entry) * 100, grossProfit: r2(shares * (price - entry)) };
   });

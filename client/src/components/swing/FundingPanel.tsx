@@ -406,11 +406,11 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
           </div>
           {targets.length ? (
             <div className="overflow-x-auto">
-              <table className="w-full ac-num" style={sm} data-testid={`table-r-targets-${sym}`}>
+              <table className="w-full ac-num font-mono tabular-nums" style={sm} data-testid={`table-r-targets-${sym}`}>
                 <thead className="ac-muted text-left" style={xs}><tr><th className="py-1 pr-3">R multiple</th><th className="pr-3">Target price</th><th className="pr-3">Move from entry</th><th className="pr-3">Gross profit · {sizing.shares} sh</th></tr></thead>
                 <tbody>{targets.map((t) => (
                   <tr key={t.r} className="border-t" style={{ borderColor: "var(--ac-border)" }} data-testid={`row-r-target-${sym}-${t.r}`}>
-                    <td className="py-1 pr-3 font-bold">{t.r}R</td><td className="pr-3">{$(t.price)}</td><td className="pr-3">+{t.pctMove.toFixed(2)}%</td><td className="pr-3">{$(t.grossProfit)}</td>
+                    <td className="py-1 pr-3 font-bold font-mono tabular-nums">{t.r}R</td><td className="pr-3 font-mono tabular-nums">{$(t.price)}</td><td className="pr-3 font-mono tabular-nums">+{t.pctMove.toFixed(2)}%</td><td className="pr-3 font-mono tabular-nums">{$(t.grossProfit)}</td>
                   </tr>))}</tbody>
               </table>
             </div>

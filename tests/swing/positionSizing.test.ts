@@ -24,9 +24,10 @@ describe("whole-share sizing — spec example", () => {
   });
   it("2R…6R targets and full-position gross profit", () => {
     const t = rTargets(66.93, 65.82, s.shares, true);
-    expect(t.map((x) => [x.r, x.price, x.grossProfit])).toEqual([[2, 69.15, 31.08], [3, 70.26, 46.62], [4, 71.37, 62.16], [5, 72.48, 77.7], [6, 73.59, 93.24]]);
-    expect(t[0].pctMove).toBeCloseTo(3.317, 3);
-    expect(rTargets(66.93, 65.82, s.shares, false).map((x) => x.r)).toEqual([2, 3]);
+    expect(t.map((x) => [x.r, x.price, x.grossProfit])).toEqual([[1.5, 68.6, 23.38], [2, 69.15, 31.08], [3, 70.26, 46.62], [4, 71.37, 62.16], [5, 72.48, 77.7], [6, 73.59, 93.24]]);
+    expect(t[0].pctMove).toBeCloseTo(2.495, 3);
+    expect(t[1].pctMove).toBeCloseTo(3.317, 3);
+    expect(rTargets(66.93, 65.82, s.shares, false).map((x) => x.r)).toEqual([1.5, 2, 3]);
   });
   it("account-risk discrepancy: 14 × $1.11 = $15.54 is 0.86% of $1,800 but 0.96% of the saved $1,614.95", () => {
     expect(r2(14 * 1.11)).toBe(15.54);
