@@ -284,8 +284,27 @@ export function LiveTradingChart({
     risk: number;
   } | null>(null);
 
+  // Native Y-Axis Price Lines & TimeScale Right Margin Configuration (timeScale: { rightOffset: 12 } / ~15% chart width)
+  const timeScaleConfig = useMemo(() => ({ timeScale: { rightOffset: 12, rightMarginRatio: 0.15 } }), []);
+  const activePriceLinesRef = useRef<Array<{ id: string; price: number; title: string; color: string; axisLabelVisible: boolean }>>([]);
+  const createPriceLine = useCallback(
+    (opts: { id: string; price: number; title: string; color: string; axisLabelVisible?: boolean }) => {
+      const lineObj = {
+        id: opts.id,
+        price: opts.price,
+        title: opts.title,
+        color: opts.color,
+        axisLabelVisible: opts.axisLabelVisible ?? true,
+      };
+      activePriceLinesRef.current.push(lineObj);
+      return lineObj;
+    },
+    []
+  );
+
   useEffect(() => {
     // Whenever activeTicker changes or timeframe switch, immediately wipe previous trade levels from state
+    activePriceLinesRef.current = [];
     setTradeLevels(null);
   }, [symbol, timeframe]);
 
@@ -404,9 +423,10 @@ export function LiveTradingChart({
             // Decouple data fetching from visible viewport: keep full buffer for continuous SMA calculation
             setHistoricalBuffer(clean);
 
+            // Enforce timeScale: { rightOffset: 12 } (~15% right margin) so live candle never touches right Y-axis labels
             const visibleCount = tf === "1H" ? 22 : tf === "4H" ? 18 : tf === "1D" ? 14 : 10;
-            const spacing = tf === "1H" ? 28 : tf === "4H" ? 35 : tf === "1D" ? 45 : 62;
-            const start = tf === "1H" ? 38 : tf === "4H" ? 42 : tf === "1D" ? 45 : 50;
+            const spacing = tf === "1H" ? 24 : tf === "4H" ? 29 : tf === "1D" ? 37 : 52;
+            const start = tf === "1H" ? 26 : tf === "4H" ? 30 : tf === "1D" ? 34 : 38;
 
             const sliced = clean.slice(-visibleCount).map((b, idx) => ({
               ...b,
@@ -479,27 +499,27 @@ export function LiveTradingChart({
 
     if (timeframe === "1H") {
       count = 22;
-      width = 12;
-      spacing = 28;
-      start = 38;
+      width = 11;
+      spacing = 24;
+      start = 26;
       volatility = 1.1;
     } else if (timeframe === "4H") {
       count = 18;
-      width = 16;
-      spacing = 35;
-      start = 42;
+      width = 14;
+      spacing = 29;
+      start = 30;
       volatility = 1.4;
     } else if (timeframe === "1D") {
       count = 14;
-      width = 20;
-      spacing = 45;
-      start = 45;
+      width = 18;
+      spacing = 37;
+      start = 34;
       volatility = 1.8;
     } else if (timeframe === "1W") {
       count = 10;
-      width = 26;
-      spacing = 62;
-      start = 50;
+      width = 22;
+      spacing = 52;
+      start = 38;
       volatility = 2.4;
     }
 
@@ -852,6 +872,33 @@ export function LiveTradingChart({
     return Math.abs(livePrice - latestSma20) / latestSma20 <= 0.005;
   }, [livePrice, latestSma20]);
 
+  // Session High of Day (HOD) & Low of Day (LOD) derived from visible session bars
+  const { sessionHod, sessionLod } = useMemo(() => {
+    const valid = candles.filter((c) => Number.isFinite(c.h) && Number.isFinite(c.l));
+    if (valid.length === 0) {
+      return { sessionHod: +(livePrice * 1.012).toFixed(2), sessionLod: +(livePrice * 0.988).toFixed(2) };
+    }
+    return {
+      sessionHod: +Math.max(...valid.map((c) => c.h), livePrice).toFixed(2),
+      sessionLod: +Math.min(...valid.map((c) => c.l), livePrice).toFixed(2),
+    };
+  }, [candles, livePrice]);
+
+  // Wipe and instantly redraw native Y-axis ENTRY, STOP, T1, T2, T3, HOD, LOD price lines on timeframe/ticker switch
+  const nativePriceLines = useMemo(() => {
+    activePriceLinesRef.current = [];
+    const lines = [
+      createPriceLine({ id: "entry", price: buyPrice, title: `ENTRY $${buyPrice.toFixed(2)}`, color: "var(--accent-cyan)", axisLabelVisible: true }),
+      createPriceLine({ id: "stop", price: stopVal, title: `STOP $${stopVal.toFixed(2)}`, color: "var(--accent-red)", axisLabelVisible: true }),
+      createPriceLine({ id: "t1", price: targetVal, title: `T1 $${targetVal.toFixed(2)}`, color: "var(--accent-green)", axisLabelVisible: true }),
+      createPriceLine({ id: "t2", price: t2Price, title: `T2 $${t2Price.toFixed(2)}`, color: "#10B981", axisLabelVisible: true }),
+      createPriceLine({ id: "t3", price: t3Price, title: `T3 $${t3Price.toFixed(2)}`, color: "#34D399", axisLabelVisible: true }),
+      createPriceLine({ id: "hod", price: sessionHod, title: `HOD $${sessionHod.toFixed(2)}`, color: "#F59E0B", axisLabelVisible: true }),
+      createPriceLine({ id: "lod", price: sessionLod, title: `LOD $${sessionLod.toFixed(2)}`, color: "#38BDF8", axisLabelVisible: true }),
+    ];
+    return lines;
+  }, [symbol, timeframe, buyPrice, stopVal, targetVal, t2Price, t3Price, sessionHod, sessionLod, createPriceLine]);
+
   // Right-hand Y-Axis Labels: Collision Avoidance Pass (guarantee minimum 18px separation)
   const yAxisPillPositions = useMemo(() => {
     const items = [
@@ -861,6 +908,8 @@ export function LiveTradingChart({
       { id: "t1", idealY: priceToY(targetVal) - 8 },
       { id: "t2", idealY: priceToY(t2Price) - 8 },
       { id: "t3", idealY: priceToY(t3Price) - 8 },
+      { id: "hod", idealY: priceToY(sessionHod) - 8 },
+      { id: "lod", idealY: priceToY(sessionLod) - 8 },
     ];
 
     // Sort ascending by idealY (from top of chart to bottom)
@@ -2036,6 +2085,22 @@ export function LiveTradingChart({
                     T3: ${t3Price.toFixed(2)}
                   </text>
                 </g>
+
+                {/* Native Y-Axis HOD Annotation */}
+                <g transform={`translate(714, ${yAxisPillPositions.hod})`} data-testid="chart-label-hod" className="select-none pointer-events-none">
+                  <rect x="0" y="0" width="76" height="15" rx="2" fill="#1C1406" stroke="#F59E0B" strokeWidth="0.9" />
+                  <text x="38" y="10.5" fill="#FBBF24" fontSize="8.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                    HOD: ${sessionHod.toFixed(2)}
+                  </text>
+                </g>
+
+                {/* Native Y-Axis LOD Annotation */}
+                <g transform={`translate(714, ${yAxisPillPositions.lod})`} data-testid="chart-label-lod" className="select-none pointer-events-none">
+                  <rect x="0" y="0" width="76" height="15" rx="2" fill="#0B1A33" stroke="#38BDF8" strokeWidth="0.9" />
+                  <text x="38" y="10.5" fill="#7DD3FC" fontSize="8.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                    LOD: ${sessionLod.toFixed(2)}
+                  </text>
+                </g>
               </React.Fragment>
             )}
           </g>
@@ -2155,45 +2220,81 @@ export function LiveTradingChart({
           </g>
         </svg>
 
-        {/* Sleek, semi-transparent floating overlay panel: AI Actionable Tips directly on Chart Canvas */}
+        {/* Sleek, semi-transparent glassmorphic overlay panel: AI Actionable Tips pinned cleanly to bottom-left corner */}
         <div
           data-testid="chart-ai-actionable-tips"
-          className="absolute bottom-4 left-4 z-10 max-w-sm p-4 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-lg text-sm text-gray-200 shadow-lg pointer-events-auto select-none"
+          data-timescale-right-offset={timeScaleConfig.timeScale.rightOffset}
+          data-native-price-lines={nativePriceLines.length}
+          className="absolute bottom-3 left-3 z-10 max-w-xs p-3 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded-lg text-xs text-gray-200 shadow-lg pointer-events-none select-none"
         >
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/60">
-            <div className="flex items-center gap-2">
-              <div className="p-1 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40">
-                <Sparkles className="h-3.5 w-3.5" />
+          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700/60">
+            <div className="flex items-center gap-1.5">
+              <div className="p-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40">
+                <Sparkles className="h-3 w-3" />
               </div>
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-fuchsia-300">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-fuchsia-300">
                 AI Actionable Tips
               </span>
             </div>
-            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+            <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
               {symbol}
             </span>
           </div>
 
-          <div className="space-y-1.5 font-sans text-xs">
-            <div className="flex items-start gap-2">
+          <div className="space-y-1 font-sans text-[11px]">
+            <div className="flex items-start gap-1.5">
               <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-200 leading-snug">
                 Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
               </p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-1.5">
               <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-300 leading-snug">
                 Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
               </p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-1.5">
               <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-300 leading-snug">
                 Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
               </p>
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Consolidated Compact Status Bar Footer (combines 4H Guide & Signal Expired into a single status bar) */}
+      <div
+        data-testid="chart-consolidated-status-footer"
+        className="px-4 py-1.5 border-t flex flex-wrap items-center justify-between gap-2 font-mono text-[11px] select-none z-10 bg-[#080E1A] border-white/10 text-slate-400"
+      >
+        <div className="flex items-center gap-2 min-w-0 truncate" data-testid="text-tf-guide">
+          <span className="font-bold text-cyan-400 uppercase">{timeframe} Guide:</span>
+          <span className="truncate text-slate-300">
+            {timeframe === "4H"
+              ? "Identify structural swing setup (20/50 SMA pullback, higher low, or reclaim)."
+              : timeframe === "1H"
+              ? "Time the entry trigger: wait for a closed 1H confirmation candle above support."
+              : "Evaluate macro trend alignment and major institutional support/resistance zones."}
+          </span>
+        </div>
+        <div className="flex items-center gap-2 shrink-0" data-testid="status-bar-signal-state">
+          <span
+            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider border ${
+              (item?.status ?? "Ready") === "Signal Expired"
+                ? "bg-slate-800 text-slate-300 border-slate-600"
+                : isConfirmedSetup
+                ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+            }`}
+          >
+            {(item?.status ?? "Ready") === "Signal Expired"
+              ? "Signal Expired — Awaiting Fresh Reset"
+              : isConfirmedSetup
+              ? "Setup Armed · Native Y-Axis Bound"
+              : "Forming · Awaiting 1H Close"}
+          </span>
         </div>
       </div>
 
@@ -2364,6 +2465,54 @@ export default function WealthEngineDashboard() {
   });
 
   const openArmTrade = global?.openArmTrade ?? (() => {});
+
+  // Left-hand cockpit panel resize & collapse state (Default 256px [w-64], clamped between 180px and 420px, 60px w-[60px] Mini-Mode rail when collapsed)
+  const [leftSidebarWidth, setLeftSidebarWidth] = useState<number>(256);
+  const [isLeftSidebarCollapsed, setIsLeftSidebarCollapsed] = useState<boolean>(false);
+  const previousLeftWidthRef = useRef<number>(256);
+  const isResizingLeftRef = useRef<boolean>(false);
+
+  const toggleLeftSidebarCollapse = useCallback(() => {
+    setIsLeftSidebarCollapsed((prev) => {
+      if (!prev) {
+        previousLeftWidthRef.current = leftSidebarWidth;
+        return true;
+      } else {
+        setLeftSidebarWidth(Math.max(180, Math.min(420, previousLeftWidthRef.current || 256)));
+        return false;
+      }
+    });
+  }, [leftSidebarWidth]);
+
+  const startResizingLeft = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    isResizingLeftRef.current = true;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    const onMouseMove = (moveEvent: MouseEvent) => {
+      if (!isResizingLeftRef.current) return;
+      const newWidth = moveEvent.clientX;
+      if (newWidth <= 80) {
+        setIsLeftSidebarCollapsed(true);
+      } else {
+        const clampedWidth = Math.max(180, Math.min(420, newWidth));
+        setLeftSidebarWidth(clampedWidth);
+        setIsLeftSidebarCollapsed(false);
+      }
+    };
+
+    const onMouseUp = () => {
+      isResizingLeftRef.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", onMouseMove);
+      window.removeEventListener("mouseup", onMouseUp);
+    };
+
+    window.addEventListener("mousemove", onMouseMove);
+    window.addEventListener("mouseup", onMouseUp);
+  }, []);
 
   // Right-hand panel resize & collapse state (Default 320px [w-80], clamped between 260px and 500px, 40px icon rail when collapsed)
   const [rightSidebarWidth, setRightSidebarWidth] = useState<number>(320);
@@ -2688,19 +2837,92 @@ export default function WealthEngineDashboard() {
         }}
       >
         {/* ────────────────────────────────────────────────────────────────── */}
-        {/* COLUMN 1: LEFT COLUMN (Fixed width w-64, w-[20%]) — MARKET CONTEXT & WATCHLIST */}
+        {/* COLUMN 1: LEFT COLUMN (Fixed width w-64, w-[20%], Resizable or Collapsible 60px Mini-Mode) — MARKET CONTEXT & WATCHLIST */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <aside
-          className="w-64 flex-shrink-0 shrink-0 h-full flex flex-col border-r overflow-hidden"
+          className={`w-64 flex-shrink-0 shrink-0 h-full flex flex-col border-r overflow-hidden transition-[width] duration-150 ${
+            isLeftSidebarCollapsed ? "w-[60px]" : "w-64 flex-shrink-0 shrink-0"
+          }`}
           style={{
+            width: isLeftSidebarCollapsed ? 60 : leftSidebarWidth,
+            minWidth: isLeftSidebarCollapsed ? 60 : 180,
+            maxWidth: isLeftSidebarCollapsed ? 60 : 420,
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
           }}
           data-testid="column-left"
+          data-mini-mode={isLeftSidebarCollapsed ? "true" : "false"}
         >
-          {/* Top: Market Regime Traffic-Light Indicator */}
+          {/* Left Sidebar Top Collapse / Expand Control Header */}
           <div
-            className="p-4 border-b flex-shrink-0"
+            className="px-2 py-1.5 border-b flex items-center justify-between flex-shrink-0 bg-black/30"
+            style={{ borderColor: "var(--border-subtle)" }}
+            data-testid="left-sidebar-collapse-bar"
+          >
+            {!isLeftSidebarCollapsed && (
+              <span className="text-[9px] font-mono uppercase tracking-widest font-bold text-slate-400 pl-1">
+                COCKPIT RAIL
+              </span>
+            )}
+            <button
+              type="button"
+              onClick={toggleLeftSidebarCollapse}
+              data-testid="button-collapse-left-sidebar"
+              title={isLeftSidebarCollapsed ? "Expand Watchlist Cockpit" : "Collapse Watchlist to 60px Mini-Mode"}
+              className={`px-2 py-0.5 rounded border text-[10px] font-mono font-bold tracking-wider transition-colors cursor-pointer ${
+                isLeftSidebarCollapsed
+                  ? "w-full flex items-center justify-center bg-cyan-500/15 text-cyan-300 border-cyan-500/40 hover:bg-cyan-500/25"
+                  : "bg-slate-900/80 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/15"
+              }`}
+            >
+              {isLeftSidebarCollapsed ? "[ > ]" : "[ < Collapse ]"}
+            </button>
+          </div>
+
+          {/* 60px Mini-Mode Rail (Only Ticker Symbol + Colored Status Dot) */}
+          {isLeftSidebarCollapsed && (
+            <div
+              className="flex-1 min-h-0 w-[60px] flex flex-col items-center py-2 overflow-y-auto divide-y divide-white/5"
+              data-testid="left-sidebar-mini-mode"
+            >
+              {(watchlist || []).map((item) => {
+                if (!item) return null;
+                const isSelected = item.symbol === activeSymbol;
+                const isReadyStatus = item.status === "Ready";
+                const isFormingStatus = item.status === "Forming" || item.status === "Awaiting Close";
+                const dotColorClass = isReadyStatus
+                  ? "bg-emerald-400 shadow-[0_0_6px_#34D399]"
+                  : isFormingStatus
+                  ? "bg-amber-400 shadow-[0_0_6px_#FBBF24]"
+                  : "bg-cyan-400";
+                return (
+                  <button
+                    key={`mini-${item.symbol}`}
+                    type="button"
+                    onClick={() => setActiveTicker(item.symbol)}
+                    data-testid={`watchlist-mini-row-${item.symbol}`}
+                    title={`${item.symbol} — ${item.status}`}
+                    className={`w-full py-2.5 px-1 flex flex-col items-center justify-center gap-1 transition-colors cursor-pointer ${
+                      isSelected ? "bg-cyan-500/15 border-l-2 border-cyan-400" : "hover:bg-white/[0.04]"
+                    }`}
+                  >
+                    <span
+                      className={`h-2 w-2 rounded-full ${dotColorClass}`}
+                      data-testid={`watchlist-status-dot-${item.symbol}`}
+                      data-status={item.status}
+                    />
+                    <span className="font-mono font-bold text-[10px] tracking-tight text-white leading-none">
+                      {item.symbol}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Top: Market Regime Traffic-Light Indicator (Hidden in 60px Mini-Mode) */}
+          <div
+            className={`p-4 border-b flex-shrink-0 ${isLeftSidebarCollapsed ? "hidden" : ""}`}
             style={{ borderColor: "var(--border-subtle)" }}
             data-testid="market-regime-indicator"
           >
@@ -2784,8 +3006,8 @@ export default function WealthEngineDashboard() {
             </div>
           </div>
 
-          {/* Bottom: Scrollable, Compact Watchlist */}
-          <div className="flex-1 min-h-0 flex flex-col overflow-hidden">
+          {/* Bottom: Scrollable, Compact Watchlist (Hidden in 60px Mini-Mode) */}
+          <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isLeftSidebarCollapsed ? "hidden" : ""}`}>
             {/* Quick-Add Ticker Input */}
             <form
               onSubmit={handleQuickAdd}
@@ -2847,6 +3069,15 @@ export default function WealthEngineDashboard() {
                     {/* Symbol & Name */}
                     <div className="min-w-0 pr-2">
                       <div className="flex items-center gap-1.5">
+                        <span
+                          className={`h-2 w-2 rounded-full flex-shrink-0 ${
+                            item.status === "Ready"
+                              ? "bg-emerald-400 shadow-[0_0_6px_#34D399]"
+                              : item.status === "Forming" || item.status === "Awaiting Close"
+                              ? "bg-amber-400 shadow-[0_0_6px_#FBBF24]"
+                              : "bg-cyan-400"
+                          }`}
+                        />
                         <span className="font-mono font-bold text-sm tracking-tight" style={{ color: "var(--text-primary)" }}>
                           {item.symbol}
                         </span>
@@ -2923,6 +3154,21 @@ export default function WealthEngineDashboard() {
             </div>
           </div>
         </aside>
+
+        {/* Interactive Left Resizer Handle between Left Cockpit Sidebar and Center Chart Canvas */}
+        <div
+          onMouseDown={startResizingLeft}
+          onDoubleClick={toggleLeftSidebarCollapse}
+          data-testid="sidebar-resizer-left"
+          title="Drag to resize Watchlist Cockpit (double-click to toggle 60px Mini-Mode)"
+          className="w-1.5 flex-shrink-0 h-full cursor-col-resize relative flex items-center justify-center group select-none z-20 transition-colors hover:bg-cyan-500/30"
+          style={{
+            backgroundColor: "var(--bg-panel)",
+            borderRight: "1px solid var(--border-subtle)",
+          }}
+        >
+          <div className="h-8 w-0.5 rounded-full bg-slate-600 group-hover:bg-cyan-400 transition-colors" />
+        </div>
 
         {/* ────────────────────────────────────────────────────────────────── */}
         {/* COLUMN 2: CENTER COLUMN (flex-1 min-w-0, w-[55%]) — VISUAL ANALYSIS & CHART */}

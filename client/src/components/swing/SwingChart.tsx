@@ -246,6 +246,22 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const layerRef = useRef({ visDrawings, selId, hideDr }); layerRef.current = { visDrawings, selId, hideDr };
   const showRef = useRef(showInfo); showRef.current = showInfo;
   const planLinesRef = useRef<{ line: any; title: string; axis: boolean }[]>([]);
+  const activePriceLinesRef = useRef<any[]>([]);
+  /** Wipe all active ENTRY, STOP, T1, T2, HOD, LOD price lines from the series before redrawing on timeframe/ticker switch. */
+  const wipeActivePriceLines = (series: ISeriesApi<any> | null) => {
+    if (series) {
+      for (const pl of activePriceLinesRef.current) {
+        try {
+          series.removePriceLine(pl);
+        } catch {
+          /* chart rebuilt */
+        }
+      }
+    }
+    activePriceLinesRef.current = [];
+    planLinesRef.current = [];
+    focusLinesRef.current = [];
+  };
   /** Focus mode: lines hidden while the chart is clean (day levels, far S/R, zone edges) and faint-able series. */
   const focusLinesRef = useRef<{ line: any; nearest?: boolean; width?: number; color?: string; touching?: boolean }[]>([]);
   /** Day range active (HOD/LOD or PDH/PDL on) → non-touching S/R dims to 20 % until you hover the chart. */
@@ -377,6 +393,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       },
       rightPriceScale: { borderColor: "rgba(255, 255, 255, 0.08)" },
       timeScale: {
+        rightOffset: 12,
         borderColor: "rgba(255, 255, 255, 0.08)",
         timeVisible: intraday,
         secondsVisible: false,
@@ -521,15 +538,29 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     try { const ps = chart.panes(); for (let i = 1; i < ps.length; i++) ps[i].setHeight(paneH); } catch { /* single pane */ }
     const atrNow = ind.atr.on ? (ctxSeries && !indParams && dayCtx?.tf === tf ? dayCtx.indicators.atr : atrOf(data.filter((b) => b.closed), ind.atr.n)) : null;
     setIndLast({ atr: atrNow, rsi: rsv.length ? lastNum(rsv) : null, hist: mdH.length ? lastNum(mdH) : null, vwap: vw.length ? lastNum(vw) : null });
-    // Part 2 — day levels + auto S/R: dashed lines, labels always shown in the gutter.
+    // Part 2 — day levels + auto S/R: native createPriceLine() pinned strictly to the right-hand Y-axis scale.
+    wipeActivePriceLines(main);
     const fv0 = fvRef.current;
-    // Day levels are drawn as bounded DOM rays in drawBands (never a full-width price line).
     const dayPrices = dayLines.map((l) => l.price);
+    for (const l of dayLines) {
+      const dl = main.createPriceLine({
+        price: l.price,
+        color: l.color,
+        lineWidth: 1,
+        lineStyle: LineStyle.Dashed,
+        axisLabelVisible: true,
+        lineVisible: true,
+        title: l.key,
+      });
+      activePriceLinesRef.current.push(dl);
+      focusLinesRef.current.push({ line: dl, nearest: true, width: 1, color: l.color, touching: true });
+    }
     for (const l of srLines) {
       const width = srClear && (l.nearest || l.grade === "Strong") ? 2 : 1;
       const pl = main.createPriceLine(srClear
-        ? { price: l.price, color: l.color, lineWidth: fv0.full ? width : 1, lineStyle: l.nearest ? LineStyle.Solid : l.grade === "Light" ? LineStyle.Dotted : LineStyle.Dashed, axisLabelVisible: l.nearest, lineVisible: fv0.full || l.nearest, title: "" }
+        ? { price: l.price, color: l.color, lineWidth: fv0.full ? width : 1, lineStyle: l.nearest ? LineStyle.Solid : l.grade === "Light" ? LineStyle.Dotted : LineStyle.Dashed, axisLabelVisible: l.nearest, lineVisible: fv0.full || l.nearest, title: l.side }
         : { price: l.price, color: l.color, lineWidth: 1, lineStyle: LineStyle.SparseDotted, axisLabelVisible: false, lineVisible: fv0.full || l.nearest, title: "" });
+      activePriceLinesRef.current.push(pl);
       focusLinesRef.current.push({ line: pl, nearest: l.nearest, width, color: l.color, touching: touchesAny(l.price, dayPrices, srAtr) });
     }
     // Part 3 — drawing layer (custom series primitive; anchored to price + time on every timeframe).
@@ -537,20 +568,27 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
 
     const overlay = decision?.chart;
     const vis = showRef.current;
-    planLinesRef.current = [];
     if (ov.plan && overlay) for (const l of overlay.levels.filter((x) => x.current)) {
       const line = main.createPriceLine({ price: l.price, color: LEVEL_COLOR[l.kind], lineWidth: l.kind === "ENTRY" ? 2 : 1,
         lineStyle: l.style === "dashed" ? LineStyle.Dashed : LineStyle.Solid, lineVisible: vis, axisLabelVisible: true, title: l.kind });
+      activePriceLinesRef.current.push(line);
       planLinesRef.current.push({ line, title: l.kind, axis: true });
     }
     if (ov.plan) for (const u of userLevels) {
       const line = main.createPriceLine({ price: u.price, color: u.color, lineWidth: 1, lineStyle: LineStyle.LargeDashed, lineVisible: vis, axisLabelVisible: true, title: u.name });
+      activePriceLinesRef.current.push(line);
       planLinesRef.current.push({ line, title: u.name, axis: true });
+    }
+    if (ov.plan) for (const a of alertLv) {
+      const line = main.createPriceLine({ price: a.price, color: "#38bdf8", lineWidth: 1, lineStyle: LineStyle.Dashed, lineVisible: vis, axisLabelVisible: true, title: "ALERT" });
+      activePriceLinesRef.current.push(line);
+      planLinesRef.current.push({ line, title: "ALERT", axis: true });
     }
     if (overlay) for (const z of overlay.zones.filter((x) => x.current && (x.kind === "RETEST" ? ov.plan : srEffective))) {
       const retest = z.kind === "RETEST";
       const hi = main.createPriceLine({ price: z.high, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : fv0.full, title: "" });
       const lo = main.createPriceLine({ price: z.low, color: ZONE_EDGE[z.kind], lineWidth: 1, lineStyle: LineStyle.Dotted, axisLabelVisible: false, lineVisible: retest ? vis : fv0.full, title: "" });
+      activePriceLinesRef.current.push(hi, lo);
       if (retest) planLinesRef.current.push({ line: hi, title: "", axis: false }, { line: lo, title: "", axis: false });
       else focusLinesRef.current.push({ line: hi }, { line: lo });
     }
@@ -680,6 +718,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     drawRef.current = () => { drawBands(); drawGutter(); };
     applyFocus();
     chart.timeScale().fitContent();
+    chart.timeScale().applyOptions({ rightOffset: 12 });
     const raf = () => { if (isDisposed) return; requestAnimationFrame(() => { if (isDisposed) return; try { drawBands(); drawGutter(); } catch { /* disposed */ } }); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(raf);
     const ro = new ResizeObserver(raf); ro.observe(el);
@@ -688,7 +727,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const tm = setTimeout(safeDraw, 60);
     return () => {
       isDisposed = true; disposedRef.current = true;
-      alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {}; planLinesRef.current = []; ro.disconnect();
+      alive = false; clearTimeout(tm); primRef.current = null; drawRef.current = () => {};
+      wipeActivePriceLines(mainRef.current);
+      ro.disconnect();
       try { chart.timeScale().unsubscribeVisibleLogicalRangeChange(raf); } catch { /* already disposed */ }
       try {
         if (chartRef.current) { chartRef.current.remove(); chartRef.current = null; }
@@ -698,7 +739,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       }
       mainRef.current = null; if (bandRef.current) bandRef.current.innerHTML = ""; if (gutterRef.current) gutterRef.current.innerHTML = ""; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn, srClear, srAtr, paneH]);
+  }, [symbol, tf, data, type, ov, decision, snapped, selectedMarkerId, intraday, userLevels, alertLv, ctxSeries, JSON.stringify(ind), dayLines, srLines, drawOn, srClear, srAtr, paneH]);
 
   // Part 3 — keep the drawing layer in sync without rebuilding the chart.
   useEffect(() => {
@@ -983,7 +1024,6 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           ))}
         </div>
       )}
-      {d?.setupStatus === "SIGNAL_EXPIRED" && <ExpiredExplainer d={d} />}
       {/* Controls */}
       <div className="flex flex-wrap gap-1 items-center" role="toolbar" aria-label="Chart controls">
         {TFS.map((t) => <button key={t} className={btn(tf === t)} onClick={() => onTf(t)} aria-pressed={tf === t} data-testid={`button-tf-${t}`}>{TF_LABEL[t]}</button>)}
@@ -1227,23 +1267,20 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           {drawOn && <DrawingToolbar tool={tool} setTool={(t) => { setTool(t); draftRef.current = null; if (primRef.current) { primRef.current.preview = null; primRef.current.update(); } }} api={dr} selected={selected} hidden={hideDr} setHidden={setHideDr}
             onDelete={() => { if (selected && !selected.locked) { void dr.remove(selected); setSelId(null); } }}
             onLock={() => { if (selected) void dr.update(selected.id, { locked: selected.locked }, { locked: !selected.locked }); }} />}
-          <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
-          <div ref={bandRef} className="absolute inset-y-0 pointer-events-none" style={{ left: drawOn ? TOOLBAR_W : 0, right: gutterOn ? GUTTER_W : 0, zIndex: 3 }} data-testid="chart-band-layer" />
+          <div ref={boxRef} className="absolute inset-y-0" style={{ left: drawOn ? TOOLBAR_W : 0, right: 0, cursor: tool !== "select" ? "crosshair" : undefined }} data-testid="chart-canvas-box" data-tool={tool} />
+          <div ref={bandRef} className="hidden" style={{ left: drawOn ? TOOLBAR_W : 0, right: 0, zIndex: 3 }} data-testid="chart-band-layer" />
           {textAt && (
             <form className="absolute z-30 flex gap-1" style={{ left: (drawOn ? TOOLBAR_W : 0) + textAt.x, top: Math.max(0, textAt.y - 14) }}
               onSubmit={(e) => { e.preventDefault(); const t = textVal.trim(); if (t) void dr.create({ symbol: symbol!, type: "TEXT", points: [textAt.pt], color: "#38bdf8", style: { width: 1, dash: "solid" }, label: t.slice(0, 80), tfVisibility: ["ALL"], locked: false }).then((c) => { if (c) setSelId(c.id); }); setTextAt(null); setTool("select"); }}>
               <input autoFocus className="w-40 rounded border border-neon-blue bg-[#0b1220] px-1.5 py-0.5 text-[11px] text-[#f1f5f9]" placeholder="Note text, Enter to save" maxLength={80} value={textVal} onChange={(e) => setTextVal(e.target.value)} onKeyDown={(e) => { if (e.key === "Escape") { setTextAt(null); setTool("select"); } }} data-testid="input-drawing-text" />
             </form>
           )}
-        {selected && tool === "select" && <DrawingEditor d={selected} tf={tf} price={decision?.currentPrice ?? null} api={dr} onClose={() => setSelId(null)} right={(gutterOn ? GUTTER_W : 0) + 62} />}
+        {selected && tool === "select" && <DrawingEditor d={selected} tf={tf} price={decision?.currentPrice ?? null} api={dr} onClose={() => setSelId(null)} right={62} />}
         {drawOn && !dr.ready && !dr.loading && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[9.5px] font-mono text-slate-gray" style={{ left: TOOLBAR_W + 6 }} data-testid="text-drawings-not-ready">Drawings storage not set up</div>}
         {dr.err && <div className="absolute z-20 bottom-8 rounded bg-[#050a13]/90 px-1.5 py-0.5 text-[10px] font-mono text-rose-300" style={{ left: (drawOn ? TOOLBAR_W : 0) + 6 }} role="alert" data-testid="text-drawing-error">{dr.err}</div>}
         {gutterOn && (
-          <div className="absolute inset-y-0 right-0 border-l border-ink-line bg-[#050a13]" style={{ width: GUTTER_W }} data-testid="chart-label-gutter">
+          <div className="hidden" style={{ width: GUTTER_W }} data-testid="chart-label-gutter">
             <div ref={gutterRef} className="absolute inset-0 pointer-events-none" />
-            {showInfo && <div className="absolute inset-x-1 bottom-1 text-center text-[9px] font-mono" style={{ color: "#64748b" }}>Practice only · not advice</div>}
-            {focus && !fv.full && !gutterOnPlan && <div data-testid="chart-focus-hint" className="absolute inset-x-1 bottom-1 text-center text-[9.5px] font-mono leading-snug" style={{ color: "#64748b" }}>Focus · hover for all levels</div>}
-            {!showInfo && gutterOnPlan && <div data-testid="chart-hover-hint" className={`absolute inset-x-1 ${dayLines.length || srLines.length ? "bottom-1" : "top-1/2 -translate-y-1/2"} text-center text-[9.5px] font-mono leading-snug`} style={{ color: "#64748b" }}>Hover chart for entry · stop · targets</div>}
           </div>
         )}
         {data.length > 0 && fv.full && SMA_META.some((m) => ov[m.key]) && (
@@ -1313,39 +1350,39 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
 
-        {/* Sleek, semi-transparent floating overlay panel: AI Actionable Tips directly on Chart Canvas */}
+        {/* Sleek, semi-transparent glassmorphic overlay panel: AI Actionable Tips pinned cleanly to bottom-left corner */}
         <div
           data-testid="chart-ai-actionable-tips"
-          className="absolute bottom-4 left-4 z-10 max-w-sm p-4 bg-gray-900/80 backdrop-blur-md border border-gray-700 rounded-lg text-sm text-gray-200 shadow-lg pointer-events-auto select-none"
+          className="absolute bottom-3 left-3 z-10 max-w-xs p-3 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded-lg text-xs text-gray-200 shadow-lg pointer-events-none select-none"
         >
-          <div className="flex items-center justify-between pb-2 mb-2 border-b border-gray-700/60">
-            <div className="flex items-center gap-2">
-              <span className="p-1 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40 text-[10px]">
+          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700/60">
+            <div className="flex items-center gap-1.5">
+              <span className="p-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40 text-[10px]">
                 ✨
               </span>
-              <span className="font-mono text-xs font-bold uppercase tracking-wider text-fuchsia-300">
+              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-fuchsia-300">
                 AI Actionable Tips
               </span>
             </div>
-            <span className="text-[10px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+            <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
               {ticker}
             </span>
           </div>
 
-          <div className="space-y-1.5 font-sans text-xs">
-            <div className="flex items-start gap-2">
+          <div className="space-y-1 font-sans text-[11px]">
+            <div className="flex items-start gap-1.5">
               <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-200 leading-snug">
                 Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
               </p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-1.5">
               <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-300 leading-snug">
                 Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
               </p>
             </div>
-            <div className="flex items-start gap-2">
+            <div className="flex items-start gap-1.5">
               <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
               <p className="text-slate-300 leading-snug">
                 Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
@@ -1366,15 +1403,28 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         stopLoss={effectiveStop}
       />
     </div>
-      {srClear && srLines.length > 0 && (
-        <p className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[11px] text-slate-gray" data-testid="text-sr-key">
-          <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 rounded-sm" style={{ background: "#4ade80" }} /><span className="text-soft-white">Support</span> — where buyers stepped in before (price bounced up)</span>
-          <span className="inline-flex items-center gap-1"><span className="inline-block h-0.5 w-4 rounded-sm" style={{ background: "#f87171" }} /><span className="text-soft-white">Resistance</span> — where sellers stepped in before (price turned down)</span>
-          <span>Solid line = nearest level. Dashed/dotted = secondary levels. Reference levels, not promises.</span>
-          {focus && <span data-testid="text-focus-key">Focus: only the nearest level each side shows until you hover the chart · press C to switch.</span>}
+
+      {/* Consolidated Compact Status Bar Footer (combines 4H/TF Guide & Signal Expired into a single status bar) */}
+      <div
+        data-testid="chart-consolidated-status-footer"
+        className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-ink-line bg-[#0B0E14]/90 px-3 py-1.5 text-[11px] font-mono text-slate-400"
+      >
+        <p className="text-[11px] text-slate-gray flex-1 min-w-0" data-testid="text-tf-guide">
+          <span className="text-soft-white font-mono font-bold">{TF_LABEL[tf]} Guide:</span> {TF_GUIDE[tf]}
         </p>
-      )}
-      <p className="text-[11px] text-slate-gray" data-testid="text-tf-guide"><span className="text-soft-white font-mono">{TF_LABEL[tf]} guide:</span> {TF_GUIDE[tf]}</p>
+        {d?.setupStatus === "SIGNAL_EXPIRED" ? (
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-600/60 text-slate-300 text-[10px] font-bold uppercase tracking-wider">
+              Signal Expired
+            </span>
+            <ExpiredExplainer d={d} />
+          </div>
+        ) : (
+          <span className="text-[10px] text-slate-500 shrink-0">
+            Status: <strong className="text-slate-300">{d ? statusLabel(d.setupStatus) : "Active"}</strong>
+          </span>
+        )}
+      </div>
       {/* Accessible marker list — every chart marker is also a keyboard-reachable button */}
       {ov.markers && (decision?.chart?.markers.length ?? 0) > 0 && (
         <div className="flex flex-wrap gap-1" aria-label="Chart markers" data-testid="list-markers">
