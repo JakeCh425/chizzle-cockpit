@@ -20,6 +20,7 @@ import {
 } from "lightweight-charts";
 import { ScoreChip, ScoreSection } from "./SetupScore";
 import { FundingPanel, useCardSizing } from "./FundingPanel";
+import { usePositionSizer } from "@/hooks/usePositionSizer";
 import { MarketContextSection } from "./MarketContextSection";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
@@ -1299,6 +1300,15 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   const targets = computeTargetLevels(activeEntry, activeStop, isCustom ? sz.activeT1 : p.t1, isCustom ? sz.activeT2 : p.t2, scaleOutMode);
 
   // Position Sizing & Funding Summary
+  const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
+
+  const sizer = usePositionSizer({
+    accountEquity: equity,
+    entryPrice: activeEntry,
+    stopLossPrice: activeStop,
+    riskPercentage: cardRiskPctOverride ?? undefined,
+  });
+
   const positionShares = sz.sizing?.shares && sz.sizing.shares > 0
     ? sz.sizing.shares
     : (activeRisk && activeRisk > 0 ? Math.max(1, Math.floor(1000 / activeRisk)) : 100);
@@ -1306,6 +1316,9 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     ? sz.sizing.positionCost
     : positionShares * (activeEntry ?? 100);
   const targetRMultiple = targets.t1R != null && Number.isFinite(targets.t1R) ? targets.t1R.toFixed(1) : (scaleOutMode ? "1.5" : "2.0");
+
+  const dynamicShares = sizer.calculatedShares > 0 ? sizer.calculatedShares : positionShares;
+  const dynamicFunding = sizer.totalCapitalRequired > 0 ? sizer.totalCapitalRequired : fundingAllocated;
 
   // Potential Gain calculation to active Target 1 (1.5R when Scale-Out Mode ON, else 2.0R)
   const potentialGainPct = activeEntry != null && targets.t1 != null && activeEntry > 0
@@ -1507,20 +1520,77 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
       {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
       <div
-        className="grid grid-cols-2 sm:grid-cols-3 gap-2 px-3 py-2 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden"
+        className="flex flex-col gap-2 px-3 py-2.5 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden"
         data-testid={`setup-card-summary-strip-${d.symbol}`}
       >
-        <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
-          <strong className="text-emerald-400 font-bold truncate">${fundingAllocated.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>
+        {/* Header row with Risk ($1R) and Inline Interactive Risk Toggle (1% / 1.5% / 2%) */}
+        <div className="flex items-center justify-between gap-2 overflow-hidden text-ellipsis whitespace-nowrap pb-1.5 border-b border-slate-800/80">
+          <div className="flex items-center gap-1.5 min-w-0 truncate">
+            <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Risk ($1R):</span>
+            <strong className="text-emerald-400 font-bold font-mono truncate" data-testid={`card-dollar-risk-${d.symbol}`}>
+              ${sizer.totalDollarRiskAllowed.toFixed(2)}
+            </strong>
+          </div>
+          <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded border border-slate-800 shrink-0">
+            {[1.0, 1.5, 2.0].map((pct) => (
+              <button
+                key={pct}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setCardRiskPctOverride(cardRiskPctOverride === pct ? null : pct);
+                }}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                  (cardRiskPctOverride ?? sizer.riskPercentage) === pct
+                    ? "bg-emerald-500 text-slate-950 shadow-sm"
+                    : "text-slate-400 hover:text-white hover:bg-slate-800"
+                }`}
+                data-testid={`card-risk-toggle-${pct}-${d.symbol}`}
+                title={`Set trade risk to ${pct}%`}
+              >
+                {pct}%
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
-          <strong className="text-cyan-300 font-bold truncate">{positionShares} Shares</strong>
+
+        {/* Primary 3-Col Data Metrics */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
+            <strong className="text-emerald-400 font-bold truncate">
+              ${dynamicFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </strong>
+          </div>
+          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
+            <strong className="text-cyan-300 font-bold truncate">
+              {dynamicShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${dynamicFunding.toLocaleString()})</span>
+            </strong>
+          </div>
+          <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+            <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
+            <strong className="text-emerald-400 font-bold truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+          </div>
         </div>
-        <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-          <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
-          <strong className="text-emerald-400 font-bold truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+
+        {/* Scale Split & Margin Warning Row */}
+        <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80 text-[10.5px]">
+          <div className="flex items-center gap-1.5 min-w-0 truncate text-slate-300 font-mono">
+            <span className="text-slate-500 uppercase text-[9px] font-semibold">Scale Split:</span>
+            <span className="text-emerald-300 font-bold truncate">{sizer.t1Shares} at T1</span>
+            <span className="text-slate-600">|</span>
+            <span className="text-cyan-300 font-bold truncate">{sizer.t2Shares} at T2</span>
+          </div>
+          {sizer.isMarginRequired && (
+            <span
+              className="text-rose-400 text-[10px] font-bold flex items-center gap-1 truncate shrink-0"
+              title={sizer.warningMessage ?? ""}
+              data-testid={`card-margin-warning-${d.symbol}`}
+            >
+              Exceeds Available Cash (Margin Required)
+            </span>
+          )}
         </div>
       </div>
 

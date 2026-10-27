@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Copy, Check, X } from "lucide-react";
+import { usePositionSizer } from "@/hooks/usePositionSizer";
 
 export interface FidelityExecutionGuideProps {
   entryPrice?: number | null;
@@ -10,6 +11,9 @@ export interface FidelityExecutionGuideProps {
   isOpen?: boolean;
   onClose?: () => void;
   className?: string;
+  shares?: number | null;
+  t1Shares?: number | null;
+  t2Shares?: number | null;
 }
 
 export function FidelityExecutionGuide({
@@ -21,8 +25,20 @@ export function FidelityExecutionGuide({
   isOpen = true,
   onClose,
   className = "",
+  shares,
+  t1Shares,
+  t2Shares,
 }: FidelityExecutionGuideProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+
+  const sizer = usePositionSizer({
+    entryPrice,
+    stopLossPrice: stopLoss,
+  });
+
+  const calculatedShares = shares ?? sizer.calculatedShares;
+  const t1SharesCount = t1Shares ?? sizer.t1Shares;
+  const t2SharesCount = t2Shares ?? sizer.t2Shares;
 
   if (!isOpen) return null;
 
@@ -74,6 +90,16 @@ export function FidelityExecutionGuide({
         )}
       </div>
 
+      {sizer.isMarginRequired && (
+        <div
+          data-testid="fidelity-guide-margin-warning"
+          className="mb-3 p-2.5 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-300 text-[11px] font-bold flex items-center gap-2"
+        >
+          <span>⚠️</span>
+          <span>{sizer.warningMessage}</span>
+        </div>
+      )}
+
       <div className="space-y-4">
         {/* STEP 1: The Entry */}
         <div className="rounded-lg border border-slate-800 bg-slate-900/80 p-3 space-y-2" data-testid="guide-step-1">
@@ -92,7 +118,16 @@ export function FidelityExecutionGuide({
 
             <div className="flex items-center justify-between py-0.5">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">100% of planned position</span>
+              <span className="font-semibold text-slate-200">
+                {calculatedShares > 0 ? (
+                  <>
+                    <span className="font-mono font-bold text-emerald-400">{calculatedShares} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">(100% of planned position)</span>
+                  </>
+                ) : (
+                  "100% of planned position"
+                )}
+              </span>
             </div>
 
             <div className="flex items-center justify-between py-0.5">
@@ -151,7 +186,16 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">50% of shares</span>
+              <span className="font-semibold text-slate-200">
+                {t1SharesCount > 0 ? (
+                  <>
+                    <span className="font-mono font-bold text-emerald-400">{t1SharesCount} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">(50% of shares)</span>
+                  </>
+                ) : (
+                  "50% of shares"
+                )}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Order Type:</span>
@@ -193,7 +237,16 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">100% of shares</span>
+              <span className="font-semibold text-slate-200">
+                {calculatedShares > 0 ? (
+                  <>
+                    <span className="font-mono font-bold text-rose-400">{calculatedShares} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">(100% of shares)</span>
+                  </>
+                ) : (
+                  "100% of shares"
+                )}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Order Type:</span>
@@ -250,7 +303,16 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">Remaining 50% of shares</span>
+              <span className="font-semibold text-slate-200">
+                {t2SharesCount > 0 ? (
+                  <>
+                    <span className="font-mono font-bold text-amber-300">{t2SharesCount} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">(Remaining 50% of shares)</span>
+                  </>
+                ) : (
+                  "Remaining 50% of shares"
+                )}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Order Type:</span>
@@ -301,7 +363,16 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">Remaining 50% of shares</span>
+              <span className="font-semibold text-slate-200">
+                {t2SharesCount > 0 ? (
+                  <>
+                    <span className="font-mono font-bold text-amber-300">{t2SharesCount} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">(Remaining 50% of shares)</span>
+                  </>
+                ) : (
+                  "Remaining 50% of shares"
+                )}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Order Type:</span>

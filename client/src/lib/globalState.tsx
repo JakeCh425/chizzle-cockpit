@@ -67,6 +67,12 @@ export interface GlobalStateContextType {
   setTheme: (t: DashboardTheme) => void;
   cycleTheme: () => void;
 
+  // Global Account Risk & Position Sizing Settings
+  accountEquity: number;
+  setAccountEquity: (equity: number) => void;
+  riskPercentage: number;
+  setRiskPercentage: (pct: number) => void;
+
   // P&L and Trade Analytics Sync
   summary: SwingTradesSummary | undefined;
   refreshTrades: () => Promise<void>;
@@ -77,6 +83,8 @@ const GlobalStateContext = createContext<GlobalStateContextType | null>(null);
 const STORAGE_KEY_WATCHLIST = "chizzle-wealth-watchlist";
 const STORAGE_KEY_TICKER = "chizzle-active-ticker";
 const STORAGE_KEY_THEME = "chizzle-wealth-theme";
+const STORAGE_KEY_ACCOUNT_EQUITY = "chizzle-account-equity";
+const STORAGE_KEY_DEFAULT_RISK_PCT = "chizzle-default-risk-pct";
 
 const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
 
@@ -117,6 +125,53 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     setTheme(theme);
   }, [theme, setTheme]);
+
+  // Global Account Risk & Position Sizing Settings
+  const [accountEquity, setAccountEquityState] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_ACCOUNT_EQUITY);
+        if (saved) {
+          const num = parseFloat(saved);
+          if (!isNaN(num) && num > 0) return num;
+        }
+      } catch {}
+    }
+    return 25000;
+  });
+
+  const setAccountEquity = useCallback((equity: number) => {
+    const valid = typeof equity === "number" && !isNaN(equity) && equity > 0 ? equity : 25000;
+    setAccountEquityState(valid);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(STORAGE_KEY_ACCOUNT_EQUITY, String(valid));
+      } catch {}
+    }
+  }, []);
+
+  const [riskPercentage, setRiskPercentageState] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_DEFAULT_RISK_PCT);
+        if (saved) {
+          const num = parseFloat(saved);
+          if (!isNaN(num) && num >= 0.25 && num <= 5.0) return num;
+        }
+      } catch {}
+    }
+    return 1.0;
+  });
+
+  const setRiskPercentage = useCallback((pct: number) => {
+    const valid = typeof pct === "number" && !isNaN(pct) && pct >= 0.25 && pct <= 5.0 ? pct : 1.0;
+    setRiskPercentageState(valid);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(STORAGE_KEY_DEFAULT_RISK_PCT, String(valid));
+      } catch {}
+    }
+  }, []);
 
   // Active Ticker
   const [activeTicker, setActiveTickerState] = useState<string>(() => {
@@ -505,6 +560,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       theme,
       setTheme,
       cycleTheme,
+      accountEquity,
+      setAccountEquity,
+      riskPercentage,
+      setRiskPercentage,
       summary,
       refreshTrades,
     }),
@@ -528,6 +587,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       theme,
       setTheme,
       cycleTheme,
+      accountEquity,
+      setAccountEquity,
+      riskPercentage,
+      setRiskPercentage,
       summary,
       refreshTrades,
     ]

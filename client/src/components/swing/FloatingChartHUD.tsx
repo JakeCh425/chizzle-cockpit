@@ -130,3 +130,4 @@ export const FloatingChartHUD: React.FC<FloatingChartHUDProps> = ({
     </div>
   );
 };
+

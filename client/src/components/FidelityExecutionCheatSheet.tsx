@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { usePositionSizer } from "@/hooks/usePositionSizer";
 import {
   ClipboardList,
   Copy,
@@ -39,10 +40,15 @@ export function FidelityExecutionCheatSheet({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
 
-  // Fallback share calculation based on 1.0% risk ($1,000 max dollar risk)
+  // Dynamic share calculation based on global account risk sizer
+  const sizer = usePositionSizer({
+    entryPrice: entry,
+    stopLossPrice: stop,
+  });
+
   const riskPerShare = Math.max(0.01, Math.abs(entry - stop));
-  const fullShares = shares ?? Math.max(1, Math.floor(1000 / riskPerShare));
-  const halfShares = Math.max(1, Math.floor(fullShares * 0.5));
+  const fullShares = shares ?? (sizer.calculatedShares > 0 ? sizer.calculatedShares : Math.max(1, Math.floor(1000 / riskPerShare)));
+  const halfShares = sizer.calculatedShares > 0 ? sizer.t1Shares : Math.max(1, Math.floor(fullShares * 0.5));
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard?.writeText(text);

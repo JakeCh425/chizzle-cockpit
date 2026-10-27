@@ -12,6 +12,8 @@ export { DEFAULT_WATCHLIST, type WatchlistItem };
 import { loadSmaSettings, saveSmaSettings, type SmaSettings } from "@/lib/smaSettings";
 import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
 import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheatSheet";
+import { RiskSettingsBar } from "@/components/swing/RiskSettingsBar";
+import { usePositionSizer } from "@/hooks/usePositionSizer";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
@@ -1768,6 +1770,14 @@ export default function WealthEngineDashboard() {
   const [isStudioMiniGuideOpen, setIsStudioMiniGuideOpen] = useState(false);
   const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(false);
 
+  // Dynamic Risk-Based Position Sizer State & Calculation for Studio Setup Card
+  const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
+  const cardSizing = usePositionSizer({
+    entryPrice: activeItem?.buyTarget ?? activeTickerData?.buyTarget ?? activePrice,
+    stopLossPrice: activeItem?.stopLoss ?? activeTickerData?.stopLoss,
+    riskPercentage: cardRiskPctOverride ?? undefined,
+  });
+
   const openArmTrade = global?.openArmTrade ?? (() => {});
 
   // Card status background tints with safe optional chaining
@@ -1885,8 +1895,9 @@ export default function WealthEngineDashboard() {
           </div>
         </div>
 
-        {/* Right: Theme Switcher Toggle */}
+        {/* Right: Risk Settings Bar & Theme Switcher Toggle */}
         <div className="flex items-center gap-3">
+          <RiskSettingsBar />
           <button
             onClick={cycleTheme}
             data-testid="button-theme-switcher"
@@ -2577,22 +2588,77 @@ export default function WealthEngineDashboard() {
 
               {/* NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple */}
               <div
-                className="grid grid-cols-2 sm:grid-cols-3 gap-2 px-3 py-2 my-2.5 rounded-xl border border-[var(--card-border)] bg-black/40 font-mono text-xs shadow-inner overflow-hidden"
+                className="flex flex-col gap-2 px-3 py-2.5 my-2.5 rounded-xl border border-[var(--card-border)] bg-black/40 font-mono text-xs shadow-inner overflow-hidden"
                 data-testid="studio-setup-summary-strip"
               >
-                <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
-                  <strong className="text-emerald-400 font-bold truncate">$10,000.00</strong>
+                {/* Header row with Risk ($1R) and Inline Interactive Risk Toggle (1% / 1.5% / 2%) */}
+                <div className="flex items-center justify-between gap-2 overflow-hidden text-ellipsis whitespace-nowrap pb-1.5 border-b border-slate-800/80">
+                  <div className="flex items-center gap-1.5 min-w-0 truncate">
+                    <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Risk ($1R):</span>
+                    <strong className="text-emerald-400 font-bold font-mono truncate" data-testid="studio-card-dollar-risk">
+                      ${cardSizing.totalDollarRiskAllowed.toFixed(2)}
+                    </strong>
+                  </div>
+                  <div className="flex items-center gap-1 bg-slate-900/90 p-0.5 rounded border border-slate-800 shrink-0">
+                    {[1.0, 1.5, 2.0].map((pct) => (
+                      <button
+                        key={pct}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCardRiskPctOverride(cardRiskPctOverride === pct ? null : pct);
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                          (cardRiskPctOverride ?? cardSizing.riskPercentage) === pct
+                            ? "bg-emerald-500 text-slate-950 shadow-sm"
+                            : "text-slate-400 hover:text-white hover:bg-slate-800"
+                        }`}
+                        data-testid={`studio-card-risk-toggle-${pct}`}
+                        title={`Set trade risk to ${pct}%`}
+                      >
+                        {pct}%
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
-                  <strong className="text-cyan-300 font-bold truncate">
-                    {Math.floor(1000 / Math.max(activeTickerData?.risk ?? Math.abs((activeItem?.buyTarget ?? 100) - (activeItem?.stopLoss ?? 95)), 0.01))} Shares
-                  </strong>
+
+                {/* Primary 3-Col Data Metrics */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
+                    <strong className="text-emerald-400 font-bold truncate">
+                      ${cardSizing.accountEquity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </strong>
+                  </div>
+                  <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
+                    <strong className="text-cyan-300 font-bold truncate">
+                      {cardSizing.calculatedShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${cardSizing.totalCapitalRequired.toLocaleString()})</span>
+                    </strong>
+                  </div>
+                  <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+                    <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
+                    <strong className="text-emerald-400 font-bold truncate">+1.50R Target</strong>
+                  </div>
                 </div>
-                <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
-                  <strong className="text-emerald-400 font-bold truncate">+1.50R Target</strong>
+
+                {/* Scale Split & Margin Warning Row */}
+                <div className="flex items-center justify-between gap-2 pt-1 border-t border-slate-800/80 text-[10.5px]">
+                  <div className="flex items-center gap-1.5 min-w-0 truncate text-slate-300 font-mono">
+                    <span className="text-slate-500 uppercase text-[9px] font-semibold">Scale Split:</span>
+                    <span className="text-emerald-300 font-bold truncate">{cardSizing.t1Shares} at T1</span>
+                    <span className="text-slate-600">|</span>
+                    <span className="text-cyan-300 font-bold truncate">{cardSizing.t2Shares} at T2</span>
+                  </div>
+                  {cardSizing.isMarginRequired && (
+                    <span
+                      className="text-rose-400 text-[10px] font-bold flex items-center gap-1 truncate shrink-0"
+                      title={cardSizing.warningMessage ?? ""}
+                      data-testid="studio-card-margin-warning"
+                    >
+                      Exceeds Available Cash (Margin Required)
+                    </span>
+                  )}
                 </div>
               </div>
 
