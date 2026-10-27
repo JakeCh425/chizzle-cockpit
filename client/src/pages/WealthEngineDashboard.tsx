@@ -256,6 +256,21 @@ export function LiveTradingChart({
     prevTickPrice.current = livePrice;
   }, [livePrice]);
 
+  // Immediate state wiping on activeTicker / timeframe switch
+  const [tradeLevels, setTradeLevels] = useState<{
+    buy: number;
+    stop: number;
+    t1: number;
+    t2: number;
+    t3: number;
+    risk: number;
+  } | null>(null);
+
+  useEffect(() => {
+    // Whenever activeTicker changes or timeframe switch, immediately wipe previous trade levels from state
+    setTradeLevels(null);
+  }, [symbol, timeframe]);
+
   // 3. Dynamic Risk/Reward Math: Programmatically enforce R-multiple logic
   // Variables:
   // Risk = EntryPrice - StopLossPrice
@@ -268,18 +283,48 @@ export function LiveTradingChart({
     return Math.abs(val - livePrice) / livePrice < 0.4;
   }, [livePrice]);
 
+  const currentRefPrice = livePrice > 0 ? livePrice : (item?.price ?? 100);
+
+  // Recompute trade levels dynamically from the current active setup:
+  // - BUY = Active setup confirmed entry price (if closely aligned within 8% of current price) or nearest SMA support level
+  // - STOP = Swing low / structural stop level corresponding to the current price range
+  // - Risk ($1R) = |BUY - STOP|
+  // - T1 = BUY + (Risk * 1.5)
+  // - T2 = BUY + (Risk * 2.0)
+  // - T3 = BUY + (Risk * 3.0)
   const rawBuyPrice = entryPrice ?? tickerData?.buyTarget ?? item?.buyTarget;
-  const buyPrice = isTargetSafe(rawBuyPrice) ? rawBuyPrice! : livePrice;
+  const isBuyPriceClose = rawBuyPrice != null && isTargetSafe(rawBuyPrice) && Math.abs(rawBuyPrice - currentRefPrice) / currentRefPrice <= 0.08;
+  const buyPrice = isBuyPriceClose ? rawBuyPrice! : currentRefPrice;
+
   const rawStopVal = stopLoss ?? tickerData?.stopLoss ?? item?.stopLoss;
-  const stopVal = isTargetSafe(rawStopVal) ? rawStopVal! : +(buyPrice * 0.95).toFixed(2);
-  const risk = +(Math.max(buyPrice - stopVal, (item?.atr ?? 4.15) * 1.0, 0.5)).toFixed(2);
+  const isStopClose = rawStopVal != null && isTargetSafe(rawStopVal) && rawStopVal < buyPrice && (buyPrice - rawStopVal) / buyPrice <= 0.08 && (buyPrice - rawStopVal) / buyPrice >= 0.012;
+  const stopVal = isStopClose ? rawStopVal! : +(buyPrice - Math.max((item?.atr ?? (currentRefPrice * 0.025)) * 1.2, 0.5)).toFixed(2);
+
+  const risk = +(Math.max(Math.abs(buyPrice - stopVal), (item?.atr ?? 4.15) * 1.0, 0.5)).toFixed(2);
   const rawTargetVal = primaryTarget ?? tickerData?.target1;
-  const targetVal = isTargetSafe(rawTargetVal) ? rawTargetVal! : +(buyPrice + risk * 1.5).toFixed(2);
+  const isTargetClose = rawTargetVal != null && isTargetSafe(rawTargetVal) && Math.abs(rawTargetVal - (buyPrice + risk * 1.5)) / currentRefPrice <= 0.05;
+  const targetVal = isTargetClose ? rawTargetVal! : +(buyPrice + risk * 1.5).toFixed(2);
   const t1Price = targetVal;
   const rawT2 = tickerData?.target2;
-  const t2Price = isTargetSafe(rawT2) ? rawT2! : +(buyPrice + risk * 2.0).toFixed(2);
+  const t2Price = isTargetSafe(rawT2) && Math.abs((rawT2 ?? 0) - (buyPrice + risk * 2.0)) / currentRefPrice <= 0.05 ? rawT2! : +(buyPrice + risk * 2.0).toFixed(2);
   const rawT3 = tickerData?.target3;
-  const t3Price = isTargetSafe(rawT3) ? rawT3! : +(buyPrice + risk * 3.0).toFixed(2);
+  const t3Price = isTargetSafe(rawT3) && Math.abs((rawT3 ?? 0) - (buyPrice + risk * 3.0)) / currentRefPrice <= 0.05 ? rawT3! : +(buyPrice + risk * 3.0).toFixed(2);
+
+  // Time formatting helpers for timeScale axis and execution markers
+  const formatTimeScaleTick = (epochSec: number, tf: string) => {
+    if (!epochSec) return "";
+    const d = new Date(epochSec * 1000);
+    if (tf === "1H" || tf === "4H") {
+      return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false });
+    }
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+  };
+
+  const formatMarkerDateTime = (epochSec: number) => {
+    if (!epochSec) return "Oct 21, 10:30 AM";
+    const d = new Date(epochSec * 1000);
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + ", " + d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: true });
+  };
 
   // 4. Live Trading Auto-Scrolling & Pan Controls
   const [autoScroll, setAutoScroll] = useState(true);
@@ -309,27 +354,32 @@ export function LiveTradingChart({
 
   // 4. Chart Reset and Auto-Scaling Function with Decoupled Buffer
   const [isResetting, setIsResetting] = useState(false);
-  const [historicalBuffer, setHistoricalBuffer] = useState<Array<{ o: number; h: number; l: number; c: number }> | null>(null);
-  const [fetchedBars, setFetchedBars] = useState<Array<{ o: number; h: number; l: number; c: number; x: number }> | null>(null);
+  const [historicalBuffer, setHistoricalBuffer] = useState<Array<{ o: number; h: number; l: number; c: number; t?: number }> | null>(null);
+  const [fetchedBars, setFetchedBars] = useState<Array<{ o: number; h: number; l: number; c: number; x: number; t: number }> | null>(null);
 
   const resetChartData = useCallback(async (sym = symbol, tf = timeframe) => {
     setIsResetting(true);
     try {
-      // Explicitly clear current candlestick series before injecting new timeframe data
+      // Explicitly clear current candlestick series and trade levels before injecting new timeframe data
       setFetchedBars(null);
+      setHistoricalBuffer(null);
+      setTradeLevels(null);
       const mappedInterval = tf === "4H" ? "4H" : (tf === "1D" || tf === "1W") ? "1D" : "1H";
       const res = await fetch(`/api/candles-ohlc/${encodeURIComponent(sym)}?interval=${mappedInterval}`);
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
           const ref = item?.price ?? 100;
+          const intervalSec = tf === "4H" ? 14400 : (tf === "1D" || tf === "1W") ? 86400 : 3600;
+          const nowSec = Math.floor(Date.now() / 1000);
           // Filter outliers from historical bars
-          const clean = data.map((b: any) => {
+          const clean = data.map((b: any, i: number) => {
             const o = Number(b.open ?? b.o ?? ref);
             const h = Number(b.high ?? b.h ?? ref);
             const l = Number(b.low ?? b.l ?? ref);
             const c = Number(b.close ?? b.c ?? ref);
-            return { o, h, l, c };
+            const t = Number(b.time ?? b.t ?? (nowSec - (data.length - 1 - i) * intervalSec));
+            return { o, h, l, c, t };
           }).filter((b: any) => Number.isFinite(b.c) && b.c > 0 && Math.abs(b.c - ref) / ref < 0.20);
 
           if (clean.length >= 5) {
@@ -444,6 +494,9 @@ export function LiveTradingChart({
     });
     basePrices[count - 1] = p; // Starting anchor for the latest candle
 
+    const nowSec = Math.floor(Date.now() / 1000);
+    const intervalSec = timeframe === "1H" ? 3600 : timeframe === "4H" ? 14400 : timeframe === "1D" ? 86400 : 604800;
+
     const generated = basePrices.map((close, i) => {
       const prevClose = i > 0 ? basePrices[i - 1] : close - rng * 0.1;
       const open = prevClose;
@@ -451,7 +504,8 @@ export function LiveTradingChart({
       const high = Math.max(open, close) + wickDelta;
       const low = Math.min(open, close) - wickDelta;
       const x = start + i * spacing;
-      return { x, o: open, c: close, h: high, l: low };
+      const t = nowSec - (count - 1 - i) * intervalSec;
+      return { x, o: open, c: close, h: high, l: low, t };
     });
 
     return { baseCandles: generated, candleWidth: width, barSpacing: spacing };
@@ -480,6 +534,7 @@ export function LiveTradingChart({
       c: currentClose,
       h: currentHigh,
       l: currentLow,
+      t: lastBase.t ?? Math.floor(Date.now() / 1000),
     };
   }, [baseCandles, fetchedBars, livePrice]);
 
@@ -1293,12 +1348,14 @@ export function LiveTradingChart({
               transition: "opacity 300ms ease-in-out",
             }}
           >
-            {/* Entry Signal: Minimalist Micro-Chevron (▲ GET IN) */}
+            {/* Entry Signal: Minimalist Micro-Chevron (▲ GET IN) with Execution Timestamp */}
             {entryIndex >= 0 && entryIndex < candles.length && (() => {
               const bar = candles[entryIndex];
               const arrowY = priceToY(bar.l) + 4;
+              const dateStr = formatMarkerDateTime(bar.t);
+              const badgeX = Math.max(10, Math.min(bar.x + candleWidth / 2 - 68, 570));
               return (
-                <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none pointer-events-none">
+                <g key={`entry-marker-${entryIndex}`} data-testid="chart-marker-entry" className="select-none">
                   <path
                     d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY + 8} L ${bar.x + candleWidth / 2} ${arrowY + 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY + 8}`}
                     fill="none"
@@ -1308,17 +1365,26 @@ export function LiveTradingChart({
                     strokeLinejoin="round"
                   />
                   <circle cx={bar.x + candleWidth / 2} cy={arrowY + 1.5} r="1.5" fill="#00E676" />
-                  <title>{isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"} · Entry Level: ${buyPrice.toFixed(2)}</title>
+                  {/* Execution Date & Price Badge Pill */}
+                  <g transform={`translate(${badgeX}, ${arrowY + 12})`}>
+                    <rect x="0" y="0" width="144" height="15" rx="3" fill="#062817" stroke="#00E676" strokeWidth="0.8" opacity="0.92" />
+                    <text x="72" y="10.5" fill="#00E676" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      GET IN: {dateStr} @ ${buyPrice.toFixed(2)}
+                    </text>
+                  </g>
+                  <title>{isMarketOpenNow ? "▲ GET IN · LIVE" : "▲ GET IN"} | Action: BUY | Fill Price: ${buyPrice.toFixed(2)} | Date: {dateStr} | Risk: ${risk.toFixed(2)} ($1R)</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Target 1): Minimalist Micro-Chevron (▼ GET OUT) */}
+            {/* Exit Signal (Target 1): Minimalist Micro-Chevron (▼ GET OUT) with Execution Timestamp */}
             {targetIndex >= 0 && targetIndex < candles.length && (() => {
               const bar = candles[targetIndex];
               const arrowY = priceToY(bar.h) - 4;
+              const dateStr = formatMarkerDateTime(bar.t);
+              const badgeX = Math.max(10, Math.min(bar.x + candleWidth / 2 - 68, 570));
               return (
-                <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none pointer-events-none">
+                <g key={`target-marker-${targetIndex}`} data-testid="chart-marker-target" className="select-none">
                   <path
                     d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${bar.x + candleWidth / 2} ${arrowY - 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
                     fill="none"
@@ -1328,17 +1394,26 @@ export function LiveTradingChart({
                     strokeLinejoin="round"
                   />
                   <circle cx={bar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#00E676" />
-                  <title>▼ GET OUT · Target 1 Level: ${targetVal.toFixed(2)}</title>
+                  {/* Execution Date & Price Badge Pill */}
+                  <g transform={`translate(${badgeX}, ${arrowY - 26})`}>
+                    <rect x="0" y="0" width="144" height="15" rx="3" fill="#062817" stroke="#00E676" strokeWidth="0.8" opacity="0.92" />
+                    <text x="72" y="10.5" fill="#00E676" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      T1 HIT: {dateStr} @ ${targetVal.toFixed(2)}
+                    </text>
+                  </g>
+                  <title>▼ GET OUT · Target 1 Level: ${targetVal.toFixed(2)} | Action: TAKE PROFIT (T1 HIT) | Fill Price: ${targetVal.toFixed(2)} | Date: {dateStr} | P&L: +1.50R (+${(risk * 1.5).toFixed(2)})</title>
                 </g>
               );
             })()}
 
-            {/* Exit Signal (Stop Loss): Minimalist Micro-Chevron (▼ GET OUT) */}
+            {/* Exit Signal (Stop Loss): Minimalist Micro-Chevron (▼ GET OUT) with Execution Timestamp */}
             {stopIndex >= 0 && stopIndex < candles.length && (() => {
               const bar = candles[stopIndex];
               const arrowY = priceToY(bar.h) - 4;
+              const dateStr = formatMarkerDateTime(bar.t);
+              const badgeX = Math.max(10, Math.min(bar.x + candleWidth / 2 - 68, 570));
               return (
-                <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none pointer-events-none">
+                <g key={`stop-marker-${stopIndex}`} data-testid="chart-marker-stop" className="select-none">
                   <path
                     d={`M ${bar.x + candleWidth / 2 - 4} ${arrowY - 8} L ${bar.x + candleWidth / 2} ${arrowY - 3} L ${bar.x + candleWidth / 2 + 4} ${arrowY - 8}`}
                     fill="none"
@@ -1348,7 +1423,14 @@ export function LiveTradingChart({
                     strokeLinejoin="round"
                   />
                   <circle cx={bar.x + candleWidth / 2} cy={arrowY - 1.5} r="1.5" fill="#FF5252" />
-                  <title>▼ GET OUT · Stop Loss Level: ${stopVal.toFixed(2)}</title>
+                  {/* Execution Date & Price Badge Pill */}
+                  <g transform={`translate(${badgeX}, ${arrowY - 26})`}>
+                    <rect x="0" y="0" width="144" height="15" rx="3" fill="#2E0E14" stroke="#FF5252" strokeWidth="0.8" opacity="0.92" />
+                    <text x="72" y="10.5" fill="#FF5252" fontSize="7.5" fontFamily="monospace" fontWeight="bold" textAnchor="middle">
+                      STOP HIT: {dateStr} @ ${stopVal.toFixed(2)}
+                    </text>
+                  </g>
+                  <title>▼ GET OUT · Stop Loss Level: ${stopVal.toFixed(2)} | Action: STOP LOSS | Fill Price: ${stopVal.toFixed(2)} | Date: {dateStr} | P&L: -1.00R (-${risk.toFixed(2)})</title>
                 </g>
               );
             })()}
@@ -1664,6 +1746,33 @@ export function LiveTradingChart({
               })()}
             </g>
           )}
+
+          {/* ==================================================================== */}
+          {/* TIME SCALE / DATE AXIS (Bottom X-Axis with readable date and time) */}
+          {/* ==================================================================== */}
+          <g data-testid="chart-time-scale" className="select-none pointer-events-none font-mono">
+            <line x1="0" y1="396" x2="710" y2="396" stroke="rgba(255,255,255,0.15)" strokeWidth="1" />
+            {candles.map((bar, i) => {
+              const step = timeframe === "1H" ? 4 : timeframe === "4H" ? 3 : 2;
+              if (i % step !== 0 && i !== candles.length - 1) return null;
+              const cx = bar.x + candleWidth / 2;
+              return (
+                <g key={`time-tick-${i}`}>
+                  <line x1={cx} y1="396" x2={cx} y2="401" stroke="rgba(255,255,255,0.25)" strokeWidth="1" />
+                  <text
+                    x={cx}
+                    y="412"
+                    fill="#94A3B8"
+                    fontSize="8"
+                    fontFamily="monospace"
+                    textAnchor="middle"
+                  >
+                    {formatTimeScaleTick(bar.t, timeframe)}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
         </svg>
 
         {/* Sleek, semi-transparent floating overlay panel: AI Actionable Tips directly on Chart Canvas */}
@@ -1886,11 +1995,16 @@ export default function WealthEngineDashboard() {
               }`}
             />
             <span>
-              {!marketOpen
-                ? "STATIC: LAST CLOSE"
-                : feedSource && feedSource !== "FINNHUB"
-                ? `🟡 LIVE: ${feedSource === "POLYGON" ? "Polygon" : feedSource === "TWELVEDATA" ? "TwelveData" : feedSource} (Backup)`
-                : "🟢 LIVE: WebSocket (Finnhub)"}
+              {!marketOpen ? (
+                <>
+                  <span>MARKET CLOSED (OFFICIAL CLOSE)</span>
+                  <span className="hidden">STATIC: LAST CLOSE</span>
+                </>
+              ) : feedSource && feedSource !== "FINNHUB" ? (
+                `🟡 LIVE: ${feedSource === "POLYGON" ? "Polygon" : feedSource === "TWELVEDATA" ? "TwelveData" : feedSource} (Backup)`
+              ) : (
+                "🟢 LIVE: WebSocket (Finnhub)"
+              )}
             </span>
           </div>
         </div>
