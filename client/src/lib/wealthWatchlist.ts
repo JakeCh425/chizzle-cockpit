@@ -210,6 +210,13 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     atr: 5.10,
     t2: 182.00,
     t3: 190.00,
+    exchange: "NASDAQ",
+    sector: "Technology / Semiconductors",
+    todayOpen: 158.40,
+    todayHigh: 160.20,
+    todayLow: 155.80,
+    volume: "28.4M",
+    avgVolume30D: "32.1M",
   },
   {
     symbol: "META",

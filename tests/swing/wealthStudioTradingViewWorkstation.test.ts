@@ -125,3 +125,4 @@ describe("Wealth Studio TradingView Overhaul — Indicator Cloud, Proximity Mete
     });
   });
 });
+
