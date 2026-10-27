@@ -12,12 +12,28 @@ export interface SmaSettings {
   sma20: SmaStyle;
   sma50: SmaStyle;
   sma200: SmaStyle;
+  showVolume?: boolean;
+  showAtr?: boolean;
+  showRibbon?: boolean;
+  candleStyle?: "solid" | "hollow";
 }
+
+export const TRADINGVIEW_DEFAULTS = {
+  sma20Color: "#2962FF",
+  sma50Color: "#EF5350",
+  sma200Color: "#FFD700",
+  bullishRibbon: "rgba(38, 166, 154, 0.12)",
+  bearishRibbon: "rgba(239, 83, 80, 0.12)",
+};
 
 export const DEFAULT_SMA_SETTINGS: SmaSettings = {
   sma20: { color: "#22D3EE", lineWidth: 2, visible: true },   // Blue (#22D3EE)
   sma50: { color: "#F43F5E", lineWidth: 2, visible: true },   // Red/Magenta (#F43F5E)
   sma200: { color: "#FFD700", lineWidth: 2, visible: true },  // Golden Yellow (#FFD700)
+  showVolume: true,
+  showAtr: true,
+  showRibbon: true,
+  candleStyle: "solid",
 };
 
 export const STORAGE_KEY_SMA = "chizzle-sma-settings";
@@ -50,6 +66,10 @@ export function loadSmaSettings(): SmaSettings {
         lineWidth: parseLineWidth(parsed?.sma200?.lineWidth, DEFAULT_SMA_SETTINGS.sma200.lineWidth),
         visible: parsed?.sma200?.visible !== false,
       },
+      showVolume: parsed?.showVolume !== false,
+      showAtr: parsed?.showAtr !== false,
+      showRibbon: parsed?.showRibbon !== false,
+      candleStyle: parsed?.candleStyle === "hollow" ? "hollow" : "solid",
     };
   } catch {
     return DEFAULT_SMA_SETTINGS;

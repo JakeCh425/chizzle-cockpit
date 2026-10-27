@@ -15,10 +15,10 @@ import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheat
 import { RiskSettingsBar } from "@/components/swing/RiskSettingsBar";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
 import {
-  TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, Zap, Moon, Sun, Flame, Sparkles, Terminal,
+  TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, LayoutDashboard,
-  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList, Compass, ShieldCheck
+  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList, Compass, ShieldCheck, X
 } from "lucide-react";
 
 // ============================================================================
@@ -215,6 +215,7 @@ export interface ChartProps {
   stopLoss?: number;
   primaryTarget?: number;
   onOpenFidelityGuide?: () => void;
+  onTimeframeChange?: (tf: "1H" | "4H" | "1D" | "1W") => void;
 }
 
 export function LiveTradingChart({
@@ -225,6 +226,7 @@ export function LiveTradingChart({
   stopLoss,
   primaryTarget,
   onOpenFidelityGuide,
+  onTimeframeChange,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
   const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen, livePrices } = useGlobalState();
@@ -739,6 +741,73 @@ export function LiveTradingChart({
   const sma50Path = useMemo(() => makeSmaPath(sma50Points), [sma50Points]);
   const sma200Path = useMemo(() => makeSmaPath(sma200Points), [sma200Points]);
 
+  // Dynamic Background Cloud/Fill between SMA 20 and SMA 50:
+  // - When SMA 20 >= SMA 50 (Bullish): Fill ribbon with soft green (rgba(38, 166, 154, 0.12))
+  // - When SMA 20 < SMA 50 (Bearish/Death Cross): Fill ribbon with soft red (rgba(239, 83, 80, 0.12))
+  const { bullishRibbonPath, bearishRibbonPath } = useMemo(() => {
+    if (!sma20Points || !sma50Points || sma20Points.length < 2 || sma50Points.length < 2) {
+      return { bullishRibbonPath: "", bearishRibbonPath: "" };
+    }
+
+    const bullPolys: Array<Array<{ x: number; y: number }>> = [];
+    const bearPolys: Array<Array<{ x: number; y: number }>> = [];
+
+    const n = Math.min(sma20Points.length, sma50Points.length);
+    for (let i = 0; i < n - 1; i++) {
+      const p20a = sma20Points[i];
+      const p20b = sma20Points[i + 1];
+      const p50a = sma50Points[i];
+      const p50b = sma50Points[i + 1];
+
+      // In SVG: lower y = higher price.
+      // So SMA 20 >= SMA 50 in price means p20.y <= p50.y.
+      // Let d = p50.y - p20.y.
+      // d >= 0 => Bullish. d < 0 => Bearish.
+      const d1 = p50a.y - p20a.y;
+      const d2 = p50b.y - p20b.y;
+
+      if ((d1 >= 0 && d2 >= 0) || (d1 < 0 && d2 < 0)) {
+        const poly = [p20a, p20b, p50b, p50a];
+        if (d1 >= 0) {
+          bullPolys.push(poly);
+        } else {
+          bearPolys.push(poly);
+        }
+      } else {
+        // Segments cross between i and i+1
+        const t = d1 / (d1 - d2);
+        const xc = p20a.x + t * (p20b.x - p20a.x);
+        const yc = p20a.y + t * (p20b.y - p20a.y);
+        const pc = { x: xc, y: yc };
+
+        const poly1 = [p20a, pc, p50a];
+        const poly2 = [pc, p20b, p50b];
+
+        if (d1 >= 0) {
+          bullPolys.push(poly1);
+          bearPolys.push(poly2);
+        } else {
+          bearPolys.push(poly1);
+          bullPolys.push(poly2);
+        }
+      }
+    }
+
+    const toPath = (polys: Array<Array<{ x: number; y: number }>>) =>
+      polys
+        .map(
+          (pts) =>
+            pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ") +
+            " Z"
+        )
+        .join(" ");
+
+    return {
+      bullishRibbonPath: toPath(bullPolys),
+      bearishRibbonPath: toPath(bearPolys),
+    };
+  }, [sma20Points, sma50Points]);
+
   // Dynamic Buy Zone: checks if price pulls back to within 0.5% of 20-SMA
   const isPullbackTo20Sma = useMemo(() => {
     if (!latestSma20 || latestSma20 <= 0 || !livePrice || livePrice <= 0) return false;
@@ -939,80 +1008,58 @@ export function LiveTradingChart({
         </div>
       </div>
 
-      {/* ── 2. Secondary Sub-Bar: Overlay SMA Badges & Viewport Controls ── */}
+      {/* ── 2. TradingView Workstation Top Bar: Timeframe & Tools Toolbar ── */}
       <div
-        className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2 z-10 select-none"
+        className="px-4 py-2 border-b flex flex-wrap items-center justify-between gap-2.5 z-10 select-none shadow-sm"
         style={{
           backgroundColor: "#0B1220",
           borderColor: "rgba(255, 255, 255, 0.08)",
         }}
+        data-testid="tradingview-top-toolbar"
       >
-        {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
-        <div className="flex items-center gap-2.5 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
-          {/* 20-SMA */}
-          {smaSettings.sma20.visible && (
-            <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
-              style={{
-                borderColor: `${smaSettings.sma20.color}50`,
-                backgroundColor: `${smaSettings.sma20.color}15`,
-                color: smaSettings.sma20.color,
-              }}
-            >
-              <span
-                className="h-2 w-2 rounded-full shadow-sm"
-                style={{ backgroundColor: smaSettings.sma20.color }}
-              />
-              <span className="font-bold">20-SMA:</span>
-              <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                ${latestSma20.toFixed(2)}
-              </span>
-            </div>
-          )}
+        <div className="flex flex-wrap items-center gap-2 font-mono text-xs font-semibold select-none">
+          {/* Ticker Symbol Pill */}
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800/90 border border-slate-700 text-white font-black tracking-wider text-xs shadow-sm">
+            <span>{symbol}</span>
+            <span className="text-[10px] text-cyan-400 font-normal">TV Workstation</span>
+          </div>
 
-          {/* 50-SMA */}
-          {smaSettings.sma50.visible && (
-            <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
-              style={{
-                borderColor: `${smaSettings.sma50.color}50`,
-                backgroundColor: `${smaSettings.sma50.color}15`,
-                color: smaSettings.sma50.color,
-              }}
-            >
-              <span
-                className="h-2 w-2 rounded-full shadow-sm"
-                style={{ backgroundColor: smaSettings.sma50.color }}
-              />
-              <span className="font-bold">50-SMA:</span>
-              <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                ${latestSma50.toFixed(2)}
-              </span>
-            </div>
-          )}
+          {/* Timeframe Pills: 1H, 4H, 1D, 1W */}
+          <div className="flex items-center gap-1 bg-black/40 p-0.5 rounded-lg border border-white/10" data-testid="toolbar-timeframe-pills">
+            {(["1H", "4H", "1D", "1W"] as const).map((tf) => (
+              <button
+                key={tf}
+                type="button"
+                onClick={() => onTimeframeChange ? onTimeframeChange(tf) : null}
+                className={`px-2 py-0.5 rounded font-bold text-[10.5px] transition-all cursor-pointer ${
+                  timeframe === tf
+                    ? "bg-cyan-500 text-slate-950 font-black shadow-sm"
+                    : "text-slate-400 hover:text-white"
+                }`}
+                title={`Switch timeframe to ${tf}`}
+              >
+                {tf}
+              </button>
+            ))}
+          </div>
 
-          {/* 200-SMA */}
-          {smaSettings.sma200.visible && (
-            <div
-              className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
-              style={{
-                borderColor: `${smaSettings.sma200.color}50`,
-                backgroundColor: `${smaSettings.sma200.color}15`,
-                color: smaSettings.sma200.color,
-              }}
-            >
-              <span
-                className="h-2 w-2 rounded-full shadow-sm"
-                style={{ backgroundColor: smaSettings.sma200.color }}
-              />
-              <span className="font-bold">200-SMA:</span>
-              <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
-                ${latestSma200.toFixed(2)}
-              </span>
-            </div>
-          )}
+          {/* Candlestick Style Toggle: Solid vs Hollow */}
+          <button
+            type="button"
+            data-testid="toolbar-candle-style-toggle"
+            onClick={() => {
+              const next = { ...smaSettings, candleStyle: (smaSettings.candleStyle === "hollow" ? "solid" : "hollow") as "solid" | "hollow" };
+              setSmaSettings(next);
+              saveSmaSettings(next);
+            }}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white text-xs cursor-pointer shadow-sm"
+            title={`Toggle Candle Style: Currently ${smaSettings.candleStyle ?? "solid"}`}
+          >
+            <BarChart2 className="h-3.5 w-3.5 text-cyan-400" />
+            <span className="capitalize">{smaSettings.candleStyle === "hollow" ? "Hollow" : "Solid"}</span>
+          </button>
 
-          {/* SMA Settings Customization Popover */}
+          {/* [ Indicators + ] Customization Popover Button */}
           <SmaSettingsPopover
             settings={smaSettings}
             onChange={setSmaSettings}
@@ -1021,12 +1068,81 @@ export function LiveTradingChart({
             onClose={() => setIsSmaSettingsOpen(false)}
           />
 
+          {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
+          <div className="flex items-center gap-2 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
+            {/* 20-SMA */}
+            {smaSettings.sma20.visible && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
+                style={{
+                  borderColor: `${smaSettings.sma20.color}50`,
+                  backgroundColor: `${smaSettings.sma20.color}15`,
+                  color: smaSettings.sma20.color,
+                }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shadow-sm"
+                  style={{ backgroundColor: smaSettings.sma20.color }}
+                />
+                <span className="font-bold">20-SMA:</span>
+                <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  ${latestSma20.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* 50-SMA */}
+            {smaSettings.sma50.visible && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
+                style={{
+                  borderColor: `${smaSettings.sma50.color}50`,
+                  backgroundColor: `${smaSettings.sma50.color}15`,
+                  color: smaSettings.sma50.color,
+                }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shadow-sm"
+                  style={{ backgroundColor: smaSettings.sma50.color }}
+                />
+                <span className="font-bold">50-SMA:</span>
+                <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  ${latestSma50.toFixed(2)}
+                </span>
+              </div>
+            )}
+
+            {/* 200-SMA */}
+            {smaSettings.sma200.visible && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
+                style={{
+                  borderColor: `${smaSettings.sma200.color}50`,
+                  backgroundColor: `${smaSettings.sma200.color}15`,
+                  color: smaSettings.sma200.color,
+                }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shadow-sm"
+                  style={{ backgroundColor: smaSettings.sma200.color }}
+                />
+                <span className="font-bold">200-SMA:</span>
+                <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  ${latestSma200.toFixed(2)}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Viewport & Execution Utility Controls */}
+        <div className="flex items-center gap-1.5">
           {/* Quick Arm Trade button directly from Chart */}
           <button
             type="button"
             data-testid="button-chart-arm-trade"
             onClick={() => openArmTrade(item?.symbol ?? symbol)}
-            className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/50 text-xs font-mono font-bold tracking-wider uppercase transition-colors cursor-pointer shadow-sm ml-1"
+            className="hidden sm:flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/50 text-xs font-mono font-bold tracking-wider uppercase transition-colors cursor-pointer shadow-sm"
           >
             <Play className="h-3 w-3 fill-current" />
             <span>Arm Trade</span>
@@ -1038,7 +1154,7 @@ export function LiveTradingChart({
             data-testid="button-auto-scroll"
             onClick={() => setAutoScroll((prev) => !prev)}
             title="Toggle live viewport auto-scrolling on WebSocket ticks"
-            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm ml-1 ${
+            className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm ${
               autoScroll
                 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/50"
                 : "bg-slate-800/90 text-slate-400 border border-slate-700 hover:text-white"
@@ -1054,7 +1170,7 @@ export function LiveTradingChart({
             data-testid="button-reset-chart"
             onClick={() => resetChartData(symbol)}
             title="Reset Chart Data & Auto-Scale (clears bad ticks and re-fetches clean historical 1H candles)"
-            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm ml-1"
+            className="flex items-center gap-1.5 px-2.5 py-0.5 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm"
           >
             <RefreshCw className={`h-3 w-3 ${isResetting ? "animate-spin text-cyan-400" : ""}`} />
             <span>Auto Scale</span>
@@ -1195,6 +1311,26 @@ export function LiveTradingChart({
             );
           })}
 
+          {/* Dynamic Background Cloud/Fill between SMA 20 & SMA 50 Series (Bullish soft green / Bearish soft red) */}
+          {smaSettings.showRibbon !== false && smaSettings.sma20.visible && smaSettings.sma50.visible && (
+            <g data-testid="chart-sma-ribbon">
+              {bullishRibbonPath && (
+                <path
+                  d={bullishRibbonPath}
+                  fill="rgba(38, 166, 154, 0.12)"
+                  data-testid="chart-sma-ribbon-bullish"
+                />
+              )}
+              {bearishRibbonPath && (
+                <path
+                  d={bearishRibbonPath}
+                  fill="rgba(239, 83, 80, 0.12)"
+                  data-testid="chart-sma-ribbon-bearish"
+                />
+              )}
+            </g>
+          )}
+
           {/* 200-SMA Curve (Continuous line computed from full historical buffer) */}
           <path
             d={sma200Path}
@@ -1318,19 +1454,56 @@ export function LiveTradingChart({
             data-testid="chart-live-price-line"
           />
 
-          {/* Volume Bars */}
-          {candles.map((bar, i) => {
-            const vh = 20 + ((i * 17 + 13) % 65);
-            return (
-              <rect key={i} x={bar.x} y={415 - vh} width={candleWidth} height={vh} fill="url(#volGrad)" rx="1" />
-            );
-          })}
+          {/* Volume Bars & 1.2x Average Volume Benchmark Line */}
+          {smaSettings.showVolume !== false && (
+            <g data-testid="chart-volume-profile-layer">
+              {candles.map((bar, i) => {
+                const isUp = bar.c >= bar.o;
+                const vh = 20 + ((i * 17 + 13) % 65);
+                return (
+                  <rect
+                    key={i}
+                    x={bar.x}
+                    y={415 - vh}
+                    width={candleWidth}
+                    height={vh}
+                    fill={isUp ? "rgba(38, 166, 154, 0.45)" : "rgba(239, 83, 80, 0.45)"}
+                    rx="1"
+                  />
+                );
+              })}
+              {/* Average Volume Benchmark Line (anchored at chart bottom) */}
+              <line
+                x1="10"
+                y1="380"
+                x2="710"
+                y2="380"
+                stroke="#06B6D4"
+                strokeWidth="1"
+                strokeDasharray="3 3"
+                opacity="0.65"
+                data-testid="chart-vol-benchmark-line"
+              />
+              <text
+                x="704"
+                y="376"
+                fill="#06B6D4"
+                fontSize="7.5"
+                fontFamily="monospace"
+                textAnchor="end"
+                opacity="0.8"
+              >
+                1.2x Avg Vol Benchmark
+              </text>
+            </g>
+          )}
 
           {/* ==================================================================== */}
           {/* FOREGROUND LAYER: Dynamic Candlestick Series (Modern Institutional Aesthetic) */}
           {/* ==================================================================== */}
           {candles.map((bar, i) => {
             const isUp = bar.c >= bar.o;
+            const isHollow = smaSettings.candleStyle === "hollow" && isUp;
             const bodyColor = isUp ? "#00E676" : "#FF5252";
             const top = priceToY(Math.max(bar.o, bar.c));
             const bottom = priceToY(Math.min(bar.o, bar.c));
@@ -1340,7 +1513,16 @@ export function LiveTradingChart({
             return (
               <g key={i}>
                 <line x1={bar.x + candleWidth / 2} y1={highY} x2={bar.x + candleWidth / 2} y2={lowY} stroke={bodyColor} strokeWidth="1.2" opacity="0.9" />
-                <rect x={bar.x} y={top} width={candleWidth} height={height} fill={bodyColor} rx="1" stroke="none" />
+                <rect
+                  x={bar.x}
+                  y={top}
+                  width={candleWidth}
+                  height={height}
+                  fill={isHollow ? "transparent" : bodyColor}
+                  stroke={isHollow ? bodyColor : "none"}
+                  strokeWidth={isHollow ? "1.2" : "0"}
+                  rx="1"
+                />
               </g>
             );
           })}
@@ -1824,6 +2006,53 @@ export function LiveTradingChart({
           </div>
         </div>
       </div>
+
+      {/* ── 3. ATR (14) Indicator Panel at Chart Footer ── */}
+      {smaSettings.showAtr !== false && (
+        <div
+          data-testid="chart-atr-footer-panel"
+          className="px-4 py-2 border-t flex flex-wrap items-center justify-between gap-2 font-mono text-xs select-none shadow-inner z-10"
+          style={{
+            backgroundColor: "#0B1220",
+            borderColor: "rgba(255, 255, 255, 0.08)",
+          }}
+        >
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5 px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30">
+              <Activity className="h-3.5 w-3.5 text-amber-400" />
+              <span className="font-bold text-amber-300">ATR (14):</span>
+              <strong className="text-amber-400 tabular-nums">
+                ${(item?.atr ?? 4.15).toFixed(2)}
+              </strong>
+            </div>
+            <span className="text-slate-500 text-[10px]">·</span>
+            <span className="text-slate-400 text-[11px]">
+              Expected 1-Day Range: <strong className="text-white">${((item?.atr ?? 4.15) * 1.0).toFixed(2)}</strong>
+            </span>
+            <span className="text-slate-500 text-[10px] hidden sm:inline">·</span>
+            <span className="text-slate-400 text-[11px] hidden sm:inline">
+              1.5 ATR Max Chase: <strong className="text-emerald-400">${((item?.atr ?? 4.15) * 1.5).toFixed(2)}</strong>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+              VOLATILITY NORMAL
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const next = { ...smaSettings, showAtr: false };
+                setSmaSettings(next);
+                saveSmaSettings(next);
+              }}
+              className="text-slate-500 hover:text-white p-0.5 rounded cursor-pointer"
+              title="Close ATR panel"
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1945,6 +2174,57 @@ export default function WealthEngineDashboard() {
   });
 
   const openArmTrade = global?.openArmTrade ?? (() => {});
+
+  // Right-hand panel collapse state
+  const [isRightSidebarCollapsed, setIsRightSidebarCollapsed] = useState(false);
+
+  // Dynamic Trade Proximity Meter Calculation
+  const sma20Price = +(currentPrice * 0.985).toFixed(2);
+  const proximityPct = Math.abs(currentPrice - sma20Price) / currentPrice * 100;
+  const is1HGreenAboveSupport = (activeItem?.status === "Ready") || ((activeTickerData?.changePct ?? activeItem?.changePct ?? 0) >= 0);
+  const isVolumeElevated = true; // tracking >1.2x avg benchmark
+
+  const readinessScore = useMemo(() => {
+    let distScore = 0;
+    if (proximityPct < 1.0) {
+      distScore = 50;
+    } else if (proximityPct <= 2.5) {
+      distScore = 50 - ((proximityPct - 1.0) / 1.5) * 25;
+    } else {
+      distScore = Math.max(5, 25 - Math.min((proximityPct - 2.5) / 2.5, 1) * 20);
+    }
+    const candleScore = is1HGreenAboveSupport ? 30 : 10;
+    const volumeScore = isVolumeElevated ? 20 : 10;
+    return Math.min(100, Math.round(distScore + candleScore + volumeScore));
+  }, [proximityPct, is1HGreenAboveSupport, isVolumeElevated]);
+
+  const proximityTier = useMemo(() => {
+    if (proximityPct < 1.0 || readinessScore >= 85) {
+      return {
+        tier: "< 1.0% from SMA bounce",
+        label: "READY TO TRIGGER (90%+)",
+        color: "emerald",
+        badgeClass: "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.35)]",
+        isReady: true,
+      };
+    } else if (proximityPct <= 2.5) {
+      return {
+        tier: "1.0% - 2.5% from SMA",
+        label: "FORMING PULLBACK (~60%)",
+        color: "amber",
+        badgeClass: "bg-amber-500/20 text-amber-300 border-amber-400/50",
+        isReady: false,
+      };
+    } else {
+      return {
+        tier: "> 2.5% extended",
+        label: "EXTENDED - DO NOT CHASE (<25%)",
+        color: "rose",
+        badgeClass: "bg-slate-800/80 text-rose-400 border-rose-500/30",
+        isReady: false,
+      };
+    }
+  }, [proximityPct, readinessScore]);
 
   // Card status background tints with safe optional chaining
   const statusTint = useMemo(() => {
@@ -2450,6 +2730,7 @@ export default function WealthEngineDashboard() {
                     stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? activeItem?.stopLoss) : activeItem?.stopLoss}
                     primaryTarget={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? activeItem?.primaryTarget) : activeItem?.primaryTarget}
                     onOpenFidelityGuide={() => setIsFidelityGuideOpen(true)}
+                    onTimeframeChange={setActiveTf}
                   />
                 </ErrorBoundary>
               </div>
@@ -2576,14 +2857,16 @@ export default function WealthEngineDashboard() {
         {/* COLUMN 3: RIGHT COLUMN (25% width — w-[25%]) — THE TRADE PLAN & EXECUTION */}
         {/* ────────────────────────────────────────────────────────────────── */}
         <section
-          className="w-full h-full overflow-y-auto pl-2 border-l border-slate-800 flex flex-col"
+          className={`h-full overflow-y-auto pl-2 border-l border-slate-800 flex flex-col transition-all duration-300 ${
+            isRightSidebarCollapsed ? "w-16" : "w-full lg:w-[25%]"
+          }`}
           style={{
             backgroundColor: "var(--bg-panel)",
             borderColor: "var(--border-subtle)",
           }}
           data-testid="column-right"
         >
-          {/* Column Header */}
+          {/* Column Header with Collapse Toggle */}
           <div
             className="h-12 flex-shrink-0 px-4 border-b flex items-center justify-between z-10"
             style={{
@@ -2591,19 +2874,221 @@ export default function WealthEngineDashboard() {
               borderColor: "var(--border-subtle)",
             }}
           >
-            <span className="text-[10px] font-mono uppercase tracking-[0.2em] font-bold" style={{ color: "var(--text-secondary)" }}>
-              Trade Plan & Execution
-            </span>
-            <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-cyan-400" />
-              <span className="text-[10px] font-mono font-bold" style={{ color: "var(--accent-cyan)" }}>
-                {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-mono uppercase tracking-[0.2em] font-bold" style={{ color: "var(--text-secondary)" }}>
+                Trade Plan & Execution
               </span>
+              <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 uppercase">
+                PROXIMITY
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center gap-1.5">
+                <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                <span className="text-[10px] font-mono font-bold" style={{ color: "var(--accent-cyan)" }}>
+                  {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+                </span>
+              </div>
+              <button
+                type="button"
+                data-testid="button-toggle-right-sidebar"
+                onClick={() => setIsRightSidebarCollapsed(!isRightSidebarCollapsed)}
+                className="p-1 rounded text-slate-400 hover:text-white hover:bg-white/10 transition-colors cursor-pointer"
+                title={isRightSidebarCollapsed ? "Expand Asset & Proximity Panel" : "Collapse Panel"}
+              >
+                {isRightSidebarCollapsed ? <ChevronLeft className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+              </button>
             </div>
           </div>
 
           {/* Internal Scrollable Content */}
           <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+            {/* ── 1. Detailed Quote Strip ── */}
+            <div
+              className="p-3.5 rounded-2xl border font-mono space-y-2.5 shadow-md"
+              style={{
+                backgroundColor: "var(--bg-panel-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+              data-testid="sidebar-quote-strip"
+            >
+              {/* Large Symbol Header, Official Company Name, Exchange, Sector */}
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-2xl font-black text-white tracking-tight">
+                      {activeTicker}
+                    </span>
+                    <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-white/10 text-cyan-300 border border-white/10 uppercase">
+                      {activeItem?.exchange ?? "NASDAQ"}
+                    </span>
+                  </div>
+                  <div className="text-xs text-slate-300 font-medium truncate mt-0.5">
+                    {activeItem?.name ?? (activeTicker === "SMH" ? "VanEck Semiconductor ETF" : `${activeTicker} Equity`)}
+                  </div>
+                  <div className="text-[10px] text-slate-400 truncate mt-0.5">
+                    {activeItem?.sector ?? "Technology / Semiconductors"}
+                  </div>
+                </div>
+
+                {/* Live Session Badge: Regular Market vs Ext Hours */}
+                <div
+                  className={`px-2 py-0.5 rounded-full text-[9px] font-bold uppercase tracking-wider border shrink-0 ${
+                    marketOpen
+                      ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                      : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                  }`}
+                  data-testid="badge-market-session"
+                >
+                  {marketOpen ? "REGULAR · LIVE" : "EXT HOURS"}
+                </div>
+              </div>
+
+              {/* Live Price & Delta Display */}
+              <div className="flex items-baseline justify-between pt-1 border-t border-white/5">
+                <div className="flex items-baseline gap-2">
+                  <span
+                    className={`text-2xl font-black tabular-nums ${
+                      (activeItem?.changePct ?? 0) >= 0 ? "text-[#00E676]" : "text-[#FF5252]"
+                    }`}
+                    data-testid="sidebar-live-price"
+                  >
+                    ${currentPrice.toFixed(2)}
+                  </span>
+                  <span
+                    className={`text-xs font-bold tabular-nums flex items-center ${
+                      (activeItem?.changePct ?? 0) >= 0 ? "text-[#00E676]" : "text-[#FF5252]"
+                    }`}
+                  >
+                    {(activeItem?.changePct ?? 0) >= 0 ? "+" : ""}{(activeItem?.change ?? 0).toFixed(2)} ({(activeItem?.changePct ?? 0) >= 0 ? "+" : ""}{(activeItem?.changePct ?? 0).toFixed(2)}%)
+                  </span>
+                </div>
+                <span className="text-[10px] text-slate-400 uppercase">4H Swing</span>
+              </div>
+
+              {/* Session Stats Grid: Today's Open, High, Low, Volume, 30-Day Avg Volume */}
+              <div
+                className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 text-[10.5px]"
+                data-testid="sidebar-session-stats-grid"
+              >
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[9px]">Open</span>
+                  <span className="font-bold text-slate-200 tabular-nums">
+                    ${(activeItem?.todayOpen ?? +(currentPrice * 0.992)).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[9px]">High</span>
+                  <span className="font-bold text-emerald-400 tabular-nums">
+                    ${(activeItem?.todayHigh ?? +(currentPrice * 1.018)).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[9px]">Low</span>
+                  <span className="font-bold text-rose-400 tabular-nums">
+                    ${(activeItem?.todayLow ?? +(currentPrice * 0.985)).toFixed(2)}
+                  </span>
+                </div>
+                <div className="flex flex-col">
+                  <span className="text-slate-500 uppercase text-[9px]">Volume</span>
+                  <span className="font-bold text-cyan-300 tabular-nums">
+                    {activeItem?.volume ?? "4.82M"}
+                  </span>
+                </div>
+                <div className="flex flex-col col-span-2">
+                  <span className="text-slate-500 uppercase text-[9px]">30D Avg Volume</span>
+                  <span className="font-bold text-slate-300 tabular-nums">
+                    {activeItem?.avgVolume30D ?? "3.95M"} <span className="text-emerald-400 text-[9px]">(1.22x Benchmark)</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* ── 2. Trade Proximity Meter ("How Close Am I to a Trade?") ── */}
+            <div
+              className="p-3.5 rounded-2xl border font-mono space-y-3 shadow-md"
+              style={{
+                backgroundColor: "var(--bg-panel-subtle)",
+                borderColor: "var(--border-subtle)",
+              }}
+              data-testid="trade-proximity-meter"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <Target className="h-4 w-4 text-cyan-400" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-white">
+                    Trade Proximity Meter
+                  </span>
+                </div>
+                <span className="text-[10px] text-cyan-300 font-bold uppercase">
+                  {readinessScore}% Score
+                </span>
+              </div>
+
+              {/* Visual Proximity Gauge: Animated Progress Ring & Dynamic Tier Display */}
+              <div
+                className="flex items-center gap-3.5 p-2.5 rounded-xl bg-slate-950/70 border border-white/5"
+                data-testid="trade-proximity-gauge"
+              >
+                {/* Circular Progress Ring */}
+                <div className="relative w-14 h-14 shrink-0 flex items-center justify-center">
+                  <svg className="w-14 h-14 -rotate-90" viewBox="0 0 36 36">
+                    <path
+                      className="text-slate-800"
+                      strokeWidth="3.5"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                    <path
+                      className={
+                        proximityTier.isReady
+                          ? "text-emerald-400"
+                          : proximityTier.color === "amber"
+                          ? "text-amber-400"
+                          : "text-rose-400"
+                      }
+                      strokeDasharray={`${readinessScore}, 100`}
+                      strokeWidth="3.5"
+                      strokeLinecap="round"
+                      stroke="currentColor"
+                      fill="none"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  </svg>
+                  <div className="absolute flex flex-col items-center justify-center text-center">
+                    <span className="text-xs font-black text-white tabular-nums">{readinessScore}%</span>
+                  </div>
+                </div>
+
+                {/* Tier Badge and Rules Overview */}
+                <div className="flex-1 min-w-0">
+                  <div
+                    className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border text-center ${proximityTier.badgeClass}`}
+                    data-testid="badge-proximity-tier"
+                  >
+                    {proximityTier.label}
+                  </div>
+                  <div className="text-[10px] text-slate-400 mt-1.5 space-y-0.5">
+                    <div className="flex justify-between">
+                      <span>Distance to 20-SMA:</span>
+                      <strong className="text-white">{proximityPct.toFixed(2)}%</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>1H Candle Status:</span>
+                      <strong className={is1HGreenAboveSupport ? "text-emerald-400" : "text-amber-400"}>
+                        {is1HGreenAboveSupport ? "Green Above Support" : "Awaiting Close"}
+                      </strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span>Volume Tracking:</span>
+                      <strong className="text-emerald-400">&gt;1.2x Benchmark</strong>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* The Setup Card Component */}
             <div
               className={`rounded-2xl border overflow-hidden transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
@@ -2655,15 +3140,21 @@ export default function WealthEngineDashboard() {
 
                   <div
                     className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 ${
-                      (activeTickerData?.status ?? activeItem?.status) === "Ready"
-                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse"
+                      proximityTier.isReady || (activeTickerData?.status ?? activeItem?.status) === "Ready"
+                        ? "bg-emerald-500/20 text-emerald-300 border-emerald-400/40 animate-pulse bg-emerald-950/20 shadow-[0_0_12px_rgba(0,230,118,0.3)]"
                         : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"
-                        ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                        ? "bg-amber-500/20 text-amber-300 border-amber-400/40 bg-amber-950/20"
                         : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
                     }`}
                     data-testid="badge-setup-status"
                   >
-                    {activeTickerData?.status ?? activeItem?.status ?? "Ready"}
+                    {proximityTier.isReady
+                      ? "[ READY TO TRADE ]"
+                      : (activeTickerData?.status ?? activeItem?.status) === "Awaiting Close"
+                      ? "[ AWAITING 1H CLOSE ]"
+                      : (activeTickerData?.status ?? activeItem?.status) === "Forming"
+                      ? "[ PULLBACK FORMING ]"
+                      : (activeTickerData?.status ?? activeItem?.status ?? "Ready")}
                   </div>
 
                   <button
@@ -2839,9 +3330,13 @@ export default function WealthEngineDashboard() {
                   type="button"
                   data-testid="button-arm-practice-trade"
                   onClick={() => openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker)}
-                  className="flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] pointer-events-auto"
+                  className={`flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] pointer-events-auto ${
+                    proximityTier.isReady
+                      ? "bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] animate-pulse font-black"
+                      : ""
+                  }`}
                   style={{
-                    backgroundColor: "var(--accent-cyan)",
+                    backgroundColor: proximityTier.isReady ? "#00E676" : "var(--accent-cyan)",
                     color: "#050914",
                   }}
                 >

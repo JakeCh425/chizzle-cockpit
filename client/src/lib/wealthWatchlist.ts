@@ -22,6 +22,13 @@ export interface WatchlistItem {
   atr: number;
   t2: number;
   t3: number;
+  exchange?: string;
+  sector?: string;
+  todayOpen?: number;
+  todayHigh?: number;
+  todayLow?: number;
+  volume?: string;
+  avgVolume30D?: string;
 }
 
 export const DEFAULT_WATCHLIST: WatchlistItem[] = [
@@ -42,6 +49,38 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     atr: 4.15,
     t2: 224.00,
     t3: 228.00,
+    exchange: "NASDAQ",
+    sector: "Technology / Semiconductors",
+    todayOpen: 212.40,
+    todayHigh: 217.10,
+    todayLow: 211.80,
+    volume: "42.8M",
+    avgVolume30D: "38.5M",
+  },
+  {
+    symbol: "SMH",
+    name: "VanEck Semiconductor ETF",
+    price: 541.62,
+    change: 14.42,
+    changePct: 2.74,
+    sparkline: [520, 524, 528, 532, 530, 536, 538, 541.62],
+    status: "Ready",
+    setupType: "20-SMA BOUNCE · 4H",
+    buyTarget: 541.62,
+    stopLoss: 527.20,
+    primaryTarget: 563.25,
+    bottomLine: "Institutional semiconductor ETF pulling back directly into rising 4H 20-SMA support. 1.5R lock-in target defined with 2.85R full extension.",
+    winRate: 74.2,
+    atr: 12.80,
+    t2: 570.46,
+    t3: 584.88,
+    exchange: "NASDAQ",
+    sector: "Technology / Semiconductors",
+    todayOpen: 532.10,
+    todayHigh: 543.80,
+    todayLow: 530.50,
+    volume: "4.82M",
+    avgVolume30D: "3.95M",
   },
   {
     symbol: "QQQ",
@@ -60,6 +99,13 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     atr: 5.60,
     t2: 516.00,
     t3: 525.00,
+    exchange: "NASDAQ",
+    sector: "Tech Benchmark / ETF",
+    todayOpen: 489.20,
+    todayHigh: 494.10,
+    todayLow: 488.50,
+    volume: "38.2M",
+    avgVolume30D: "35.1M",
   },
   {
     symbol: "SPY",
@@ -78,6 +124,13 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     atr: 4.90,
     t2: 605.00,
     t3: 615.00,
+    exchange: "NYSE",
+    sector: "Broad Market / ETF",
+    todayOpen: 580.10,
+    todayHigh: 584.20,
+    todayLow: 579.50,
+    volume: "52.4M",
+    avgVolume30D: "48.9M",
   },
   {
     symbol: "AAPL",
@@ -96,6 +149,13 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     atr: 3.20,
     t2: 254.50,
     t3: 262.00,
+    exchange: "NASDAQ",
+    sector: "Consumer Tech",
+    todayOpen: 233.80,
+    todayHigh: 235.10,
+    todayLow: 231.40,
+    volume: "45.1M",
+    avgVolume30D: "42.0M",
   },
   {
     symbol: "TSLA",

@@ -1,5 +1,5 @@
 import React, { useRef, useEffect } from "react";
-import { Settings, RotateCcw, X } from "lucide-react";
+import { Settings, RotateCcw, X, Sliders } from "lucide-react";
 import {
   type SmaSettings,
   DEFAULT_SMA_SETTINGS,
@@ -16,15 +16,17 @@ export interface SmaSettingsPopoverProps {
 }
 
 const PRESET_COLORS = [
+  "#2962FF", // TradingView Blue
+  "#EF5350", // TradingView Salmon / Red
   "#22d3ee", // Cyan
   "#38bdf8", // Sky blue
   "#22c55e", // Green
   "#a3e635", // Lime
   "#fbbf24", // Amber
+  "#ffd700", // Gold
   "#f97316", // Orange
   "#f43f5e", // Rose
   "#c084fc", // Purple/Magenta
-  "#e879f9", // Fuchsia
   "#94a3b8", // Slate
 ];
 
@@ -73,11 +75,11 @@ export function SmaSettingsPopover({
         type="button"
         data-testid="button-sma-settings"
         onClick={onToggle}
-        className="flex items-center gap-1.5 px-2 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 text-xs font-mono font-medium tracking-wide uppercase transition-colors cursor-pointer shadow-sm"
-        title="SMA Visual Settings (Color & Thickness)"
+        className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-mono font-bold tracking-wide uppercase transition-colors cursor-pointer shadow-sm"
+        title="Indicators & Style Settings (SMA 20/50 Ribbon, Volume, ATR 14)"
       >
-        <Settings className="h-3.5 w-3.5 text-cyan-400" />
-        <span className="hidden sm:inline">SMA Settings</span>
+        <Sliders className="h-3.5 w-3.5 text-cyan-400" />
+        <span>[ Indicators + ]</span>
       </button>
 
       {isOpen && (
@@ -223,6 +225,134 @@ export function SmaSettingsPopover({
                 className="w-28 accent-purple-400 cursor-pointer"
               />
             </div>
+          </div>
+
+          {/* Additional TradingView Indicators: Dynamic Ribbon, Volume & ATR */}
+          <div className="mb-3.5 p-2 rounded-lg bg-slate-950/60 border border-slate-800/80 space-y-2">
+            <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mb-1">
+              TradingView Indicators & Overlays
+            </div>
+
+            {/* Dynamic Ribbon Cloud Toggle */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="indicator-toggle-ribbon"
+                  checked={settings.showRibbon !== false}
+                  onChange={(e) => {
+                    const next = { ...settings, showRibbon: e.target.checked };
+                    onChange(next);
+                    saveSmaSettings(next);
+                  }}
+                  className="rounded border-slate-700 text-emerald-500 focus:ring-0 cursor-pointer"
+                />
+                <span className="font-bold text-emerald-400 text-[11px]">20/50 Ribbon Cloud</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Green/Red Fill</span>
+            </div>
+
+            {/* Volume Profile Bars Toggle */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="indicator-toggle-volume"
+                  checked={settings.showVolume !== false}
+                  onChange={(e) => {
+                    const next = { ...settings, showVolume: e.target.checked };
+                    onChange(next);
+                    saveSmaSettings(next);
+                  }}
+                  className="rounded border-slate-700 text-cyan-500 focus:ring-0 cursor-pointer"
+                />
+                <span className="font-bold text-cyan-400 text-[11px]">Volume Bars (1.2x Line)</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Chart Bottom</span>
+            </div>
+
+            {/* ATR (14) Footer Panel Toggle */}
+            <div className="flex items-center justify-between">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="indicator-toggle-atr"
+                  checked={settings.showAtr !== false}
+                  onChange={(e) => {
+                    const next = { ...settings, showAtr: e.target.checked };
+                    onChange(next);
+                    saveSmaSettings(next);
+                  }}
+                  className="rounded border-slate-700 text-amber-500 focus:ring-0 cursor-pointer"
+                />
+                <span className="font-bold text-amber-400 text-[11px]">ATR (14) Volatility Panel</span>
+              </label>
+              <span className="text-[10px] text-slate-400">Chart Footer</span>
+            </div>
+
+            {/* Candlestick Style Toggle */}
+            <div className="flex items-center justify-between pt-1 border-t border-slate-800/80">
+              <span className="text-[11px] text-slate-300 font-bold">Candle Style:</span>
+              <div className="flex items-center gap-1 bg-slate-900 p-0.5 rounded border border-slate-800">
+                <button
+                  type="button"
+                  data-testid="button-candle-style-solid"
+                  onClick={() => {
+                    const next: SmaSettings = { ...settings, candleStyle: "solid" };
+                    onChange(next);
+                    saveSmaSettings(next);
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    (settings.candleStyle ?? "solid") === "solid"
+                      ? "bg-cyan-500 text-slate-950"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Solid
+                </button>
+                <button
+                  type="button"
+                  data-testid="button-candle-style-hollow"
+                  onClick={() => {
+                    const next: SmaSettings = { ...settings, candleStyle: "hollow" };
+                    onChange(next);
+                    saveSmaSettings(next);
+                  }}
+                  className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all cursor-pointer ${
+                    settings.candleStyle === "hollow"
+                      ? "bg-cyan-500 text-slate-950"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                >
+                  Hollow
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick Preset: TradingView Workstation Defaults */}
+          <div className="mb-3 px-2 py-1.5 rounded-lg bg-cyan-950/40 border border-cyan-800/60 flex items-center justify-between">
+            <span className="text-[10px] text-cyan-300 font-bold">TradingView Standard Preset:</span>
+            <button
+              type="button"
+              data-testid="button-apply-tradingview-preset"
+              onClick={() => {
+                const tvPreset: SmaSettings = {
+                  sma20: { color: "#2962FF", lineWidth: 2, visible: true },
+                  sma50: { color: "#EF5350", lineWidth: 2, visible: true },
+                  sma200: { color: "#FFD700", lineWidth: 2, visible: true },
+                  showRibbon: true,
+                  showVolume: true,
+                  showAtr: true,
+                  candleStyle: "solid",
+                };
+                onChange(tvPreset);
+                saveSmaSettings(tvPreset);
+              }}
+              className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 border border-cyan-400/40 text-[10px] font-bold cursor-pointer"
+            >
+              Apply (Blue/Salmon)
+            </button>
           </div>
 
           {/* Footer Actions */}
