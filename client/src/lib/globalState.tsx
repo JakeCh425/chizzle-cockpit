@@ -76,6 +76,13 @@ export interface GlobalStateContextType {
   // P&L and Trade Analytics Sync
   summary: SwingTradesSummary | undefined;
   refreshTrades: () => Promise<void>;
+
+  // Confirmed Trades Global State Sync (Cockpit <-> Wealth Studio)
+  confirmedCount: number;
+  confirmedTradesCount: number;
+  confirmedSetups: Record<string, boolean>;
+  setConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
+  registerConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
 }
 
 const GlobalStateContext = createContext<GlobalStateContextType | null>(null);
@@ -557,6 +564,41 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     await invalidateTrades();
   }, []);
 
+  // ── Confirmed Trades Global Synchronization Engine ──
+  // Track dynamically confirmed setups across live WebSocket candle ticks and active chart analysis
+  const [liveConfirmedSetups, setLiveConfirmedSetups] = useState<Record<string, boolean>>({});
+
+  const setConfirmedSetup = useCallback((symbol: string, confirmed: boolean = true) => {
+    if (!symbol) return;
+    const clean = symbol.trim().toUpperCase().split(":").pop()!;
+    setLiveConfirmedSetups((prev) => {
+      if (Boolean(prev[clean]) === Boolean(confirmed)) return prev;
+      return { ...prev, [clean]: Boolean(confirmed) };
+    });
+  }, []);
+
+  const registerConfirmedSetup = setConfirmedSetup;
+
+  // Reactively calculate total confirmed setups across synced watchlist items and live WebSocket confirmations
+  const confirmedCount = useMemo(() => {
+    const confirmedSyms = new Set<string>();
+    for (const item of syncedWatchlist) {
+      if (!item?.symbol) continue;
+      const s = (item.status || "").toUpperCase();
+      if (s === "READY" || s === "CONFIRMED" || s === "SETUP_CONFIRMED") {
+        confirmedSyms.add(item.symbol.toUpperCase());
+      }
+    }
+    for (const [sym, isConf] of Object.entries(liveConfirmedSetups)) {
+      if (isConf) {
+        confirmedSyms.add(sym.toUpperCase());
+      } else {
+        confirmedSyms.delete(sym.toUpperCase());
+      }
+    }
+    return confirmedSyms.size;
+  }, [syncedWatchlist, liveConfirmedSetups]);
+
   const value = useMemo(
     () => ({
       activeTicker,
@@ -584,6 +626,11 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       setRiskPercentage,
       summary,
       refreshTrades,
+      confirmedCount,
+      confirmedTradesCount: confirmedCount,
+      confirmedSetups: liveConfirmedSetups,
+      setConfirmedSetup,
+      registerConfirmedSetup,
     }),
     [
       activeTicker,
@@ -611,6 +658,10 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       setRiskPercentage,
       summary,
       refreshTrades,
+      confirmedCount,
+      liveConfirmedSetups,
+      setConfirmedSetup,
+      registerConfirmedSetup,
     ]
   );
 
@@ -623,6 +674,13 @@ export function useGlobalState(): GlobalStateContextType {
     throw new Error("useGlobalState must be used within a GlobalStateProvider");
   }
   return ctx;
+}
+
+/**
+ * Optional hook to consume GlobalState without throwing if rendered outside GlobalStateProvider (e.g. standalone test harness).
+ */
+export function useOptionalGlobalState(): GlobalStateContextType | null {
+  return useContext(GlobalStateContext);
 }
 
 /**

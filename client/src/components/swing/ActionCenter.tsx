@@ -21,6 +21,7 @@ import { PriorityBoard } from "./SetupScore";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
+import { useOptionalGlobalState } from "@/lib/globalState";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
 const DEFAULT_TITLE = "Action Center";
@@ -314,6 +315,24 @@ function ActionCenterInner() {
   const quiet = rows.filter((d) => actionGroupOf(d) === "NO_TRADE" && !lockedSyms.has(d.symbol));
   const counts = rows.reduce<Record<string, number>>((m, d) => { const g = actionGroupOf(d); m[g] = (m[g] ?? 0) + 1; return m; }, {});
   
+  // Confirmed Trades Global State Synchronization (Cockpit <-> Wealth Studio)
+  const global = useOptionalGlobalState();
+  const confirmedCount = global
+    ? Math.max(global.confirmedCount, counts.CONFIRMED ?? 0)
+    : (counts.CONFIRMED ?? 0);
+
+  // Sync scan detections of confirmed setups into Global State Manager
+  useEffect(() => {
+    if (global && rows.length > 0) {
+      for (const r of rows) {
+        const g = actionGroupOf(r);
+        if (g === "CONFIRMED" || g === "READY") {
+          global.setConfirmedSetup(r.symbol, true);
+        }
+      }
+    }
+  }, [rows, global]);
+  
   const sel = plans.data?.selected;
   const acct = useAccountSnapshot();
   const safeEquity = Number(acct?.equity) || 25000;
@@ -374,16 +393,35 @@ function ActionCenterInner() {
 
         {/* High-Contrast Glowing Status Pill: Confirmed Trades */}
         <span
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider transition-all ${
-            (counts.CONFIRMED ?? 0) > 0
-              ? "border-emerald-400 bg-emerald-950/80 text-emerald-300 shadow-[0_0_18px_rgba(52,211,153,0.5)] ring-1 ring-emerald-400/40 animate-pulse"
-              : "border-white/10 bg-black/40 text-slate-400"
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono uppercase tracking-wider transition-all ${
+            confirmedCount > 0
+              ? "border-emerald-400 bg-emerald-500 font-extrabold text-gray-950 shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300 animate-pulse"
+              : "border-white/10 bg-transparent text-slate-400 font-medium"
           }`}
           data-testid="pill-confirmed-trades"
-          title="Setups where price has confirmed above trigger"
+          data-active={confirmedCount > 0 ? "true" : "false"}
+          title={
+            confirmedCount > 0
+              ? `${confirmedCount} setup(s) confirmed — ready to execute`
+              : "Setups where price has confirmed above trigger"
+          }
         >
-          <span className={`h-2 w-2 rounded-full ${(counts.CONFIRMED ?? 0) > 0 ? "bg-emerald-400 shadow-[0_0_8px_#34D399]" : "bg-slate-600"}`} />
-          <span>Confirmed Trades: <strong className="font-mono tabular-nums font-black">{(counts.CONFIRMED ?? 0)}</strong></span>
+          <span
+            className={`h-2 w-2 rounded-full transition-colors ${
+              confirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
+            }`}
+          />
+          <span>
+            [ CONFIRMED TRADES:{" "}
+            <strong
+              className={`font-mono tabular-nums font-black ${
+                confirmedCount > 0 ? "text-gray-950" : "text-slate-400"
+              }`}
+            >
+              {confirmedCount}
+            </strong>{" "}
+            ]
+          </span>
         </span>
 
         {/* High-Contrast Glowing Status Pill: Practice Trades Active */}
@@ -405,7 +443,7 @@ function ActionCenterInner() {
           data-testid="text-ac-counts"
         >
           {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned}… · ` : ""}
-          {scan.isLoading ? "" : `${counts.CONFIRMED ?? 0} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
+          {scan.isLoading ? "" : `${confirmedCount} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
         </span>
         
         <span className="rounded-md border border-amber-500/30 bg-amber-950/40 px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-amber-300">

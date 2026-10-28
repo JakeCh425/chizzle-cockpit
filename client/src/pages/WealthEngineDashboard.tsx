@@ -246,7 +246,7 @@ export function LiveTradingChart({
   onTimeframeChange,
 }: ChartProps) {
   const item = activeItem || DEFAULT_WATCHLIST[0];
-  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen, livePrices } = useGlobalState();
+  const { openArmTrade, activeTickerData, activePrice: storePrice, isBadTick, isMarketOpen: globalMarketOpen, livePrices, setConfirmedSetup } = useGlobalState();
   const { quote } = useLiveQuote(symbol);
   const { state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
   const isMarketOpenNow = globalMarketOpen ?? feedMarketOpen ?? isMarketOpen();
@@ -595,6 +595,13 @@ export function LiveTradingChart({
   });
 
   const isConfirmedSetup = isSetupReadyProp !== undefined ? isSetupReadyProp : candleConfirmation.isSetupReady;
+
+  // Real-time synchronization to Global State Manager (Cockpit <-> Wealth Studio WebSocket sync)
+  useEffect(() => {
+    if (setConfirmedSetup && symbol) {
+      setConfirmedSetup(symbol, Boolean(isConfirmedSetup));
+    }
+  }, [symbol, isConfirmedSetup, setConfirmedSetup]);
 
   // Contextual rule tooltip state for hover/click on the armed buy marker
   const [isMarkerTooltipOpen, setIsMarkerTooltipOpen] = useState(false);
@@ -2702,6 +2709,14 @@ export default function WealthEngineDashboard() {
       (isTradeConfirmed && is1HGreenAboveSupport)) &&
     isWithinChaseBuffer;
   const isSetupReady = isTradeReady;
+
+  // Real-time synchronization to Global State Manager (Cockpit <-> Wealth Studio sync)
+  useEffect(() => {
+    if (global.setConfirmedSetup && activeTicker) {
+      const isConfirmed = Boolean(isTradeReady || isTradeConfirmed || activeItem?.status === "Ready");
+      global.setConfirmedSetup(activeTicker, isConfirmed);
+    }
+  }, [activeTicker, isTradeReady, isTradeConfirmed, activeItem?.status, global.setConfirmedSetup]);
 
   const readinessScore = useMemo(() => {
     let distScore = 0;
