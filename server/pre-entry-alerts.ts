@@ -1,5 +1,19 @@
 // ─── Off-Screen Pre-Entry Alerts (Telegram Bot API & Twilio SMS Serverless Handler) ───
 
+import {
+  sendPreEntryEmail,
+  formatPreEntryEmailHtml,
+  formatPreEntryEmailSubject,
+  type PreEntryEmailPayload,
+} from "./sendEmailAlert";
+
+export {
+  sendPreEntryEmail,
+  formatPreEntryEmailHtml,
+  formatPreEntryEmailSubject,
+  type PreEntryEmailPayload,
+};
+
 export interface ServerPreEntryAlertInput {
   ticker: string;
   entryPrice: number;
@@ -100,22 +114,29 @@ export async function sendTwilioSmsAlert(
 
 /**
  * Serverless function handler (Vercel / Supabase / AWS Lambda / Express compatible)
- * for dispatching SMS & Telegram Pre-Entry Alerts.
+ * for dispatching SMS, Telegram, and Email Pre-Entry Alerts.
  */
 export async function serverlessPreEntryAlertHandler(req: {
   body?: {
-    channel?: "sms" | "telegram" | "both";
+    channel?: "sms" | "telegram" | "email" | "both" | "all";
     phoneNumber?: string;
     chatId?: string;
+    email?: string;
+    emailAddress?: string;
     message?: string;
     ticker?: string;
     entryPrice?: number;
     target1?: number;
     context?: string;
+    smsEnabled?: boolean;
+    telegramEnabled?: boolean;
+    emailEnabled?: boolean;
   };
-  channel?: "sms" | "telegram" | "both";
+  channel?: "sms" | "telegram" | "email" | "both" | "all";
   phoneNumber?: string;
   chatId?: string;
+  email?: string;
+  emailAddress?: string;
   message?: string;
   ticker?: string;
   entryPrice?: number;
@@ -123,7 +144,8 @@ export async function serverlessPreEntryAlertHandler(req: {
   context?: string;
   smsEnabled?: boolean;
   telegramEnabled?: boolean;
-}): Promise<{ ok: boolean; sms?: any; telegram?: any; message: string }> {
+  emailEnabled?: boolean;
+}): Promise<{ ok: boolean; sms?: any; telegram?: any; email?: any; message: string }> {
   const body = req?.body || req || {};
   const formattedMessage =
     body.message ||
@@ -134,21 +156,36 @@ export async function serverlessPreEntryAlertHandler(req: {
       context: body.context || "Price within 0.25% of SMA",
     });
 
-  const channel = body.channel || "both";
+  const channel = body.channel || (body.emailEnabled ? "all" : "both");
   let smsResult: any = null;
   let telegramResult: any = null;
+  let emailResult: any = null;
 
-  if (channel === "sms" || channel === "both") {
+  if (channel === "sms" || channel === "both" || channel === "all") {
     smsResult = await sendTwilioSmsAlert(body.phoneNumber || "", formattedMessage);
   }
-  if (channel === "telegram" || channel === "both") {
+  if (channel === "telegram" || channel === "both" || channel === "all") {
     telegramResult = await sendTelegramAlert(formattedMessage, body.chatId);
+  }
+
+  const userEmail = (body.emailAddress || body.email || "").trim();
+  if (channel === "email" || channel === "all" || body.emailEnabled || (userEmail && channel === "both")) {
+    if (userEmail) {
+      emailResult = await sendPreEntryEmail({
+        userEmail,
+        ticker: body.ticker || "NVDA",
+        entryPrice: Number(body.entryPrice || 0),
+        target1: Number(body.target1 || 0),
+        context: body.context || "Price within 0.25% of SMA",
+      });
+    }
   }
 
   return {
     ok: true,
     sms: smsResult,
     telegram: telegramResult,
+    email: emailResult,
     message: formattedMessage,
   };
 }

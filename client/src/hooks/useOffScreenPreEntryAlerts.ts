@@ -11,15 +11,21 @@ export const TIME_BASED_ALERT_CONTEXT = "3 mins to 1H Close" as const;
 export interface OffScreenAlertSettings {
   phoneNumber: string;
   telegramChatId: string;
+  emailAddress?: string;
+  email?: string;
   smsEnabled: boolean;
   telegramEnabled: boolean;
+  emailEnabled: boolean;
 }
 
 export const DEFAULT_OFFSCREEN_ALERT_SETTINGS: OffScreenAlertSettings = {
   phoneNumber: "",
   telegramChatId: "",
+  emailAddress: "",
+  email: "",
   smsEnabled: false,
   telegramEnabled: false,
+  emailEnabled: false,
 };
 
 export type PreEntryTriggerContext =
@@ -187,11 +193,20 @@ export function loadOffScreenAlertSettings(
     const raw = store.getItem(STORAGE_KEY_OFFSCREEN_ALERTS);
     if (!raw) return DEFAULT_OFFSCREEN_ALERT_SETTINGS;
     const parsed = JSON.parse(raw);
+    const emailVal =
+      typeof parsed.emailAddress === "string"
+        ? parsed.emailAddress
+        : typeof parsed.email === "string"
+        ? parsed.email
+        : "";
     return {
       phoneNumber: typeof parsed.phoneNumber === "string" ? parsed.phoneNumber : "",
       telegramChatId: typeof parsed.telegramChatId === "string" ? parsed.telegramChatId : "",
+      emailAddress: emailVal,
+      email: emailVal,
       smsEnabled: Boolean(parsed.smsEnabled),
       telegramEnabled: Boolean(parsed.telegramEnabled),
+      emailEnabled: Boolean(parsed.emailEnabled),
     };
   } catch {
     return DEFAULT_OFFSCREEN_ALERT_SETTINGS;
@@ -205,20 +220,24 @@ export function saveOffScreenAlertSettings(
   settings: OffScreenAlertSettings,
   storage?: Pick<Storage, "setItem">
 ): OffScreenAlertSettings {
+  const normalized: OffScreenAlertSettings = {
+    ...DEFAULT_OFFSCREEN_ALERT_SETTINGS,
+    ...settings,
+  };
   const store = storage ?? (typeof window !== "undefined" ? window.localStorage : undefined);
   if (store) {
     try {
-      store.setItem(STORAGE_KEY_OFFSCREEN_ALERTS, JSON.stringify(settings));
+      store.setItem(STORAGE_KEY_OFFSCREEN_ALERTS, JSON.stringify(normalized));
     } catch {}
   }
   if (!storage && typeof fetch !== "undefined") {
     void fetch("/api/alerts/offscreen-settings", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(settings),
+      body: JSON.stringify(normalized),
     }).catch(() => {});
   }
-  return settings;
+  return normalized;
 }
 
 /**
@@ -304,6 +323,50 @@ export async function sendSmsAlert(
   }
 }
 
+/**
+ * Sends an Email alert via the backend transactional email service.
+ */
+export async function sendEmailAlert(
+  message: string,
+  emailAddress: string,
+  options?: {
+    ticker?: string;
+    entryPrice?: number | string;
+    target1?: number | string;
+    context?: string;
+    plan?: string;
+  },
+  fetchImpl: typeof fetch = fetch
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const res = await fetchImpl("/api/alerts/pre-entry", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        channel: "email",
+        email: emailAddress,
+        emailAddress,
+        message,
+        ticker: options?.ticker,
+        entryPrice: options?.entryPrice,
+        target1: options?.target1,
+        context: options?.context,
+        plan: options?.plan,
+      }),
+    });
+    const data = await res.json().catch(() => ({ ok: false }));
+    return {
+      ok: Boolean(data.ok),
+      error: data.error,
+    };
+  } catch (err: any) {
+    return {
+      ok: false,
+      error: err?.message || String(err),
+    };
+  }
+}
+
 export interface UseOffScreenPreEntryAlertsInput {
   ticker: string;
   currentPrice: number;
@@ -341,6 +404,16 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       if (currentSettings.smsEnabled && currentSettings.phoneNumber.trim()) {
         tasks.push(sendSmsAlert(message, currentSettings.phoneNumber.trim()));
       }
+      const userEmail = (currentSettings.emailAddress || currentSettings.email || "").trim();
+      if (currentSettings.emailEnabled && userEmail) {
+        tasks.push(
+          sendEmailAlert(message, userEmail, {
+            ticker,
+            entryPrice,
+            target1,
+          })
+        );
+      }
 
       if (tasks.length > 0) {
         await Promise.allSettled(tasks);
@@ -369,7 +442,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
 
       if (evalResult.shouldFire && evalResult.dedupeKey && evalResult.formattedMessage) {
         firedKeysRef.current.add(evalResult.dedupeKey);
-        if (settings.smsEnabled || settings.telegramEnabled) {
+        if (settings.smsEnabled || settings.telegramEnabled || settings.emailEnabled) {
           void dispatchFormattedAlert(evalResult.formattedMessage, settings);
         }
       }

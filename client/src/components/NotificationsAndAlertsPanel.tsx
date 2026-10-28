@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Bell, HelpCircle, MessageCircle, Phone, Send, CheckCircle2, ShieldCheck } from "lucide-react";
+import { Bell, HelpCircle, MessageCircle, Phone, Send, CheckCircle2, ShieldCheck, Mail } from "lucide-react";
 import {
   type OffScreenAlertSettings,
   formatPreEntryAlertMessage,
@@ -73,7 +73,7 @@ export function NotificationsAndAlertsPanel({
               Notifications &amp; Alerts (Off-Screen Pre-Entry)
             </h4>
             <p className="text-[11px] text-slate-400">
-              Proactive SMS (Twilio) &amp; Telegram Bot push notifications before a trade executes so you have time to open Fidelity.
+              Proactive Email (Resend), SMS (Twilio) &amp; Telegram Bot push notifications before a trade executes so you have time to open Fidelity.
             </p>
           </div>
         </div>
@@ -84,7 +84,7 @@ export function NotificationsAndAlertsPanel({
 
       {/* Form Inputs & Independent Toggles */}
       <form onSubmit={handleSave} className="space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {/* 1. SMS Phone Number Input & Toggle */}
           <div className="p-4 rounded-xl border border-white/10 bg-black/40 space-y-3">
             <div className="flex items-center justify-between">
@@ -205,6 +205,63 @@ export function NotificationsAndAlertsPanel({
               }`}
             >
               <strong className="text-sky-300">How to get your Chat ID:</strong> Open Telegram, message your setup bot (or <code className="text-white">@userinfobot</code>) with <code className="text-white">/start</code>, and paste the numeric Chat ID it replies with above.
+            </div>
+          </div>
+
+          {/* 3. Email Address Input & Toggle */}
+          <div className="p-4 rounded-xl border border-white/10 bg-black/40 space-y-3">
+            <div className="flex items-center justify-between">
+              <label
+                htmlFor="input-alert-email"
+                className="flex items-center gap-1.5 font-bold text-slate-200 uppercase tracking-wider text-[11px]"
+              >
+                <Mail className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Email Address</span>
+              </label>
+
+              {/* Email Alerts Toggle Switch */}
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-slate-400">
+                  {settings.emailEnabled ? "EMAIL ON" : "EMAIL OFF"}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={settings.emailEnabled}
+                  aria-label="Enable Email Alerts"
+                  data-testid="toggle-email-alerts"
+                  onClick={() =>
+                    onUpdateSettings({ emailEnabled: !settings.emailEnabled })
+                  }
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                    settings.emailEnabled ? "bg-[#00E676]" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-slate-950 shadow transition duration-200 ease-in-out ${
+                      settings.emailEnabled ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
+
+            <input
+              id="input-alert-email"
+              type="email"
+              data-testid="input-alert-email"
+              value={settings.emailAddress || settings.email || ""}
+              onChange={(e) =>
+                onUpdateSettings({
+                  emailAddress: e.target.value,
+                  email: e.target.value,
+                })
+              }
+              placeholder="trader@example.com"
+              className="w-full px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
+            />
+            <div className="text-[10px] text-slate-400">
+              Format: <code className="text-emerald-300">trader@example.com</code> · Delivered via Resend / SendGrid.
             </div>
           </div>
         </div>

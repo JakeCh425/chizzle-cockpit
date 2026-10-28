@@ -20,6 +20,10 @@ import { storage } from "./storage";
 export {
   formatProximityEarlyWarningMessage,
   sendProximityEarlyWarningAlert,
+  sendPreEntryEmail,
+  formatPreEntryEmailSubject,
+  formatPreEntryEmailHtml,
+  type PreEntryEmailPayload,
 } from "./pre-entry-alerts";
 
 const LIVE_URL = "https://chizzle-cockpit-duyn.onrender.com";
@@ -472,43 +476,7 @@ export async function sendTwilioSmsAlert(
  * Serverless function handler (Vercel / Supabase / AWS Lambda / Express compatible)
  * for dispatching SMS & Telegram Pre-Entry Alerts.
  */
-export async function serverlessPreEntryAlertHandler(req: {
-  body?: {
-    channel?: "sms" | "telegram" | "both";
-    phoneNumber?: string;
-    chatId?: string;
-    message?: string;
-    ticker?: string;
-    entryPrice?: number;
-    target1?: number;
-    context?: string;
-  };
-}): Promise<{ ok: boolean; sms?: any; telegram?: any; message: string }> {
-  const body = req?.body || {};
-  const formattedMessage =
-    body.message ||
-    formatServerPreEntryAlertMessage({
-      ticker: body.ticker || "NVDA",
-      entryPrice: Number(body.entryPrice || 0),
-      target1: Number(body.target1 || 0),
-      context: body.context || "Price within 0.25% of SMA",
-    });
-
-  const channel = body.channel || "both";
-  let smsResult: any = null;
-  let telegramResult: any = null;
-
-  if (channel === "sms" || channel === "both") {
-    smsResult = await sendTwilioSmsAlert(body.phoneNumber || "", formattedMessage);
-  }
-  if (channel === "telegram" || channel === "both") {
-    telegramResult = await sendTelegramAlert(formattedMessage, body.chatId);
-  }
-
-  return {
-    ok: true,
-    sms: smsResult,
-    telegram: telegramResult,
-    message: formattedMessage,
-  };
+export async function serverlessPreEntryAlertHandler(req: any): Promise<any> {
+  const { serverlessPreEntryAlertHandler: handler } = await import("./pre-entry-alerts");
+  return handler(req);
 }

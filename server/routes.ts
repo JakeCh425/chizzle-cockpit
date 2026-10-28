@@ -2439,12 +2439,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
-  // ── Off-Screen Pre-Entry Alerts (Telegram & Twilio SMS Settings + Dispatch) ──
+  // ── Off-Screen Pre-Entry Alerts (Email, Telegram & Twilio SMS Settings + Dispatch) ──
   let savedOffScreenAlertSettings = {
     phoneNumber: "",
     telegramChatId: "",
+    emailAddress: "",
+    email: "",
     smsEnabled: false,
     telegramEnabled: false,
+    emailEnabled: false,
   };
 
   app.get("/api/alerts/offscreen-settings", (_req, res) => {
@@ -2453,11 +2456,21 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
 
   app.post("/api/alerts/offscreen-settings", (req, res) => {
     const body = req.body || {};
+    const emailVal =
+      typeof body.emailAddress === "string"
+        ? body.emailAddress
+        : typeof body.email === "string"
+        ? body.email
+        : savedOffScreenAlertSettings.emailAddress;
+
     savedOffScreenAlertSettings = {
       phoneNumber: typeof body.phoneNumber === "string" ? body.phoneNumber : savedOffScreenAlertSettings.phoneNumber,
       telegramChatId: typeof body.telegramChatId === "string" ? body.telegramChatId : savedOffScreenAlertSettings.telegramChatId,
+      emailAddress: emailVal,
+      email: emailVal,
       smsEnabled: typeof body.smsEnabled === "boolean" ? body.smsEnabled : savedOffScreenAlertSettings.smsEnabled,
       telegramEnabled: typeof body.telegramEnabled === "boolean" ? body.telegramEnabled : savedOffScreenAlertSettings.telegramEnabled,
+      emailEnabled: typeof body.emailEnabled === "boolean" ? body.emailEnabled : savedOffScreenAlertSettings.emailEnabled,
     };
     res.json({ ok: true, settings: savedOffScreenAlertSettings });
   });
@@ -2465,12 +2478,34 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/pre-entry", async (req, res) => {
     try {
       const { serverlessPreEntryAlertHandler } = await import("./alert-dispatcher");
+      const targetEmail = req.body?.email || req.body?.emailAddress || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await serverlessPreEntryAlertHandler({
         body: {
           ...req.body,
           phoneNumber: req.body?.phoneNumber || savedOffScreenAlertSettings.phoneNumber,
           chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
+          email: targetEmail,
+          emailAddress: targetEmail,
+          emailEnabled: typeof req.body?.emailEnabled === "boolean" ? req.body.emailEnabled : savedOffScreenAlertSettings.emailEnabled,
         },
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  app.post("/api/alerts/email", async (req, res) => {
+    try {
+      const { sendPreEntryEmail } = await import("./sendEmailAlert");
+      const userEmail = req.body?.email || req.body?.emailAddress || req.body?.userEmail || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
+      const result = await sendPreEntryEmail({
+        userEmail,
+        ticker: req.body?.ticker || "NVDA",
+        price: req.body?.price ?? req.body?.entryPrice ?? 0,
+        context: req.body?.context || "Price within 0.25% of SMA",
+        plan: req.body?.plan,
+        target1: req.body?.target1,
       });
       res.json(result);
     } catch (e: any) {

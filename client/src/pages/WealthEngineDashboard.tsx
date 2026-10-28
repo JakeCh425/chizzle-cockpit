@@ -2686,7 +2686,7 @@ export default function WealthEngineDashboard() {
     currentPrice,
     entryPrice: entryPriceVal,
     chatId: offScreenAlerts.settings?.telegramChatId,
-    email: undefined,
+    email: offScreenAlerts.settings?.emailEnabled ? (offScreenAlerts.settings?.emailAddress || offScreenAlerts.settings?.email) : undefined,
   });
 
   // TRADE_READY State Logic:
