@@ -1,5 +1,6 @@
 import React, { useState } from "react";
-import { Bell, HelpCircle, MessageCircle, Phone, Send, CheckCircle2, ShieldCheck, Mail } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Bell, HelpCircle, MessageCircle, Phone, Send, CheckCircle2, ShieldCheck, Mail, AlertTriangle, ExternalLink } from "lucide-react";
 import {
   type OffScreenAlertSettings,
   formatPreEntryAlertMessage,
@@ -23,6 +24,17 @@ export function NotificationsAndAlertsPanel({
   target1 = 222.0,
 }: NotificationsAndAlertsPanelProps) {
   const [showTelegramHelp, setShowTelegramHelp] = useState(false);
+
+  const { data: config } = useQuery<{
+    resendConfigured: boolean;
+    twilioConfigured: boolean;
+    telegramConfigured: boolean;
+    resendFromEmail: string;
+    twilioFromNumber: string | null;
+  }>({
+    queryKey: ["/api/alert-config"],
+    refetchInterval: 30000,
+  });
   const [savedBanner, setSavedBanner] = useState(false);
   const [testSending, setTestSending] = useState(false);
 
@@ -94,6 +106,21 @@ export function NotificationsAndAlertsPanel({
         </span>
       </div>
 
+      {/* Provider Credentials Status Warning */}
+      {(!config?.resendConfigured && !config?.telegramConfigured && !config?.twilioConfigured) && (
+        <div className="p-3.5 rounded-xl bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs flex items-start gap-3">
+          <AlertTriangle className="h-5 w-5 text-amber-400 shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-bold text-white uppercase tracking-wider text-[11px] flex items-center gap-1.5">
+              <span>Missing Provider API Keys · Running in Simulation Mode</span>
+            </div>
+            <p className="text-[11px] text-amber-300/90 leading-relaxed font-sans">
+              Alert triggers and deduplication are working, but real messages cannot reach your phone or inbox until provider keys are added to your project's <code className="px-1.5 py-0.5 rounded bg-black/60 text-cyan-300 font-mono font-bold">.env</code> file (e.g. <code className="text-white font-mono">TELEGRAM_BOT_TOKEN</code> or <code className="text-white font-mono">RESEND_API_KEY</code>).
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Form Inputs & Independent Toggles */}
       <form onSubmit={handleSave} className="space-y-4">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -142,8 +169,15 @@ export function NotificationsAndAlertsPanel({
               placeholder="+1 555-555-5555"
               className="w-full px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-cyan-400"
             />
-            <div className="text-[10px] text-slate-400">
-              Format: <code className="text-cyan-300">+1 555-555-5555</code> · Delivered via Twilio SMS SDK.
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>Format: <code className="text-cyan-300">+1 555-555-5555</code></span>
+              <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
+                config?.twilioConfigured
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+              }`}>
+                {config?.twilioConfigured ? "✓ Twilio Connected" : "⚠️ Needs Twilio in .env"}
+              </span>
             </div>
           </div>
 
@@ -229,6 +263,16 @@ export function NotificationsAndAlertsPanel({
               }`}
             >
               <strong className="text-sky-300">How to get your Chat ID:</strong> Open Telegram, message your setup bot (or <code className="text-white">@userinfobot</code>) with <code className="text-white">/start</code>, and paste the numeric Chat ID it replies with above.
+              <div className="mt-2 pt-2 border-t border-white/5 flex items-center justify-between">
+                <span className="text-slate-400">Bot Service Status:</span>
+                <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
+                  config?.telegramConfigured
+                    ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                    : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+                }`}>
+                  {config?.telegramConfigured ? "✓ Bot Token Connected" : "⚠️ Needs TELEGRAM_BOT_TOKEN in .env"}
+                </span>
+              </div>
             </div>
           </div>
 
@@ -284,8 +328,15 @@ export function NotificationsAndAlertsPanel({
               placeholder="trader@example.com"
               className="w-full px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-emerald-400"
             />
-            <div className="text-[10px] text-slate-400">
-              Format: <code className="text-emerald-300">trader@example.com</code> · Delivered via Resend / SendGrid.
+            <div className="flex items-center justify-between text-[10px] text-slate-400">
+              <span>Format: <code className="text-emerald-300">trader@example.com</code></span>
+              <span className={`px-1.5 py-0.5 rounded text-[9.5px] font-bold border ${
+                config?.resendConfigured
+                  ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
+                  : "bg-amber-500/15 text-amber-300 border-amber-500/30"
+              }`}>
+                {config?.resendConfigured ? "✓ Resend Connected" : "⚠️ Needs RESEND_API_KEY in .env"}
+              </span>
             </div>
           </div>
         </div>
