@@ -262,6 +262,7 @@ export function LiveTradingChart({
 
   // Pulses slightly when a new live WebSocket tick comes in
   const [isTickPulsing, setIsTickPulsing] = useState(false);
+  const [isAITipsOpen, setIsAITipsOpen] = useState(false);
   const prevTickPrice = useRef(livePrice);
 
   useEffect(() => {
@@ -1187,6 +1188,23 @@ export function LiveTradingChart({
             onToggle={() => setIsSmaSettingsOpen((p) => !p)}
             onClose={() => setIsSmaSettingsOpen(false)}
           />
+
+          {/* On-Demand AI Actionable Tips Trigger Button */}
+          <button
+            type="button"
+            data-testid="button-toggle-ai-tips"
+            onClick={() => (isAITipsOpen ? setIsAITipsOpen(false) : setIsAITipsOpen(true))}
+            aria-pressed={isAITipsOpen}
+            title="Toggle AI Actionable Tips overlay"
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded border text-xs font-mono font-bold transition-all cursor-pointer shadow-sm ${
+              isAITipsOpen
+                ? "bg-cyan-500/20 text-cyan-300 border-cyan-400/60 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
+                : "bg-slate-800/90 hover:bg-slate-700 border-slate-700 text-slate-300 hover:text-white"
+            }`}
+          >
+            <Sparkles className="h-3.5 w-3.5 text-cyan-400" />
+            <span>💡 AI Tips</span>
+          </button>
 
           {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
           <div className="flex items-center gap-2 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
@@ -2220,48 +2238,74 @@ export function LiveTradingChart({
           </g>
         </svg>
 
-        {/* Sleek, semi-transparent glassmorphic overlay panel: AI Actionable Tips pinned cleanly to bottom-left corner */}
-        <div
-          data-testid="chart-ai-actionable-tips"
-          data-timescale-right-offset={timeScaleConfig.timeScale.rightOffset}
-          data-native-price-lines={nativePriceLines.length}
-          className="absolute bottom-3 left-3 z-10 max-w-xs p-3 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded-lg text-xs text-gray-200 shadow-lg pointer-events-none select-none"
-        >
-          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700/60">
-            <div className="flex items-center gap-1.5">
-              <div className="p-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40">
-                <Sparkles className="h-3 w-3" />
-              </div>
-              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-fuchsia-300">
-                AI Actionable Tips
-              </span>
-            </div>
-            <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
-              {symbol}
-            </span>
-          </div>
+        {/* On-Demand Floating Action Button (FAB) in bottom-right corner when AI Tips is closed */}
+        {!isAITipsOpen && (
+          <button
+            type="button"
+            data-testid="fab-toggle-ai-tips"
+            onClick={() => setIsAITipsOpen(true)}
+            title="Open AI Actionable Tips"
+            className="absolute bottom-3 right-4 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-950/85 hover:bg-gray-900 backdrop-blur-md border border-cyan-900/50 hover:border-cyan-400/60 text-cyan-300 text-xs font-mono font-bold shadow-2xl transition-all cursor-pointer"
+          >
+            <span>✨</span>
+            <span>💡 AI Tips</span>
+          </button>
+        )}
 
-          <div className="space-y-1 font-sans text-[11px]">
-            <div className="flex items-start gap-1.5">
-              <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-200 leading-snug">
-                Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
-              </p>
+        {/* Collapsible On-Demand AI Actionable Tips Overlay (anchored to top-right edge out of center grid) */}
+        {isAITipsOpen && (
+          <div
+            data-testid="chart-ai-actionable-tips"
+            data-timescale-right-offset={timeScaleConfig.timeScale.rightOffset}
+            data-native-price-lines={nativePriceLines.length}
+            className="absolute top-16 right-4 z-50 w-80 p-3.5 bg-gray-950/85 backdrop-blur-md border border-cyan-900/50 shadow-2xl rounded-xl text-xs text-gray-200 select-none"
+          >
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-cyan-900/40">
+              <div className="flex items-center gap-1.5">
+                <div className="p-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">
+                  <Sparkles className="h-3 w-3" />
+                </div>
+                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-cyan-300">
+                  AI Actionable Tips
+                </span>
+                <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+                  {symbol}
+                </span>
+              </div>
+              <button
+                type="button"
+                data-testid="button-close-ai-tips"
+                onClick={() => setIsAITipsOpen(false)}
+                aria-label="Close AI Actionable Tips"
+                title="Dismiss AI Actionable Tips"
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-cyan-800/60 transition-colors cursor-pointer"
+              >
+                [ X ]
+              </button>
             </div>
-            <div className="flex items-start gap-1.5">
-              <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-300 leading-snug">
-                Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
-              </p>
-            </div>
-            <div className="flex items-start gap-1.5">
-              <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-300 leading-snug">
-                Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
-              </p>
+
+            <div className="space-y-1.5 font-sans text-[11px]">
+              <div className="flex items-start gap-1.5">
+                <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-200 leading-snug">
+                  Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
+                </p>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-300 leading-snug">
+                  Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
+                </p>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-300 leading-snug">
+                  Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Consolidated Compact Status Bar Footer (combines 4H Guide & Signal Expired into a single status bar) */}

@@ -74,12 +74,13 @@ describe("Wealth Studio Layout Optimization - Native Y-Axis Binding, Sidebar Col
   });
 
   describe("3. Organize Chart Overlays (Actionable Tips & Consolidated Bottom Guides)", () => {
-    it("pins the AI Actionable Tips box cleanly to the bottom-left corner with semi-transparent glassmorphic background (bg-gray-900/80 backdrop-blur)", () => {
+    it("anchors the AI Actionable Tips box with sleek glassmorphic background (bg-gray-950/85 backdrop-blur-md) and right positioning", () => {
       expect(swingChartSrc).toContain('data-testid="chart-ai-actionable-tips"');
-      expect(swingChartSrc).toContain("bg-gray-900/80 backdrop-blur");
+      expect(swingChartSrc).toContain("bg-gray-950/85 backdrop-blur-md");
+      expect(swingChartSrc).toContain("absolute top-16 right-4 z-50");
       expect(dashboardSrc).toContain('data-testid="chart-ai-actionable-tips"');
-      expect(dashboardSrc).toContain("bottom-3 left-3");
-      expect(dashboardSrc).toContain("bg-gray-900/80 backdrop-blur");
+      expect(dashboardSrc).toContain("bg-gray-950/85 backdrop-blur-md");
+      expect(dashboardSrc).toContain("absolute top-16 right-4 z-50");
     });
 
     it("consolidates the 4H Guide and Signal Expired text strips into a single compact status bar footer below the chart", () => {

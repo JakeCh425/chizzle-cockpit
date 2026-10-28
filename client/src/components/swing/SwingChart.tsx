@@ -238,6 +238,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const [hideDr, setHideDr] = usePersistentState<boolean>("chart-drawings-hidden", false);
   const [textAt, setTextAt] = useState<{ x: number; y: number; pt: DrawingPoint } | null>(null);
   const [textVal, setTextVal] = useState("");
+  const [isAITipsOpen, setIsAITipsOpen] = useState(false);
   const primRef = useRef<DrawingPrimitive | null>(null);
   const draftRef = useRef<{ type: Tool; points: DrawingPoint[] } | null>(null);
   const visDrawings = useMemo(() => dr.list.filter((x) => visibleOn(x, tf)), [dr.list, tf]);
@@ -1222,6 +1223,17 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           <button className={`${btn(indOpen || ind.macd.on || ind.rsi.on || ind.vwap.on)} inline-flex items-center gap-1`} onClick={() => setIndOpen(!indOpen)} aria-expanded={indOpen} data-testid="button-indicators-menu">Indicators +</button>
           {indOpen && <div className="absolute left-0 top-full"><IndicatorsMenu s={ind} set={setInd} bbOn={ov.bb} onBb={(v) => setOv({ ...ov, bb: v })} intraday={intraday} onClose={() => setIndOpen(false)} /></div>}
         </span>
+        <button
+          type="button"
+          data-testid="button-toggle-ai-tips"
+          onClick={() => (isAITipsOpen ? setIsAITipsOpen(false) : setIsAITipsOpen(true))}
+          aria-pressed={isAITipsOpen}
+          title="Toggle AI Actionable Tips overlay"
+          className={`${btn(isAITipsOpen)} inline-flex items-center gap-1 font-bold`}
+        >
+          <span>✨</span>
+          <span>💡 AI Tips</span>
+        </button>
         <span className="w-px h-4 bg-ink-line mx-1" />
         {([["hodlod", "HOD/LOD", "Today's high / low (live in RTH, fixed at the 15:00 CT close)"], ["pdhpdl", "PDH/PDL", "Prior-day high / low"], ["pre", "Pre-market", "Pre-market high / low (extended hours; RTH stays the default)"]] as const).map(([k, label, title]) => (
           <button key={k} className={`${btn(dayOv[k])} inline-flex items-center gap-1`} onClick={() => setDayOv({ [k]: !dayOv[k] })} aria-pressed={dayOv[k]} title={title} data-testid={`toggle-day-${k}`}>
@@ -1350,46 +1362,72 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
 
-        {/* Sleek, semi-transparent glassmorphic overlay panel: AI Actionable Tips pinned cleanly to bottom-left corner */}
-        <div
-          data-testid="chart-ai-actionable-tips"
-          className="absolute bottom-3 left-3 z-10 max-w-xs p-3 bg-gray-900/80 backdrop-blur border border-gray-700/80 rounded-lg text-xs text-gray-200 shadow-lg pointer-events-none select-none"
-        >
-          <div className="flex items-center justify-between pb-1.5 mb-1.5 border-b border-gray-700/60">
-            <div className="flex items-center gap-1.5">
-              <span className="p-0.5 rounded bg-fuchsia-500/20 text-fuchsia-400 border border-fuchsia-400/40 text-[10px]">
-                ✨
-              </span>
-              <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-fuchsia-300">
-                AI Actionable Tips
-              </span>
-            </div>
-            <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
-              {ticker}
-            </span>
-          </div>
+        {/* On-Demand Floating Action Button (FAB) in bottom-right corner when AI Tips is closed */}
+        {!isAITipsOpen && (
+          <button
+            type="button"
+            data-testid="fab-toggle-ai-tips"
+            onClick={() => setIsAITipsOpen(true)}
+            title="Open AI Actionable Tips"
+            className="absolute bottom-3 right-4 z-30 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-950/85 hover:bg-gray-900 backdrop-blur-md border border-cyan-900/50 hover:border-cyan-400/60 text-cyan-300 text-xs font-mono font-bold shadow-2xl transition-all cursor-pointer"
+          >
+            <span>✨</span>
+            <span>💡 AI Tips</span>
+          </button>
+        )}
 
-          <div className="space-y-1 font-sans text-[11px]">
-            <div className="flex items-start gap-1.5">
-              <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-200 leading-snug">
-                Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
-              </p>
+        {/* Collapsible On-Demand AI Actionable Tips Overlay (anchored to top-right edge out of center grid) */}
+        {isAITipsOpen && (
+          <div
+            data-testid="chart-ai-actionable-tips"
+            className="absolute top-16 right-4 z-50 w-80 p-3.5 bg-gray-950/85 backdrop-blur-md border border-cyan-900/50 shadow-2xl rounded-xl text-xs text-gray-200 select-none"
+          >
+            <div className="flex items-center justify-between pb-2 mb-2 border-b border-cyan-900/40">
+              <div className="flex items-center gap-1.5">
+                <span className="p-0.5 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 text-[10px]">
+                  ✨
+                </span>
+                <span className="font-mono text-[11px] font-bold uppercase tracking-wider text-cyan-300">
+                  AI Actionable Tips
+                </span>
+                <span className="text-[9.5px] font-mono uppercase px-1.5 py-0.5 rounded bg-white/10 text-slate-400">
+                  {ticker}
+                </span>
+              </div>
+              <button
+                type="button"
+                data-testid="button-close-ai-tips"
+                onClick={() => setIsAITipsOpen(false)}
+                aria-label="Close AI Actionable Tips"
+                title="Dismiss AI Actionable Tips"
+                className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold text-slate-400 hover:text-white hover:bg-white/10 border border-transparent hover:border-cyan-800/60 transition-colors cursor-pointer"
+              >
+                [ X ]
+              </button>
             </div>
-            <div className="flex items-start gap-1.5">
-              <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-300 leading-snug">
-                Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
-              </p>
-            </div>
-            <div className="flex items-start gap-1.5">
-              <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
-              <p className="text-slate-300 leading-snug">
-                Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
-              </p>
+
+            <div className="space-y-1.5 font-sans text-[11px]">
+              <div className="flex items-start gap-1.5">
+                <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-200 leading-snug">
+                  Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
+                </p>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-300 leading-snug">
+                  Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
+                </p>
+              </div>
+              <div className="flex items-start gap-1.5">
+                <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                <p className="text-slate-300 leading-snug">
+                  Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
+                </p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Floating Fidelity Execution Guide Modal Overlay (outside overflow-hidden chart grid) */}
