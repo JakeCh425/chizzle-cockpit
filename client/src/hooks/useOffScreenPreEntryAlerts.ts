@@ -53,12 +53,12 @@ export interface OffScreenAlertSettings {
 
 export const DEFAULT_OFFSCREEN_ALERT_SETTINGS: OffScreenAlertSettings = {
   phoneNumber: "",
-  telegramChatId: "",
-  emailAddress: "",
-  email: "",
+  telegramChatId: "7864955612",
+  emailAddress: "jakechairez@gmail.com",
+  email: "jakechairez@gmail.com",
   smsEnabled: false,
-  telegramEnabled: false,
-  emailEnabled: false,
+  telegramEnabled: true,
+  emailEnabled: true,
 };
 
 export type PreEntryTriggerContext =

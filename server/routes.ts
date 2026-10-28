@@ -2442,12 +2442,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Off-Screen Pre-Entry Alerts (Email, Telegram & Twilio SMS Settings + Dispatch) ──
   let savedOffScreenAlertSettings = {
     phoneNumber: "",
-    telegramChatId: "",
-    emailAddress: "",
-    email: "",
+    telegramChatId: process.env.TELEGRAM_CHAT_ID || "7864955612",
+    emailAddress: process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com",
+    email: process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com",
     smsEnabled: false,
-    telegramEnabled: false,
-    emailEnabled: false,
+    telegramEnabled: true,
+    emailEnabled: true,
   };
 
   app.get("/api/alerts/offscreen-settings", (_req, res) => {
