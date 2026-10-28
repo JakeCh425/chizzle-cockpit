@@ -88,6 +88,15 @@ export function formatPreEntryEmailHtml(params: {
   return { html, text, subject };
 }
 
+const serverFiredAlerts = new Set<string>();
+
+/**
+ * Resets the in-memory execution lock (used in unit tests / explicit reset).
+ */
+export function clearEmailAlertDeduplicationCache(): void {
+  serverFiredAlerts.clear();
+}
+
 /**
  * Server-side email utility:
  * async function sendPreEntryEmail(userEmail, ticker, price, context, plan)
@@ -148,6 +157,25 @@ export async function sendPreEntryEmail(
       message: text,
     };
   }
+
+  // Strict execution lock (debounce/cache) per active setup
+  const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
+  const formattedPrice = formatPriceString(price);
+  const alertType = (userEmailOrPayload as any)?.alertType || "PRE_ENTRY";
+  const setupId = (userEmailOrPayload as any)?.setupId || formattedPrice;
+  const alertKey = `${cleanTicker}-${setupId}-${alertType}`;
+
+  if (serverFiredAlerts.has(alertKey)) {
+    return {
+      ok: true,
+      status: "stubbed",
+      error: `Duplicate alert suppressed by deduplication lock for key ${alertKey}`,
+      subject,
+      html,
+      message: text,
+    };
+  }
+  serverFiredAlerts.add(alertKey);
 
   // Check transactional provider (Resend or SendGrid)
   const resendApiKey = process.env.RESEND_API_KEY;
@@ -263,3 +291,4 @@ export async function sendPreEntryEmail(
     message: text,
   };
 }
+

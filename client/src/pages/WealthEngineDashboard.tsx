@@ -2672,21 +2672,26 @@ export default function WealthEngineDashboard() {
   });
 
   // Off-Screen Pre-Entry Alerts (Telegram & SMS Notifications — Proximity <= 0.25% OR Time-Based :57 when FORMING)
+  const activeSetupIdentifier = activeTickerData?.id ?? activeItem?.id ?? entryPriceVal;
+
   const offScreenAlerts = useOffScreenPreEntryAlerts({
     ticker: activeTicker,
     currentPrice,
     entryPrice: entryPriceVal,
     target1: t1Val,
+    setupId: activeSetupIdentifier,
     status: activeTickerData?.status ?? activeItem?.status ?? (isSetupForming ? "FORMING" : "Ready"),
   });
 
   // Proximity Early-Warning Notification Engine (Telegram & Email when price within 0.3% of Entry: alertThreshold = entryPrice * 1.003)
+  // Deduplication lock: useOffScreenPreEntryAlerts handles the primary pre-entry alert (Telegram/SMS/Email).
+  // Suppress email on proximityAlert to prevent duplicate emails for the same active setup.
   const proximityAlert = useProximityAlert({
     ticker: activeTicker,
     currentPrice,
     entryPrice: entryPriceVal,
     chatId: offScreenAlerts.settings?.telegramChatId,
-    email: offScreenAlerts.settings?.emailEnabled ? (offScreenAlerts.settings?.emailAddress || offScreenAlerts.settings?.email) : undefined,
+    email: undefined,
   });
 
   // TRADE_READY State Logic:

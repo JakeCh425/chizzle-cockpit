@@ -44,12 +44,19 @@ export async function sendTelegramAlert(
   botToken?: string
 ): Promise<{ ok: boolean; error?: string; status: "sent" | "stubbed" | "failed" }> {
   const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
-  const targetChatId = chatId || process.env.TELEGRAM_CHAT_ID;
+  const targetChatId = (chatId || process.env.TELEGRAM_CHAT_ID || "").trim();
   if (!token || !targetChatId) {
     return {
       ok: true,
       error: "TELEGRAM_BOT_TOKEN or chatId not configured (stubbed)",
       status: "stubbed",
+    };
+  }
+  if (!/^-?\d+$/.test(targetChatId)) {
+    return {
+      ok: false,
+      error: "Invalid ID. Must be a numeric Chat ID (e.g., 123456789). Use @userinfobot on Telegram to find it.",
+      status: "failed",
     };
   }
 
@@ -79,11 +86,12 @@ export async function sendTwilioSmsAlert(
   toPhoneNumber: string,
   message: string
 ): Promise<{ ok: boolean; error?: string; status: "sent" | "stubbed" | "failed" }> {
+  const sanitizedPhone = toPhoneNumber.replace(/[^\d+]/g, "");
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
 
-  if (!sid || !token || !from || !toPhoneNumber) {
+  if (!sid || !token || !from || !sanitizedPhone) {
     return {
       ok: true,
       error: "Twilio credentials or destination phone number not configured (stubbed)",
@@ -93,7 +101,7 @@ export async function sendTwilioSmsAlert(
 
   try {
     const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-    const body = new URLSearchParams({ To: toPhoneNumber, From: from, Body: message });
+    const body = new URLSearchParams({ To: sanitizedPhone, From: from, Body: message });
     const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
       method: "POST",
       headers: {

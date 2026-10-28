@@ -40,9 +40,21 @@ export function NotificationsAndAlertsPanel({
     context: "3 mins to 1H Close",
   });
 
+  const telegramChatIdTrimmed = (settings.telegramChatId || "").trim();
+  const hasTelegramLetters =
+    /[a-zA-Z]/.test(telegramChatIdTrimmed) ||
+    (!/^-?\d*$/.test(telegramChatIdTrimmed) && telegramChatIdTrimmed.length > 0);
+
   const handleSave = (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateSettings(settings);
+    if (hasTelegramLetters) {
+      return; // Prevent saving if this field contains letters!
+    }
+    const sanitizedPhone = (settings.phoneNumber || "").replace(/[^\d+]/g, "");
+    onUpdateSettings({
+      ...settings,
+      phoneNumber: sanitizedPhone,
+    });
     setSavedBanner(true);
     setTimeout(() => setSavedBanner(false), 3000);
   };
@@ -192,8 +204,20 @@ export function NotificationsAndAlertsPanel({
               value={settings.telegramChatId}
               onChange={(e) => onUpdateSettings({ telegramChatId: e.target.value })}
               placeholder="e.g. 123456789"
-              className="w-full px-3 py-2 rounded-lg bg-slate-900/90 border border-slate-700 text-white font-mono text-xs focus:outline-none focus:border-sky-400"
+              className={`w-full px-3 py-2 rounded-lg bg-slate-900/90 border ${
+                hasTelegramLetters ? "border-rose-500 focus:border-rose-400" : "border-slate-700 focus:border-sky-400"
+              } text-white font-mono text-xs focus:outline-none`}
             />
+
+            {/* Error Message when user enters letters / invalid characters */}
+            {hasTelegramLetters && (
+              <div
+                className="p-2 rounded-lg bg-rose-950/70 border border-rose-500/60 text-rose-300 text-[10.5px] leading-tight font-sans font-medium"
+                data-testid="error-telegram-chat-id"
+              >
+                Invalid ID. Must be a numeric Chat ID (e.g., 123456789). Use @userinfobot on Telegram to find it.
+              </div>
+            )}
 
             {/* Tooltip / Helper Box explaining how to get Chat ID from setup bot */}
             <div
@@ -313,8 +337,13 @@ export function NotificationsAndAlertsPanel({
           <div className="flex items-center gap-2">
             <button
               type="submit"
+              disabled={hasTelegramLetters}
               data-testid="button-save-offscreen-alert-settings"
-              className="px-4 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold uppercase tracking-wider text-xs transition-all cursor-pointer shadow-md"
+              className={`px-4 py-2 rounded-xl ${
+                hasTelegramLetters
+                  ? "bg-slate-700 text-slate-400 cursor-not-allowed opacity-50"
+                  : "bg-cyan-500 hover:bg-cyan-400 text-slate-950 cursor-pointer shadow-md"
+              } font-bold uppercase tracking-wider text-xs transition-all`}
             >
               Save Notification Settings
             </button>

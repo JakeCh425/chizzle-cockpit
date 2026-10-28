@@ -1,6 +1,39 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
 
+/**
+ * Sanitizes an SMS phone number for Twilio (E.164 format):
+ * Strips all non-numeric characters (except the leading +).
+ * Example: "+1 417-483-1318" -> "+14174831318"
+ */
+export function sanitizePhoneNumber(rawPhone: string | undefined | null): string {
+  if (!rawPhone) return "";
+  return rawPhone.replace(/[^\d+]/g, "");
+}
+
+/**
+ * Validates whether a Telegram Chat ID consists strictly of numbers (and optional leading - for group chats).
+ */
+export function isValidTelegramChatId(chatId: string | undefined | null): boolean {
+  if (!chatId || !chatId.trim()) return true;
+  return /^-?\d+$/.test(chatId.trim());
+}
+
+/**
+ * Creates a unique alert key for strict execution locking:
+ * `${ticker}-${setupId}-${alertType}`
+ */
+export function createAlertDedupeKey(
+  ticker: string,
+  setupId: string | number,
+  alertType: string
+): string {
+  const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
+  const cleanSetupId = String(setupId || "ACTIVE").trim();
+  const cleanType = (alertType || "PRE_ENTRY").trim().toUpperCase();
+  return `${cleanTicker}-${cleanSetupId}-${cleanType}`;
+}
+
 export const STORAGE_KEY_OFFSCREEN_ALERTS = "chizzle-offscreen-alert-settings";
 export const OFFSCREEN_ALERT_SETTINGS_KEY = STORAGE_KEY_OFFSCREEN_ALERTS;
 export const PROXIMITY_THRESHOLD_PCT = 0.25;
@@ -45,6 +78,7 @@ export interface PreEntryTriggerInput {
   currentPrice: number;
   entryPrice: number;
   target1: number;
+  setupId?: string | number;
   status?: string;
   now?: Date | number;
   alreadyFiredKeys?: Set<string>;
@@ -301,12 +335,13 @@ export async function sendSmsAlert(
   fetchImpl: typeof fetch = fetch
 ): Promise<{ ok: boolean; error?: string }> {
   try {
+    const sanitizedPhone = sanitizePhoneNumber(phoneNumber);
     const res = await fetchImpl("/api/alerts/pre-entry", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         channel: "sms",
-        phoneNumber,
+        phoneNumber: sanitizedPhone,
         message,
       }),
     });
@@ -376,14 +411,16 @@ export interface UseOffScreenPreEntryAlertsInput {
 }
 
 export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInput) {
-  const { ticker, currentPrice, entryPrice, target1, status } = input;
+  const { ticker, currentPrice, entryPrice, target1, setupId, status } = input;
   const { toast } = useToast();
 
   const [settings, setSettings] = useState<OffScreenAlertSettings>(() =>
     loadOffScreenAlertSettings()
   );
   const [lastDispatchedMessage, setLastDispatchedMessage] = useState<string | null>(null);
-  const firedKeysRef = useRef<Set<string>>(new Set());
+
+  // Strict execution lock (debounce/cache) per active setup
+  const firedAlerts = useRef<Set<string>>(new Set());
 
   const updateSettings = useCallback((patch: Partial<OffScreenAlertSettings>) => {
     setSettings((prev) => {
@@ -394,15 +431,33 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
   }, []);
 
   const dispatchFormattedAlert = useCallback(
-    async (message: string, currentSettings: OffScreenAlertSettings) => {
+    async (
+      message: string,
+      currentSettings: OffScreenAlertSettings,
+      alertType: string = "PROXIMITY"
+    ) => {
+      const effectiveSetupId = setupId ?? entryPrice.toFixed(2);
+      const alertKey = createAlertDedupeKey(ticker, effectiveSetupId, alertType);
+
+      if (firedAlerts.current.has(alertKey)) {
+        return; // Already fired, abort.
+      }
+      firedAlerts.current.add(alertKey);
+
       setLastDispatchedMessage(message);
 
       const tasks: Promise<any>[] = [];
       if (currentSettings.telegramEnabled && currentSettings.telegramChatId.trim()) {
-        tasks.push(sendTelegramAlert(message, currentSettings.telegramChatId.trim()));
+        const cleanChatId = currentSettings.telegramChatId.trim();
+        if (isValidTelegramChatId(cleanChatId)) {
+          tasks.push(sendTelegramAlert(message, cleanChatId));
+        }
       }
       if (currentSettings.smsEnabled && currentSettings.phoneNumber.trim()) {
-        tasks.push(sendSmsAlert(message, currentSettings.phoneNumber.trim()));
+        const cleanPhone = sanitizePhoneNumber(currentSettings.phoneNumber);
+        if (cleanPhone) {
+          tasks.push(sendSmsAlert(message, cleanPhone));
+        }
       }
       const userEmail = (currentSettings.emailAddress || currentSettings.email || "").trim();
       if (currentSettings.emailEnabled && userEmail) {
@@ -411,6 +466,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
             ticker,
             entryPrice,
             target1,
+            plan: `Limit BUY at $${Number(entryPrice).toFixed(2)}. Scale 50% at $${Number(target1).toFixed(2)}.`,
           })
         );
       }
@@ -424,7 +480,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
         description: message,
       });
     },
-    [ticker, toast]
+    [ticker, entryPrice, target1, setupId, toast]
   );
 
   // Evaluate triggers on live price updates & 1H clock ticks
@@ -437,13 +493,19 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
         target1,
         status,
         now: new Date(),
-        alreadyFiredKeys: firedKeysRef.current,
+        alreadyFiredKeys: firedAlerts.current,
       });
 
-      if (evalResult.shouldFire && evalResult.dedupeKey && evalResult.formattedMessage) {
-        firedKeysRef.current.add(evalResult.dedupeKey);
+      if (evalResult.shouldFire && evalResult.formattedMessage && evalResult.triggerType) {
+        const alertType = evalResult.triggerType === "TIME_3MIN_BEFORE_CLOSE" ? "TIME_3MIN" : "PROXIMITY";
+        const effectiveSetupId = setupId ?? entryPrice.toFixed(2);
+        const alertKey = createAlertDedupeKey(ticker, effectiveSetupId, alertType);
+
+        if (firedAlerts.current.has(alertKey)) return; // Already fired, abort.
+        firedAlerts.current.add(alertKey);
+
         if (settings.smsEnabled || settings.telegramEnabled || settings.emailEnabled) {
-          void dispatchFormattedAlert(evalResult.formattedMessage, settings);
+          void dispatchFormattedAlert(evalResult.formattedMessage, settings, alertType);
         }
       }
     };
@@ -451,7 +513,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     checkTriggers();
     const interval = setInterval(checkTriggers, 10000);
     return () => clearInterval(interval);
-  }, [ticker, currentPrice, entryPrice, target1, status, settings, dispatchFormattedAlert]);
+  }, [ticker, currentPrice, entryPrice, target1, setupId, status, settings, dispatchFormattedAlert]);
 
   const sendTestPreEntryAlert = useCallback(async () => {
     const msg = formatPreEntryAlertMessage({
