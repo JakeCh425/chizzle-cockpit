@@ -2478,6 +2478,23 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Proximity Early-Warning Alert (Telegram & Email when price within 0.3% of Entry) ──
+  app.post("/api/alerts/proximity", async (req, res) => {
+    try {
+      const { sendProximityEarlyWarningAlert } = await import("./pre-entry-alerts");
+      const result = await sendProximityEarlyWarningAlert({
+        ticker: req.body?.ticker || "NVDA",
+        entryPrice: Number(req.body?.entryPrice || 0),
+        currentPrice: Number(req.body?.currentPrice || 0),
+        chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
+        email: req.body?.email || process.env.USER_ALERT_EMAIL,
+      });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   // ── reset ─────────────────────────────────────────────────────
   app.post("/api/reset", async (_req, res) => {
     try { await storage.resetAll(); res.json({ ok: true }); } catch (e: any) { res.status(500).json({ error: e.message }); }

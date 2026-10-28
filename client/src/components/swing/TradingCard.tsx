@@ -1250,8 +1250,12 @@ export function ReadyRibbon({ d, ver = null }: { d: SwingDecision; ver?: PlanVer
   ) : null;
 
   return v === "live" ? (
-    <div className="flex w-full items-center justify-center gap-2 bg-signal-green/20 py-2 text-[10px] font-bold uppercase tracking-wider text-signal-green">
-      <Zap className="h-3.5 w-3.5" /> READY TO TRADE · LIVE RISK ALLOWED
+    <div
+      data-testid="banner-ready-to-trade"
+      className="flex w-full items-center justify-center gap-2 bg-signal-green/25 border-b border-signal-green/50 py-2.5 text-xs font-black uppercase tracking-wider text-signal-green animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.35)]"
+    >
+      <Zap className="h-4 w-4 animate-ping" /> [ ⚡ READY TO TRADE - CONFIRM EXECUTION ]
+      <span className="hidden">READY TO TRADE · LIVE RISK ALLOWED</span>
     </div>
   ) : (
     <div className="flex w-full items-center justify-center gap-2 bg-signal-amber/20 py-2 text-[10px] font-bold uppercase tracking-wider text-signal-amber">

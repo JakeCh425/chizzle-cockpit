@@ -30,10 +30,12 @@ export interface EntryChaseEvaluation {
   entryPrice: number;
   currentPrice: number;
   maxEntryTolerance: number;
+  maxChaseBuffer: number;
   maxAllowedEntryPrice: number;
   isWithinChaseBuffer: boolean;
   isEntryMissed: boolean;
   chaseStatusBadge: "[ GREEN / READY TO ARM ]" | "[ ENTRY MISSED - DO NOT CHASE ]";
+  notTradeableReason: string | null;
   primaryActionLabel: "Arm Trade" | "[ SET PULLBACK LIMIT ]";
   isMarketExecutionDisabled: boolean;
   pullbackLimitPrice: number;
@@ -44,8 +46,10 @@ export interface TradeReadinessResult {
   smaSupportHeld: boolean;
   volumeBenchmarkPassed: boolean;
   isTradeConfirmed: boolean;
+  isTradeReady: boolean;
   isWithinChaseBuffer: boolean;
   isEntryMissed: boolean;
+  maxChaseBuffer: number;
   maxEntryTolerance: number;
   maxAllowedEntryPrice: number;
   chaseStatusBadge: "[ GREEN / READY TO ARM ]" | "[ ENTRY MISSED - DO NOT CHASE ]";
@@ -62,11 +66,31 @@ export interface TradeReadinessResult {
 
 export const TRADE_LOCKED_TOOLTIP = "Trade locked. Awaiting Cockpit 1H candle confirmation.";
 export const TRADE_CONFIRMED_BADGE = "[ ⚡ ALL RULES MET — READY TO ARM ]";
+export const TRADE_READY_BANNER_TEXT = "[ ⚡ READY TO TRADE - CONFIRM EXECUTION ]";
 export const TRADE_PENDING_BADGE = "[ 🔒 CONFIRMATION PENDING: AWAITING 1H GREEN CLOSE ]";
 export const TRADE_READY_TO_ARM_BADGE = "[ GREEN / READY TO ARM ]";
 export const TRADE_ENTRY_MISSED_BADGE = "[ ENTRY MISSED - DO NOT CHASE ]";
+export const TRADE_NOT_TRADEABLE_ENTRY_MISSED_BADGE = "NOT TRADEABLE YET - ENTRY MISSED";
 export const ENTRY_MISSED_RETEST_WARNING = "ENTRY MISSED, WAIT FOR RETEST";
 export const SET_PULLBACK_LIMIT_LABEL = "[ SET PULLBACK LIMIT ]";
+
+/**
+ * Computes maxChaseBuffer equal to 0.20% of the asset's price or 15% of the asset's ATR:
+ * maxChaseBuffer = Math.max(0.0020 * basePrice, 0.15 * atr)
+ */
+export function calculateMaxChaseBuffer(params: {
+  entryPrice: number;
+  currentPrice?: number;
+  atr?: number;
+}): number {
+  const { entryPrice, currentPrice = 0, atr } = params || {};
+  const basePrice = entryPrice > 0 ? entryPrice : currentPrice;
+  if (!Number.isFinite(basePrice) || basePrice <= 0) return 0;
+
+  const pctBuffer = basePrice * 0.002; // 0.20% of asset price
+  const atrBuffer = atr != null && Number.isFinite(atr) && atr > 0 ? atr * 0.15 : 0; // 15% of asset ATR
+  return +(Math.max(pctBuffer, atrBuffer)).toFixed(4);
+}
 
 /**
  * Computes the Max Chase Proximity Buffer (`maxEntryTolerance`) tied to the asset's ATR
@@ -98,7 +122,7 @@ export function calculateMaxEntryTolerance(params: {
 /**
  * Evaluates whether currentPrice is within the Max Chase Proximity Buffer:
  * - If currentPrice <= entryPrice + maxEntryTolerance -> [ GREEN / READY TO ARM ]
- * - If currentPrice > entryPrice + maxEntryTolerance  -> [ ENTRY MISSED - DO NOT CHASE ] (disables market execution, enables [ SET PULLBACK LIMIT ])
+ * - If currentPrice > entryPrice + maxEntryTolerance  -> [ ENTRY MISSED - DO NOT CHASE ] / NOT TRADEABLE YET - ENTRY MISSED
  */
 export function evaluateEntryChaseStatus(params: {
   entryPrice: number;
@@ -108,10 +132,11 @@ export function evaluateEntryChaseStatus(params: {
   tolerancePct?: number;
 }): EntryChaseEvaluation {
   const { entryPrice, currentPrice, atr, tolerancePct = 0.0025 } = params;
+  const maxChaseBuffer = calculateMaxChaseBuffer({ entryPrice, currentPrice, atr });
   const maxEntryTolerance =
     params.maxEntryTolerance != null && Number.isFinite(params.maxEntryTolerance)
       ? params.maxEntryTolerance
-      : calculateMaxEntryTolerance({ entryPrice, currentPrice, atr, tolerancePct });
+      : Math.max(calculateMaxEntryTolerance({ entryPrice, currentPrice, atr, tolerancePct }), maxChaseBuffer);
 
   const maxAllowedEntryPrice = +(entryPrice + maxEntryTolerance).toFixed(4);
   const isWithinChaseBuffer = entryPrice <= 0 || currentPrice <= entryPrice + maxEntryTolerance + 1e-9;
@@ -121,10 +146,12 @@ export function evaluateEntryChaseStatus(params: {
     entryPrice,
     currentPrice,
     maxEntryTolerance,
+    maxChaseBuffer,
     maxAllowedEntryPrice,
     isWithinChaseBuffer,
     isEntryMissed,
     chaseStatusBadge: isEntryMissed ? TRADE_ENTRY_MISSED_BADGE : TRADE_READY_TO_ARM_BADGE,
+    notTradeableReason: isEntryMissed ? TRADE_NOT_TRADEABLE_ENTRY_MISSED_BADGE : null,
     primaryActionLabel: isEntryMissed ? SET_PULLBACK_LIMIT_LABEL : "Arm Trade",
     isMarketExecutionDisabled: isEntryMissed,
     pullbackLimitPrice: +(entryPrice > 0 ? entryPrice : currentPrice).toFixed(2),
@@ -213,6 +240,7 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
     volumeBenchmarkPassed === true;
 
   const isTradeConfirmed = rulesMet && isWithinChaseBuffer;
+  const isTradeReady = isTradeConfirmed && isWithinChaseBuffer;
 
   const statusBadge = isEntryMissed
     ? {
@@ -235,7 +263,7 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
       };
 
   const lockMessage = isEntryMissed
-    ? "Entry missed — price exceeded Max Chase tolerance. Market execution disabled; use [ SET PULLBACK LIMIT ] to stage a limit buy at original 20-SMA support."
+    ? "NOT TRADEABLE YET - ENTRY MISSED. Price escaped beyond Max Chase tolerance. Market execution disabled; use [ SET PULLBACK LIMIT ] to stage a limit buy at original 20-SMA support."
     : !isTradeConfirmed
     ? TRADE_LOCKED_TOOLTIP
     : "All rules met. Ready to arm practice trade.";
@@ -272,8 +300,10 @@ export function evaluateTradeReadiness(input: TradeReadinessInput): TradeReadine
     smaSupportHeld,
     volumeBenchmarkPassed,
     isTradeConfirmed,
+    isTradeReady,
     isWithinChaseBuffer,
     isEntryMissed,
+    maxChaseBuffer: chaseEval.maxChaseBuffer,
     maxEntryTolerance: chaseEval.maxEntryTolerance,
     maxAllowedEntryPrice: chaseEval.maxAllowedEntryPrice,
     chaseStatusBadge: isEntryMissed ? TRADE_ENTRY_MISSED_BADGE : TRADE_READY_TO_ARM_BADGE,

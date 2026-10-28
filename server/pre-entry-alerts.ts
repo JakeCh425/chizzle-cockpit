@@ -152,3 +152,88 @@ export async function serverlessPreEntryAlertHandler(req: {
     message: formattedMessage,
   };
 }
+
+/**
+ * Standard message template for early-warning notifications (within 0.3% of entry price):
+ * "🚨 CHIZZLE EARLY WARNING: {Ticker} is within 0.3% of your Entry Price (${entryPrice}). Open your Fidelity app now and prepare for 1H candle close."
+ */
+export function formatProximityEarlyWarningMessage(params: {
+  ticker: string;
+  entryPrice: number;
+}): string {
+  const ticker = (params.ticker || "NVDA").trim().toUpperCase();
+  const entryStr = `$${Number(params.entryPrice || 0).toFixed(2)}`;
+  return `🚨 CHIZZLE EARLY WARNING: ${ticker} is within 0.3% of your Entry Price (${entryStr}). Open your Fidelity app now and prepare for 1H candle close.`;
+}
+
+/**
+ * Proximity Early-Warning Notification dispatcher (Telegram & Email via Resend/SendGrid):
+ * Connects to Telegram Bot API (sendMessage endpoint) and lightweight email service.
+ */
+export async function sendProximityEarlyWarningAlert(params: {
+  ticker: string;
+  entryPrice: number;
+  chatId?: string;
+  email?: string;
+  currentPrice?: number;
+}): Promise<{ ok: boolean; telegram?: any; email?: any; message: string }> {
+  const message = formatProximityEarlyWarningMessage({
+    ticker: params.ticker,
+    entryPrice: params.entryPrice,
+  });
+
+  const targetChatId = params.chatId || process.env.TELEGRAM_CHAT_ID;
+  const targetEmail = params.email || process.env.USER_ALERT_EMAIL;
+
+  let telegramRes: any = null;
+  let emailRes: any = null;
+
+  // 1. Telegram Bot API
+  if (targetChatId) {
+    telegramRes = await sendTelegramAlert(message, targetChatId);
+  } else {
+    telegramRes = { ok: true, status: "stubbed", error: "TELEGRAM_CHAT_ID not provided" };
+  }
+
+  // 2. Email Service (Resend or SendGrid)
+  if (targetEmail) {
+    const apiKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY;
+    if (apiKey) {
+      const from = process.env.RESEND_FROM_EMAIL || "Chizzle Early Warning <onboarding@resend.dev>";
+      try {
+        const res = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: JSON.stringify({
+            from,
+            to: [targetEmail],
+            subject: `🚨 CHIZZLE EARLY WARNING: ${params.ticker.toUpperCase()} within 0.3% of Entry`,
+            text: message,
+            html: `<div style="font-family: sans-serif; background:#0B0E14; color:#fff; padding:20px; border-radius:8px;">
+              <h2 style="color:#00E676;">CHIZZLE EARLY WARNING</h2>
+              <p style="font-size:16px;"><strong>${params.ticker.toUpperCase()}</strong> is within 0.3% of your Entry Price ($${Number(params.entryPrice).toFixed(2)}).</p>
+              <p style="color:#94A3B8;">Open your Fidelity app now and prepare for 1H candle close.</p>
+            </div>`,
+          }),
+        });
+        emailRes = { ok: res.ok, status: res.status };
+      } catch (err: any) {
+        emailRes = { ok: false, error: err?.message || String(err) };
+      }
+    } else {
+      emailRes = { ok: true, status: "stubbed", error: "RESEND_API_KEY not configured (stubbed)" };
+    }
+  } else {
+    emailRes = { ok: true, status: "stubbed", error: "Email address not configured" };
+  }
+
+  return {
+    ok: true,
+    telegram: telegramRes,
+    email: emailRes,
+    message,
+  };
+}

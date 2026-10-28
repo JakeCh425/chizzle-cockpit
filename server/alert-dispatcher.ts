@@ -17,6 +17,10 @@
  *   - resolveTelegramChatIds()       // helper to look up chat IDs via getUpdates
  */
 import { storage } from "./storage";
+export {
+  formatProximityEarlyWarningMessage,
+  sendProximityEarlyWarningAlert,
+} from "./pre-entry-alerts";
 
 const LIVE_URL = "https://chizzle-cockpit-duyn.onrender.com";
 

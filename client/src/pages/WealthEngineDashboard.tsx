@@ -27,6 +27,7 @@ import {
 import { useCandleSetupConfirmation, type CandleData } from "@/hooks/useCandleSetupConfirmation";
 import { usePreCloseAlert, PRE_CLOSE_ALERT_MESSAGE } from "@/hooks/usePreCloseAlert";
 import { useOffScreenPreEntryAlerts } from "@/hooks/useOffScreenPreEntryAlerts";
+import { useProximityAlert } from "@/hooks/useProximityAlert";
 import { NotificationsAndAlertsPanel } from "@/components/NotificationsAndAlertsPanel";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
@@ -2638,7 +2639,6 @@ export default function WealthEngineDashboard() {
     pullbackLimitPrice,
     checks: confirmationChecks,
   } = tradeReadiness;
-  const isSetupReady = isTradeConfirmed;
 
   // Automated "Retest" Limit Orders (The Pullback Method)
   const [stagedPullbackOrders, setStagedPullbackOrders] = useState<Record<string, number>>({});
@@ -2679,6 +2679,24 @@ export default function WealthEngineDashboard() {
     target1: t1Val,
     status: activeTickerData?.status ?? activeItem?.status ?? (isSetupForming ? "FORMING" : "Ready"),
   });
+
+  // Proximity Early-Warning Notification Engine (Telegram & Email when price within 0.3% of Entry: alertThreshold = entryPrice * 1.003)
+  const proximityAlert = useProximityAlert({
+    ticker: activeTicker,
+    currentPrice,
+    entryPrice: entryPriceVal,
+    chatId: offScreenAlerts.settings?.telegramChatId,
+    email: undefined,
+  });
+
+  // TRADE_READY State Logic:
+  // When top of the hour strikes AND candle closes green above SMA support (or setup status is Ready)
+  const isTradeReady =
+    (activeItem?.status === "Ready" ||
+      activeTickerData?.status === "Ready" ||
+      (isTradeConfirmed && is1HGreenAboveSupport)) &&
+    isWithinChaseBuffer;
+  const isSetupReady = isTradeReady;
 
   const readinessScore = useMemo(() => {
     let distScore = 0;
@@ -3953,7 +3971,19 @@ export default function WealthEngineDashboard() {
                 <div
                   className={`rounded-2xl border overflow-hidden transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
                   data-testid="setup-card"
+                  data-trade-state={isTradeReady ? "TRADE_READY" : isEntryMissed ? "ENTRY_MISSED" : "CONFIRMATION_PENDING"}
                 >
+                  {/* Full-width Pulsing Emerald Green Banner for TRADE_READY */}
+                  {isTradeReady && (
+                    <div
+                      data-testid="banner-ready-to-trade"
+                      className="w-full py-2.5 px-4 bg-emerald-500/25 border-b border-emerald-400 text-emerald-300 font-mono font-black text-xs md:text-sm uppercase tracking-wider text-center shadow-[0_0_20px_rgba(0,230,118,0.4)] animate-pulse flex items-center justify-center gap-2"
+                    >
+                      <Zap className="h-4 w-4 text-emerald-400 animate-ping shrink-0" />
+                      <span>[ ⚡ READY TO TRADE - CONFIRM EXECUTION ]</span>
+                    </div>
+                  )}
+
                   {/* Card Header & Status Badge */}
                   <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden" data-testid="studio-setup-card-header">
                     <div className="min-w-0">
@@ -4001,17 +4031,21 @@ export default function WealthEngineDashboard() {
                       {/* Gatekeeper Status Badge & Max Chase Proximity Status */}
                       <div
                         className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 ${
-                          tradeReadiness.statusBadge.badgeClass
+                          isTradeReady
+                            ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.4)]"
+                            : tradeReadiness.statusBadge.badgeClass
                         }`}
                         data-testid="badge-setup-status"
                         title={tradeReadiness.lockMessage}
                       >
-                        {isEntryMissed
-                          ? TRADE_ENTRY_MISSED_BADGE
+                        {isTradeReady
+                          ? "[ ⚡ READY TO TRADE - CONFIRM EXECUTION ]"
+                          : isEntryMissed
+                          ? "[ NOT TRADEABLE YET - ENTRY MISSED ]"
                           : isTradeConfirmed
                           ? "[ ⚡ ALL RULES MET — READY TO ARM ]"
                           : "[ 🔒 CONFIRMATION PENDING: AWAITING 1H GREEN CLOSE ]"}
-                        {/* Status badge compatibility tokens: [ READY TO TRADE ] [ AWAITING 1H CLOSE ] [ PULLBACK FORMING ] [ GREEN / READY TO ARM ] [ ENTRY MISSED - DO NOT CHASE ] */}
+                        {/* Status badge compatibility tokens: [ READY TO TRADE ] [ AWAITING 1H CLOSE ] [ PULLBACK FORMING ] [ GREEN / READY TO ARM ] [ ENTRY MISSED - DO NOT CHASE ] [ ⚡ ALL RULES MET — READY TO ARM ] */}
                       </div>
 
                       <button
@@ -4253,7 +4287,7 @@ export default function WealthEngineDashboard() {
                       >
                         <div className="flex items-center gap-1.5">
                           <AlertTriangle className="h-3.5 w-3.5 text-rose-400 shrink-0" />
-                          <span>{ENTRY_MISSED_RETEST_WARNING} — Price exceeded Max Chase (${maxAllowedEntryPrice.toFixed(2)}). Stage a Pullback Limit at ${pullbackLimitPrice.toFixed(2)}.</span>
+                          <span>NOT TRADEABLE YET - ENTRY MISSED. {ENTRY_MISSED_RETEST_WARNING} — Price exceeded Max Chase buffer (${maxAllowedEntryPrice.toFixed(2)}). Stage a Pullback Limit at ${pullbackLimitPrice.toFixed(2)}.</span>
                         </div>
                       </div>
                     )}
@@ -4268,13 +4302,17 @@ export default function WealthEngineDashboard() {
                       </div>
                     )}
 
-                    {!isTradeConfirmed && (
+                    {!isTradeReady && (
                       <div
                         className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono flex items-center gap-1.5"
                         data-testid="gatekeeper-lock-notice"
                       >
                         <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
-                        <span>Trade execution locked pending 1H candle confirmation.</span>
+                        <span>
+                          {isEntryMissed
+                            ? "NOT TRADEABLE YET - ENTRY MISSED. Price escaped beyond Max Chase buffer."
+                            : "Trade execution locked pending 1H candle confirmation."}
+                        </span>
                       </div>
                     )}
 
@@ -4300,19 +4338,19 @@ export default function WealthEngineDashboard() {
                         data-testid="button-arm-practice-trade"
                         disabled={!isTradeConfirmed}
                         onClick={() => {
-                          if (isTradeConfirmed) {
+                          if (isTradeReady) {
                             openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker);
                           }
                         }}
-                        title={!isTradeConfirmed ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"}
+                        title={!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"}
                         className={`flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeConfirmed
-                            ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
-                            : "bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                          !isTradeReady
+                            ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
+                            : "opacity-100 bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] hover:shadow-[0_0_25px_rgba(0,230,118,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                         style={{
-                          backgroundColor: !isTradeConfirmed ? undefined : "#00E676",
-                          color: !isTradeConfirmed ? undefined : "#050914",
+                          backgroundColor: !isTradeReady ? undefined : "#00E676",
+                          color: !isTradeReady ? undefined : "#050914",
                         }}
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
@@ -4324,15 +4362,15 @@ export default function WealthEngineDashboard() {
                         data-testid="button-execute-fidelity-ticket"
                         disabled={!isTradeConfirmed}
                         onClick={() => {
-                          if (isTradeConfirmed) {
+                          if (isTradeReady) {
                             setIsFidelityGuideOpen(true);
                           }
                         }}
-                        title={!isTradeConfirmed ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet"}
+                        title={!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet"}
                         className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeConfirmed
-                            ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
-                            : "border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                          !isTradeReady
+                            ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
+                            : "opacity-100 border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 hover:shadow-[0_0_15px_rgba(52,211,153,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                       >
                         <ClipboardList className="h-3.5 w-3.5 text-emerald-400" />
@@ -4391,17 +4429,17 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-fidelity-ticket-card"
-                        disabled={!isTradeConfirmed}
+                        disabled={!isTradeReady}
                         onClick={() => {
                           if (isTradeConfirmed) {
                             setIsFidelityGuideOpen(true);
                           }
                         }}
-                        title={!isTradeConfirmed ? TRADE_LOCKED_TOOLTIP : "Fidelity Ticket Cheat Sheet"}
+                        title={!isTradeReady ? TRADE_LOCKED_TOOLTIP : "Fidelity Ticket Cheat Sheet"}
                         className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border shadow-md transition-all ${
-                          !isTradeConfirmed
-                            ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border-slate-700 pointer-events-auto"
-                            : "border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                          !isTradeReady
+                            ? "opacity-50 cursor-not-allowed bg-slate-800 text-slate-500 border-slate-700 pointer-events-auto"
+                            : "opacity-100 border-emerald-500/40 bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 hover:shadow-[0_0_15px_rgba(52,211,153,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                       >
                         <ClipboardList className="h-4 w-4 text-emerald-400" />
