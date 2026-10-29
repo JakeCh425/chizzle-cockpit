@@ -13,7 +13,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, CircleDashed, Clock, Eye, LineChart,
+  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, CircleDashed, Clock, Eye, LineChart,
   Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap, ClipboardList,
 } from "lucide-react";
 import {
