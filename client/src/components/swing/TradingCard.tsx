@@ -997,11 +997,18 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
     setTimeout(() => {
       const details = document.querySelector(`[data-testid="details-override-${d.symbol}"]`) as HTMLDetailsElement;
       if (details) details.open = true;
-      const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
-      if (input) {
-        input.scrollIntoView({ behavior: "smooth", block: "center" });
-        input.focus();
-        input.select?.();
+      const cashInput = document.querySelector(`[data-testid="input-cash-${d.symbol}"]`) as HTMLInputElement;
+      if (cashInput) {
+        cashInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        cashInput.focus();
+        cashInput.select?.();
+      } else {
+        const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
+        if (input) {
+          input.scrollIntoView({ behavior: "smooth", block: "center" });
+          input.focus();
+          input.select?.();
+        }
       }
     }, 100);
   };
@@ -1499,11 +1506,18 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
     setTimeout(() => {
       const details = document.querySelector(`[data-testid="details-override-${d.symbol}"]`) as HTMLDetailsElement;
       if (details) details.open = true;
-      const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
-      if (input) {
-        input.scrollIntoView({ behavior: "smooth", block: "center" });
-        input.focus();
-        input.select?.();
+      const cashInput = document.querySelector(`[data-testid="input-cash-${d.symbol}"]`) as HTMLInputElement;
+      if (cashInput) {
+        cashInput.scrollIntoView({ behavior: "smooth", block: "center" });
+        cashInput.focus();
+        cashInput.select?.();
+      } else {
+        const input = document.querySelector(`[data-testid="input-ov-entry-${d.symbol}"]`) as HTMLInputElement;
+        if (input) {
+          input.scrollIntoView({ behavior: "smooth", block: "center" });
+          input.focus();
+          input.select?.();
+        }
       }
     }, 100);
   };
@@ -1957,8 +1971,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         <div
           className="flex flex-col gap-2.5 pt-3 mt-2 border-t border-[var(--card-border)] animate-in fade-in duration-200"
           data-testid={`card-expanded-details-${d.symbol}`}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
         >
-          <div data-testid={`card-collapsible-body-${d.symbol}`} className="flex flex-col gap-2.5">
+          <div
+            data-testid={`card-collapsible-body-${d.symbol}`}
+            className="flex flex-col gap-2.5"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             {/* ─── LAZY-LOADED 1H CANDLE MINI-CHART (Height: 250px / h-64 with 20/50 SMAs & Native Price Lines) ─── */}
             {(cardSize === "lg" || props.showMiniChart) && (
               <div
@@ -2222,7 +2243,12 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </div>
 
           {/* ─── EXPANDABLE DEEP DIAGNOSTICS BODY (Funding, Overrides, Readiness) ─── */}
-          <div className="flex flex-col gap-4 pt-3 mt-1 border-t border-ink-line/40 animate-in fade-in duration-200" data-testid={`card-deep-diagnostics-${d.symbol}`}>
+          <div
+            className="flex flex-col gap-4 pt-3 mt-1 border-t border-ink-line/40 animate-in fade-in duration-200"
+            data-testid={`card-deep-diagnostics-${d.symbol}`}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
             <CriticalWarnings d={d} ver={ver} />
             <TradingCardBody {...props} sz={sz} onOpen={props.onOpen ? () => { onSeen(); props.onOpen!(); } : undefined} />
           </div>

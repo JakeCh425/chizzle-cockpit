@@ -4,7 +4,7 @@
 // Account data: this app has NO broker/account connection, so every balance here is MANUAL and never "verified".
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, Check, RefreshCw, RotateCcw, Save, Wallet } from "lucide-react";
+import { AlertTriangle, Check, Info, RefreshCw, RotateCcw, Save, Wallet } from "lucide-react";
 import type { SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { effectivePlan, setupIdOf, type PlanVersion } from "@shared/practicePlan";
 import { DEFAULT_FUNDING, fundingStatus, parseNum, r2, rTargets, sizePosition, type FundingProfile, type SizingResult } from "@shared/positionSizing";
@@ -101,24 +101,68 @@ export function useCardSizing(d: SwingDecision, ver: PlanVersion | null) {
 }
 
 // ─── Small inputs ─────────────────────────────────────────────────────────
-function Field({ label, value, onChange, testId, hint, err, prefix = "$", width = "9.5rem", placeholder }: { label: string; value: string; onChange: (v: string) => void; testId: string; hint?: React.ReactNode; err?: string | null; prefix?: string; width?: string; placeholder?: string }) {
+function Field({
+  label,
+  value,
+  onChange,
+  testId,
+  hint,
+  err,
+  prefix = "$",
+  suffix,
+  width = "9.5rem",
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  testId: string;
+  hint?: React.ReactNode;
+  err?: string | null;
+  prefix?: string;
+  suffix?: string;
+  width?: string;
+  placeholder?: string;
+}) {
   return (
-    <label className="flex flex-col gap-1.5" style={sm}>
-      <span className="text-base font-medium text-slate-200">{label}</span>
-      <span className="inline-flex items-center gap-1.5">
-        {prefix && <span className="text-slate-400 font-mono text-sm">{prefix}</span>}
+    <label
+      className="flex flex-col gap-1.5"
+      style={sm}
+      onClick={(e) => e.stopPropagation()}
+      onMouseDown={(e) => e.stopPropagation()}
+    >
+      <span className="text-sm font-medium text-slate-200">{label}</span>
+      <div className="relative inline-flex items-center">
+        {prefix ? (
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-mono text-sm pointer-events-none select-none">
+            {prefix}
+          </span>
+        ) : null}
         <input
-          className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-lg font-bold shadow-inner"
+          className={`bg-[#0F172A] text-white border border-gray-700 rounded-md ${
+            prefix ? "pl-7" : "pl-3"
+          } pr-3 py-2 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono text-base font-bold shadow-inner`}
           style={{ width }}
           inputMode="decimal"
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
           aria-invalid={!!err}
           data-testid={testId}
         />
-      </span>
-      {err ? <span className="text-red-400 font-medium text-xs" style={xs} role="alert">{err}</span> : hint ? <span className="text-slate-400 text-[11px]" style={xs}>{hint}</span> : null}
+        {suffix && <span className="ml-1.5 text-slate-400 font-mono text-xs">{suffix}</span>}
+      </div>
+      {err ? (
+        <span className="text-red-400 font-medium text-xs" style={xs} role="alert">
+          {err}
+        </span>
+      ) : hint ? (
+        <span className="text-slate-400 text-[11px]" style={xs}>
+          {hint}
+        </span>
+      ) : null}
     </label>
   );
 }
@@ -163,6 +207,7 @@ function FundingInputs({
   const busy = isSaving;
   const [savedFlash, setSavedFlash] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
+  const [showEquityInfo, setShowEquityInfo] = useState(false);
   const trades = useSwingTrades();
 
   // Reset stale local state whenever the active tradeId or ticker/symbol changes
@@ -261,37 +306,123 @@ function FundingInputs({
         <b>Account connection: none.</b> This app has no broker or account link, so balances can't be retrieved or verified. Account ID: — (not connected) · Source: values you enter · Cash-only sizing; margin buying power is never used.
       </div>
 
-      <div style={grid(220)}>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2" style={sm}><span className="text-base font-medium text-slate-200">Account equity</span>{v.equityMode === "MANUAL" ? <Chip state={eqStatus!.state === "UNAVAILABLE" ? "MANUAL" : eqStatus!.state} /> : <Chip state="MANUAL" />}</div>
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4" data-testid={`funding-grid-${symbol}`}>
+        {/* Column 1: Account equity */}
+        <div className="space-y-1.5 relative">
+          <div className="flex items-center gap-2" style={sm}>
+            <span className="text-sm font-medium text-slate-200">Account equity</span>
+            {v.equityMode === "MANUAL" ? <Chip state={eqStatus!.state === "UNAVAILABLE" ? "MANUAL" : eqStatus!.state} /> : <Chip state="MANUAL" />}
+            <div className="relative inline-flex items-center">
+              <button
+                type="button"
+                className="inline-flex items-center justify-center p-1 rounded-full text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors cursor-pointer"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowEquityInfo((prev) => !prev);
+                }}
+                onMouseEnter={() => setShowEquityInfo(true)}
+                onMouseLeave={() => setShowEquityInfo(false)}
+                data-testid={`button-equity-info-${symbol}`}
+                title="Account equity information"
+                aria-label="Account equity information"
+              >
+                <Info className="h-3.5 w-3.5" aria-hidden />
+              </button>
+              {showEquityInfo && (
+                <div
+                  className="absolute z-30 left-0 top-full mt-1.5 w-72 rounded-lg bg-slate-900 border border-slate-700 p-3 shadow-xl text-xs text-slate-300 pointer-events-auto"
+                  onClick={(e) => e.stopPropagation()}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  data-testid={`tooltip-equity-info-${symbol}`}
+                >
+                  <p className="leading-relaxed">
+                    Manually entered in Settings → Risk Profile (no timestamp is saved there). Used for % risk sizing.
+                  </p>
+                  {histGap && (
+                    <div className="mt-2 text-amber-300 font-medium flex items-start gap-1.5 border-t border-slate-800 pt-2" data-testid={`text-equity-history-gap-${symbol}`}>
+                      <AlertTriangle className="inline h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden />
+                      <span>Equity history's latest point is {$(histGap.equity)} ({histGap.date}); sizing uses the value selected above.</span>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
           <select
-            className="bg-[#0F172A] text-white border border-slate-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 font-mono text-base font-medium cursor-pointer !w-auto shadow-inner"
+            className="w-full bg-[#0F172A] text-white border border-gray-700 rounded-md px-3 py-2 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 font-mono text-sm font-medium cursor-pointer shadow-inner"
             style={sm}
             value={v.equityMode}
             onChange={(e) => set("equityMode")(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
             data-testid={`select-equity-mode-${symbol}`}
           >
             <option value="RISK_PROFILE">Risk Profile — {$(acct.profileEquity)}</option>
             <option value="MANUAL">Manual sizing equity</option>
           </select>
-          {v.equityMode === "MANUAL"
-            ? <Field label="Sizing equity" value={v.manualEquity} onChange={set("manualEquity")} testId={`input-equity-${symbol}`} err={eqErr} hint={f.equityUpdatedAt ? `Entered ${fmtCT(f.equityUpdatedAt)} (${eqStatus?.ageText})` : "Not saved yet"} />
-            : <div className="ac-muted" style={xs}>Manually entered in Settings → Risk Profile (no timestamp is saved there). Used for % risk sizing.</div>}
-          {histGap && <div style={xs} className="ac-muted" data-testid={`text-equity-history-gap-${symbol}`}><AlertTriangle className="inline h-3.5 w-3.5" aria-hidden /> Equity history's latest point is {$(histGap.equity)} ({histGap.date}); sizing uses the value selected above.</div>}
+          {v.equityMode === "MANUAL" && (
+            <Field
+              label="Sizing equity"
+              value={v.manualEquity}
+              onChange={set("manualEquity")}
+              testId={`input-equity-${symbol}`}
+              err={eqErr}
+              hint={f.equityUpdatedAt ? `Entered ${fmtCT(f.equityUpdatedAt)} (${eqStatus?.ageText})` : "Not saved yet"}
+            />
+          )}
         </div>
-        <div className="space-y-1">
-          <div className="flex items-center gap-2" style={sm}><span className="text-base font-medium text-slate-200">Available trading cash</span><Chip state={cashStatus.state} /></div>
-          <Field label="Cash for this trade" value={cashAmount} onChange={(val) => { setCashAmount(val); set("cash")(val); }} testId={`input-cash-${symbol}`} err={errOf("cash")}
-            hint={f.cashUpdatedAt ? `Entered ${fmtCT(f.cashUpdatedAt)} (${cashStatus.ageText})${cashStatus.state === "STALE" ? " — older than 1 day, re-check your balance" : ""}` : "Enter the cash you could use (not margin)."} />
+
+        {/* Column 2: Available trading cash */}
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-2" style={sm}>
+            <span className="text-sm font-medium text-slate-200">Available trading cash</span>
+            <Chip state={cashStatus.state} />
+          </div>
+          <Field
+            label="Cash for this trade"
+            value={cashAmount}
+            onChange={(val) => {
+              setCashAmount(val);
+              set("cash")(val);
+            }}
+            testId={`input-cash-${symbol}`}
+            err={errOf("cash")}
+            width="100%"
+            hint={
+              f.cashUpdatedAt
+                ? `Entered ${fmtCT(f.cashUpdatedAt)} (${cashStatus.ageText})${cashStatus.state === "STALE" ? " — older than 1 day, re-check your balance" : ""}`
+                : "Enter the cash you could use (not margin)."
+            }
+          />
         </div>
-        <div className="space-y-1">
-          <Field label="Max risk per trade" prefix="" value={v.riskPct} onChange={set("riskPct")} testId={`input-riskpct-${symbol}`} err={riskErr} width="5rem" placeholder={acct.riskPctLimit != null ? String(acct.riskPctLimit) : ""}
-            hint={<>% of equity · blank = Risk Profile {acct.riskPctLimit != null ? `${acct.riskPctLimit}%` : "—"} (current regime limit; can't be raised here)</>} />
-          <div style={sm} data-testid={`text-risk-budget-${symbol}`}>Risk budget <b className="ac-num">{acct.equity != null && acct.riskPct != null ? $(r2(acct.equity * acct.riskPct / 100)) : "—"}</b> <span className="ac-muted" style={xs}>(saved values)</span></div>
+
+        {/* Column 3: Max risk per trade */}
+        <div className="space-y-1.5">
+          <Field
+            label="Max risk per trade"
+            prefix=""
+            suffix="%"
+            value={v.riskPct}
+            onChange={set("riskPct")}
+            testId={`input-riskpct-${symbol}`}
+            err={riskErr}
+            width="5.5rem"
+            placeholder={acct.riskPctLimit != null ? String(acct.riskPctLimit) : ""}
+            hint={<>% of equity · blank = Risk Profile {acct.riskPctLimit != null ? `${acct.riskPctLimit}%` : "—"} (current regime limit; can't be raised here)</>}
+          />
+          <div style={sm} data-testid={`text-risk-budget-${symbol}`} className="text-xs text-slate-400">
+            Risk budget <b className="ac-num text-slate-200">{acct.equity != null && acct.riskPct != null ? $(r2((acct.equity * acct.riskPct) / 100)) : "—"}</b> <span className="ac-muted" style={xs}>(saved values)</span>
+          </div>
         </div>
       </div>
 
-      <details className="rounded-lg px-2.5 py-1.5" style={box} data-testid={`details-reservations-${symbol}`}>
+      <details
+        className="rounded-lg px-2.5 py-1.5"
+        style={box}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
+        data-testid={`details-reservations-${symbol}`}
+      >
         <summary className="cursor-pointer font-semibold" style={sm}>Reservations, fees & buffer (optional) · open {$(f.reservedOpen)} · pending {$(f.reservedPending)} · fee {$(f.feePerTrade)} · buffer {pct(f.bufferPct, 1)}</summary>
         <div className="pt-2 space-y-2">
           <div className="flex flex-wrap gap-4">
@@ -300,11 +431,30 @@ function FundingInputs({
             <Field label="Estimated fee per trade" value={v.feePerTrade} onChange={set("feePerTrade")} testId={`input-fee-${symbol}`} err={errOf("feePerTrade")} width="6rem" />
             <Field label="Execution buffer (estimate)" prefix="" value={v.bufferPct} onChange={set("bufferPct")} testId={`input-buffer-${symbol}`} err={bufErr} width="5rem" hint="% added to entry for the cash check" />
           </div>
-          <label className="inline-flex items-center gap-2 cursor-pointer" style={sm}>
-            <input type="checkbox" className="h-4 w-4 rounded bg-[#0F172A] border-slate-700 text-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer" checked={v.cashIncludesReservations} onChange={(e) => set("cashIncludesReservations")(e.target.checked)} data-testid={`check-cash-includes-${symbol}`} />
+          <label className="inline-flex items-center gap-2 cursor-pointer" style={sm} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded bg-[#0F172A] border-gray-700 text-emerald-500 focus:ring-1 focus:ring-emerald-500 cursor-pointer"
+              checked={v.cashIncludesReservations}
+              onChange={(e) => set("cashIncludesReservations")(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
+              data-testid={`check-cash-includes-${symbol}`}
+            />
             My cash figure already reflects these reservations (don't subtract them twice)
           </label>
-          <button className="ac-btn !py-0.5" style={xs} onClick={(e) => { e.stopPropagation(); fromTrades(); }} data-testid={`button-res-from-trades-${symbol}`}>Fill from My Trades practice records</button>
+          <button
+            className="ac-btn !py-0.5"
+            style={xs}
+            onClick={(e) => {
+              e.stopPropagation();
+              fromTrades();
+            }}
+            onMouseDown={(e) => e.stopPropagation()}
+            data-testid={`button-res-from-trades-${symbol}`}
+          >
+            Fill from My Trades practice records
+          </button>
         </div>
       </details>
 
@@ -318,6 +468,7 @@ function FundingInputs({
             e.stopPropagation();
             void handleSave();
           }}
+          onMouseDown={(e) => e.stopPropagation()}
           data-testid={`button-funding-save-${symbol}`}
         >
           <Save className="h-4 w-4 stroke-[2.5]" aria-hidden />
@@ -337,6 +488,7 @@ function FundingInputs({
             type="button"
             className="ac-btn !py-1 text-xs"
             onClick={(e) => { e.stopPropagation(); setDraft(null); setMsg(null); }}
+            onMouseDown={(e) => e.stopPropagation()}
             data-testid={`button-funding-discard-${symbol}`}
           >
             Discard changes
@@ -399,7 +551,7 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
 
         <FundingInputs acct={acct} symbol={sym} ticker={d.symbol} tradeId={locked?.id ? String(locked.id) : undefined} />
 
-        <div className="rounded-xl p-3 space-y-2" style={box} data-testid={`funding-trade-${sym}`}>
+        <div className="rounded-xl p-3 space-y-2" style={box} data-testid={`funding-trade-${sym}`} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
           <div className="font-bold">This trade</div>
           <div style={grid(200)}>
             <Field label="Requested trade allocation" value={st.allocation} onChange={(v) => setSt({ ...st, allocation: v })} testId={`input-allocation-${sym}`} err={allocErr}
@@ -418,12 +570,14 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
           </div>
 
           <div className="flex flex-wrap items-end gap-3">
-            <button className="ac-btn !py-1" style={sm} disabled={quote == null} onClick={useQuote} data-testid={`button-recalc-quote-${sym}`}><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Recalculate using latest quote</button>
+            <button className="ac-btn !py-1" style={sm} disabled={quote == null} onClick={(e) => { e.stopPropagation(); useQuote(); }} onMouseDown={(e) => e.stopPropagation()} data-testid={`button-recalc-quote-${sym}`}><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Recalculate using latest quote</button>
             <details
               open={override || detailsOpen}
               onToggle={(e) => setDetailsOpen(e.currentTarget.open)}
               className="rounded-lg px-2.5 py-1.5 transition-colors"
               style={box}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               data-testid={`details-override-${sym}`}
             >
               <summary className="cursor-pointer font-semibold" style={sm}>Manual entry/stop override (practice analysis)</summary>
@@ -436,7 +590,11 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
                   <button
                     type="button"
                     className="inline-flex items-center gap-1.5 rounded-lg bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 text-slate-950 font-bold px-3.5 py-1.5 text-xs shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer"
-                    onClick={handleApplyCustom}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleApplyCustom();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
                     data-testid={`button-apply-custom-${sym}`}
                   >
                     <Check className="h-3.5 w-3.5 stroke-[2.5]" aria-hidden />
@@ -445,7 +603,11 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
                   <button
                     type="button"
                     className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 hover:border-slate-500 active:bg-slate-900 text-slate-100 px-3.5 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer"
-                    onClick={reset}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      reset();
+                    }}
+                    onMouseDown={(e) => e.stopPropagation()}
                     data-testid={`button-reset-override-accordion-${sym}`}
                     title="Reset to Original Engine Plan"
                   >
@@ -469,7 +631,11 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
               <button
                 type="button"
                 className="inline-flex items-center gap-1.5 ml-auto rounded-lg border border-slate-600 bg-slate-800 hover:bg-slate-700 hover:border-slate-500 active:bg-slate-900 text-slate-100 px-3 py-1.5 text-xs font-semibold shadow-sm transition-colors cursor-pointer"
-                onClick={reset}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  reset();
+                }}
+                onMouseDown={(e) => e.stopPropagation()}
                 data-testid={`button-reset-override-${sym}`}
                 title="Reset overrides to engine plan levels"
               >
