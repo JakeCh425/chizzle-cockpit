@@ -1449,7 +1449,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
           <button
             type="button"
-            className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-mono font-bold text-cyan-300 hover:bg-slate-700 transition-colors cursor-pointer"
+            className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-mono font-bold text-cyan-300 hover:bg-slate-700 transition-colors cursor-pointer relative z-20 pointer-events-auto"
             onClick={(e) => {
               e.stopPropagation();
               props.onSeen?.();
@@ -1556,7 +1556,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1"
+            className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1 relative z-20 pointer-events-auto"
             data-testid={`button-toggle-card-collapse-${d.symbol}`}
             title={isExpanded ? "Collapse card details" : "Expand card details"}
             aria-label={isExpanded ? "Collapse card details" : "Expand card details"}
@@ -1789,7 +1789,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-3 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer shadow-sm"
+            className="relative z-20 pointer-events-auto inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-3 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer shadow-sm"
             data-testid={`button-toggle-expand-details-${d.symbol}`}
             title={isExpanded ? "Collapse deep diagnostics" : "Expand deep diagnostics"}
             aria-expanded={isExpanded}

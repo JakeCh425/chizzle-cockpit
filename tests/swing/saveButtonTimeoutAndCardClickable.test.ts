@@ -128,6 +128,23 @@ describe("Fix Infinite Loading State on Trade Setup Save Buttons & Make Setup Ca
       expect(tradingCardSrc).toContain("e.stopPropagation();\n              setIsExpanded((prev) => !prev);");
     });
 
+    it("ensures expand chevron buttons have relative z-20 pointer-events-auto preventing overlay blockages", () => {
+      expect(tradingCardSrc).toContain("data-testid={`button-expand-card-${d.symbol}`}");
+      expect(tradingCardSrc).toContain("relative z-20 pointer-events-auto");
+      expect(tradingCardSrc).toContain("data-testid={`button-toggle-expand-details-${d.symbol}`}");
+      expect(tradingCardSrc).toContain("relative z-20 pointer-events-auto");
+      expect(dashboardSrc).toContain("data-testid=\"button-studio-expand-details\"");
+      expect(dashboardSrc).toContain("relative z-20 pointer-events-auto");
+    });
+
+    it("resets cashAmount state on tradeId or ticker change preventing stale input numbers", () => {
+      expect(fundingPanelSrc).toContain("const [cashAmount, setCashAmount] = useState<string>(");
+      expect(fundingPanelSrc).toContain("useEffect(() => {");
+      expect(fundingPanelSrc).toContain("setCashAmount(s2(f.cash));");
+      expect(fundingPanelSrc).toContain("setDraft(null);");
+      expect(fundingPanelSrc).toContain("[activeTicker, tradeId, f.cash]");
+    });
+
     it("stops propagation on child action buttons in Wealth Studio Setup Card", () => {
       expect(dashboardSrc).toContain("data-testid=\"button-set-pullback-limit\"");
       expect(dashboardSrc).toContain("e.stopPropagation();\n                          handleStagePullbackLimit();");

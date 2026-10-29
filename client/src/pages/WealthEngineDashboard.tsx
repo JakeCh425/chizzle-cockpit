@@ -4437,7 +4437,7 @@ export default function WealthEngineDashboard() {
                           e.stopPropagation();
                           setIsStudioSetupCardExpanded((prev) => !prev);
                         }}
-                        className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-cyan-500/30 bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+                        className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-cyan-500/30 bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] relative z-20 pointer-events-auto"
                         data-testid="button-studio-expand-details"
                         aria-label={isStudioSetupCardExpanded ? "Collapse Details" : "Expand Details"}
                         title={isStudioSetupCardExpanded ? "Collapse Details" : "Expand Details"}

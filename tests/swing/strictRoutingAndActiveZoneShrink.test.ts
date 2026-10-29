@@ -79,8 +79,16 @@ describe("Strict Trade Lifecycle Routing & Active Execution Zone UI Shrink", () 
 
   describe("2. Slim & Bold Confirmed Cards in Top Row", () => {
     it("renders compact single-row horizontal Flexbox layout with bold border and green glow", () => {
-      expect(actionCenterSrc).toContain('border-2 border-emerald-500 bg-emerald-950/40 px-4 py-2.5 shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse');
+      expect(actionCenterSrc).toContain("border-2 border-emerald-500 bg-emerald-950/40");
+      expect(actionCenterSrc).toContain("border-4 border-emerald-500");
+      expect(actionCenterSrc).toContain("shadow-[0_0_20px_rgba(16,185,129,0.4)]");
+      expect(actionCenterSrc).toContain("shadow-[0_0_15px_rgba(16,185,129,0.5)]");
+      expect(actionCenterSrc).toContain("animate-pulse");
       expect(actionCenterSrc).toContain('data-testid={`active-execution-card-${d.symbol}`}');
+    });
+
+    it("displays pulsing header badge indicating real trade setup ready awaiting execution", () => {
+      expect(actionCenterSrc).toContain("⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION");
     });
 
     it("displays ONLY essential metrics: Ticker & Live Price, BUY LIMIT, STOP, TARGET, and ARM TRADE button", () => {
@@ -132,3 +140,4 @@ describe("Strict Trade Lifecycle Routing & Active Execution Zone UI Shrink", () 
     });
   });
 });
+

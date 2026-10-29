@@ -144,16 +144,42 @@ const s2 = (n: number | null | undefined) => (n == null ? "" : String(n));
 const draftOf = (f: FundingProfile): Draft => ({ equityMode: f.equityMode, manualEquity: s2(f.manualEquity), cash: s2(f.cash), riskPct: s2(f.riskPct),
   reservedOpen: s2(f.reservedOpen || null), reservedPending: s2(f.reservedPending || null), feePerTrade: s2(f.feePerTrade || null), bufferPct: s2(f.bufferPct || null), cashIncludesReservations: f.cashIncludesReservations });
 
-function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSnapshot>; symbol: string }) {
+function FundingInputs({
+  acct,
+  symbol,
+  tradeId,
+  ticker,
+}: {
+  acct: ReturnType<typeof useAccountSnapshot>;
+  symbol: string;
+  tradeId?: string;
+  ticker?: string;
+}) {
+  const activeTicker = ticker ?? symbol;
   const f = acct.funding;
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [cashAmount, setCashAmount] = useState<string>(s2(f.cash));
   const [isSaving, setIsSaving] = useState(false);
   const busy = isSaving;
   const [savedFlash, setSavedFlash] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const trades = useSwingTrades();
-  const v = draft ?? draftOf(f);
-  const set = (k: keyof Draft) => (val: any) => { setMsg(null); setDraft({ ...v, [k]: val }); };
+
+  // Reset stale local state whenever the active tradeId or ticker/symbol changes
+  useEffect(() => {
+    setDraft(null);
+    setCashAmount(s2(f.cash));
+    setMsg(null);
+  }, [activeTicker, tradeId, f.cash]);
+
+  const v = draft ?? { ...draftOf(f), cash: cashAmount };
+  const set = (k: keyof Draft) => (val: any) => {
+    setMsg(null);
+    if (k === "cash") {
+      setCashAmount(val);
+    }
+    setDraft({ ...v, [k]: val });
+  };
   const num = (k: keyof Draft, opt = true) => { const n = parseNum(v[k] as string); return n == null ? (opt ? 0 : null) : n; };
   const errOf = (k: keyof Draft, opt = true): string | null => { const n = parseNum(v[k] as string); if (n == null) return opt ? null : null; if (!Number.isFinite(n)) return "Enter a number."; if (n < 0) return "Can't be negative."; return null; };
   const riskErr = (() => { const n = parseNum(v.riskPct); if (n == null) return null; if (!Number.isFinite(n) || n <= 0) return "Enter a % above 0."; if (acct.riskPctLimit != null && n > acct.riskPctLimit) return `Above your Risk Profile limit (${acct.riskPctLimit}%).`; return null; })();
@@ -255,7 +281,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
         </div>
         <div className="space-y-1">
           <div className="flex items-center gap-2" style={sm}><span className="text-base font-medium text-slate-200">Available trading cash</span><Chip state={cashStatus.state} /></div>
-          <Field label="Cash for this trade" value={v.cash} onChange={set("cash")} testId={`input-cash-${symbol}`} err={errOf("cash")}
+          <Field label="Cash for this trade" value={cashAmount} onChange={(val) => { setCashAmount(val); set("cash")(val); }} testId={`input-cash-${symbol}`} err={errOf("cash")}
             hint={f.cashUpdatedAt ? `Entered ${fmtCT(f.cashUpdatedAt)} (${cashStatus.ageText})${cashStatus.state === "STALE" ? " — older than 1 day, re-check your balance" : ""}` : "Enter the cash you could use (not margin)."} />
         </div>
         <div className="space-y-1">
@@ -371,7 +397,7 @@ export function FundingPanel({ d, ver, scope, sz }: { d: SwingDecision; ver: Pla
         {savedShares != null && sizing.ok && savedShares !== sizing.shares && <div className="ac-muted" style={xs} data-testid={`notice-funding-saved-${sym}`}>
           Your saved plan v{ver!.version} lists {savedShares} shares (risk-only sizing). This panel's {sizing.shares} also applies the cash/allocation limit; the saved plan is unchanged unless you edit it.</div>}
 
-        <FundingInputs acct={acct} symbol={sym} />
+        <FundingInputs acct={acct} symbol={sym} ticker={d.symbol} tradeId={locked?.id ? String(locked.id) : undefined} />
 
         <div className="rounded-xl p-3 space-y-2" style={box} data-testid={`funding-trade-${sym}`}>
           <div className="font-bold">This trade</div>

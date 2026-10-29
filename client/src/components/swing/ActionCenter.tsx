@@ -717,30 +717,34 @@ function ActionCenterInner() {
       {/* ─── BODY ───────────────────────────────────────────────────────────── */}
       {boxOpen && (
         <div id="ac-body" className="flex flex-col gap-3.5">
-          {/* ─── ACTIVE EXECUTION ZONE - CONFIRMED TRADES ─── */}
-          {confirmedRows.length > 0 && (
-            <div
-              className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300"
-              data-testid="active-execution-zone"
-            >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <span className="relative flex h-3 w-3">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
-                  </span>
-                  <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300">
-                    [ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]
-                  </h3>
-                  <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
-                    {confirmedRows.length} ACTIVE
-                  </span>
-                </div>
-                <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
-                  Trigger Confirmed · 1H Candle Close Validated · Ready For Immediate Arm
+          {/* ─── DEDICATED PERSISTENT ACTIVE EXECUTION ZONE ─── */}
+          <div
+            className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300"
+            data-testid="active-execution-zone"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
+              <div className="flex items-center gap-2.5">
+                <span className="relative flex h-3 w-3">
+                  <span className={`${confirmedRows.length > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
+                  <span className={`relative inline-flex rounded-full h-3 w-3 ${confirmedRows.length > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
+                </span>
+                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300">
+                  [ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]
+                </h3>
+                <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
+                  {confirmedRows.length} ACTIVE
                 </span>
               </div>
+              <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
+                Trigger Confirmed · 1H Candle Close Validated · Ready For Immediate Arm
+              </span>
+            </div>
 
+            {confirmedRows.length === 0 ? (
+              <div className="py-2.5 px-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-950/10 text-center font-mono text-xs text-emerald-400/70" data-testid="active-execution-zone-empty">
+                No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
+              </div>
+            ) : (
               <div className="flex flex-col gap-3">
                 {confirmedRows.map((d) => {
                   const ver = activeVersion(d, sel);
@@ -758,53 +762,65 @@ function ActionCenterInner() {
                   return (
                     <div
                       key={d.symbol}
-                      className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 px-4 py-2.5 shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse transition-all hover:border-emerald-400"
+                      className="flex flex-col gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 p-3 sm:px-4 sm:py-3 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse transition-all hover:border-emerald-400"
                       data-testid={`active-execution-card-${d.symbol}`}
                     >
-                      {/* Ticker & Live Price */}
-                      <div className="flex items-center gap-2.5 shrink-0">
-                        <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
-                        <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
-                        <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 hidden sm:inline-block">CONFIRMED</span>
+                      {/* Pulsing Header Badge: ⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION */}
+                      <div className="flex items-center justify-between gap-2 border-b border-emerald-500/30 pb-2">
+                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-black tracking-wider text-emerald-300 animate-pulse">
+                          ⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION
+                        </span>
+                        <span className="font-mono text-[10px] font-bold text-emerald-400/80 uppercase">
+                          1H CLOSE CONFIRMED
+                        </span>
                       </div>
 
-                      {/* BUY LIMIT | STOP | TARGET */}
-                      <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm">
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">BUY LIMIT:</span>
-                          <span className="font-extrabold text-white tabular-nums text-sm sm:text-base">{formatCurrency(entryPrice)}</span>
+                      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4">
+                        {/* Ticker & Live Price */}
+                        <div className="flex items-center gap-2.5 shrink-0">
+                          <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
+                          <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                          <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 hidden sm:inline-block">CONFIRMED</span>
                         </div>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">STOP:</span>
-                          <span className="font-extrabold text-rose-400 tabular-nums text-sm sm:text-base">{formatCurrency(stopLoss)}</span>
-                        </div>
-                        <div className="flex items-baseline gap-1.5">
-                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">TARGET:</span>
-                          <span className="font-extrabold text-emerald-400 tabular-nums text-sm sm:text-base">{formatCurrency(target1)}</span>
-                        </div>
-                      </div>
 
-                      {/* [ ⚡ ARM TRADE ] button */}
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleDirectArmExecute(d, ver)}
-                          disabled={isArming}
-                          className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-mono font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
-                          data-testid={`button-massive-arm-${d.symbol}`}
-                          aria-label={`Arm Trade for ${d.symbol}`}
-                        >
-                          <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
-                          <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
-                        </button>
+                        {/* BUY LIMIT | STOP | TARGET */}
+                        <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm">
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">BUY LIMIT:</span>
+                            <span className="font-extrabold text-white tabular-nums text-sm sm:text-base">{formatCurrency(entryPrice)}</span>
+                          </div>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">STOP:</span>
+                            <span className="font-extrabold text-rose-400 tabular-nums text-sm sm:text-base">{formatCurrency(stopLoss)}</span>
+                          </div>
+                          <div className="flex items-baseline gap-1.5">
+                            <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">TARGET:</span>
+                            <span className="font-extrabold text-emerald-400 tabular-nums text-sm sm:text-base">{formatCurrency(target1)}</span>
+                          </div>
+                        </div>
+
+                        {/* [ ⚡ ARM TRADE ] button */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => handleDirectArmExecute(d, ver)}
+                            disabled={isArming}
+                            className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-mono font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                            data-testid={`button-massive-arm-${d.symbol}`}
+                            aria-label={`Arm Trade for ${d.symbol}`}
+                          >
+                            <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
+                            <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
+                          </button>
+                        </div>
                       </div>
                       <div data-testid={`ai-context-sidebar-${d.symbol}`} className="hidden" aria-hidden="true" />
                     </div>
                   );
                 })}
               </div>
-            </div>
-          )}
+            )}
+          </div>
 
           <GlobalTrafficLightBanner
             regimeCode={regimeCode}
