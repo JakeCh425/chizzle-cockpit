@@ -907,14 +907,14 @@ function ActionCenterInner() {
             </div>
           </div>
           
-          <div className={`grid ${gridColsClass} gap-3.5 sm:gap-4 w-full`} data-testid="ac-cards-grid">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start gap-3.5 sm:gap-4 w-full" data-testid="ac-cards-grid">
             {generalLoud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
               const key = setupIdOf(d);
               const populated = isPopulated(d, ver);
               return (
-                <div key={d.symbol} className="flex flex-col gap-1.5">
+                <div key={d.symbol} className="flex flex-col gap-1.5 self-start w-full">
                   <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} />
                   {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
                   {fOf(d).shouldCollapse && (

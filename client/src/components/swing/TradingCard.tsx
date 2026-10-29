@@ -289,10 +289,14 @@ export function SparklineChart({
   symbol,
   entry,
   stop,
+  target,
+  height = 250,
 }: {
   symbol: string;
   entry: number | null;
   stop: number | null;
+  target?: number | null;
+  height?: number;
 }) {
   const liveQuote = useLiveQuote(symbol);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -322,7 +326,7 @@ export function SparklineChart({
     if (!el) return;
 
     const chart = createChart(el, {
-      height: 120,
+      height: height || 250,
       layout: {
         background: { color: "transparent" },
         textColor: "#64748b",
@@ -430,6 +434,7 @@ export function SparklineChart({
 
       let buyLine: IPriceLine | null = null;
       let stopLine: IPriceLine | null = null;
+      let targetLine: IPriceLine | null = null;
 
       if (entry != null && Number.isFinite(entry)) {
         buyLine = candleSeries.createPriceLine({
@@ -450,6 +455,17 @@ export function SparklineChart({
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: false,
           title: "Stop",
+        });
+      }
+
+      if (target != null && Number.isFinite(target)) {
+        targetLine = candleSeries.createPriceLine({
+          price: target,
+          color: "rgba(34, 211, 238, 0.65)",
+          lineWidth: 1,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: false,
+          title: "Target 1",
         });
       }
 
@@ -506,11 +522,13 @@ export function SparklineChart({
         chart.clearCrosshairPosition();
         buyLine?.applyOptions({ axisLabelVisible: false, color: "rgba(52, 211, 153, 0.65)" });
         stopLine?.applyOptions({ axisLabelVisible: false, color: "rgba(244, 63, 94, 0.65)" });
+        targetLine?.applyOptions({ axisLabelVisible: false, color: "rgba(34, 211, 238, 0.65)" });
       };
 
       const handleMouseEnter = () => {
         buyLine?.applyOptions({ axisLabelVisible: true, color: "#34d399" });
         stopLine?.applyOptions({ axisLabelVisible: true, color: "#f43f5e" });
+        targetLine?.applyOptions({ axisLabelVisible: true, color: "#22d3ee" });
       };
 
       const handleDblClick = () => {
@@ -546,7 +564,7 @@ export function SparklineChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [barsData, entry, stop, sma20Color, sma50Color, sma20Width, sma50Width]);
+  }, [barsData, entry, stop, target, sma20Color, sma50Color, sma20Width, sma50Width, height]);
 
   // Stream live ticks into unclosed candlestick in real time
   const lastBar = barsData?.bars?.[barsData.bars.length - 1];
@@ -1549,18 +1567,21 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             </span>
           )}
 
-          {/* Accordion Collapse / Expand Toggle Icon */}
+          {/* Accordion Collapse / Expand Toggle Button & Chevron */}
           <button
             type="button"
             onClick={(e) => {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center gap-1 relative z-20 pointer-events-auto"
+            className="p-1 px-2.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-colors cursor-pointer flex items-center gap-1.5 relative z-20 pointer-events-auto font-mono text-[11px] font-bold shadow-sm"
             data-testid={`button-toggle-card-collapse-${d.symbol}`}
-            title={isExpanded ? "Collapse card details" : "Expand card details"}
-            aria-label={isExpanded ? "Collapse card details" : "Expand card details"}
+            title={isExpanded ? "Collapse card details" : "Expand chart & details"}
+            aria-label={isExpanded ? "Collapse card details" : "Expand chart & details"}
           >
+            <span className="hidden sm:inline">
+              {isExpanded ? "[ Collapse Chart & Details ⌃ ]" : "[ Expand Chart & Details ⌄ ]"}
+            </span>
             {isExpanded ? (
               <ChevronUp className="h-4 w-4 text-cyan-400" />
             ) : (
@@ -1791,11 +1812,12 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             }}
             className="relative z-20 pointer-events-auto inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-3 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer shadow-sm"
             data-testid={`button-toggle-expand-details-${d.symbol}`}
-            title={isExpanded ? "Collapse deep diagnostics" : "Expand deep diagnostics"}
+            title={isExpanded ? "Collapse deep diagnostics" : "Expand chart & details"}
             aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-cyan-400" /> : <ChevronDown className="h-3.5 w-3.5 text-cyan-400" />}
             <span>{isExpanded ? "Collapse Details" : "Expand Details"}</span>
+            <span className="hidden sm:inline font-bold ml-1">{isExpanded ? "[ Collapse Chart & Details ⌃ ]" : "[ Expand Chart & Details ⌄ ]"}</span>
           </button>
         </div>
       </div>
@@ -1827,36 +1849,41 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         </div>
       )}
 
-      {/* ─── LARGE STATE: Mini-Chart & AI Execution Engine ─── */}
-      {(cardSize === "lg" || props.showMiniChart) && (
-        <div
-          className="my-2.5 rounded-lg border border-slate-800 bg-slate-950/80 p-2.5 overflow-hidden shadow-inner pointer-events-auto"
-          data-testid={`mini-chart-${d.symbol}`}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <div className="flex items-center justify-between px-1 pb-1.5 mb-1.5 border-b border-slate-800 text-[10px] font-mono text-slate-400">
-            <span className="font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
-              <LineChart className="h-3.5 w-3.5" /> 1H Candle Mini-Chart
-            </span>
-            <span className="text-[9px] uppercase tracking-wider text-slate-500">Live 1H Stream · {d.symbol}</span>
-          </div>
-          <MiniChartWidget ticker={d.symbol} defaultInterval="1H" editableTicker={false} height={120} />
-        </div>
-      )}
-
-      {cardSize === "lg" && props.showAiEngine && (
-        <div className="my-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
-          <AIExecutionEngine decision={d} version={ver} />
-        </div>
-      )}
-
-      {/* ─── EXPANDED STATE (Accordion): All deeper diagnostics inside collapsible container ─── */}
+      {/* ─── EXPANDED STATE (Accordion): All deeper diagnostics, lazy-loaded charts & AI engine ─── */}
       {isExpanded && (
         <div
           className="flex flex-col gap-2.5 pt-3 mt-2 border-t border-[var(--card-border)] animate-in fade-in duration-200"
           data-testid={`card-expanded-details-${d.symbol}`}
         >
           <div data-testid={`card-collapsible-body-${d.symbol}`} className="flex flex-col gap-2.5">
+            {/* ─── LAZY-LOADED 1H CANDLE MINI-CHART (Height: 250px / h-64 with 20/50 SMAs & Native Price Lines) ─── */}
+            {(cardSize === "lg" || props.showMiniChart) && (
+              <div
+                className="h-64 my-2.5 rounded-lg border border-slate-800 bg-slate-950/80 p-2.5 overflow-hidden shadow-inner pointer-events-auto"
+                data-testid={`mini-chart-${d.symbol}`}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between px-1 pb-1.5 mb-1.5 border-b border-slate-800 text-[10px] font-mono text-slate-400">
+                  <span className="font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                    <LineChart className="h-3.5 w-3.5" /> 1H Candle Mini-Chart · 20/50 SMA
+                  </span>
+                  <span className="text-[9px] uppercase tracking-wider text-slate-500">Live 1H Stream · {d.symbol}</span>
+                </div>
+                <div className="h-[210px] w-full">
+                  {props.showMiniChart ? (
+                    <MiniChartWidget ticker={d.symbol} defaultInterval="1H" editableTicker={false} height={210} />
+                  ) : (
+                    <SparklineChart symbol={d.symbol} entry={activeEntry} stop={activeStop} target={targets.t1} height={210} />
+                  )}
+                </div>
+              </div>
+            )}
+
+            {cardSize === "lg" && props.showAiEngine && (
+              <div className="my-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+                <AIExecutionEngine decision={d} version={ver} />
+              </div>
+            )}
           {/* ─── SIGNAL INFO & HISTORICAL EDGE BADGE ─── */}
           <div className="flex flex-wrap items-center justify-between gap-2 py-2 text-xs text-slate-400">
             <div className="flex flex-wrap items-center gap-2">
