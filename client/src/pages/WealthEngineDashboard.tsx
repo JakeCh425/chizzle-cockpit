@@ -3989,9 +3989,18 @@ export default function WealthEngineDashboard() {
 
                 {/* ── 3. Active Trade Plan Details (The Setup Card Component) ── */}
                 <div
-                  className={`rounded-2xl border overflow-hidden transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint}`}
+                  className={`rounded-2xl border overflow-hidden transition-all duration-300 relative bg-[var(--card-bg)] border-[var(--card-border)] ${statusTint} cursor-pointer hover:bg-gray-800/50 hover:border-cyan-700 transition-all`}
                   data-testid="setup-card"
                   data-trade-state={isTradeReady ? "TRADE_READY" : isEntryMissed ? "ENTRY_MISSED" : "CONFIRMATION_PENDING"}
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setIsStudioSetupCardExpanded((prev) => !prev)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setIsStudioSetupCardExpanded((prev) => !prev);
+                    }
+                  }}
                 >
                   {/* Full-width Pulsing Emerald Green Banner for TRADE_READY */}
                   {isTradeReady && (
@@ -4023,7 +4032,10 @@ export default function WealthEngineDashboard() {
                     <div className="flex items-center gap-2 shrink-0">
                       <button
                         type="button"
-                        onClick={() => setIsStudioMiniGuideOpen((prev) => !prev)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsStudioMiniGuideOpen((prev) => !prev);
+                        }}
                         className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
                           isStudioMiniGuideOpen
                             ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
@@ -4070,7 +4082,10 @@ export default function WealthEngineDashboard() {
 
                       <button
                         type="button"
-                        onClick={() => setIsStudioSetupCardExpanded((prev) => !prev)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsStudioSetupCardExpanded((prev) => !prev);
+                        }}
                         className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
                         data-testid="button-toggle-setup-card-collapse"
                         title={isStudioSetupCardExpanded ? "Collapse card details" : "Expand card details"}
@@ -4341,7 +4356,10 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-set-pullback-limit"
-                        onClick={handleStagePullbackLimit}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleStagePullbackLimit();
+                        }}
                         title={`Stage a limit buy order at original 20-SMA entry ($${entryPriceVal.toFixed(2)})`}
                         className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98] ${
                           isEntryMissed
@@ -4357,7 +4375,8 @@ export default function WealthEngineDashboard() {
                         type="button"
                         data-testid="button-arm-practice-trade"
                         disabled={!isTradeConfirmed}
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (isTradeReady) {
                             openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker);
                           }
@@ -4381,7 +4400,8 @@ export default function WealthEngineDashboard() {
                         type="button"
                         data-testid="button-execute-fidelity-ticket"
                         disabled={!isTradeConfirmed}
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           if (isTradeReady) {
                             setIsFidelityGuideOpen(true);
                           }
@@ -4400,7 +4420,8 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-studio-adjust-plan"
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation();
                           setIsStudioSetupCardExpanded(true);
                           setIsFidelityGuideOpen(true);
                         }}
@@ -4412,7 +4433,10 @@ export default function WealthEngineDashboard() {
 
                       <button
                         type="button"
-                        onClick={() => setIsStudioSetupCardExpanded((prev) => !prev)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setIsStudioSetupCardExpanded((prev) => !prev);
+                        }}
                         className="py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider border border-cyan-500/30 bg-cyan-950/40 hover:bg-cyan-900/40 text-cyan-300 flex items-center gap-1.5 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         data-testid="button-studio-expand-details"
                         aria-label={isStudioSetupCardExpanded ? "Collapse Details" : "Expand Details"}

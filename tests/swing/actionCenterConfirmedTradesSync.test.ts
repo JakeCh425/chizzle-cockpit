@@ -132,3 +132,4 @@ describe("Action Center UI - Highlight 'Confirmed Trades' Badge & Sync Global St
     });
   });
 });
+

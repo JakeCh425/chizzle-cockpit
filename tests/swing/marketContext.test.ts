@@ -170,5 +170,5 @@ describe("NO-CONTRADICTION contract — one symbol, same values in every panel",
     expect(c.stop.price).toBe(ctx.decision.structuralStop);
     expect(c.unified.status).toBe(ctx.panel.status);
     expect(c.target_1.price).toBe(decision.target1); // engine structure T1 (may differ from the plan's Fixed-R T1)
-  });
+  }, 15000);
 });

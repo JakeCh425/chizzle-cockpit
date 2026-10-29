@@ -1410,14 +1410,22 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer`}
+      className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:bg-gray-800/50 hover:border-cyan-700 transition-all`}
+      role="button"
+      tabIndex={0}
       onClick={(e) => {
-        if ((e.target as HTMLElement).closest("button, a, input, select, textarea, details, [role='button'], [data-prevent-modal='true']")) {
-          return;
-        }
         if (props.onOpen) {
           props.onSeen?.();
           props.onOpen();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          if (props.onOpen) {
+            props.onSeen?.();
+            props.onOpen();
+          }
         }
       }}
       data-testid={`trading-card-${d.symbol}`}
@@ -1626,7 +1634,8 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
                     ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
                     : "bg-signal-green/10 text-signal-green border border-signal-green/40 hover:bg-signal-green/20"
                 }`}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   onSeen();
                   openTradeDialog({
                     mode: "arm",
@@ -1656,7 +1665,10 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <button
             type="button"
             className="flex items-center gap-1.5 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm pointer-events-auto"
-            onClick={handleAdjustPlan}
+            onClick={(e) => {
+              e.stopPropagation();
+              handleAdjustPlan();
+            }}
             data-testid={`button-adjust-plan-${d.symbol}`}
             title="Adjust plan entries and overrides"
           >
@@ -1668,7 +1680,10 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
-              onClick={sz.reset}
+              onClick={(e) => {
+                e.stopPropagation();
+                sz.reset();
+              }}
               data-testid={`button-levels-reset-${d.symbol}`}
               title="Reset to Original Engine Plan"
             >
@@ -1680,7 +1695,10 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           <button
             type="button"
             className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
-            onClick={() => focusSymbol(d.symbol)}
+            onClick={(e) => {
+              e.stopPropagation();
+              focusSymbol(d.symbol);
+            }}
             title="Focus symbol on chart"
           >
             <LineChart className="h-3 w-3" />
@@ -1693,7 +1711,11 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
             <button
               type="button"
               className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
-              onClick={() => { onSeen(); props.onOpen!(); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                onSeen();
+                props.onOpen!();
+              }}
               title="Open full dialog view"
             >
               <Maximize2 className="h-3 w-3" />
@@ -1904,11 +1926,13 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
               type="checkbox"
               checked={showExtended}
               onChange={(e) => setShowExtended(e.target.checked)}
+              onClick={(e) => e.stopPropagation()}
               className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
               data-testid={`checkbox-extended-targets-${d.symbol}`}
             />
             <label
               htmlFor={`chk-extended-${d.symbol}`}
+              onClick={(e) => e.stopPropagation()}
               className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
             >
               Show Extended Runner Targets (4R, 5R, 6R)

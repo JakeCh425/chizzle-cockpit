@@ -128,12 +128,20 @@ const NewSetupForm = ({ onSuccess, onCancel }: { onSuccess: () => void, onCancel
     },
   });
 
-  const handleSave = () => {
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
     if (!draft.ticker || !draft.entry || !draft.stop || !draft.targetT1) {
       toast({ title: "Missing fields", description: "Ticker, entry, stop, and T1 are required.", variant: "destructive" });
       return;
     }
-    createMut.mutate(draft);
+    setIsSaving(true);
+    try {
+      await createMut.mutateAsync(draft);
+    } catch (error: any) {
+      console.error("Save failed:", error);
+    } finally {
+      setIsSaving(false); // MUST execute regardless of success or failure
+    }
   };
 
   return (
@@ -171,8 +179,8 @@ const NewSetupForm = ({ onSuccess, onCancel }: { onSuccess: () => void, onCancel
         <textarea rows={2} value={draft.thesis} onChange={(e) => setDraft({ ...draft, thesis: e.target.value })} className="rounded-md border border-ink-line bg-ink-black px-3 py-2 text-sm text-soft-white focus:border-neon-blue focus:outline-none" placeholder="Why this setup? What invalidates it?" />
       </label>
       <div className="flex gap-3 pt-2">
-        <button onClick={handleSave} disabled={createMut.isPending} className="flex-1 rounded-md bg-neon-blue/20 border border-neon-blue/50 py-2 text-sm font-medium text-neon-blue transition-colors hover:bg-neon-blue/30 disabled:opacity-50">
-          {createMut.isPending ? "Saving..." : "Save to Active Setups"}
+        <button onClick={handleSave} disabled={createMut.isPending || isSaving} className="flex-1 rounded-md bg-neon-blue/20 border border-neon-blue/50 py-2 text-sm font-medium text-neon-blue transition-colors hover:bg-neon-blue/30 disabled:opacity-50">
+          {createMut.isPending || isSaving ? "Saving..." : "Save to Active Setups"}
         </button>
         <button onClick={onCancel} className="px-4 py-2 rounded-md border border-ink-line text-sm font-medium text-slate-gray hover:bg-ink-line transition-colors">
           Cancel

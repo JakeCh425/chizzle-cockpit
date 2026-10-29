@@ -115,9 +115,23 @@ export function refreshPlanNow(): Promise<RefreshStatus> {
   return pending;
 }
 
-export async function saveSwingSettings(p: Partial<SwingSettings>) {
-  await swingSend("PUT", "/api/swing/settings", p);
-  await invalidateSwing();
+export async function saveSwingSettings(p: Partial<SwingSettings>, timeoutMs = 5000) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error(`Save request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    await swingSend("PUT", "/api/swing/settings", p);
+    await invalidateSwing();
+  } catch (err: any) {
+    if (controller.signal.aborted || err?.name === "AbortError") {
+      throw new Error(`Save trade config timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 export const saveTargetDefault = (t: TargetDefault) => saveSwingSettings({ targetDefault: t });
 

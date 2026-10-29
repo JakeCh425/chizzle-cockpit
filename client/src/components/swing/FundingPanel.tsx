@@ -13,8 +13,37 @@ import { fmtCT, swingGet } from "@/lib/swing";
 import { openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { readPersisted, usePersistentState } from "@/hooks/use-persistent-state";
 import { useRiskContext } from "./ArmTrade";
-import { saveSwingSettings } from "./PlanRefresh";
+import { saveSwingSettings, invalidateSwing } from "./PlanRefresh";
 import { Section } from "./TradingCard";
+import { apiRequest } from "@/lib/queryClient";
+import { debounce } from "@/lib/debounce";
+import type { SwingSettings } from "@shared/swingDecision";
+
+/**
+ * Robust trade configuration save utility with a strict 5000ms timeout limit
+ * Prevents hanging API calls from leaving UI in an infinite "Saving..." state.
+ */
+export async function saveTradeConfig(
+  payload: Partial<SwingSettings>,
+  timeoutMs = 5000
+): Promise<void> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => {
+    controller.abort(new Error(`Save request timed out after ${timeoutMs}ms`));
+  }, timeoutMs);
+
+  try {
+    await apiRequest("PUT", "/api/swing/settings", payload, controller.signal, timeoutMs);
+    await invalidateSwing();
+  } catch (err: any) {
+    if (controller.signal.aborted || err?.name === "AbortError") {
+      throw new Error(`Save trade config timed out after ${timeoutMs}ms`);
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 
 const $ = (n: number | null | undefined) => (n == null || !Number.isFinite(n) ? "—" : `$${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`);
 const pct = (n: number | null | undefined, dp = 2) => (n == null || !Number.isFinite(n) ? "—" : `${n.toFixed(dp)}%`);
@@ -118,7 +147,8 @@ const draftOf = (f: FundingProfile): Draft => ({ equityMode: f.equityMode, manua
 function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSnapshot>; symbol: string }) {
   const f = acct.funding;
   const [draft, setDraft] = useState<Draft | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const busy = isSaving;
   const [savedFlash, setSavedFlash] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const trades = useSwingTrades();
@@ -131,29 +161,57 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
   const bufErr = (() => { const n = parseNum(v.bufferPct); return n != null && (!Number.isFinite(n) || n < 0 || n > 25) ? "0–25%." : null; })();
   const anyErr = riskErr || eqErr || bufErr || (["cash", "reservedOpen", "reservedPending", "feePerTrade"] as const).some((k) => errOf(k));
   const dirty = draft != null && JSON.stringify(draft) !== JSON.stringify(draftOf(f));
-  const save = async () => {
+
+  // Asynchronous Save with strict 5000ms timeout & mandatory finally cleanup
+  const handleSave = async (customPayload?: FundingProfile) => {
     if (anyErr) return;
     const now = new Date().toISOString();
     const cash = parseNum(v.cash), me = v.equityMode === "MANUAL" ? parseNum(v.manualEquity) : f.manualEquity;
-    const next: FundingProfile = {
-      equityMode: v.equityMode, manualEquity: me ?? null, equityUpdatedAt: me !== f.manualEquity ? now : f.equityUpdatedAt,
-      cash: cash ?? null, cashUpdatedAt: cash !== f.cash ? (cash == null ? null : now) : f.cashUpdatedAt,
-      riskPct: parseNum(v.riskPct), reservedOpen: num("reservedOpen")!, reservedPending: num("reservedPending")!, cashIncludesReservations: v.cashIncludesReservations,
-      feePerTrade: num("feePerTrade")!, bufferPct: num("bufferPct")!,
+    const next: FundingProfile = customPayload ?? {
+      equityMode: v.equityMode,
+      manualEquity: me ?? null,
+      equityUpdatedAt: me !== f.manualEquity ? now : f.equityUpdatedAt,
+      cash: cash ?? null,
+      cashUpdatedAt: cash !== f.cash ? (cash == null ? null : now) : f.cashUpdatedAt,
+      riskPct: parseNum(v.riskPct),
+      reservedOpen: num("reservedOpen")!,
+      reservedPending: num("reservedPending")!,
+      cashIncludesReservations: v.cashIncludesReservations,
+      feePerTrade: num("feePerTrade")!,
+      bufferPct: num("bufferPct")!,
     };
-    setBusy(true);
+
+    setIsSaving(true);
     try {
-      await saveSwingSettings({ funding: next });
+      await saveTradeConfig({ funding: next }, 5000);
       setDraft(null);
       setSavedFlash(true);
       setMsg("Saved — every card now sizes with these values.");
       setTimeout(() => setSavedFlash(false), 3500);
-    } catch (e: any) {
-      setMsg(`Not saved: ${e?.message ?? "error"}`);
+    } catch (error: any) {
+      console.error("Save failed:", error);
+      setMsg(`Not saved: ${error?.message ?? "Save failed"}`);
     } finally {
-      setBusy(false);
+      setIsSaving(false); // MUST execute regardless of success or failure
     }
   };
+
+  const save = handleSave;
+
+  // Debounce utility (500ms delay) to prevent flooding the database with dozens of requests per second
+  const debouncedAutoSave = useMemo(
+    () =>
+      debounce((profile: FundingProfile) => {
+        void handleSave(profile);
+      }, 500),
+    []
+  );
+
+  useEffect(() => {
+    return () => {
+      debouncedAutoSave.cancel();
+    };
+  }, [debouncedAutoSave]);
   // Practice records in My Trades (cost = shares × fill or entry). Offered, never applied automatically.
   const fromTrades = () => {
     const ts = trades.data?.trades ?? [];
@@ -171,7 +229,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-bold inline-flex items-center gap-1.5"><Wallet className="h-4 w-4" aria-hidden /> Account & funding</span>
         <span className="ac-muted" style={xs}>Applies to every card</span>
-        <button className="ac-btn !py-0.5 ml-auto" style={xs} onClick={() => { setDraft(null); setMsg("Reloaded saved values."); void refreshAccount(); }} data-testid={`button-funding-refresh-${symbol}`}><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reload saved values</button>
+        <button className="ac-btn !py-0.5 ml-auto" style={xs} onClick={(e) => { e.stopPropagation(); setDraft(null); setMsg("Reloaded saved values."); void refreshAccount(); }} data-testid={`button-funding-refresh-${symbol}`}><RefreshCw className="h-3.5 w-3.5" aria-hidden /> Reload saved values</button>
       </div>
       <div className="rounded-lg px-2.5 py-1.5" style={{ ...xs, border: "1.5px dashed var(--ac-border)" }} data-testid={`text-account-connection-${symbol}`}>
         <b>Account connection: none.</b> This app has no broker or account link, so balances can't be retrieved or verified. Account ID: — (not connected) · Source: values you enter · Cash-only sizing; margin buying power is never used.
@@ -220,7 +278,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
             <input type="checkbox" className="h-4 w-4 rounded bg-[#0F172A] border-slate-700 text-cyan-500 focus:ring-1 focus:ring-cyan-500 cursor-pointer" checked={v.cashIncludesReservations} onChange={(e) => set("cashIncludesReservations")(e.target.checked)} data-testid={`check-cash-includes-${symbol}`} />
             My cash figure already reflects these reservations (don't subtract them twice)
           </label>
-          <button className="ac-btn !py-0.5" style={xs} onClick={fromTrades} data-testid={`button-res-from-trades-${symbol}`}>Fill from My Trades practice records</button>
+          <button className="ac-btn !py-0.5" style={xs} onClick={(e) => { e.stopPropagation(); fromTrades(); }} data-testid={`button-res-from-trades-${symbol}`}>Fill from My Trades practice records</button>
         </div>
       </details>
 
@@ -229,12 +287,15 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
           type="button"
           className="inline-flex items-center gap-2 rounded-lg bg-cyan-400 hover:bg-cyan-300 active:bg-cyan-500 text-slate-950 font-bold px-4 py-2 text-xs shadow-md hover:shadow-cyan-500/20 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-cyan-400"
           style={sm}
-          disabled={!dirty || !!anyErr || busy}
-          onClick={() => void save()}
+          disabled={!dirty || !!anyErr || isSaving}
+          onClick={(e) => {
+            e.stopPropagation();
+            void handleSave();
+          }}
           data-testid={`button-funding-save-${symbol}`}
         >
           <Save className="h-4 w-4 stroke-[2.5]" aria-hidden />
-          {busy ? "Saving…" : "Save funding"}
+          {isSaving ? "Saving…" : "Save funding"}
         </button>
         {savedFlash && (
           <span
@@ -249,7 +310,7 @@ function FundingInputs({ acct, symbol }: { acct: ReturnType<typeof useAccountSna
           <button
             type="button"
             className="ac-btn !py-1 text-xs"
-            onClick={() => { setDraft(null); setMsg(null); }}
+            onClick={(e) => { e.stopPropagation(); setDraft(null); setMsg(null); }}
             data-testid={`button-funding-discard-${symbol}`}
           >
             Discard changes
