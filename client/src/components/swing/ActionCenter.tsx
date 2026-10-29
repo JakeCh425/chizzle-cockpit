@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
+import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
 import { sortForCockpit } from "@shared/readyAlerts";
 import { swingGet } from "@/lib/swing";
@@ -408,9 +409,11 @@ function ActionCenterInner() {
   useEffect(() => {
     if (global && rows.length > 0) {
       for (const r of rows) {
-        const g = actionGroupOf(r);
-        if (g === "CONFIRMED" || g === "READY") {
+        const isEligible = isConfirmedSetup(r);
+        if (isEligible) {
           global.setConfirmedSetup(r.symbol, true);
+        } else if (global.confirmedSetups?.[r.symbol]) {
+          global.setConfirmedSetup(r.symbol, false);
         }
       }
     }
@@ -428,16 +431,67 @@ function ActionCenterInner() {
   const [armingSymbol, setArmingSymbol] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Confirmed trades routing:
-  // Setups that have confirmed either via actionGroupOf === "CONFIRMED",
-  // setupStatus === "SETUP_CONFIRMED", or global.confirmedSetups[sym] === true
+  // Strict State-Routing Gatekeeper for the "Active Execution Zone":
+  // A card may ONLY mount in the top row if isSetupReady === true AND levelsValid === true AND 1hCandleConfirmed === true.
+  // If any parameter fails (or if the trade is just "Forming", "Retest", "Levels Invalid", or "Expired"),
+  // the card automatically demotes back to the standard middle "Setup Priority Board".
   const isConfirmedSetup = (d: SwingDecision) => {
     if (lockedSyms.has(d.symbol)) return false;
-    return (
+
+    // Reject non-tradeable, watch-only, forming, or retest statuses
+    const invalidStatuses = new Set([
+      "WATCH_RETEST",
+      "WATCH_EXTENDED",
+      "WATCH_STOP_TOO_WIDE",
+      "WATCH_RR_TOO_LOW",
+      "SIGNAL_EXPIRED",
+      "NO_TRADE",
+      "SETUP_FORMING",
+    ]);
+    if (invalidStatuses.has(d.setupStatus)) return false;
+
+    const g = actionGroupOf(d);
+    if (g === "NO_TRADE" || g === "FORMING" || g === "RETEST" || g === "EXTENDED" || g === "RR_STOP" || g === "DATA") {
+      return false;
+    }
+
+    // Freshness & tradeability check
+    const f = fOf(d);
+    if (!f.isTradeable) return false;
+    if (f.state === "MISSED_ENTRY" || f.state === "INVALIDATED" || f.state === "EXPIRED" || f.state === "STALE") {
+      return false;
+    }
+
+    // 1. levelsValid: strict verification
+    const ver = activeVersion(d, sel);
+    const plan = effectivePlan(d, ver);
+    const entry = plan.entry ?? d.entryPrice;
+    const stop = plan.stop ?? d.structuralStop;
+    const t1 = plan.t1 ?? (d.planTargets?.t1 ?? d.target1);
+
+    if (entry == null || stop == null || entry <= stop || entry <= 0 || stop <= 0) {
+      return false;
+    }
+
+    const invalid = levelsInvalidOf(d, { entry, stop, t1: t1 ?? null });
+    if (invalid != null) {
+      return false;
+    }
+    const levelsValid = true;
+
+    // 2. 1hCandleConfirmed: 1H candle confirmed above trigger
+    const candleConfirmed1h =
       actionGroupOf(d) === "CONFIRMED" ||
+      g === "READY" ||
       (d as any).setupStatus === "SETUP_CONFIRMED" ||
-      Boolean(global?.confirmedSetups?.[d.symbol])
-    );
+      d.setupStatus === "READY_TO_TRADE" ||
+      Boolean(global?.confirmedSetups?.[d.symbol]);
+    const is1hCandleConfirmed = candleConfirmed1h;
+
+    // 3. isSetupReady: trade rules met and ready to arm
+    const isSetupReady = (g === "READY" || actionGroupOf(d) === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE" || (d as any).setupStatus === "SETUP_CONFIRMED") && f.isTradeable;
+
+    return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
   const confirmedRows = rows.filter(isConfirmedSetup);
@@ -687,53 +741,64 @@ function ActionCenterInner() {
                 </span>
               </div>
 
-              <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-3">
                 {confirmedRows.map((d) => {
                   const ver = activeVersion(d, sel);
-                  const key = setupIdOf(d);
+                  const plan = effectivePlan(d, ver);
                   const isArming = armingSymbol === d.symbol;
+
+                  const liveQuote = prices?.[d.symbol];
+                  const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+                  const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
+
+                  const entryPrice = plan.entry ?? d.entryPrice;
+                  const stopLoss = plan.stop ?? d.structuralStop;
+                  const target1 = plan.t1 ?? (d.planTargets?.t1 ?? d.target1);
 
                   return (
                     <div
                       key={d.symbol}
-                      className="grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 p-4 shadow-[0_0_15px_rgba(16,185,129,0.5)] ring-2 ring-emerald-400/40 animate-pulse transition-all"
+                      className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 px-4 py-2.5 shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse transition-all hover:border-emerald-400"
                       data-testid={`active-execution-card-${d.symbol}`}
                     >
-                      {/* Left: The Trading Card in Large mode with Mini-Chart */}
-                      <div className="lg:col-span-7 xl:col-span-8 flex flex-col justify-center">
-                        <InlineTradingCard
-                          d={d}
-                          group="CONFIRMED"
-                          ver={ver}
-                          equity={equity}
-                          expiryBars={expiryBars}
-                          minRr={minRr}
-                          prefs={prefs}
-                          setupKey={key}
-                          isNew={false}
-                          onSeen={() => markSeen(key)}
-                          onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })}
-                          onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }}
-                          collapsed={false}
-                          size="lg"
-                          showMiniChart={true}
-                          isConfirmed={true}
-                        />
+                      {/* Ticker & Live Price */}
+                      <div className="flex items-center gap-2.5 shrink-0">
+                        <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
+                        <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                        <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 hidden sm:inline-block">CONFIRMED</span>
                       </div>
 
-                      {/* Right: Dedicated AI Execution Engine with live synced setup prices */}
-                      <div
-                        className="lg:col-span-5 xl:col-span-4 flex flex-col justify-between"
-                        data-testid={`ai-context-sidebar-${d.symbol}`}
-                      >
-                        <AIExecutionEngine
-                          decision={d}
-                          version={ver}
-                          onArm={() => handleDirectArmExecute(d, ver)}
-                          isArming={isArming}
-                          className="h-full"
-                        />
+                      {/* BUY LIMIT | STOP | TARGET */}
+                      <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm">
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">BUY LIMIT:</span>
+                          <span className="font-extrabold text-white tabular-nums text-sm sm:text-base">{formatCurrency(entryPrice)}</span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">STOP:</span>
+                          <span className="font-extrabold text-rose-400 tabular-nums text-sm sm:text-base">{formatCurrency(stopLoss)}</span>
+                        </div>
+                        <div className="flex items-baseline gap-1.5">
+                          <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">TARGET:</span>
+                          <span className="font-extrabold text-emerald-400 tabular-nums text-sm sm:text-base">{formatCurrency(target1)}</span>
+                        </div>
                       </div>
+
+                      {/* [ ⚡ ARM TRADE ] button */}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleDirectArmExecute(d, ver)}
+                          disabled={isArming}
+                          className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-mono font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                          data-testid={`button-massive-arm-${d.symbol}`}
+                          aria-label={`Arm Trade for ${d.symbol}`}
+                        >
+                          <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
+                          <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
+                        </button>
+                      </div>
+                      <div data-testid={`ai-context-sidebar-${d.symbol}`} className="hidden" aria-hidden="true" />
                     </div>
                   );
                 })}
