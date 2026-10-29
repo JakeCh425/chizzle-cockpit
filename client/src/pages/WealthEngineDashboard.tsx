@@ -33,7 +33,7 @@ import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
   BarChart2, Settings, Sliders, Layers, Target, Shield, CheckCircle2,
   AlertTriangle, ArrowUpRight, ArrowDownRight, RefreshCw, LayoutDashboard,
-  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList, Compass, ShieldCheck, X
+  Maximize2, Crosshair, HelpCircle, Eye, Info, Play, ClipboardList, Compass, ShieldCheck, X, Beaker
 } from "lucide-react";
 
 // ============================================================================
@@ -2408,6 +2408,7 @@ export const Chart = LiveTradingChart;
 export default function WealthEngineDashboard() {
   const global = useGlobalState();
   const { activeTickerData, activePrice, livePrices } = global;
+  const { isPracticeMode, setIsPracticeMode, removeTicker } = global;
   const [newTickerInput, setNewTickerInput] = useState("");
   const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
 
@@ -2885,6 +2886,20 @@ export default function WealthEngineDashboard() {
 
         {/* Right: Risk Settings Bar & Theme Switcher Toggle */}
         <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setIsPracticeMode(!isPracticeMode)}
+            data-testid="button-toggle-practice-mode"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-mono font-black tracking-wider uppercase transition-all shadow-sm cursor-pointer ${
+              isPracticeMode
+                ? "border-amber-400 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)] animate-pulse"
+                : "border-slate-700 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-500"
+            }`}
+            title={isPracticeMode ? "Practice Sandbox Mode is ON. Live execution is disabled." : "Click to switch to Practice Mode"}
+          >
+            <Beaker className="h-3.5 w-3.5 text-amber-400" />
+            <span>{isPracticeMode ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+          </button>
           <RiskSettingsBar />
           <button
             onClick={cycleTheme}
@@ -3138,7 +3153,7 @@ export default function WealthEngineDashboard() {
                     key={item.symbol}
                     onClick={() => setActiveTicker(item.symbol)}
                     data-testid={`watchlist-row-${item.symbol}`}
-                    className={`px-3 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
+                    className={`group px-3 py-2.5 flex items-center justify-between cursor-pointer transition-colors ${
                       isSelected
                         ? "border-l-4"
                         : "hover:bg-white/[0.04]"
@@ -3210,20 +3225,34 @@ export default function WealthEngineDashboard() {
                     </div>
 
                     {/* Price & Change Badge — Synchronized to activeTickerData */}
-                    <div className="text-right flex-shrink-0 font-mono">
-                      <div className="text-xs font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
-                        ${(item.symbol === activeTickerData?.symbol ? activeTickerData.price : (item.price ?? 100)).toFixed(2)}
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="text-right font-mono">
+                        <div className="text-xs font-bold tabular-nums" style={{ color: "var(--text-primary)" }}>
+                          ${(item.symbol === activeTickerData?.symbol ? activeTickerData.price : (item.price ?? 100)).toFixed(2)}
+                        </div>
+                        <div
+                          className="text-[10px] font-bold tabular-nums flex items-center justify-end gap-0.5"
+                          style={{ color: (item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "var(--accent-green)" : "var(--accent-red)" }}
+                        >
+                          {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
+                          <span>
+                            {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "+" : ""}
+                            {(item.symbol === activeTickerData?.symbol ? activeTickerData.changePct : (item.changePct ?? 0)).toFixed(2)}%
+                          </span>
+                        </div>
                       </div>
-                      <div
-                        className="text-[10px] font-bold tabular-nums flex items-center justify-end gap-0.5"
-                        style={{ color: (item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "var(--accent-green)" : "var(--accent-red)" }}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeTicker(item.symbol);
+                        }}
+                        className="p-1 rounded hover:bg-rose-500/20 text-slate-500 hover:text-rose-400 opacity-60 group-hover:opacity-100 hover:opacity-100 transition-opacity"
+                        title={`Remove ${item.symbol} from Watchlist`}
+                        data-testid={`button-remove-ticker-${item.symbol}`}
                       >
-                        {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? <ArrowUpRight className="h-2.5 w-2.5" /> : <ArrowDownRight className="h-2.5 w-2.5" />}
-                        <span>
-                          {(item.symbol === activeTickerData?.symbol ? (activeTickerData.change >= 0) : isPositive) ? "+" : ""}
-                          {(item.symbol === activeTickerData?.symbol ? activeTickerData.changePct : (item.changePct ?? 0)).toFixed(2)}%
-                        </span>
-                      </div>
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 );
@@ -4475,11 +4504,12 @@ export default function WealthEngineDashboard() {
                         data-testid="button-fidelity-ticket-card"
                         disabled={!isTradeReady}
                         onClick={() => {
+                          if (isPracticeMode) return;
                           if (isTradeConfirmed) {
                             setIsFidelityGuideOpen(true);
                           }
                         }}
-                        title={!isTradeReady ? TRADE_LOCKED_TOOLTIP : "Fidelity Ticket Cheat Sheet"}
+                        title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : (!isTradeReady ? TRADE_LOCKED_TOOLTIP : "Fidelity Ticket Cheat Sheet")}
                         className={`w-full py-2.5 px-4 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-2 border shadow-md transition-all ${
                           !isTradeReady
                             ? "opacity-50 cursor-not-allowed bg-slate-800 text-slate-500 border-slate-700 pointer-events-auto"

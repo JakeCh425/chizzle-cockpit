@@ -60,6 +60,83 @@ export function computeSMAs(closes: number[]) {
   };
 }
 
+/**
+ * O(n) rolling EMA. Returns array same length as input, null until window fills.
+ * Multiplier k = 2 / (period + 1). For period 10, k = 2 / 11 = ~0.1818.
+ * Seed is the SMA of the first `period` values.
+ */
+export function rollingEMA(values: number[], period: number): (number | null)[] {
+  const out: (number | null)[] = new Array(values.length).fill(null);
+  if (values.length < period || period <= 0) return out;
+
+  const multiplier = 2 / (period + 1);
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += values[i];
+  }
+  let prevEma = sum / period;
+  out[period - 1] = prevEma;
+
+  for (let i = period; i < values.length; i++) {
+    const val = (values[i] - prevEma) * multiplier + prevEma;
+    out[i] = val;
+    prevEma = val;
+  }
+  return out;
+}
+
+/** Compute EMAs (e.g. 10-EMA, 20-EMA) in one pass-friendly batch. */
+export function computeEMAs(closes: number[]) {
+  return {
+    ema10: rollingEMA(closes, 10),
+    ema20: rollingEMA(closes, 20),
+  };
+}
+
+/**
+ * 10-EMA Momentum Setup Detector:
+ * 1. Runaway trend: stock trades significantly above 20-SMA (>= 1.5% above 20-SMA: price >= sma20 * 1.015).
+ * 2. Pullback touches and holds 10-EMA: low touches or dips near 10-EMA (low <= ema10 * 1.005) while close holds above or near 10-EMA.
+ * 3. 1H candle closes green off 10-EMA: close >= open (or close >= prevClose) and close >= ema10.
+ */
+export function is10EmaMomentumSetup(
+  closes: number[],
+  smas?: { sma20?: (number | null)[]; ema10?: (number | null)[] },
+  lows?: number[],
+  opens?: number[]
+): boolean {
+  const n = closes.length;
+  if (n < 10) return false;
+
+  const sma20Series = smas?.sma20 ?? rollingSMA(closes, 20);
+  const ema10Series = smas?.ema10 ?? rollingEMA(closes, 10);
+
+  const price = closes[n - 1];
+  const sma20 = sma20Series[n - 1];
+  const ema10 = ema10Series[n - 1];
+
+  if (sma20 == null || ema10 == null || sma20 <= 0 || ema10 <= 0) return false;
+
+  // 1. Runaway trend: stock trades >= 1.5% above its 20-SMA
+  const isAboveSma20 = price >= sma20 * 1.015;
+  if (!isAboveSma20) return false;
+
+  // 2. Holds 10-EMA: close is at or above 10-EMA (or within 0.2%)
+  const holdsEma10 = price >= ema10 * 0.998;
+  if (!holdsEma10) return false;
+
+  // 3. Touched 10-EMA on current or previous bar (low or close pulled back to near 10-EMA)
+  const low = lows && lows.length >= n ? lows[n - 1] : Math.min(price, closes[n - 2] ?? price);
+  const touchedEma10 = low <= ema10 * 1.005;
+  if (!touchedEma10) return false;
+
+  // 4. Closes green: close >= open (or close >= prevClose if open not provided)
+  const open = opens && opens.length >= n ? opens[n - 1] : closes[n - 2] ?? price;
+  const isGreen = price >= open;
+
+  return isGreen;
+}
+
 // ── Tunable thresholds (export so callers can override per setup) ──────────
 export const SIGNAL_THRESHOLDS = {
   atPct: 0.002,         // 0.2% — "At SMA"

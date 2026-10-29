@@ -109,6 +109,17 @@ export function subscribeSymbol(symbol: string) {
   }
 }
 
+export function unsubscribeSymbol(symbol: string) {
+  const s = symbol.toUpperCase().split(":").pop()!;
+  if (!s || !subscribedSymbols.has(s)) return;
+  subscribedSymbols.delete(s);
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    try {
+      ws.send(JSON.stringify({ type: "unsubscribe", symbols: [s] }));
+    } catch {}
+  }
+}
+
 export async function forceRefreshPrice(symbol?: string): Promise<boolean> {
   const sym = symbol ? symbol.toUpperCase().split(":").pop()! : undefined;
   if (ws && ws.readyState === WebSocket.OPEN) {

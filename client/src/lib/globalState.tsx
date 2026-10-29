@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo, useCall
 import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/lib/wealthWatchlist";
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
-import { ensurePriceFeed, subscribe, subscribeTick, isBadTick as checkBadTick, subscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
+import { ensurePriceFeed, subscribe, subscribeTick, isBadTick as checkBadTick, subscribeSymbol, unsubscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
 
 export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme };
 
@@ -27,6 +27,24 @@ export interface ActiveTickerData {
   t2: number;
   t3: number;
   receivedAt: number;
+}
+
+export interface PracticeTradeRecord {
+  id: string;
+  symbol: string;
+  entryPrice: number;
+  stopLoss: number;
+  target1: number;
+  target2?: number;
+  target3?: number;
+  riskReward: number;
+  shares?: number;
+  dollarRisk?: number;
+  capitalCommitted?: number;
+  status: "OPEN" | "CLOSED" | "CANCELLED";
+  loggedAt: number;
+  timeframe?: string;
+  setupType?: string;
 }
 
 export interface UniversalModalState {
@@ -83,12 +101,22 @@ export interface GlobalStateContextType {
   confirmedSetups: Record<string, boolean>;
   setConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
   registerConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
+
+  // Practice Sandbox Mode (Paper Trading Isolation)
+  isPracticeMode: boolean;
+  setIsPracticeMode: (v: boolean | ((prev: boolean) => boolean)) => void;
+  practiceTrades: PracticeTradeRecord[];
+  logPracticeTrade: (trade: Omit<PracticeTradeRecord, "id" | "loggedAt" | "status"> & { id?: string; status?: "OPEN" | "CLOSED" | "CANCELLED" }) => PracticeTradeRecord;
+  clearPracticeTrades: () => void;
 }
 
 const GlobalStateContext = createContext<GlobalStateContextType | null>(null);
 
 const STORAGE_KEY_WATCHLIST = "chizzle-wealth-watchlist";
+const STORAGE_KEY_REMOVED_TICKERS = "chizzle-removed-tickers";
 const STORAGE_KEY_TICKER = "chizzle-active-ticker";
+const STORAGE_KEY_PRACTICE_MODE = "chizzle-practice-mode";
+const STORAGE_KEY_PRACTICE_TRADES = "chizzle-practice-trades";
 const STORAGE_KEY_THEME = "chizzle-wealth-theme";
 const STORAGE_KEY_ACCOUNT_EQUITY = "chizzle-account-equity";
 const STORAGE_KEY_DEFAULT_RISK_PCT = "chizzle-default-risk-pct";
@@ -199,14 +227,43 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     }
   }, []);
 
-  // Watchlist State
+  // Watchlist State (with auto-migration for newly added default universe tickers unless explicitly removed)
   const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() => {
     if (typeof window !== "undefined") {
       try {
+        const removedRaw = localStorage.getItem(STORAGE_KEY_REMOVED_TICKERS);
+        const removedSet = new Set<string>();
+        if (removedRaw) {
+          const parsedRem = JSON.parse(removedRaw);
+          if (Array.isArray(parsedRem)) {
+            parsedRem.forEach((s: any) => typeof s === "string" && removedSet.add(s.toUpperCase()));
+          }
+        }
+
         const saved = localStorage.getItem(STORAGE_KEY_WATCHLIST);
         if (saved) {
           const parsed = JSON.parse(saved);
-          if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            let migrated = false;
+            const existingSymbols = new Set(parsed.map((item: any) => item?.symbol?.toUpperCase()));
+            const nextList = [...parsed];
+
+            for (const defItem of DEFAULT_WATCHLIST) {
+              const defSym = defItem.symbol.toUpperCase();
+              if (!existingSymbols.has(defSym) && !removedSet.has(defSym)) {
+                nextList.push(defItem);
+                existingSymbols.add(defSym);
+                migrated = true;
+              }
+            }
+
+            if (migrated) {
+              try {
+                localStorage.setItem(STORAGE_KEY_WATCHLIST, JSON.stringify(nextList));
+              } catch {}
+            }
+            return nextList;
+          }
         }
       } catch {}
     }
@@ -237,16 +294,38 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         return { ok: true, message: `${sym} is already on watchlist` };
       }
 
-      // Generate realistic dynamic metrics for user-added ticker
-      const basePrice = 120 + Math.floor(Math.random() * 80);
-      const atr = +(basePrice * 0.035).toFixed(2);
-      const buyTarget = +basePrice.toFixed(2);
-      const stopLoss = +(basePrice - atr * 1.5).toFixed(2);
-      const primaryTarget = +(basePrice + atr * 2.8).toFixed(2);
-      const t2 = +(basePrice + atr * 4.2).toFixed(2);
-      const t3 = +(basePrice + atr * 5.8).toFixed(2);
+      // Un-remove if previously removed
+      if (typeof window !== "undefined") {
+        try {
+          const removedRaw = localStorage.getItem(STORAGE_KEY_REMOVED_TICKERS);
+          if (removedRaw) {
+            const arr = JSON.parse(removedRaw);
+            if (Array.isArray(arr) && arr.includes(sym)) {
+              localStorage.setItem(
+                STORAGE_KEY_REMOVED_TICKERS,
+                JSON.stringify(arr.filter((s: string) => s !== sym))
+              );
+            }
+          }
+        } catch {}
+      }
 
-      const newItem: WatchlistItem = {
+      // Subscribe to WebSocket feed immediately
+      subscribeSymbol(sym);
+
+      // Check if ticker exists in DEFAULT_WATCHLIST to restore full institutional metadata
+      const defaultMatch = DEFAULT_WATCHLIST.find((item) => item.symbol === sym);
+
+      // Generate realistic dynamic metrics for user-added ticker
+      const basePrice = defaultMatch ? defaultMatch.price : (120 + Math.floor(Math.random() * 80));
+      const atr = defaultMatch ? defaultMatch.atr : +(basePrice * 0.035).toFixed(2);
+      const buyTarget = defaultMatch ? defaultMatch.buyTarget : +basePrice.toFixed(2);
+      const stopLoss = defaultMatch ? defaultMatch.stopLoss : +(basePrice - atr * 1.5).toFixed(2);
+      const primaryTarget = defaultMatch ? defaultMatch.primaryTarget : +(basePrice + atr * 2.8).toFixed(2);
+      const t2 = defaultMatch ? defaultMatch.t2 : +(basePrice + atr * 4.2).toFixed(2);
+      const t3 = defaultMatch ? defaultMatch.t3 : +(basePrice + atr * 5.8).toFixed(2);
+
+      const newItem: WatchlistItem = defaultMatch ? { ...defaultMatch } : {
         symbol: sym,
         name: `${sym} Custom Asset`,
         price: basePrice,
@@ -267,7 +346,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         buyTarget,
         stopLoss,
         primaryTarget,
-        bottomLine: `Strong technical reclaim of the 20-period moving average on ${sym}. Defined structural stop at $${stopLoss.toFixed(2)} with asymmetric 2.4R target.`,
+        bottomLine: `Strong technical reclaim of the 20-period moving average on ${sym}. Defined structural stop at ${stopLoss.toFixed(2)} with asymmetric 2.4R target.`,
         winRate: 67.5,
         atr,
         t2,
@@ -284,10 +363,29 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const removeTicker = useCallback(
     (symbol: string) => {
-      const next = watchlist.filter((item) => item.symbol !== symbol.toUpperCase());
+      const sym = symbol.trim().toUpperCase();
+      const next = watchlist.filter((item) => item.symbol !== sym);
       saveWatchlist(next);
-      if (activeTicker === symbol.toUpperCase() && next.length > 0) {
-        setActiveTicker(next[0].symbol);
+
+      // Record in removed-tickers set so auto-migration does not re-add it
+      if (typeof window !== "undefined") {
+        try {
+          const removedRaw = localStorage.getItem(STORAGE_KEY_REMOVED_TICKERS);
+          const arr = removedRaw ? JSON.parse(removedRaw) : [];
+          if (Array.isArray(arr) && !arr.includes(sym)) {
+            arr.push(sym);
+            localStorage.setItem(STORAGE_KEY_REMOVED_TICKERS, JSON.stringify(arr));
+          }
+        } catch {}
+      }
+
+      // Unsubscribe from live WebSocket feed
+      unsubscribeSymbol(sym);
+
+      // If removing active ticker, automatically fallback to first available ticker (SPY or first item)
+      if (activeTicker === sym && next.length > 0) {
+        const fallback = next.find((i) => i.symbol === "SPY") || next[0];
+        setActiveTicker(fallback.symbol);
       }
     },
     [watchlist, activeTicker, saveWatchlist, setActiveTicker]
@@ -599,6 +697,87 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     return confirmedSyms.size;
   }, [syncedWatchlist, liveConfirmedSetups]);
 
+  // ── Practice Mode (Paper Trading) Global State ──
+  const [isPracticeMode, setIsPracticeModeState] = useState<boolean>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_PRACTICE_MODE);
+        if (saved !== null) return saved === "true";
+      } catch {}
+    }
+    return false;
+  });
+
+  const setIsPracticeMode = useCallback((val: boolean | ((prev: boolean) => boolean)) => {
+    setIsPracticeModeState((prev) => {
+      const next = typeof val === "function" ? val(prev) : val;
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.setItem(STORAGE_KEY_PRACTICE_MODE, String(next));
+        } catch {}
+      }
+      return next;
+    });
+  }, []);
+
+  // ── Practice Trades (Paper Trading Storage Array) ──
+  const [practiceTrades, setPracticeTrades] = useState<PracticeTradeRecord[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_PRACTICE_TRADES);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          if (Array.isArray(parsed)) return parsed;
+        }
+      } catch {}
+    }
+    return [];
+  });
+
+  const logPracticeTrade = useCallback(
+    (trade: Omit<PracticeTradeRecord, "id" | "loggedAt" | "status"> & { id?: string; status?: "OPEN" | "CLOSED" | "CANCELLED" }): PracticeTradeRecord => {
+      const record: PracticeTradeRecord = {
+        id: trade.id || `practice-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        symbol: trade.symbol.toUpperCase(),
+        entryPrice: trade.entryPrice,
+        stopLoss: trade.stopLoss,
+        target1: trade.target1,
+        target2: trade.target2,
+        target3: trade.target3,
+        riskReward: trade.riskReward,
+        shares: trade.shares,
+        dollarRisk: trade.dollarRisk,
+        capitalCommitted: trade.capitalCommitted,
+        status: trade.status || "OPEN",
+        loggedAt: Date.now(),
+        timeframe: trade.timeframe,
+        setupType: trade.setupType,
+      };
+
+      setPracticeTrades((prev) => {
+        const next = [record, ...prev];
+        if (typeof window !== "undefined") {
+          try {
+            localStorage.setItem(STORAGE_KEY_PRACTICE_TRADES, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+
+      return record;
+    },
+    []
+  );
+
+  const clearPracticeTrades = useCallback(() => {
+    setPracticeTrades([]);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.removeItem(STORAGE_KEY_PRACTICE_TRADES);
+      } catch {}
+    }
+  }, []);
+
   const value = useMemo(
     () => ({
       activeTicker,
@@ -631,6 +810,11 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       confirmedSetups: liveConfirmedSetups,
       setConfirmedSetup,
       registerConfirmedSetup,
+      isPracticeMode,
+      setIsPracticeMode,
+      practiceTrades,
+      logPracticeTrade,
+      clearPracticeTrades,
     }),
     [
       activeTicker,
@@ -662,6 +846,11 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       liveConfirmedSetups,
       setConfirmedSetup,
       registerConfirmedSetup,
+      isPracticeMode,
+      setIsPracticeMode,
+      practiceTrades,
+      logPracticeTrade,
+      clearPracticeTrades,
     ]
   );
 

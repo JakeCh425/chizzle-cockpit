@@ -491,6 +491,25 @@ function ActionCenterInner() {
     // 3. isSetupReady: trade rules met and ready to arm
     const isSetupReady = (g === "READY" || actionGroupOf(d) === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE" || (d as any).setupStatus === "SETUP_CONFIRMED") && f.isTradeable;
 
+    if (global?.isPracticeMode) {
+      // Relaxed Rules in Practice Mode: Lower strict system gates.
+      // Allow setups with 1.5:1 R:R and setups where 1H candle is still forming / awaiting close
+      const risk = Math.max(0.01, entry - stop);
+      const reward = Math.max(0.01, (t1 ?? (entry + 1.5 * risk)) - entry);
+      const rr = reward / risk;
+      const isRelaxedRR = rr >= 1.45;
+      const isRelaxedStatus =
+        g === "READY" ||
+        g === "FORMING" ||
+        actionGroupOf(d) === "CONFIRMED" ||
+        d.setupStatus === "AWAITING_CLOSE" ||
+        d.setupStatus === "FORMING" ||
+        d.setupStatus === "READY_TO_TRADE" ||
+        (d as any).setupStatus === "SETUP_CONFIRMED" ||
+        Boolean(global?.confirmedSetups?.[d.symbol]);
+      return isRelaxedRR && isRelaxedStatus;
+    }
+
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
@@ -531,6 +550,31 @@ function ActionCenterInner() {
       const perShareRisk = Math.max(0.01, entryPrice - stopLoss);
       const calculatedShares = Math.max(1, Math.floor((equity * 0.01) / perShareRisk));
       const calculatedRisk = +(calculatedShares * perShareRisk).toFixed(2);
+
+      if (global?.isPracticeMode) {
+        if (global.logPracticeTrade) {
+          global.logPracticeTrade({
+            symbol: d.symbol.toUpperCase(),
+            entryPrice,
+            stopLoss,
+            target1,
+            target2,
+            riskReward: perShareRisk > 0 ? Number(((target1 - entryPrice) / perShareRisk).toFixed(2)) : 1.5,
+            shares: calculatedShares,
+            dollarRisk: calculatedRisk,
+            setupType: d.setupType ?? "PRACTICE_CONFIRMED",
+            timeframe: "1H",
+          });
+        }
+        if (global?.setConfirmedSetup) {
+          global.setConfirmedSetup(d.symbol, false);
+        }
+        toast({
+          title: `🧪 Practice Trade Logged · ${d.symbol}`,
+          description: `${d.symbol} logged to Practice Sandbox at ${formatCurrency(entryPrice)}. Isolated from live capital.`,
+        });
+        return;
+      }
 
       const armedTrade = await tradeApi.arm({
         symbol: d.symbol.toUpperCase(),
@@ -654,6 +698,21 @@ function ActionCenterInner() {
           </span>
         </span>
 
+        {/* Practice Mode Toggle */}
+        <button
+          type="button"
+          onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
+          data-testid="button-toggle-practice-mode"
+          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-black uppercase tracking-wider transition-all cursor-pointer ${
+            global?.isPracticeMode
+              ? "border-amber-400 bg-amber-500 text-gray-950 shadow-[0_0_15px_rgba(245,158,11,0.7)] animate-pulse"
+              : "border-white/10 bg-black/40 text-slate-400 hover:border-slate-500 hover:text-white"
+          }`}
+          title="Toggle Practice Sandbox Paper Trading Mode"
+        >
+          <span>{global?.isPracticeMode ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+        </button>
+
         {/* High-Contrast Glowing Status Pill: Practice Trades Active */}
         <span
           className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider transition-all ${
@@ -759,13 +818,14 @@ function ActionCenterInner() {
                   const stopLoss = plan.stop ?? d.structuralStop;
                   const target1 = plan.t1 ?? (d.planTargets?.t1 ?? d.target1);
 
-                  return (
+                  const isPractice = Boolean(global?.isPracticeMode);
+                    return (
                     <div
                       key={d.symbol}
-                      className="flex flex-col gap-2 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 p-3 sm:px-4 sm:py-3 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse transition-all hover:border-emerald-400"
+                      className={`flex flex-col gap-2 rounded-xl p-3 sm:px-4 sm:py-3 transition-all ${isPractice ? "border-2 border-amber-500 bg-amber-950/40 border-4 border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.4)] shadow-[0_0_15px_rgba(245,158,11,0.5)] shadow-md shadow-amber-900/20 ring-2 ring-amber-400/40 animate-pulse hover:border-amber-400" : "border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] shadow-md shadow-emerald-900/20 ring-2 ring-emerald-400/40 animate-pulse hover:border-emerald-400"}`}
                       data-testid={`active-execution-card-${d.symbol}`}
                     >
-                      {/* Pulsing Header Badge: ⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION */}
+                      {/* Pulsing Header Badge: {isPractice ? "🧪 PRACTICE TRADE SETUP READY — SANDBOX MODE" : "⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION"} */}
                       <div className="flex items-center justify-between gap-2 border-b border-emerald-500/30 pb-2">
                         <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-black tracking-wider text-emerald-300 animate-pulse">
                           ⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION
@@ -805,12 +865,12 @@ function ActionCenterInner() {
                             type="button"
                             onClick={() => handleDirectArmExecute(d, ver)}
                             disabled={isArming}
-                            className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-mono font-black text-xs sm:text-sm uppercase tracking-wider shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50"
+                            className={`px-4 py-2 rounded-lg font-mono font-black text-xs sm:text-sm uppercase tracking-wider animate-pulse transition-all cursor-pointer flex items-center gap-1.5 disabled:opacity-50 ${isPractice ? "bg-amber-500 hover:bg-amber-400 text-gray-950 shadow-[0_0_15px_rgba(245,158,11,0.5)]" : "bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-[0_0_15px_rgba(16,185,129,0.5)]"}`}
                             data-testid={`button-massive-arm-${d.symbol}`}
                             aria-label={`Arm Trade for ${d.symbol}`}
                           >
                             <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
-                            <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
+                            <span>{isArming ? "Executing..." : (isPractice ? "[ 🧪 LOG PRACTICE TRADE ]" : "[ ⚡ ARM TRADE ]")}</span>
                           </button>
                         </div>
                       </div>

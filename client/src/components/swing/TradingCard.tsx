@@ -47,6 +47,7 @@ import { ProximityTips } from "./ProximityTips";
 import { useFreshness } from "@/lib/freshness";
 import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessResult } from "@shared/cardFreshness";
 import { useGlobalState } from "@/lib/globalState";
+import { is10EmaMomentumSetup } from "@/lib/sma";
 
 // ─── UTILS & CONSTANTS ─────────────────────────────────────────────────────
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
@@ -279,7 +280,36 @@ function computeSMA(
   return result;
 }
 
+export function computeEMA(
+  bars: Array<{ t: number; c: number }>,
+  period: number
+): Array<{ time: UTCTimestamp; value: number }> {
+  if (!bars || bars.length < period) return [];
+  const result: Array<{ time: UTCTimestamp; value: number }> = [];
+  const multiplier = 2 / (period + 1);
+  let sum = 0;
+  for (let i = 0; i < period; i++) {
+    sum += bars[i].c;
+  }
+  let prevEma = sum / period;
+  result.push({
+    time: bars[period - 1].t as UTCTimestamp,
+    value: Number(prevEma.toFixed(2)),
+  });
+
+  for (let i = period; i < bars.length; i++) {
+    const currentEma = (bars[i].c - prevEma) * multiplier + prevEma;
+    prevEma = currentEma;
+    result.push({
+      time: bars[i].t as UTCTimestamp,
+      value: Number(currentEma.toFixed(2)),
+    });
+  }
+  return result;
+}
+
 export const DEFAULT_SPARK_SMA_COLORS = {
+  ema10: "#E2E8F0", // Thin, bright white/silver line (#E2E8F0 / #FFFFFF)
   sma20: "#22D3EE", // Blue (#22D3EE)
   sma50: "#F43F5E", // Red/Magenta (#F43F5E)
   sma200: "#FFD700", // Golden Yellow (#FFD700)
@@ -430,6 +460,19 @@ export function SparklineChart({
           crosshairMarkerVisible: false,
         });
         sma50Series.setData(sma50Data);
+      }
+
+      // ─── 10-EMA OVERLAY (Thin, bright white/silver line #E2E8F0 / #FFFFFF) ───
+      const ema10Data = computeEMA([...(barsData?.warmupBars || []), ...bars], 10).filter((pt) => bars.some((b) => b.t === pt.time));
+      if (ema10Data.length > 0) {
+        const ema10Series = addLineSeries({
+          color: "#E2E8F0",
+          lineWidth: 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        ema10Series.setData(ema10Data);
       }
 
       let buyLine: IPriceLine | null = null;
@@ -1413,11 +1456,32 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const t5Passed = effectivePrice != null && targets.t5 != null && effectivePrice >= targets.t5;
   const t6Passed = effectivePrice != null && targets.t6 != null && effectivePrice >= targets.t6;
 
-  // Ready to Buy subtle green glow distinction
+  const isPracticeMode = Boolean(global?.isPracticeMode);
+  const logPracticeTrade = global?.logPracticeTrade;
+
+  // 10-EMA Momentum Setup Detection
+  const is10EmaMomentum = useMemo(() => {
+    const st = (d.setupType || "").toUpperCase();
+    if (st.includes("10-EMA") || st.includes("10EMA") || (st.includes("MOMENTUM") && st.includes("10"))) {
+      return true;
+    }
+    const bars = (d as any).bars || [];
+    if (bars.length >= 10) {
+      const closes = bars.map((b: any) => b.c ?? b.close ?? 0);
+      const lows = bars.map((b: any) => b.l ?? b.low ?? 0);
+      const opens = bars.map((b: any) => b.o ?? b.open ?? 0);
+      return is10EmaMomentumSetup(closes, undefined, lows, opens);
+    }
+    return false;
+  }, [d.setupType, (d as any).bars]);
+
+  // Ready to Buy subtle glow distinction (amber in practice mode, emerald in live mode)
   const isReadyToBuy = group === "READY" && f.isTradeable;
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
 
-  const cardBorderClass = isReadyToBuy
+  const cardBorderClass = isPracticeMode && isReadyToBuy
+    ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-500/40"
+    : isReadyToBuy
     ? "border-emerald-500/50 shadow-[0_0_20px_rgba(52,211,153,0.18)] ring-1 ring-emerald-500/30"
     : isInvalidated
     ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
@@ -1522,6 +1586,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
           </div>
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+          {is10EmaMomentum && (
+            <span
+              className="rounded-md border border-slate-300 bg-slate-800/90 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-slate-100 shadow-sm shrink-0 ring-1 ring-white/40"
+              data-testid="badge-momentum-10ema"
+              data-symbol={d.symbol}
+            >
+              [ MOMENTUM SETUP: 10-EMA ]
+            </span>
+          )}
           {isCustom && (
             <span
               className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-cyan-300 shadow-sm shrink-0"
@@ -1542,19 +1615,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
+            disabled={isPracticeMode}
             onClick={(e) => {
               e.stopPropagation();
               setIsMiniGuideOpen((prev) => !prev);
             }}
             className={`px-2.5 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
-              isMiniGuideOpen
+              isPracticeMode
+                ? "border-slate-700 bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-50"
+                : isMiniGuideOpen
                 ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                 : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
             }`}
             data-testid={`button-mini-guide-${d.symbol}`}
-            title="Toggle Quick View Fidelity Ticket Mini-Guide"
+            title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : "Toggle Quick View Fidelity Ticket Mini-Guide"}
           >
-            [Fidelity Ticket]
+            {isPracticeMode ? "[Fidelity Disabled]" : "[Fidelity Ticket]"}
           </button>
 
           {potentialGainPct > 0 ? (
@@ -1715,6 +1791,31 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     : "bg-signal-green/10 text-signal-green border border-signal-green/40 hover:bg-signal-green/20"
                 }`}
                 onClick={(e) => {
+                  if (isPracticeMode) {
+                    e.stopPropagation();
+                    onSeen();
+                    if (logPracticeTrade) {
+                      logPracticeTrade({
+                        symbol: d.symbol,
+                        entryPrice: pullbackLimitPrice ?? activeEntry ?? effectivePrice,
+                        stopLoss: activeStop ?? (pullbackLimitPrice ? pullbackLimitPrice * 0.95 : effectivePrice * 0.95),
+                        target1: targets.t1 ?? effectivePrice * 1.05,
+                        target2: targets.t2,
+                        target3: targets.t3,
+                        riskReward: effectiveRiskReward,
+                        shares: sizer.sharesAllowed,
+                        dollarRisk: sizer.totalDollarRiskAllowed,
+                        capitalCommitted: sizer.positionCost,
+                        setupType: d.setupType,
+                        timeframe: d.setupTimeframe,
+                      });
+                    }
+                    toast({
+                      title: `🧪 Practice Trade Logged · ${d.symbol}`,
+                      description: `Logged practice entry at ${$(pullbackLimitPrice ?? activeEntry ?? effectivePrice)}. Isolated from live capital.`,
+                    });
+                    return;
+                  }
                   e.stopPropagation();
                   onSeen();
                   openTradeDialog({
@@ -1728,15 +1829,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                   });
                 }}
                 data-testid={`button-arm-trade-${d.symbol}`}
-                data-action-mode={isMissedEntryRetest ? "pullback-limit" : "arm-trade"}
+                data-action-mode={isPracticeMode ? "practice-log" : (isMissedEntryRetest ? "pullback-limit" : "arm-trade")}
                 title={
-                  isMissedEntryRetest
+                  isPracticeMode
+                    ? `Log ${d.symbol} into practice trade sandbox (isolated from live capital)`
+                    : (isMissedEntryRetest
                     ? `Stage a limit buy order at original 20-SMA entry (${$(pullbackLimitPrice)})`
-                    : "Arm practice trade plan"
+                    : "Arm practice trade plan")
                 }
               >
-                <Crosshair className={`h-3.5 w-3.5 ${isMissedEntryRetest ? "text-amber-300" : "text-signal-green"}`} />
-                <span>{isMissedEntryRetest ? "[ SET PULLBACK LIMIT ]" : "Arm Trade"}</span>
+                <Crosshair className={`h-3.5 w-3.5 ${isPracticeMode ? "text-amber-400" : (isMissedEntryRetest ? "text-amber-300" : "text-signal-green")}`} />
+                <span>{isPracticeMode ? "[ LOG PRACTICE TRADE ]" : (isMissedEntryRetest ? "[ SET PULLBACK LIMIT ]" : "Arm Trade")}</span>
               </button>
             );
           })()}
