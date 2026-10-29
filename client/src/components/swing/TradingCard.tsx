@@ -1,5 +1,7 @@
 import { ModalLargeChart } from "./ModalLargeChart";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
+import MiniChartWidget from "@/components/MiniChartWidget";
+import { AIExecutionEngine, formatCurrency } from "./AIExecutionEngine";
 // ─── Trading Card (v2 Overhaul) ────────────────────────────────────────────
 // The Action Center's stat-card view of one engine decision.
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
@@ -1273,7 +1275,43 @@ export function EarlyLookLine({ d }: any) {
   return <span className="text-[10px] font-bold text-signal-amber"><Eye className="inline h-3 w-3 mr-1" /> Heads up: 30m closed above trigger</span>;
 }
 
-export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKey: string; isNew: boolean; onSeen: () => void; collapsed?: boolean }) {
+export type SetupCardSize = "sm" | "md" | "lg";
+
+export function resolveCardSize(
+  d: SwingDecision,
+  group: ActionGroup,
+  isTradeable: boolean,
+  isConfirmed: boolean,
+  manualSize?: SetupCardSize | null
+): SetupCardSize {
+  if (manualSize) return manualSize;
+  if (isConfirmed || (group === "READY" && isTradeable) || (d as any).setupStatus === "SETUP_CONFIRMED") {
+    return "lg";
+  }
+  const isInvalid =
+    !isTradeable ||
+    group === "NO_TRADE" ||
+    d.setupStatus === "SIGNAL_EXPIRED" ||
+    (d as any).setupStatus === "LEVELS_INVALID" ||
+    (d.entryPrice != null && d.structuralStop != null && d.entryPrice <= d.structuralStop);
+  if (isInvalid) {
+    return "sm";
+  }
+  return "md";
+}
+
+export interface InlineTradingCardProps extends Omit<CardProps, "inDialog"> {
+  setupKey: string;
+  isNew: boolean;
+  onSeen: () => void;
+  collapsed?: boolean;
+  size?: SetupCardSize;
+  showAiEngine?: boolean;
+  showMiniChart?: boolean;
+  isConfirmed?: boolean;
+}
+
+export function InlineTradingCard(props: InlineTradingCardProps) {
   const { d, group, ver, equity: propEquity, setupKey, isNew, onSeen } = props;
   const sz = useCardSizing(d, props.ver);
   const p = effectivePlan(d, ver);
@@ -1293,6 +1331,10 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
   const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
+
+  const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
+  const cardSize = resolveCardSize(d, group, f.isTradeable, isConfirmed, props.size);
+  const [isSmallExpanded, setIsSmallExpanded] = useState(false);
 
   const [detailsOpen, setDetailsOpen] = useDisclosure(`card:${setupKey}`, false);
   const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
@@ -1384,7 +1426,8 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
     }, 100);
   };
 
-  if (props.collapsed) {
+  // Small state: Single horizontal row: Ticker | Live Price | Status Badge | [ Expand ]
+  if (props.collapsed || (cardSize === "sm" && !isSmallExpanded)) {
     return (
       <article
         className={`w-full flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:border-cyan-400/60`}
@@ -1395,6 +1438,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           }
         }}
         data-testid={`trading-card-${d.symbol}`}
+        data-card-size="sm"
       >
         <div className="flex items-center gap-3">
           <span className="font-mono text-xl font-black text-white">{d.symbol}</span>
@@ -1403,6 +1447,20 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
         </div>
         <div className="flex items-center gap-2">
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+          <button
+            type="button"
+            className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-mono font-bold text-cyan-300 hover:bg-slate-700 transition-colors cursor-pointer"
+            onClick={(e) => {
+              e.stopPropagation();
+              props.onSeen?.();
+              setIsSmallExpanded(true);
+            }}
+            data-testid={`button-expand-card-${d.symbol}`}
+            title="Expand card details"
+          >
+            <ChevronsUpDown className="h-3 w-3" />
+            <span>[ Expand ]</span>
+          </button>
         </div>
       </article>
     );
@@ -1413,6 +1471,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
       className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:bg-gray-800/50 hover:border-cyan-700 transition-all`}
       role="button"
       tabIndex={0}
+      data-card-size={cardSize}
       onClick={(e) => {
         if (props.onOpen) {
           props.onSeen?.();
@@ -1765,6 +1824,29 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
               SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong>
             </span>
           </div>
+        </div>
+      )}
+
+      {/* ─── LARGE STATE: Mini-Chart & AI Execution Engine ─── */}
+      {(cardSize === "lg" || props.showMiniChart) && (
+        <div
+          className="my-2.5 rounded-lg border border-slate-800 bg-slate-950/80 p-2.5 overflow-hidden shadow-inner pointer-events-auto"
+          data-testid={`mini-chart-${d.symbol}`}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-1 pb-1.5 mb-1.5 border-b border-slate-800 text-[10px] font-mono text-slate-400">
+            <span className="font-bold uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+              <LineChart className="h-3.5 w-3.5" /> 1H Candle Mini-Chart
+            </span>
+            <span className="text-[9px] uppercase tracking-wider text-slate-500">Live 1H Stream · {d.symbol}</span>
+          </div>
+          <MiniChartWidget ticker={d.symbol} defaultInterval="1H" editableTicker={false} height={120} />
+        </div>
+      )}
+
+      {cardSize === "lg" && props.showAiEngine && (
+        <div className="my-2 pointer-events-auto" onClick={(e) => e.stopPropagation()}>
+          <AIExecutionEngine decision={d} version={ver} />
         </div>
       )}
 
@@ -2271,3 +2353,5 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
 
 
 export { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
+export const SetupCard = InlineTradingCard;
+

@@ -4,11 +4,13 @@ import path from "path";
 import { CYBER_THEMES } from "@/components/swing/ActionCenter";
 
 const actionCenterPath = path.resolve(__dirname, "../../client/src/components/swing/ActionCenter.tsx");
+const aiEnginePath = path.resolve(__dirname, "../../client/src/components/swing/AIExecutionEngine.tsx");
 const tradingCardPath = path.resolve(__dirname, "../../client/src/components/swing/TradingCard.tsx");
 const indexCssPath = path.resolve(__dirname, "../../client/src/index.css");
 
 describe("Theme Expansion, Action Center Routing, AI Context Panel, and Layout Optimization", () => {
   const actionCenterSrc = fs.readFileSync(actionCenterPath, "utf-8").replace(/\r\n/g, "\n");
+  const aiEngineSrc = fs.readFileSync(aiEnginePath, "utf-8").replace(/\r\n/g, "\n");
   const tradingCardSrc = fs.readFileSync(tradingCardPath, "utf-8").replace(/\r\n/g, "\n");
   const indexCssSrc = fs.readFileSync(indexCssPath, "utf-8").replace(/\r\n/g, "\n");
 
@@ -134,30 +136,30 @@ describe("Theme Expansion, Action Center Routing, AI Context Panel, and Layout O
   describe("3. Dedicated AI Context Sidebar (Step-by-Step Execution)", () => {
     it("renders dedicated AI Context Sidebar container with data-testid='ai-context-sidebar-${d.symbol}'", () => {
       expect(actionCenterSrc).toContain('data-testid={`ai-context-sidebar-${d.symbol}`}');
-      expect(actionCenterSrc).toContain("AI Execution Engine");
+      expect(aiEngineSrc).toContain("AI Execution Engine");
     });
 
     it("renders execution Steps 1 through 4 formatted as requested", () => {
-      expect(actionCenterSrc).toContain("Step 1:");
-      expect(actionCenterSrc).toContain("1H Candle Confirmed ✅");
+      expect(aiEngineSrc).toContain("Step 1:");
+      expect(aiEngineSrc).toContain("1H Candle Confirmed ✅");
 
-      expect(actionCenterSrc).toContain("Step 2:");
-      expect(actionCenterSrc).toContain("Place Limit Buy at");
+      expect(aiEngineSrc).toContain("Step 2:");
+      expect(aiEngineSrc).toContain("Place Limit Buy at");
 
-      expect(actionCenterSrc).toContain("Step 3:");
-      expect(actionCenterSrc).toContain("Set Hard Stop at");
-      expect(actionCenterSrc).toContain("(-1R)");
+      expect(aiEngineSrc).toContain("Step 3:");
+      expect(aiEngineSrc).toContain("Set Hard Stop at");
+      expect(aiEngineSrc).toContain("(-1R)");
 
-      expect(actionCenterSrc).toContain("Step 4:");
-      expect(actionCenterSrc).toContain("Once filled, queue OCO Target 1 at");
-      expect(actionCenterSrc).toContain("(+1.5R)");
+      expect(aiEngineSrc).toContain("Step 4:");
+      expect(aiEngineSrc).toContain("Once filled, queue OCO Target 1 at");
+      expect(aiEngineSrc).toContain("(+1.5R)");
     });
 
     it("renders massive pulsing [ ARM TRADE ] execution button", () => {
-      expect(actionCenterSrc).toContain('data-testid={`button-massive-arm-${d.symbol}`}');
-      expect(actionCenterSrc).toContain("[ ARM TRADE ]");
-      expect(actionCenterSrc).toContain("animate-pulse");
-      expect(actionCenterSrc).toContain("bg-emerald-500 hover:bg-emerald-400");
+      expect(aiEngineSrc).toContain('data-testid={`button-massive-arm-${d.symbol}`}');
+      expect(aiEngineSrc).toContain("[ ARM TRADE ]");
+      expect(aiEngineSrc).toContain("animate-pulse");
+      expect(aiEngineSrc).toContain("bg-emerald-500 hover:bg-emerald-400");
     });
 
     it("wires direct execution routing to tradeApi.arm, tradeApi.fill, and state clearance", () => {
