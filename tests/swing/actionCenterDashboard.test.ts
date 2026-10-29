@@ -190,9 +190,19 @@ describe("Watchlist Auto-Collapse & Visual Hierarchy", () => {
 });
 
 describe("Cyberpunk Theme Engine & Futuristic Terminal System", () => {
-  it("provides Cyber Neon, Midnight Ocean, and Stealth theme modules", () => {
+  it("provides Cyber Neon, Midnight Ocean, and Stealth theme modules along with 6 modern institutional palettes", () => {
     const ids = CYBER_THEMES.map((t) => t.id);
-    expect(ids).toEqual(["cyber-neon", "midnight-ocean", "stealth"]);
+    expect(ids).toEqual([
+      "cyber-neon",
+      "midnight-ocean",
+      "stealth",
+      "bloomberg-classic",
+      "solarized-dark",
+      "nord",
+      "dracula",
+      "high-contrast-light",
+      "monochrome-slate",
+    ]);
   });
 
   it("configures distinct visual previews and accents for each theme", () => {
@@ -212,5 +222,35 @@ describe("Cyberpunk Theme Engine & Futuristic Terminal System", () => {
     expect(stealth.name).toBe("Stealth");
     expect(stealth.previewGradient).toContain("zinc");
     expect(stealth.containerBorder).toContain("border-zinc");
+
+    const bloomberg = CYBER_THEMES.find((t) => t.id === "bloomberg-classic")!;
+    expect(bloomberg.name).toBe("Bloomberg Classic");
+    expect(bloomberg.badgeLabel).toBe("TERMINAL");
+    expect(bloomberg.containerBg).toContain("bg-black");
+
+    const solarized = CYBER_THEMES.find((t) => t.id === "solarized-dark")!;
+    expect(solarized.name).toBe("Solarized Dark");
+    expect(solarized.badgeLabel).toBe("SOLAR");
+    expect(solarized.containerBg).toContain("#002b36");
+
+    const nord = CYBER_THEMES.find((t) => t.id === "nord")!;
+    expect(nord.name).toBe("Nord Aesthetic");
+    expect(nord.badgeLabel).toBe("NORD");
+    expect(nord.previewGradient).toContain("#88C0D0");
+
+    const dracula = CYBER_THEMES.find((t) => t.id === "dracula")!;
+    expect(dracula.name).toBe("Dracula");
+    expect(dracula.badgeLabel).toBe("VAMP");
+    expect(dracula.previewGradient).toContain("#ff79c6");
+
+    const light = CYBER_THEMES.find((t) => t.id === "high-contrast-light")!;
+    expect(light.name).toBe("High-Contrast Light");
+    expect(light.badgeLabel).toBe("DAYLIGHT");
+    expect(light.containerBg).toContain("bg-white");
+
+    const slate = CYBER_THEMES.find((t) => t.id === "monochrome-slate")!;
+    expect(slate.name).toBe("Monochrome Slate");
+    expect(slate.badgeLabel).toBe("SLATE");
+    expect(slate.containerBorder).toContain("border-slate-700");
   });
 });

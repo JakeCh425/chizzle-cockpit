@@ -847,8 +847,8 @@ function PriceTile({ label, sub, value, tone, guided, engineValue, changed, move
         {moved && <span className="rounded border border-neon-blue/40 px-1.5 py-0.5 text-[9px] font-bold text-neon-blue">UPDATED · was {moved}</span>}
       </div>
       {guided && <span className="text-[10px] leading-snug text-slate-gray">{sub}</span>}
-      <span className="text-lg font-mono font-bold tabular-nums text-soft-white">{value}</span>
-      {rText && <span className="text-sm font-mono font-bold tabular-nums text-neon-blue">{rText}</span>}
+      <span className="text-xl sm:text-2xl font-mono font-black tabular-nums text-soft-white tracking-tight">{value}</span>
+      {rText && <span className="text-sm sm:text-base font-mono font-extrabold tabular-nums text-neon-blue">{rText}</span>}
       {changed && engineValue != null && <span className="text-[10px] font-mono text-slate-gray">Engine: {engineValue}</span>}
       {source && <span className="text-[10px] text-slate-gray">{source}</span>}
       {flags?.map((f: any) => (
@@ -1591,7 +1591,7 @@ export function InlineTradingCard(props: Omit<CardProps, "inDialog"> & { setupKe
           </div>
           <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
             <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
-            <strong className="text-emerald-400 font-bold truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+            <strong className="text-emerald-400 font-extrabold text-sm truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
           </div>
         </div>
 

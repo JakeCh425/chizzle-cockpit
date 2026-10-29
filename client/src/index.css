@@ -852,3 +852,138 @@
   border-color: rgba(113, 113, 122, 0.65);
   box-shadow: 0 0 18px rgba(255, 255, 255, 0.06);
 }
+
+/* ─── Modern Palettes Expansion (Bloomberg, Solarized, Nord, Dracula, Light, Mono) ─── */
+[data-cyber-theme="bloomberg-classic"] {
+  --ac-bg: #000000;
+  --ac-surface: #0A0A0A;
+  --ac-surface-2: #141414;
+  --ac-border: #FF8800;
+  --ac-border-strong: #FFB300;
+  --ac-accent: #FF9900;
+  --ac-accent-2: #00FFFF;
+  --ac-good: #00FF66;
+  --ac-warn: #FFCC00;
+  --ac-bad: #FF3333;
+}
+[data-cyber-theme="bloomberg-classic"] article[data-testid^="trading-card-"] {
+  background-color: #050505;
+  border-color: rgba(255, 136, 0, 0.4);
+  box-shadow: 0 0 15px rgba(255, 136, 0, 0.1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+[data-cyber-theme="bloomberg-classic"] article[data-testid^="trading-card-"]:hover {
+  border-color: #FFB300;
+  box-shadow: 0 0 22px rgba(255, 179, 0, 0.25);
+}
+
+[data-cyber-theme="solarized-dark"] {
+  --ac-bg: #002b36;
+  --ac-surface: #073642;
+  --ac-surface-2: #094757;
+  --ac-border: #586e75;
+  --ac-border-strong: #2aa198;
+  --ac-accent: #2aa198;
+  --ac-accent-2: #268bd2;
+  --ac-good: #859900;
+  --ac-warn: #b58900;
+  --ac-bad: #dc322f;
+}
+[data-cyber-theme="solarized-dark"] article[data-testid^="trading-card-"] {
+  background-color: rgba(7, 54, 66, 0.9);
+  border-color: rgba(42, 161, 152, 0.3);
+  box-shadow: 0 0 15px rgba(42, 161, 152, 0.08);
+}
+[data-cyber-theme="solarized-dark"] article[data-testid^="trading-card-"]:hover {
+  border-color: #2aa198;
+  box-shadow: 0 0 22px rgba(42, 161, 152, 0.2);
+}
+
+[data-cyber-theme="nord"] {
+  --ac-bg: #2E3440;
+  --ac-surface: #3B4252;
+  --ac-surface-2: #434C5E;
+  --ac-border: #4C566A;
+  --ac-border-strong: #88C0D0;
+  --ac-accent: #88C0D0;
+  --ac-accent-2: #81A1C1;
+  --ac-good: #A3BE8C;
+  --ac-warn: #EBCB8B;
+  --ac-bad: #BF616A;
+}
+[data-cyber-theme="nord"] article[data-testid^="trading-card-"] {
+  background-color: rgba(59, 66, 82, 0.88);
+  border-color: rgba(136, 192, 208, 0.3);
+  box-shadow: 0 0 15px rgba(136, 192, 208, 0.08);
+}
+[data-cyber-theme="nord"] article[data-testid^="trading-card-"]:hover {
+  border-color: #88C0D0;
+  box-shadow: 0 0 22px rgba(136, 192, 208, 0.2);
+}
+
+[data-cyber-theme="dracula"] {
+  --ac-bg: #282a36;
+  --ac-surface: #343746;
+  --ac-surface-2: #44475a;
+  --ac-border: #6272a4;
+  --ac-border-strong: #ff79c6;
+  --ac-accent: #ff79c6;
+  --ac-accent-2: #bd93f9;
+  --ac-good: #50fa7b;
+  --ac-warn: #f1fa8c;
+  --ac-bad: #ff5555;
+}
+[data-cyber-theme="dracula"] article[data-testid^="trading-card-"] {
+  background-color: rgba(52, 55, 70, 0.9);
+  border-color: rgba(255, 121, 198, 0.3);
+  box-shadow: 0 0 15px rgba(255, 121, 198, 0.08);
+}
+[data-cyber-theme="dracula"] article[data-testid^="trading-card-"]:hover {
+  border-color: #ff79c6;
+  box-shadow: 0 0 22px rgba(255, 121, 198, 0.22);
+}
+
+[data-cyber-theme="high-contrast-light"] {
+  --ac-bg: #ffffff;
+  --ac-surface: #f8fafc;
+  --ac-surface-2: #f1f5f9;
+  --ac-border: #cbd5e1;
+  --ac-border-strong: #2563eb;
+  --ac-accent: #2563eb;
+  --ac-accent-2: #0284c7;
+  --ac-good: #16a34a;
+  --ac-warn: #ca8a04;
+  --ac-bad: #dc2626;
+}
+[data-cyber-theme="high-contrast-light"] article[data-testid^="trading-card-"] {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #94a3b8;
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.05);
+}
+[data-cyber-theme="high-contrast-light"] article[data-testid^="trading-card-"]:hover {
+  border-color: #2563eb;
+  box-shadow: 0 0 18px rgba(37, 99, 235, 0.15);
+}
+
+[data-cyber-theme="monochrome-slate"] {
+  --ac-bg: #0f172a;
+  --ac-surface: #1e293b;
+  --ac-surface-2: #334155;
+  --ac-border: #475569;
+  --ac-border-strong: #94a3b8;
+  --ac-accent: #cbd5e1;
+  --ac-accent-2: #f8fafc;
+  --ac-good: #10b981;
+  --ac-warn: #f59e0b;
+  --ac-bad: #ef4444;
+}
+[data-cyber-theme="monochrome-slate"] article[data-testid^="trading-card-"] {
+  background-color: rgba(30, 41, 59, 0.9);
+  border-color: rgba(148, 163, 184, 0.3);
+  box-shadow: 0 0 12px rgba(0, 0, 0, 0.2);
+}
+[data-cyber-theme="monochrome-slate"] article[data-testid^="trading-card-"]:hover {
+  border-color: #cbd5e1;
+  box-shadow: 0 0 18px rgba(203, 213, 225, 0.15);
+}

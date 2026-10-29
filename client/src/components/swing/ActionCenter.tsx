@@ -19,14 +19,24 @@ import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Sec
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { useAccountSnapshot } from "./FundingPanel";
-import { useSwingTrades } from "@/lib/swingTrades";
+import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import { useToast } from "@/hooks/use-toast";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
 const DEFAULT_TITLE = "Action Center";
 
-export type CyberTheme = "cyber-neon" | "midnight-ocean" | "stealth";
+export type CyberTheme =
+  | "cyber-neon"
+  | "midnight-ocean"
+  | "stealth"
+  | "bloomberg-classic"
+  | "solarized-dark"
+  | "nord"
+  | "dracula"
+  | "high-contrast-light"
+  | "monochrome-slate";
 
 export interface CyberThemeConfig {
   id: CyberTheme;
@@ -77,6 +87,78 @@ export const CYBER_THEMES: CyberThemeConfig[] = [
     containerBg: "bg-black/80 backdrop-blur-md",
     containerBorder: "border-zinc-800 shadow-[0_0_25px_rgba(255,255,255,0.04)]",
     accentText: "text-zinc-200",
+  },
+  {
+    id: "bloomberg-classic",
+    name: "Bloomberg Classic",
+    badgeLabel: "TERMINAL",
+    description: "Pure black #000000 background, high-contrast neon cyan/magenta/yellow accents, monospace fonts",
+    previewGradient: "from-black via-amber-500 to-cyan-400",
+    previewBorder: "border-amber-400",
+    previewGlow: "shadow-[0_0_15px_rgba(245,158,11,0.5)] border-amber-400/80 ring-1 ring-amber-400/50",
+    containerBg: "bg-black backdrop-blur-md",
+    containerBorder: "border-amber-500/40 shadow-[0_0_25px_rgba(245,158,11,0.15)]",
+    accentText: "text-amber-400",
+  },
+  {
+    id: "solarized-dark",
+    name: "Solarized Dark",
+    badgeLabel: "SOLAR",
+    description: "Deep teal/blue-gray background (#002b36), muted pastel accents for low eye strain",
+    previewGradient: "from-[#002b36] via-[#268bd2] to-[#2aa198]",
+    previewBorder: "border-[#2aa198]",
+    previewGlow: "shadow-[0_0_15px_rgba(42,161,152,0.4)] border-[#2aa198]/80 ring-1 ring-[#2aa198]/50",
+    containerBg: "bg-[#002b36]/90 backdrop-blur-md",
+    containerBorder: "border-[#2aa198]/40 shadow-[0_0_25px_rgba(42,161,152,0.12)]",
+    accentText: "text-[#2aa198]",
+  },
+  {
+    id: "nord",
+    name: "Nord Aesthetic",
+    badgeLabel: "NORD",
+    description: "Icy blue/gray palette (#2E3440), soft frost-blue highlights, very clean and minimalist",
+    previewGradient: "from-[#2E3440] via-[#88C0D0] to-[#81A1C1]",
+    previewBorder: "border-[#88C0D0]",
+    previewGlow: "shadow-[0_0_15px_rgba(136,192,208,0.4)] border-[#88C0D0]/80 ring-1 ring-[#88C0D0]/50",
+    containerBg: "bg-[#2E3440]/90 backdrop-blur-md",
+    containerBorder: "border-[#88C0D0]/30 shadow-[0_0_20px_rgba(136,192,208,0.1)]",
+    accentText: "text-[#88C0D0]",
+  },
+  {
+    id: "dracula",
+    name: "Dracula",
+    badgeLabel: "VAMP",
+    description: "Dark purple/slate background (#282a36), vibrant pink, green, and purple accents",
+    previewGradient: "from-[#282a36] via-[#ff79c6] to-[#bd93f9]",
+    previewBorder: "border-[#ff79c6]",
+    previewGlow: "shadow-[0_0_15px_rgba(255,121,198,0.5)] border-[#ff79c6]/80 ring-1 ring-[#ff79c6]/50",
+    containerBg: "bg-[#282a36]/90 backdrop-blur-md",
+    containerBorder: "border-[#ff79c6]/30 shadow-[0_0_25px_rgba(255,121,198,0.12)]",
+    accentText: "text-[#ff79c6]",
+  },
+  {
+    id: "high-contrast-light",
+    name: "High-Contrast Light",
+    badgeLabel: "DAYLIGHT",
+    description: "Pure white background, pitch-black text, sharp royal blue and crimson accents",
+    previewGradient: "from-white via-blue-600 to-rose-600",
+    previewBorder: "border-blue-600",
+    previewGlow: "shadow-[0_0_15px_rgba(37,99,235,0.3)] border-blue-600/80 ring-1 ring-blue-600/50",
+    containerBg: "bg-white/95 backdrop-blur-md",
+    containerBorder: "border-blue-500/40 shadow-[0_0_20px_rgba(0,0,0,0.08)]",
+    accentText: "text-blue-600",
+  },
+  {
+    id: "monochrome-slate",
+    name: "Monochrome Slate",
+    badgeLabel: "SLATE",
+    description: "Shades of charcoal and gray, with color only on active execution buttons and live price",
+    previewGradient: "from-slate-950 via-slate-700 to-slate-400",
+    previewBorder: "border-slate-400",
+    previewGlow: "shadow-[0_0_15px_rgba(148,163,184,0.3)] border-slate-300 ring-1 ring-white/20",
+    containerBg: "bg-slate-950/90 backdrop-blur-md",
+    containerBorder: "border-slate-700 shadow-[0_0_20px_rgba(0,0,0,0.4)]",
+    accentText: "text-slate-200",
   },
 ];
 
@@ -342,19 +424,90 @@ function ActionCenterInner() {
   const markSeen = (k: string) => { if (!seen.includes(k)) setSeen([...seen.slice(-199), k]); };
   const dlgDecision: SwingDecision | undefined = dlg ? rows.find((d) => d.symbol === dlg.symbol) : undefined;
 
+  const [armingSymbol, setArmingSymbol] = useState<string | null>(null);
+  const { toast } = useToast();
+
+  // Confirmed trades routing:
+  // Setups that have confirmed either via actionGroupOf === "CONFIRMED",
+  // setupStatus === "SETUP_CONFIRMED", or global.confirmedSetups[sym] === true
+  const isConfirmedSetup = (d: SwingDecision) => {
+    if (lockedSyms.has(d.symbol)) return false;
+    return (
+      actionGroupOf(d) === "CONFIRMED" ||
+      (d as any).setupStatus === "SETUP_CONFIRMED" ||
+      Boolean(global?.confirmedSetups?.[d.symbol])
+    );
+  };
+
+  const confirmedRows = rows.filter(isConfirmedSetup);
+  const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
+  const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
+  const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
+
+  const handleDirectArmExecute = async (d: SwingDecision, ver: any) => {
+    try {
+      setArmingSymbol(d.symbol);
+      const entryPrice = ver?.plan?.entryPrice ?? d.plan?.entryPrice ?? d.triggerPrice ?? 100;
+      const stopLoss = ver?.plan?.stopLoss ?? d.plan?.stopLoss ?? Number((entryPrice * 0.95).toFixed(2));
+      const target1 = ver?.plan?.target1 ?? d.plan?.target1 ?? Number((entryPrice * 1.05).toFixed(2));
+      const target2 = ver?.plan?.target2 ?? d.plan?.target2;
+      const perShareRisk = Math.max(0.01, entryPrice - stopLoss);
+      const calculatedShares = Math.max(1, Math.floor((equity * 0.01) / perShareRisk));
+      const calculatedRisk = +(calculatedShares * perShareRisk).toFixed(2);
+
+      const armedTrade = await tradeApi.arm({
+        symbol: d.symbol.toUpperCase(),
+        entry: entryPrice,
+        stop: stopLoss,
+        shares: calculatedShares,
+        riskDollars: calculatedRisk,
+        t1: target1,
+        t2: target2,
+        setupType: d.setupType ?? "CONFIRMED_BREAKOUT",
+        timeframe: "1H",
+        notes: `Automated Execution from Active Execution Zone: ${d.symbol}`,
+      } as any);
+
+      if (armedTrade?.id) {
+        await tradeApi.fill(armedTrade.id, {
+          fillPrice: entryPrice,
+          note: "Auto-fill confirmed 1H trade execution",
+        });
+      }
+
+      if (global?.setConfirmedSetup) {
+        global.setConfirmedSetup(d.symbol, false);
+      }
+
+      await invalidateTrades();
+      toast({
+        title: "Trade Executed & Active",
+        description: `${d.symbol} armed and filled at $${entryPrice.toFixed(2)}. Routed to Active Trades.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Execution Error",
+        description: err?.message || "Failed to execute trade.",
+        variant: "destructive",
+      });
+    } finally {
+      setArmingSymbol(null);
+    }
+  };
+
   const [cyberTheme, setCyberTheme] = usePersistentState<CyberTheme>("ac-cyber-theme", "cyber-neon");
   const activeThemeConfig = CYBER_THEMES.find((t) => t.id === cyberTheme) ?? CYBER_THEMES[0];
   const [gridSize, setGridSize] = usePersistentState<"sm" | "md" | "lg">("ac-grid-size", "md");
   const [isCollapsedAll, setIsCollapsedAll] = usePersistentState<boolean>("ac-cards-collapsed-all", false);
   const gridColsClass =
     gridSize === "lg" ? "grid-cols-1 md:grid-cols-2"
-    : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4"
-    : "grid-cols-1 md:grid-cols-2 xl:grid-cols-3";
+    : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
+    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`w-full flex flex-col gap-5 rounded-xl p-5 sm:p-6 transition-all duration-300 bg-slate-900/90 border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
+      className={`w-full flex flex-col gap-3.5 rounded-xl p-3 sm:p-4 transition-all duration-300 bg-slate-900/90 border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
       {...acAttrs(prefs)}
       aria-label={title}
@@ -486,7 +639,124 @@ function ActionCenterInner() {
 
       {/* ─── BODY ───────────────────────────────────────────────────────────── */}
       {boxOpen && (
-        <div id="ac-body" className="flex flex-col gap-4">
+        <div id="ac-body" className="flex flex-col gap-3.5">
+          {/* ─── ACTIVE EXECUTION ZONE - CONFIRMED TRADES ─── */}
+          {confirmedRows.length > 0 && (
+            <div
+              className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300"
+              data-testid="active-execution-zone"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="relative flex h-3 w-3">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500" />
+                  </span>
+                  <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300">
+                    [ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]
+                  </h3>
+                  <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
+                    {confirmedRows.length} ACTIVE
+                  </span>
+                </div>
+                <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
+                  Trigger Confirmed · 1H Candle Close Validated · Ready For Immediate Arm
+                </span>
+              </div>
+
+              <div className="flex flex-col gap-4">
+                {confirmedRows.map((d) => {
+                  const ver = activeVersion(d, sel);
+                  const key = setupIdOf(d);
+                  const entryPrice = ver?.plan?.entryPrice ?? d.plan?.entryPrice ?? d.triggerPrice ?? 100;
+                  const stopLoss = ver?.plan?.stopLoss ?? d.plan?.stopLoss ?? Number((entryPrice * 0.95).toFixed(2));
+                  const target1 = ver?.plan?.target1 ?? d.plan?.target1 ?? Number((entryPrice * 1.05).toFixed(2));
+                  const isArming = armingSymbol === d.symbol;
+
+                  return (
+                    <div
+                      key={d.symbol}
+                      className="grid grid-cols-1 lg:grid-cols-12 gap-4 rounded-xl border-2 border-emerald-500 bg-emerald-950/40 p-4 shadow-[0_0_15px_rgba(16,185,129,0.5)] transition-all"
+                      data-testid={`active-execution-card-${d.symbol}`}
+                    >
+                      {/* Left: The Trading Card */}
+                      <div className="lg:col-span-7 xl:col-span-8 flex flex-col justify-center">
+                        <InlineTradingCard
+                          d={d}
+                          group="CONFIRMED"
+                          ver={ver}
+                          equity={equity}
+                          expiryBars={expiryBars}
+                          minRr={minRr}
+                          prefs={prefs}
+                          setupKey={key}
+                          isNew={false}
+                          onSeen={() => markSeen(key)}
+                          onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })}
+                          onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }}
+                          collapsed={false}
+                        />
+                      </div>
+
+                      {/* Right: Dedicated AI Context Sidebar */}
+                      <div
+                        className="lg:col-span-5 xl:col-span-4 flex flex-col justify-between gap-3.5 rounded-lg border border-emerald-500/40 bg-black/70 p-4 backdrop-blur-sm"
+                        data-testid={`ai-context-sidebar-${d.symbol}`}
+                      >
+                        <div>
+                          <div className="flex items-center justify-between border-b border-emerald-500/30 pb-2 mb-3">
+                            <span className="font-mono text-xs font-black uppercase tracking-wider text-emerald-400 flex items-center gap-1.5">
+                              <Sparkles className="h-3.5 w-3.5 text-emerald-300" /> AI Execution Engine
+                            </span>
+                            <span className="font-mono text-[10px] font-bold uppercase tracking-widest text-slate-400">
+                              {d.symbol}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col gap-2.5 font-mono text-xs">
+                            <div className="flex items-start gap-2 text-emerald-300">
+                              <span className="font-bold text-emerald-400 shrink-0">Step 1:</span>
+                              <span>1H Candle Confirmed ✅</span>
+                            </div>
+                            <div className="flex items-start gap-2 text-slate-200">
+                              <span className="font-bold text-cyan-400 shrink-0">Step 2:</span>
+                              <span>Place Limit Buy at <strong className="text-white font-bold">${entryPrice.toFixed(2)}</strong>.</span>
+                            </div>
+                            <div className="flex items-start gap-2 text-slate-200">
+                              <span className="font-bold text-amber-400 shrink-0">Step 3:</span>
+                              <span>Set Hard Stop at <strong className="text-white font-bold">${stopLoss.toFixed(2)}</strong> (-1R).</span>
+                            </div>
+                            <div className="flex items-start gap-2 text-slate-200">
+                              <span className="font-bold text-emerald-400 shrink-0">Step 4:</span>
+                              <span>Once filled, queue OCO Target 1 at <strong className="text-white font-bold">${target1.toFixed(2)}</strong> (+1.5R).</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="mt-2 pt-2 border-t border-emerald-500/20">
+                          <button
+                            type="button"
+                            onClick={() => handleDirectArmExecute(d, ver)}
+                            disabled={isArming}
+                            className="w-full py-3.5 px-4 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-mono font-black text-sm uppercase tracking-wider shadow-[0_0_20px_rgba(16,185,129,0.7)] animate-pulse transition-all cursor-pointer flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                            data-testid={`button-massive-arm-${d.symbol}`}
+                            aria-label={`Arm Trade for ${d.symbol}`}
+                          >
+                            <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
+                            <span>{isArming ? "Executing..." : "[ ARM TRADE ]"}</span>
+                          </button>
+                          <p className="mt-1.5 text-center font-mono text-[9px] uppercase tracking-wider text-slate-400">
+                            Routes directly to Active Trades · Clears from Action Center
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <GlobalTrafficLightBanner
             regimeCode={regimeCode}
             readyCount={readyCount}
@@ -504,7 +774,7 @@ function ActionCenterInner() {
             </div>
           )}
 
-          {!scan.isLoading && !loud.length && !openTrades.length && (
+          {!scan.isLoading && !generalLoud.length && !confirmedRows.length && !openTrades.length && (
             <div className="rounded-lg border border-dashed border-ink-line/50 bg-ink-black/40 backdrop-blur-md p-6 text-center text-sm font-medium text-slate-gray" data-testid="text-ac-nothing">
               {older.length ? `No fresh setups right now. ${older.length} older setup${older.length === 1 ? " is" : "s are"} listed under "Older / not tradeable" below — each shows what resets it.` : "Nothing ready, confirmed or forming right now. That is a valid answer: no trade is a position. Next conditions are listed below."}
             </div>
@@ -523,7 +793,7 @@ function ActionCenterInner() {
             </div>
           )}
 
-          <PriorityBoard rows={rows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
+          <PriorityBoard rows={generalPriorityRows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
 
           {/* Cockpit Grid Toolbar */}
           <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 backdrop-blur-sm" data-testid="cockpit-grid-toolbar">
@@ -572,8 +842,8 @@ function ActionCenterInner() {
             </div>
           </div>
           
-          <div className={`grid ${gridColsClass} gap-6 w-full`} data-testid="ac-cards-grid">
-            {loud.map((d) => {
+          <div className={`grid ${gridColsClass} gap-3.5 sm:gap-4 w-full`} data-testid="ac-cards-grid">
+            {generalLoud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
               const key = setupIdOf(d);
