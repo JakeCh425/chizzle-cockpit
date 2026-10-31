@@ -826,12 +826,16 @@ function ActionCenterInner() {
                       data-testid={`active-execution-card-${d.symbol}`}
                     >
                       {/* Pulsing Header Badge: {isPractice ? "🧪 PRACTICE TRADE SETUP READY — SANDBOX MODE" : "⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION"} */}
-                      <div className="flex items-center justify-between gap-2 border-b border-emerald-500/30 pb-2">
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-400/60 bg-emerald-500/20 px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-black tracking-wider text-emerald-300 animate-pulse">
-                          ⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION
+                      <div className={`flex items-center justify-between gap-2 border-b pb-2 ${isPractice ? "border-amber-500/30" : "border-emerald-500/30"}`}>
+                        <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-black tracking-wider animate-pulse ${
+                          isPractice
+                            ? "border-amber-400/60 bg-amber-500/20 text-amber-300"
+                            : "border-emerald-400/60 bg-emerald-500/20 text-emerald-300"
+                        }`}>
+                          {isPractice ? "🧪 PRACTICE TRADE SETUP READY — SANDBOX MODE" : "⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION"}
                         </span>
-                        <span className="font-mono text-[10px] font-bold text-emerald-400/80 uppercase">
-                          1H CLOSE CONFIRMED
+                        <span className={`font-mono text-[10px] font-bold uppercase ${isPractice ? "text-amber-400/80" : "text-emerald-400/80"}`}>
+                          {isPractice ? "SANDBOX SIMULATION" : "1H CLOSE CONFIRMED"}
                         </span>
                       </div>
 
@@ -839,8 +843,16 @@ function ActionCenterInner() {
                         {/* Ticker & Live Price */}
                         <div className="flex items-center gap-2.5 shrink-0">
                           <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
-                          <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
-                          <span className="rounded bg-emerald-500/20 border border-emerald-400/40 px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider text-emerald-300 hidden sm:inline-block">CONFIRMED</span>
+                          {isPractice ? (
+                            <span className="font-mono text-base sm:text-lg font-extrabold text-amber-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                          ) : (
+                            <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                          )}
+                          <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block ${
+                            isPractice
+                              ? "bg-amber-500/20 border-amber-400/40 text-amber-300"
+                              : "bg-emerald-500/20 border-emerald-400/40 text-emerald-300"
+                          }`}>{isPractice ? "PRACTICE" : "CONFIRMED"}</span>
                         </div>
 
                         {/* BUY LIMIT | STOP | TARGET */}

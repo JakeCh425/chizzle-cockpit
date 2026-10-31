@@ -4407,37 +4407,59 @@ export default function WealthEngineDashboard() {
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isTradeReady) {
+                            if (isPracticeMode) {
+                              if (global.logPracticeTrade) {
+                                global.logPracticeTrade({
+                                  symbol: (activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker).toUpperCase(),
+                                  entryPrice: entryPriceVal,
+                                  stopLoss: stopLossVal,
+                                  target1: t1Val,
+                                  shares: cardSizing.calculatedShares,
+                                  dollarRisk: cardSizing.totalDollarRiskAllowed,
+                                  setupType: activeItem?.setupType ?? "PRACTICE_CONFIRMED",
+                                  timeframe: "1H",
+                                });
+                              }
+                              toast({
+                                title: `🧪 Practice Trade Logged — ${activeItem?.symbol ?? activeTicker}`,
+                                description: `${activeItem?.symbol ?? activeTicker} logged to Practice Sandbox at $${entryPriceVal.toFixed(2)}. Isolated from live capital.`,
+                              });
+                              return;
+                            }
                             openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker);
                           }
                         }}
-                        title={!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"}
+                        title={isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade")}
                         className={`flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
                           !isTradeReady
                             ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
+                            : isPracticeMode
+                            ? "opacity-100 bg-amber-500 text-slate-950 ring-2 ring-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:shadow-[0_0_25px_rgba(245,158,11,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                             : "opacity-100 bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] hover:shadow-[0_0_25px_rgba(0,230,118,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                         style={{
-                          backgroundColor: !isTradeReady ? undefined : "#00E676",
+                          backgroundColor: !isTradeReady ? undefined : (isPracticeMode ? "#F59E0B" : "#00E676"),
                           color: !isTradeReady ? undefined : "#050914",
                         }}
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
-                        <span>Arm Trade</span>
+                        <span>{isPracticeMode ? "[ LOG PRACTICE TRADE ]" : "Arm Trade"}</span>
                       </button>
 
                       <button
                         type="button"
                         data-testid="button-execute-fidelity-ticket"
-                        disabled={!isTradeConfirmed}
+                        disabled={!isTradeConfirmed || isPracticeMode}
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isTradeReady) {
+                            if (isPracticeMode) return;
                             setIsFidelityGuideOpen(true);
                           }
                         }}
-                        title={!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet"}
+                        title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet")}
                         className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeReady
+                          !isTradeReady || isPracticeMode
                             ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
                             : "opacity-100 border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 hover:shadow-[0_0_15px_rgba(52,211,153,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
