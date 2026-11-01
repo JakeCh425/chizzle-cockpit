@@ -14,6 +14,9 @@ import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
 import { FidelityExecutionCheatSheet } from "@/components/FidelityExecutionCheatSheet";
 import { RiskSettingsBar } from "@/components/swing/RiskSettingsBar";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
+import { useToast } from "@/hooks/use-toast";
+import { tradeApi } from "@/lib/swingTrades";
+import { SetupCard } from "@/components/swing/TradingCard";
 import {
   useTradeReadiness,
   TRADE_LOCKED_TOOLTIP,
@@ -2411,6 +2414,7 @@ export default function WealthEngineDashboard() {
   const { isPracticeMode, setIsPracticeMode, removeTicker } = global;
   const [newTickerInput, setNewTickerInput] = useState("");
   const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
+  const { toast } = useToast();
 
   const theme = global?.theme ?? "cyber-neon";
   const activeTheme = THEMES[theme] || THEMES["cyber-neon"];
@@ -4054,12 +4058,39 @@ export default function WealthEngineDashboard() {
                           ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                         </span>
                       </div>
-                      <div className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold mt-0.5 truncate">
-                        {activeTickerData?.setupType ?? activeItem?.setupType ?? "20-SMA BOUNCE · 4H"}
+                      <div className="flex items-center gap-1.5 mt-0.5 truncate">
+                        <span className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold truncate">
+                          {activeTickerData?.setupType ?? activeItem?.setupType ?? "20-SMA BOUNCE · 4H"}
+                        </span>
+                        {(activeTickerData?.setupType ?? activeItem?.setupType ?? "").includes("10-EMA") && (
+                          <span
+                            className="rounded-md border border-slate-300 bg-slate-800/90 px-1.5 py-0.5 text-[8.5px] font-mono font-bold uppercase tracking-wider text-slate-100 shadow-sm shrink-0 ring-1 ring-white/40"
+                            data-testid="badge-momentum-10ema"
+                          >
+                            [ MOMENTUM SETUP: 10-EMA ]
+                          </span>
+                        )}
                       </div>
                     </div>
 
                     <div className="flex items-center gap-2 shrink-0">
+                      {/* Dynamic Predictive Proximity Readiness Score Badge */}
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-wider border shadow-sm shrink-0 ${
+                          (proximityPct <= 0.5 || isTradeConfirmed || isTradeReady)
+                            ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.4)]"
+                            : proximityPct <= 2.5
+                            ? "bg-amber-500/20 text-amber-300 border-amber-400/50"
+                            : "bg-slate-800/80 text-rose-400 border-rose-500/30"
+                        }`}
+                        data-testid="badge-predictive-readiness"
+                        title={`Proximity Score: ${readinessScore}% · Distance to Support: ${proximityPct.toFixed(1)}%`}
+                      >
+                        {(proximityPct <= 0.5 || isTradeConfirmed || isTradeReady)
+                          ? "[ READY TO TRIGGER (90%+) ]"
+                          : "[ FORMING PULLBACK (~60%) ]"}
+                      </span>
+
                       <button
                         type="button"
                         onClick={(e) => {
@@ -4427,7 +4458,26 @@ export default function WealthEngineDashboard() {
                               });
                               return;
                             }
+                            const sym = (activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker).toUpperCase();
+                            global.setConfirmedSetup?.(sym, true);
+                            void tradeApi.arm({
+                              symbol: sym,
+                              entry: entryPriceVal,
+                              stop: stopLossVal,
+                              shares: cardSizing.calculatedShares,
+                              riskDollars: cardSizing.totalDollarRiskAllowed,
+                              t1: t1Val,
+                              t2: t2Val,
+                              setupType: activeItem?.setupType ?? "CONFIRMED_BREAKOUT",
+                              timeframe: "1H",
+                              notes: `Direct Execution from Wealth Studio: ${sym}`,
+                            } as any).catch((err) => console.error("Arm failed:", err));
+
                             openArmTrade(activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker);
+                            toast({
+                              title: `⚡ Trade Armed & Confirmed — ${sym}`,
+                              description: `Pushed ${sym} to Action Center Confirmed row: Buy Limit $${entryPriceVal.toFixed(2)}, Stop $${stopLossVal.toFixed(2)}, Target $${t1Val.toFixed(2)}.`,
+                            });
                           }
                         }}
                         title={isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade")}
