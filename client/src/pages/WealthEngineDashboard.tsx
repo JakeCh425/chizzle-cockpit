@@ -3116,7 +3116,8 @@ export default function WealthEngineDashboard() {
                 data-testid="input-quick-add-ticker"
                 value={newTickerInput}
                 onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
-                placeholder="ADD TICKER (e.g. AMD)..."
+                placeholder="Search/Add Symbol..."
+                aria-label="Search/Add Symbol"
                 maxLength={6}
                 className="flex-1 px-2.5 py-1 rounded bg-black/40 border border-white/10 text-xs font-mono font-bold tracking-wider uppercase text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
               />

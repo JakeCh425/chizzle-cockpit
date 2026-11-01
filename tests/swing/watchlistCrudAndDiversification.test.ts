@@ -25,10 +25,12 @@ describe("Watchlist Expansion & Dynamic Ticker Management Engine", () => {
     expect(dashSrc).toContain("removeTicker(item.symbol)");
   });
 
-  it("contains quick-add ticker input and submit button with expected test IDs", () => {
+  it("contains quick-add ticker input and submit button with expected test IDs and placeholder", () => {
     const dashSrc = fs.readFileSync(path.join(__dirname, "../../client/src/pages/WealthEngineDashboard.tsx"), "utf8");
     expect(dashSrc).toContain('data-testid="input-quick-add-ticker"');
     expect(dashSrc).toContain('data-testid="button-quick-add-ticker"');
+    expect(dashSrc).toContain('placeholder="Search/Add Symbol..."');
+    expect(dashSrc).toContain("setNewTickerInput(e.target.value.toUpperCase())");
   });
 
   it("globalState persists removed tickers to chizzle-removed-tickers and unsubscribes from WebSocket feed", () => {
