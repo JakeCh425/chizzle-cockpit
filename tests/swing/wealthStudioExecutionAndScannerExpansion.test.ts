@@ -45,6 +45,20 @@ describe("Wealth Studio Execution Integration & Cockpit Scanner Expansion", () =
         expect(symbols).toContain(req);
       }
     });
+
+    it("provides useSetupScanner hook scanning universe and detecting 10-EMA momentum", () => {
+      const scannerHookPath = path.resolve(__dirname, "../../client/src/hooks/useSetupScanner.ts");
+      expect(fs.existsSync(scannerHookPath)).toBe(true);
+      const scannerSrc = fs.readFileSync(scannerHookPath, "utf-8");
+      expect(scannerSrc).toContain("export function useSetupScanner");
+      expect(scannerSrc).toContain("is10EmaMomentum");
+      expect(scannerSrc).toContain("proximityPct");
+      expect(scannerSrc).toContain("readinessScore");
+      expect(scannerSrc).toContain("target1");
+      expect(scannerSrc).toContain("getSetup");
+      expect(dashSrc).toContain('import { useSetupScanner } from "@/hooks/useSetupScanner";');
+      expect(actionCenterSrc).toContain('import { useSetupScanner } from "@/hooks/useSetupScanner";');
+    });
   });
 
   describe("2. Integrate Trade Cards into Wealth Studio", () => {

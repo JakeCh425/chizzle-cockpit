@@ -24,6 +24,7 @@ import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useToast } from "@/hooks/use-toast";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
@@ -339,6 +340,7 @@ export default function ActionCenter() {
 function ActionCenterInner() {
   const req = { selection: "DEFAULT_PLUS_CUSTOM" as ScanSelection, symbols: [], force: 0 };
   const scan = useScan(req);
+  const setupScanner = useSetupScanner();
   const plans = useSelectedPlans();
   const tradesQ = useSwingTrades();
   const openTrades = (tradesQ.data?.trades ?? []).filter((t) => t.status === "ARMED" || t.status === "ACTIVE");

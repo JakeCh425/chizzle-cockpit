@@ -17,6 +17,7 @@ import { usePositionSizer } from "@/hooks/usePositionSizer";
 import { useToast } from "@/hooks/use-toast";
 import { tradeApi } from "@/lib/swingTrades";
 import { SetupCard } from "@/components/swing/TradingCard";
+import { useSetupScanner } from "@/hooks/useSetupScanner";
 import {
   useTradeReadiness,
   TRADE_LOCKED_TOOLTIP,
@@ -2511,6 +2512,7 @@ export default function WealthEngineDashboard() {
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [isStudioMiniGuideOpen, setIsStudioMiniGuideOpen] = useState(false);
   const [isStudioSetupCardExpanded, setIsStudioSetupCardExpanded] = useState(false);
+  const studioScanner = useSetupScanner();
 
   // Dynamic Risk-Based Position Sizer State & Calculation for Studio Setup Card
   const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
