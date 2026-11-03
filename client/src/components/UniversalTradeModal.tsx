@@ -6,7 +6,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Shield, AlertTriangle, Play, X, ArrowUpRight, CheckCircle2, TrendingUp } from "lucide-react";
 
 export function UniversalTradeModal() {
-  const { universalModal, closeArmTrade, activeItem, watchlist } = useGlobalState();
+  const { universalModal, closeArmTrade, activeItem, watchlist, isPracticeMode, logPracticeTrade } = useGlobalState();
   const { toast } = useToast();
 
   const symbol = universalModal.symbol || activeItem.symbol || "NVDA";
@@ -56,6 +56,30 @@ export function UniversalTradeModal() {
     setIsSubmitting(true);
 
     try {
+      if (isPracticeMode) {
+        logPracticeTrade({
+          symbol: symbol.toUpperCase(),
+          entryPrice,
+          stopLoss,
+          target1: primaryTarget,
+          target2: item?.t2 ?? +(entryPrice + (primaryTarget - entryPrice) * 1.5).toFixed(2),
+          riskReward: rewardToRisk,
+          shares: calculatedShares,
+          dollarRisk: calculatedRisk,
+          capitalCommitted: totalPositionValue,
+          status: "OPEN",
+          timeframe: "1H",
+          setupType: item?.setupType ?? "PRACTICE SWING",
+        });
+
+        toast({
+          title: `[ 🧪 PRACTICE TRADE LOGGED ] ${symbol}`,
+          description: `Logged practice trade into sandbox storage: ${calculatedShares} shares @ $${entryPrice.toFixed(2)} (Stop: $${stopLoss.toFixed(2)}, T1: $${primaryTarget.toFixed(2)}, ${rewardToRisk}R). Live metrics remain pristine.`,
+        });
+        closeArmTrade();
+        return;
+      }
+
       // Attempt backend practice trade creation
       await tradeApi.arm({
         symbol: symbol.toUpperCase(),
@@ -93,19 +117,35 @@ export function UniversalTradeModal() {
     <Dialog open={universalModal.open} onOpenChange={(open) => !open && closeArmTrade()}>
       <DialogContent
         data-testid="dialog-universal-trade-modal"
-        className="max-w-xl bg-slate-900 border border-cyan-500/40 text-soft-white p-0 overflow-hidden shadow-[0_0_50px_rgba(6,182,212,0.25)] rounded-2xl"
+        className={`max-w-xl bg-slate-900 border text-soft-white p-0 overflow-hidden rounded-2xl ${
+          isPracticeMode
+            ? "border-amber-500/50 shadow-[0_0_50px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/30"
+            : "border-cyan-500/40 shadow-[0_0_50px_rgba(6,182,212,0.25)]"
+        }`}
       >
         {/* Header Strip with Glowing Symbol */}
         <div className="bg-slate-950/80 px-6 py-4 border-b border-slate-800 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl bg-cyan-500/20 border border-cyan-400/50 flex items-center justify-center text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.4)]">
+            <div
+              className={`h-10 w-10 rounded-xl border flex items-center justify-center ${
+                isPracticeMode
+                  ? "bg-amber-500/20 border-amber-400/50 text-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.4)]"
+                  : "bg-cyan-500/20 border-cyan-400/50 text-cyan-400 shadow-[0_0_12px_rgba(6,182,212,0.4)]"
+              }`}
+            >
               <TrendingUp className="h-5 w-5" />
             </div>
             <div>
               <DialogTitle className="text-xl font-mono font-black tracking-tight text-white flex items-center gap-2">
-                <span>ARM TRADE: {symbol}</span>
-                <span className="text-xs px-2 py-0.5 rounded-full bg-cyan-500/20 text-cyan-300 border border-cyan-400/40">
-                  {item?.setupType || "SWING SETUP"}
+                <span>{isPracticeMode ? `PRACTICE TRADE: ${symbol}` : `ARM TRADE: ${symbol}`}</span>
+                <span
+                  className={`text-xs px-2 py-0.5 rounded-full border ${
+                    isPracticeMode
+                      ? "bg-amber-500/20 text-amber-300 border-amber-400/40"
+                      : "bg-cyan-500/20 text-cyan-300 border-cyan-400/40"
+                  }`}
+                >
+                  {isPracticeMode ? "🧪 SANDBOX MODE" : item?.setupType || "SWING SETUP"}
                 </span>
               </DialogTitle>
               <DialogDescription className="text-xs text-slate-400 font-mono mt-0.5">
@@ -115,11 +155,19 @@ export function UniversalTradeModal() {
           </div>
         </div>
 
-        {/* Section R Strict Practice Disclaimer */}
+        {/* Section R Strict Practice Disclaimer / Sandbox Status */}
         <div className="px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 flex items-center gap-2.5 text-xs text-amber-300 font-mono">
           <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-400" />
           <span>
-            <strong>SECTION R POSTURE:</strong> Practice &amp; educational execution only. No live broker order will be submitted.
+            {isPracticeMode ? (
+              <>
+                <strong>🧪 SANDBOX ENVIRONMENT:</strong> Zero live capital at risk. Isolated logging enabled for B-grade (1.5R+) setups.
+              </>
+            ) : (
+              <>
+                <strong>SECTION R POSTURE:</strong> Practice &amp; educational execution only. No live broker order will be submitted.
+              </>
+            )}
           </span>
         </div>
 
@@ -245,10 +293,14 @@ export function UniversalTradeModal() {
               type="submit"
               disabled={isSubmitting}
               data-testid="button-confirm-arm-trade"
-              className="px-5 py-2 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-mono text-xs font-black uppercase tracking-wider shadow-[0_0_20px_rgba(6,182,212,0.5)] transition-all cursor-pointer flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50"
+              className={`px-5 py-2 rounded-xl text-slate-950 font-mono text-xs font-black uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 ${
+                isPracticeMode
+                  ? "bg-amber-400 hover:bg-amber-300 shadow-[0_0_20px_rgba(245,158,11,0.5)]"
+                  : "bg-cyan-500 hover:bg-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.5)]"
+              }`}
             >
               <Play className="h-3.5 w-3.5 fill-current" />
-              <span>{isSubmitting ? "Arming..." : "Confirm Practice Order"}</span>
+              <span>{isSubmitting ? "Processing..." : isPracticeMode ? "[ LOG PRACTICE TRADE ]" : "Confirm Practice Order"}</span>
             </button>
           </div>
         </form>

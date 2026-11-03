@@ -150,3 +150,4 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
     count: setups.length,
   };
 }
+

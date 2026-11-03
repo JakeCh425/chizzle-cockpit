@@ -855,6 +855,15 @@ function ActionCenterInner() {
                               ? "bg-amber-500/20 border-amber-400/40 text-amber-300"
                               : "bg-emerald-500/20 border-emerald-400/40 text-emerald-300"
                           }`}>{isPractice ? "PRACTICE" : "CONFIRMED"}</span>
+                          {(setupScanner.getSetup(d.symbol)?.is10EmaMomentum || d.notes?.includes("10-EMA")) && (
+                            <span
+                              data-testid="badge-momentum-10ema"
+                              className="rounded border border-white/20 bg-white/10 px-1.5 py-0.5 text-[9px] font-mono font-bold tracking-wider text-white"
+                              title="Runaway Bull Trend: Stock trading significantly above 20-SMA touching & holding 10-EMA support"
+                            >
+                              [ MOMENTUM SETUP: 10-EMA ]
+                            </span>
+                          )}
                         </div>
 
                         {/* BUY LIMIT | STOP | TARGET */}

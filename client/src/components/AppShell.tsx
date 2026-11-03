@@ -8,8 +8,9 @@ import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
-  FileText, Activity, ClipboardList,
+  FileText, Activity, ClipboardList, Beaker,
 } from "lucide-react";
+import { useOptionalGlobalState } from "@/lib/globalState";
 
 interface RegimePayload {
   state: RegimeState;
@@ -218,10 +219,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     : session === "MIDDAY" ? "MIDDAY" : session === "CLOSE" ? "CLOSE"
     : session === "POST" ? "POST" : "MARKET CLOSED";
 
+  const global = useOptionalGlobalState();
+  const isPractice = Boolean(global?.isPracticeMode);
+
   return (
     <div className="min-h-screen bg-slate-950 text-soft-white flex flex-col" data-testid="app-shell-root">
       {/* Header strip */}
-      <header className="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-30">
+      <header className={`border-b backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-800 bg-slate-900/90"}`}>
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
           <BrandMark settings={settings} />
 
@@ -255,6 +259,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} marketOpen={isMarketOpen(now)} />
 
           <div className="ml-auto flex items-center gap-3 md:gap-5">
+            {/* Prominent Practice Sandbox Toggle in Main Navigation Header */}
+            <button
+              type="button"
+              onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
+              data-testid="button-toggle-practice-mode"
+              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono font-black tracking-wider uppercase transition-all shadow-sm cursor-pointer select-none ${
+                isPractice
+                  ? "border-amber-400 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)] animate-pulse"
+                  : "border-slate-700 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-500"
+              }`}
+              title={isPractice ? "Practice Sandbox Mode is ON. Zero live capital at risk." : "Click to switch to Practice Mode"}
+            >
+              <Beaker className="h-3 w-3 text-amber-400" />
+              <span>{isPractice ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+            </button>
             <ThemeSwitcher />
             <div className="hidden md:flex flex-col items-end leading-tight">
               <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">Equity</div>
