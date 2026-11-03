@@ -47,7 +47,7 @@ import { ProximityTips } from "./ProximityTips";
 import { useFreshness } from "@/lib/freshness";
 import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessResult } from "@shared/cardFreshness";
 import { useGlobalState } from "@/lib/globalState";
-import { is10EmaMomentumSetup } from "@/lib/sma";
+import { is10EmaMomentumSetup, is10SmaMomentumSetup } from "@/lib/sma";
 
 // ─── UTILS & CONSTANTS ─────────────────────────────────────────────────────
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
@@ -309,6 +309,7 @@ export function computeEMA(
 }
 
 export const DEFAULT_SPARK_SMA_COLORS = {
+  sma10: "#FFFFFF", // Bright White / Silver (#FFFFFF / #C0C0C0)
   ema10: "#E2E8F0", // Thin, bright white/silver line (#E2E8F0 / #FFFFFF)
   sma20: "#22D3EE", // Blue (#22D3EE)
   sma50: "#F43F5E", // Red/Magenta (#F43F5E)
@@ -460,6 +461,21 @@ export function SparklineChart({
           crosshairMarkerVisible: false,
         });
         sma50Series.setData(sma50Data);
+      }
+
+      // ─── 10-SMA OVERLAY (Bright White / Silver #FFFFFF / #C0C0C0) ───
+      const sma10Data = barsData?.smas?.sma10
+        ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: (barsData.smas as any)!.sma10[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
+        : computeSMA([...(barsData?.warmupBars || []), ...bars], 10).filter((pt) => bars.some((b) => b.t === pt.time));
+      if (sma10Data.length > 0) {
+        const sma10Series = addLineSeries({
+          color: smaColors?.sma10 || "#FFFFFF",
+          lineWidth: smaWidths?.sma10 || 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        sma10Series.setData(sma10Data);
       }
 
       // ─── 10-EMA OVERLAY (Thin, bright white/silver line #E2E8F0 / #FFFFFF) ───
@@ -640,6 +656,10 @@ export function SparklineChart({
         className="absolute top-1.5 left-2 z-10 flex items-center gap-2.5 pointer-events-none select-none text-[9.5px] font-mono font-bold tracking-wider"
         data-testid={`sparkline-legend-${symbol}`}
       >
+        <span className="flex items-center gap-1" style={{ color: smaColors?.sma10 || "#FFFFFF" }}>
+          <span className="inline-block w-2.5 rounded-full" style={{ backgroundColor: smaColors?.sma10 || "#FFFFFF", height: 1 }} />
+          SMA 10
+        </span>
         <span className="flex items-center gap-1" style={{ color: sma20Color }}>
           <span className="inline-block w-2.5 rounded-full" style={{ backgroundColor: sma20Color, height: sma20Width }} />
           SMA 20
@@ -675,6 +695,8 @@ export function SparklineChart({
     </div>
   );
 }
+
+export const MiniChart = SparklineChart;
 
 // ─── FRESHNESS PANEL ───────────────────────────────────────────────────────
 export function FreshnessPanel({ d, f, p }: { d: SwingDecision; f: FreshnessResult; p: { entry: number | null; stop: number | null; t1: number | null } }) {
@@ -1482,6 +1504,24 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
     return false;
   }, [d.setupType, (d as any).bars]);
 
+  // 10-SMA Momentum Setup Detection (Runaway trend: price > 3% above 20-SMA touching & holding 10-SMA)
+  const is10SmaMomentum = useMemo(() => {
+    const st = (d.setupType || "").toUpperCase();
+    const notes = (d.notes || "").toUpperCase();
+    if (st.includes("10-SMA") || st.includes("10SMA") || notes.includes("10-SMA")) {
+      return true;
+    }
+    const bars = (d as any).bars || [];
+    if (bars.length >= 10) {
+      const closes = bars.map((b: any) => b.c ?? b.close ?? 0);
+      const lows = bars.map((b: any) => b.l ?? b.low ?? 0);
+      const opens = bars.map((b: any) => b.o ?? b.open ?? 0);
+      return is10SmaMomentumSetup(closes, undefined, lows, opens);
+    }
+    const refSma20 = (d as any).sma20 ?? (effectivePrice != null ? effectivePrice * 0.985 : 100);
+    return effectivePrice != null && effectivePrice > refSma20 * 1.03;
+  }, [d.setupType, d.notes, (d as any).bars, (d as any).sma20, effectivePrice]);
+
   // Ready to Buy subtle glow distinction (amber in practice mode, emerald in live mode)
   const isReadyToBuy = group === "READY" && f.isTradeable;
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
@@ -1607,6 +1647,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               data-symbol={d.symbol}
             >
               [ MOMENTUM SETUP: 10-EMA ]
+            </span>
+          )}
+          {is10SmaMomentum && (
+            <span
+              className="rounded-md border border-purple-400/80 bg-purple-950/80 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-purple-200 shadow-sm shrink-0 ring-1 ring-purple-400/50"
+              data-testid="badge-momentum-10sma"
+              data-symbol={d.symbol}
+            >
+              [ MOMENTUM SETUP: 10-SMA ]
             </span>
           )}
           {isCustom && (

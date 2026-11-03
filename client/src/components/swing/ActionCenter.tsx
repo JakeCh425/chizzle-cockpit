@@ -864,6 +864,15 @@ function ActionCenterInner() {
                               [ MOMENTUM SETUP: 10-EMA ]
                             </span>
                           )}
+                          {(setupScanner.getSetup(d.symbol)?.is10SmaMomentum || d.notes?.includes("10-SMA") || d.setupType?.includes("10-SMA")) && (
+                            <span
+                              data-testid="badge-momentum-10sma"
+                              className="rounded-md border border-purple-400/80 bg-purple-950/80 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-purple-200 shadow-sm shrink-0 ring-1 ring-purple-400/50"
+                              title="Runaway Trend Momentum: Price > 3% above 20-SMA touching & holding 10-SMA support"
+                            >
+                              [ MOMENTUM SETUP: 10-SMA ]
+                            </span>
+                          )}
                         </div>
 
                         {/* BUY LIMIT | STOP | TARGET */}

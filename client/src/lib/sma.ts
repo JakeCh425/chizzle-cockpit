@@ -51,9 +51,10 @@ export function rollingSMA(values: number[], period: number): (number | null)[] 
   return out;
 }
 
-/** Compute SMA20/50/200 in one pass-friendly batch. */
+/** Compute SMA10/20/50/200 in one pass-friendly batch. */
 export function computeSMAs(closes: number[]) {
   return {
+    sma10: rollingSMA(closes, 10),
     sma20: rollingSMA(closes, 20),
     sma50: rollingSMA(closes, 50),
     sma200: rollingSMA(closes, 200),
@@ -135,6 +136,47 @@ export function is10EmaMomentumSetup(
   const isGreen = price >= open;
 
   return isGreen;
+}
+
+/**
+ * 10-SMA Momentum Setup Detector:
+ * Rule: If a ticker is trading > 3% above its 20-SMA, it is in a runaway trend.
+ * In this state, trigger setup confirmation when the 1-hour candle pulls back, touches SMA 10, and closes green.
+ */
+export function is10SmaMomentumSetup(
+  closes: number[],
+  smas?: { sma20?: (number | null)[]; sma10?: (number | null)[] },
+  lows?: number[],
+  opens?: number[]
+): boolean {
+  const n = closes.length;
+  if (n < 10) return false;
+
+  const sma20Series = smas?.sma20 ?? rollingSMA(closes, 20);
+  const sma10Series = smas?.sma10 ?? rollingSMA(closes, 10);
+
+  const price = closes[n - 1];
+  const sma20 = sma20Series[n - 1];
+  const sma10 = sma10Series[n - 1];
+
+  if (sma20 == null || sma10 == null || sma20 <= 0 || sma10 <= 0) return false;
+
+  // 1. Runaway trend: stock trades > 3% above its 20-SMA
+  const isAboveSma20 = price > sma20 * 1.03;
+  if (!isAboveSma20) return false;
+
+  // 2. Holds 10-SMA: close is at or above 10-SMA (or within 0.2%)
+  const holdsSma10 = price >= sma10 * 0.998;
+  if (!holdsSma10) return false;
+
+  // 3. Touched 10-SMA on current or previous bar (low pulled back near 10-SMA)
+  const low = lows && lows.length >= n ? lows[n - 1] : Math.min(price, closes[n - 2] ?? price);
+  const touchedSma10 = low <= sma10 * 1.005;
+  if (!touchedSma10) return false;
+
+  // 4. Closes green: close >= open (or close >= prevClose)
+  const open = opens && opens.length >= n ? opens[n - 1] : closes[n - 2] ?? price;
+  return price >= open;
 }
 
 // ── Tunable thresholds (export so callers can override per setup) ──────────

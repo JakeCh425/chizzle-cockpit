@@ -745,13 +745,15 @@ export function LiveTradingChart({
     return [...synthCloses, ...rawCloses];
   }, [historicalBuffer, baseCandles, item?.price]);
 
-  // Rolling SMA computation for each visible candle so 50/200 SMA lines never disappear
-  const { sma20Points, sma50Points, sma200Points, latestSma20, latestSma50, latestSma200 } = useMemo(() => {
+  // Rolling SMA computation for each visible candle so 10/20/50/200 SMA lines never disappear
+  const { sma10Points, sma20Points, sma50Points, sma200Points, latestSma10, latestSma20, latestSma50, latestSma200 } = useMemo(() => {
     if (candles.length === 0 || fullBufferCloses.length === 0) {
       return {
+        sma10Points: [],
         sma20Points: [],
         sma50Points: [],
         sma200Points: [],
+        latestSma10: livePrice * 0.992,
         latestSma20: livePrice * 0.985,
         latestSma50: livePrice * 0.952,
         latestSma200: livePrice * 0.890,
@@ -771,6 +773,7 @@ export function LiveTradingChart({
       return sum / slice.length;
     };
 
+    const pts10: Array<{ x: number; y: number }> = [];
     const pts20: Array<{ x: number; y: number }> = [];
     const pts50: Array<{ x: number; y: number }> = [];
     const pts200: Array<{ x: number; y: number }> = [];
@@ -780,23 +783,28 @@ export function LiveTradingChart({
       const bufIdx = totalCloses - (candles.length - i);
       const cx = c.x + candleWidth / 2;
 
+      const v10 = calcRollingAvg(liveCloses, 10, bufIdx);
       const v20 = calcRollingAvg(liveCloses, 20, bufIdx);
       const v50 = calcRollingAvg(liveCloses, 50, bufIdx);
       const v200 = calcRollingAvg(liveCloses, 200, bufIdx);
 
+      pts10.push({ x: cx, y: priceToY(v10) });
       pts20.push({ x: cx, y: priceToY(v20) });
       pts50.push({ x: cx, y: priceToY(v50) });
       pts200.push({ x: cx, y: priceToY(v200) });
     });
 
+    const l10 = calcRollingAvg(liveCloses, 10, totalCloses - 1);
     const l20 = calcRollingAvg(liveCloses, 20, totalCloses - 1);
     const l50 = calcRollingAvg(liveCloses, 50, totalCloses - 1);
     const l200 = calcRollingAvg(liveCloses, 200, totalCloses - 1);
 
     return {
+      sma10Points: pts10,
       sma20Points: pts20,
       sma50Points: pts50,
       sma200Points: pts200,
+      latestSma10: l10,
       latestSma20: l20,
       latestSma50: l50,
       latestSma200: l200,
@@ -808,6 +816,7 @@ export function LiveTradingChart({
     return pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
   };
 
+  const sma10Path = useMemo(() => makeSmaPath(sma10Points), [sma10Points]);
   const sma20Path = useMemo(() => makeSmaPath(sma20Points), [sma20Points]);
   const sma50Path = useMemo(() => makeSmaPath(sma50Points), [sma50Points]);
   const sma200Path = useMemo(() => makeSmaPath(sma200Points), [sma200Points]);
@@ -1218,8 +1227,29 @@ export function LiveTradingChart({
             <span>💡 AI Tips</span>
           </button>
 
-          {/* OVERLAY SIMPLE TEXT LABELS: 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
+          {/* OVERLAY SIMPLE TEXT LABELS: 10-SMA, 20-SMA, 50-SMA, 200-SMA with Custom Colors & Settings */}
           <div className="flex items-center gap-2 font-mono text-xs font-semibold select-none" data-testid="sma-overlay-labels">
+            {/* 10-SMA (Momentum) */}
+            {smaSettings.sma10?.visible !== false && (
+              <div
+                className="flex items-center gap-1.5 px-2 py-0.5 rounded border"
+                style={{
+                  borderColor: `${smaSettings.sma10?.color || "#FFFFFF"}50`,
+                  backgroundColor: `${smaSettings.sma10?.color || "#FFFFFF"}15`,
+                  color: smaSettings.sma10?.color || "#FFFFFF",
+                }}
+              >
+                <span
+                  className="h-2 w-2 rounded-full shadow-sm"
+                  style={{ backgroundColor: smaSettings.sma10?.color || "#FFFFFF" }}
+                />
+                <span className="font-bold">10-SMA:</span>
+                <span className="tabular-nums" style={{ color: "var(--text-primary)" }}>
+                  ${latestSma10.toFixed(2)}
+                </span>
+              </div>
+            )}
+
             {/* 20-SMA */}
             {smaSettings.sma20.visible && (
               <div
@@ -1553,6 +1583,18 @@ export function LiveTradingChart({
             opacity="0.95"
             display={smaSettings.sma20.visible ? "inline" : "none"}
             data-testid="chart-path-sma20"
+          />
+
+          {/* 10-SMA Curve (Continuous line computed from full historical buffer) */}
+          <path
+            d={sma10Path}
+            fill="none"
+            stroke={smaSettings.sma10?.color || "#FFFFFF"}
+            strokeWidth={smaSettings.sma10?.lineWidth || 1}
+            strokeLinecap="round"
+            opacity="0.95"
+            display={smaSettings.sma10?.visible !== false ? "inline" : "none"}
+            data-testid="chart-path-sma10"
           />
 
           {/* ==================================================================== */}
@@ -2297,24 +2339,49 @@ export function LiveTradingChart({
             </div>
 
             <div className="space-y-1.5 font-sans text-[11px]">
-              <div className="flex items-start gap-1.5">
-                <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-200 leading-snug">
-                  Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
-                </p>
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-300 leading-snug">
-                  Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
-                </p>
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-300 leading-snug">
-                  Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
-                </p>
-              </div>
+              {Boolean(livePrice > sma20Price * 1.03 || item?.badge?.includes("10-SMA") || item?.setupType?.includes("10-SMA")) ? (
+                <>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-purple-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-200 leading-snug">
+                      Holding tight 10-SMA momentum support. This is a runaway trend trade.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Await 1H candle close above the 10-SMA line to confirm shallow bounce.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Keep stops tight directly below the 10-SMA wick (-1R). Scale 50% at 1.5R.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-200 leading-snug">
+                      Holding structural 20-SMA support at ${+(livePrice * 0.985).toFixed(2)}. Await candle close above ${buyPrice != null ? buyPrice.toFixed(2) : "0.00"} to confirm bounce.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR (${item?.atr ? item.atr.toFixed(2) : "3.50"}).
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Hard stop pinned below structural low at ${stopVal != null ? stopVal.toFixed(2) : "0.00"}. Scale 50% at T1 (${targetVal != null ? targetVal.toFixed(2) : "0.00"}).
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}
@@ -4070,6 +4137,14 @@ export default function WealthEngineDashboard() {
                             data-testid="badge-momentum-10ema"
                           >
                             [ MOMENTUM SETUP: 10-EMA ]
+                          </span>
+                        )}
+                        {Boolean((activeTickerData?.setupType ?? activeItem?.setupType ?? "").includes("10-SMA") || currentPrice > sma20Price * 1.03) && (
+                          <span
+                            className="rounded-md border border-purple-400/80 bg-purple-950/80 px-1.5 py-0.5 text-[8.5px] font-mono font-bold uppercase tracking-wider text-purple-200 shadow-sm shrink-0 ring-1 ring-purple-400/50"
+                            data-testid="badge-momentum-10sma"
+                          >
+                            [ MOMENTUM SETUP: 10-SMA ]
                           </span>
                         )}
                       </div>

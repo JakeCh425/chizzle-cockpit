@@ -13,10 +13,12 @@ export interface ScannedSetup {
   symbol: string;
   name: string;
   price: number;
+  sma10: number;
   sma20: number;
   ema10: number;
   proximityPct: number;
   is10EmaMomentum: boolean;
+  is10SmaMomentum: boolean;
   readinessScore: number;
   readinessLabel: string;
   isReady: boolean;
@@ -34,6 +36,7 @@ export interface ScannedSetup {
 export interface UseSetupScannerResult {
   setups: ScannedSetup[];
   momentumSetups: ScannedSetup[];
+  smaMomentumSetups: ScannedSetup[];
   readySetups: ScannedSetup[];
   formingSetups: ScannedSetup[];
   getSetup: (symbol: string) => ScannedSetup | undefined;
@@ -67,6 +70,7 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           (sym === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice ?? item.price) : item.price) ??
           100;
 
+        const sma10 = item.sma10 ?? +(price * 0.992).toFixed(2);
         const sma20 = item.sma20 ?? +(price * 0.98).toFixed(2);
         const ema10 = item.ema10 ?? +(price * 0.993).toFixed(2);
 
@@ -79,10 +83,18 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
         const touchesEma10 = price <= ema10 * 1.008; // shallow pullback touching 10-EMA
         const is10EmaMomentum = isRunaway && holdsEma10 && (touchesEma10 || item.badge?.includes("10-EMA"));
 
+        // 10-SMA Runaway Trend Momentum Logic:
+        // Rule: If ticker is trading > 3% above 20-SMA, it is in a runaway trend.
+        // In this state, trigger setup confirmation when 1H candle pulls back, touches SMA 10, and closes green.
+        const isRunawaySma10 = price > sma20 * 1.03;
+        const holdsSma10 = price >= sma10 * 0.998;
+        const touchesSma10 = price <= sma10 * 1.008;
+        const is10SmaMomentum = (isRunawaySma10 && holdsSma10 && touchesSma10) || Boolean(item.badge?.includes("10-SMA"));
+
         // Predictive AI Readiness
         const is1hConfirmed = Boolean(item.is1hConfirmed ?? item.confirmed ?? false);
-        const isReady = proximityPct <= 0.5 || is1hConfirmed;
-        const isForming = !isReady && proximityPct <= 2.5;
+        const isReady = proximityPct <= 0.5 || is1hConfirmed || is10SmaMomentum;
+        const isForming = !isReady && (proximityPct <= 2.5 || (isRunawaySma10 && !touchesSma10));
 
         let readinessScore = 30;
         let readinessLabel = "MONITORING (~30%)";
@@ -107,10 +119,12 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           symbol: sym,
           name: item.name ?? sym,
           price,
+          sma10,
           sma20,
           ema10,
           proximityPct,
           is10EmaMomentum,
+          is10SmaMomentum,
           readinessScore,
           readinessLabel,
           isReady,
@@ -128,6 +142,7 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
   }, [watchlist, livePrices, activeTickerData, storePrice, customUniverse]);
 
   const momentumSetups = useMemo(() => setups.filter((s) => s.is10EmaMomentum), [setups]);
+  const smaMomentumSetups = useMemo(() => setups.filter((s) => s.is10SmaMomentum), [setups]);
   const readySetups = useMemo(() => setups.filter((s) => s.isReady), [setups]);
   const formingSetups = useMemo(() => setups.filter((s) => s.isForming), [setups]);
 
@@ -144,6 +159,7 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
   return {
     setups,
     momentumSetups,
+    smaMomentumSetups,
     readySetups,
     formingSetups,
     getSetup,

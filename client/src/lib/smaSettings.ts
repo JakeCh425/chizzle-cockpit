@@ -9,6 +9,7 @@ export interface SmaStyle {
 }
 
 export interface SmaSettings {
+  sma10: SmaStyle;
   sma20: SmaStyle;
   sma50: SmaStyle;
   sma200: SmaStyle;
@@ -19,6 +20,7 @@ export interface SmaSettings {
 }
 
 export const TRADINGVIEW_DEFAULTS = {
+  sma10Color: "#FFFFFF",
   sma20Color: "#2962FF",
   sma50Color: "#EF5350",
   sma200Color: "#FFD700",
@@ -27,6 +29,7 @@ export const TRADINGVIEW_DEFAULTS = {
 };
 
 export const DEFAULT_SMA_SETTINGS: SmaSettings = {
+  sma10: { color: "#FFFFFF", lineWidth: 1, visible: true },   // Bright White / Silver (#FFFFFF)
   sma20: { color: "#22D3EE", lineWidth: 2, visible: true },   // Blue (#22D3EE)
   sma50: { color: "#F43F5E", lineWidth: 2, visible: true },   // Red/Magenta (#F43F5E)
   sma200: { color: "#FFD700", lineWidth: 2, visible: true },  // Golden Yellow (#FFD700)
@@ -51,6 +54,11 @@ export function loadSmaSettings(): SmaSettings {
     if (!raw) return DEFAULT_SMA_SETTINGS;
     const parsed = JSON.parse(raw);
     return {
+      sma10: {
+        color: parsed?.sma10?.color || DEFAULT_SMA_SETTINGS.sma10.color,
+        lineWidth: parseLineWidth(parsed?.sma10?.lineWidth, DEFAULT_SMA_SETTINGS.sma10.lineWidth),
+        visible: parsed?.sma10?.visible !== false,
+      },
       sma20: {
         color: parsed?.sma20?.color || DEFAULT_SMA_SETTINGS.sma20.color,
         lineWidth: parseLineWidth(parsed?.sma20?.lineWidth, DEFAULT_SMA_SETTINGS.sma20.lineWidth),

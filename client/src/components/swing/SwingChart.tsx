@@ -79,9 +79,9 @@ function bb(vals: number[], n = 20, k = 2) {
 const ctFmt = (t: number, withTime: boolean) =>
   new Date(t * 1000).toLocaleString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric", ...(withTime ? { hour: "numeric", minute: "2-digit" } : {}) });
 
-type Overlay = "sma20" | "sma50" | "sma200" | "bb" | "volume" | "sr" | "plan" | "markers" | "ext";
-const OV_DEFAULT: Record<Overlay, boolean> = { sma20: true, sma50: true, sma200: false, bb: false, volume: true, sr: true, plan: true, markers: true, ext: false };
-const OVERLAY_LABEL: Record<Overlay, string> = { sma20: "SMA20", sma50: "SMA50", sma200: "SMA200", bb: "Bollinger", volume: "Volume", sr: "S/R zones", plan: "Plan levels", markers: "Markers", ext: "Extended hours" };
+type Overlay = "sma10" | "sma20" | "sma50" | "sma200" | "bb" | "volume" | "sr" | "plan" | "markers" | "ext";
+const OV_DEFAULT: Record<Overlay, boolean> = { sma10: true, sma20: true, sma50: true, sma200: false, bb: false, volume: true, sr: true, plan: true, markers: true, ext: false };
+const OVERLAY_LABEL: Record<Overlay, string> = { sma10: "SMA 10", sma20: "SMA20", sma50: "SMA50", sma200: "SMA200", bb: "Bollinger", volume: "Volume", sr: "S/R zones", plan: "Plan levels", markers: "Markers", ext: "Extended hours" };
 
 /** SMA key — colors match the lines drawn on the chart. */
 export const SMA_META = [
@@ -89,15 +89,21 @@ export const SMA_META = [
   { key: "sma50" as const, n: 50, label: "SMA 50", color: "#F43F5E", role: "Medium-term trend", desc: "Average close of the last 50 bars. Pullbacks that hold it keep the swing trend intact." },
   { key: "sma200" as const, n: 200, label: "SMA 200", color: "#FFD700", role: "Long-term trend", desc: "Average close of the last 200 bars. Above = long-term uptrend; below = defensive." },
 ];
-export type SmaKey = typeof SMA_META[number]["key"];
+export const ALL_SMA_META = [
+  { key: "sma10" as const, n: 10, label: "SMA 10", color: "#FFFFFF", role: "Momentum support", desc: "Average close of the last 10 bars. Shallow pullback support during high-momentum runaway bull trends." },
+  ...SMA_META,
+];
+export type SmaKey = typeof ALL_SMA_META[number]["key"];
 
 export const DEFAULT_SMA_COLORS: Record<SmaKey, string> = {
+  sma10: "#FFFFFF",  // Bright White / Silver (#FFFFFF)
   sma20: "#22D3EE",  // Blue (#22D3EE)
   sma50: "#F43F5E",  // Red/Magenta (#F43F5E)
   sma200: "#FFD700", // Golden Yellow (#FFD700)
 };
 
 export const DEFAULT_SMA_WIDTHS: Record<SmaKey, number> = {
+  sma10: 1,
   sma20: 2,
   sma50: 2,
   sma200: 2,
@@ -441,7 +447,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
     const smaSeries: { key: SmaKey; s: ISeriesApi<any> }[] = [];
     const last: Partial<Record<SmaKey, number>> = {};
-    const fromCtx = (vals: (number | null)[], key: "sma20" | "sma50" | "sma200" | "bbU" | "bbL") => {
+    const fromCtx = (vals: (number | null)[], key: "sma10" | "sma20" | "sma50" | "sma200" | "bbU" | "bbL") => {
       if (bars.data?.smas?.[key as SmaKey] && bars.data.smas[key as SmaKey]!.length === data.length) {
         return bars.data.smas[key as SmaKey]!;
       }
@@ -455,7 +461,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     };
     ctxUsedRef.current = ctxSeries ? "ctx" : (bars.data?.smas ? "server" : "local");
     smaSeriesMapRef.current.clear();
-    for (const m of SMA_META) {
+    for (const m of ALL_SMA_META) {
       if (!ov[m.key]) continue;
       // Calculate / retrieve full continuous SMA using at least 200 previous periods
       let vals: (number | null)[] = [];
@@ -1040,7 +1046,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       </div>
       <div className="flex flex-wrap gap-1 items-center">
         {(Object.keys(OVERLAY_LABEL) as Overlay[]).map((k) => {
-          const isSma = k === "sma20" || k === "sma50" || k === "sma200";
+          const isSma = k === "sma10" || k === "sma20" || k === "sma50" || k === "sma200";
           const smaColor = isSma ? (smaColors[k as SmaKey] || DEFAULT_SMA_COLORS[k as SmaKey]) : undefined;
           const isSr = k === "sr";
           const active = isSr ? srEffective : ov[k];
@@ -1112,7 +1118,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
               </div>
 
               <div className="space-y-3.5">
-                {SMA_META.map((m) => {
+                {ALL_SMA_META.map((m) => {
                   const curColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key];
                   const curWidth = smaWidths[m.key] || DEFAULT_SMA_WIDTHS[m.key] || 2;
                   return (
@@ -1295,9 +1301,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             <div ref={gutterRef} className="absolute inset-0 pointer-events-none" />
           </div>
         )}
-        {data.length > 0 && fv.full && SMA_META.some((m) => ov[m.key]) && (
+        {data.length > 0 && fv.full && ALL_SMA_META.some((m) => ov[m.key]) && (
           <div className="absolute top-1.5 z-10 flex flex-wrap gap-x-3 gap-y-0.5 rounded bg-[#050a13]/85 px-2 py-1 text-[10.5px] font-mono pointer-events-none" style={{ left: (drawOn ? TOOLBAR_W : 0) + 8 }} data-testid="legend-sma" data-indicator-source={ctxSeries ? "context" : "local"}>
-            {SMA_META.filter((m) => ov[m.key]).map((m) => {
+            {ALL_SMA_META.filter((m) => ov[m.key]).map((m) => {
               const v = smaHover?.vals[m.key] ?? smaLast[m.key];
               const on = smaHover?.hit === m.key;
               const curColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
@@ -1314,7 +1320,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
         {data.length > 0 && fv.full && (ind.atr.on || ind.macd.on || ind.rsi.on || (ind.vwap.on && intraday)) && (
-          <div className="absolute z-10 rounded bg-[#050a13]/85 px-2 py-0.5 text-[10.5px] font-mono pointer-events-none flex gap-x-3" style={{ left: (drawOn ? TOOLBAR_W : 0) + 8, top: SMA_META.some((m) => ov[m.key]) ? 28 : 6 }} data-testid="legend-indicators" data-indicator-source={ctxSeries ? "context" : "local"}>
+          <div className="absolute z-10 rounded bg-[#050a13]/85 px-2 py-0.5 text-[10.5px] font-mono pointer-events-none flex gap-x-3" style={{ left: (drawOn ? TOOLBAR_W : 0) + 8, top: ALL_SMA_META.some((m) => ov[m.key]) ? 28 : 6 }} data-testid="legend-indicators" data-indicator-source={ctxSeries ? "context" : "local"}>
             {ind.atr.on && <span data-testid="legend-atr"><span style={{ color: "#94a3b8" }}>ATR({ind.atr.n})</span> <span style={{ color: "#f1f5f9" }}>{indLast.atr != null ? indLast.atr.toFixed(2) : "—"}</span></span>}
             {ind.vwap.on && intraday && <span style={{ color: ind.vwap.color }} data-testid="legend-vwap">VWAP {indLast.vwap != null ? indLast.vwap.toFixed(2) : "—"}</span>}
             {ind.macd.on && <span data-testid="legend-macd"><span style={{ color: ind.macd.cMacd }}>MACD({ind.macd.fast},{ind.macd.slow},{ind.macd.signal})</span> <span style={{ color: "#f1f5f9" }}>hist {indLast.hist != null ? (indLast.hist >= 0 ? "+" : "") + indLast.hist.toFixed(3) : "—"}</span></span>}
@@ -1323,7 +1329,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           </div>
         )}
         {smaHover?.hit && (() => {
-          const m = SMA_META.find((x) => x.key === smaHover.hit)!;
+          const m = ALL_SMA_META.find((x) => x.key === smaHover.hit)!;
           const hitColor = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;
           const v = smaHover.vals[m.key];
           const w = boxRef.current?.clientWidth ?? 800;
@@ -1407,24 +1413,49 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
             </div>
 
             <div className="space-y-1.5 font-sans text-[11px]">
-              <div className="flex items-start gap-1.5">
-                <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-200 leading-snug">
-                  Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
-                </p>
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-300 leading-snug">
-                  Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
-                </p>
-              </div>
-              <div className="flex items-start gap-1.5">
-                <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
-                <p className="text-slate-300 leading-snug">
-                  Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
-                </p>
-              </div>
+              {Boolean((rawPrice > (smaLast.sma20 ?? rawPrice * 0.985) * 1.03) || d?.setupType?.includes("10-SMA") || d?.notes?.includes("10-SMA")) ? (
+                <>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-purple-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-200 leading-snug">
+                      Holding tight 10-SMA momentum support. This is a runaway trend trade.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Await 1H candle close above the 10-SMA line to confirm shallow bounce.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Keep stops tight directly below the 10-SMA wick (-1R). Scale 50% at 1.5R.
+                    </p>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-cyan-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-200 leading-snug">
+                      Holding structural 20-SMA support at ${+(rawPrice * 0.985).toFixed(2)}. Await candle close above ${effectiveEntry != null ? effectiveEntry.toFixed(2) : "0.00"} to confirm bounce.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-amber-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Demand volume spike &gt;1.2x average needed. Avoid chasing entry if current candle exceeds 1.5 ATR.
+                    </p>
+                  </div>
+                  <div className="flex items-start gap-1.5">
+                    <span className="text-emerald-400 font-bold shrink-0 mt-0.5">●</span>
+                    <p className="text-slate-300 leading-snug">
+                      Hard stop pinned below structural low at ${effectiveStop != null ? effectiveStop.toFixed(2) : "0.00"}. Scale 50% at T1 (${effectiveTarget1 != null ? effectiveTarget1.toFixed(2) : "0.00"}).
+                    </p>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         )}

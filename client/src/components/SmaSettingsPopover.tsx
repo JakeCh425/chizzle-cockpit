@@ -53,12 +53,12 @@ export function SmaSettingsPopover({
   }, [isOpen, onClose]);
 
   const updateSma = (
-    key: "sma20" | "sma50" | "sma200",
+    key: "sma10" | "sma20" | "sma50" | "sma200",
     patch: Partial<SmaSettings["sma20"]>
   ) => {
     const next: SmaSettings = {
       ...settings,
-      [key]: { ...settings[key], ...patch },
+      [key]: { ...(settings[key] || DEFAULT_SMA_SETTINGS.sma10), ...patch },
     };
     onChange(next);
     saveSmaSettings(next);
@@ -105,6 +105,46 @@ export function SmaSettingsPopover({
             >
               <X className="h-3.5 w-3.5" />
             </button>
+          </div>
+
+          {/* SMA 10 Row (Momentum / Runaway Trend Support) */}
+          <div className="mb-3.5 p-2 rounded-lg bg-slate-950/60 border border-slate-800/80">
+            <div className="flex items-center justify-between mb-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  data-testid="sma-toggle-10"
+                  checked={settings.sma10?.visible ?? true}
+                  onChange={(e) => updateSma("sma10", { visible: e.target.checked })}
+                  className="rounded border-slate-700 text-white focus:ring-0 cursor-pointer"
+                />
+                <span className="font-bold text-white">10-SMA (Momentum)</span>
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="color"
+                  data-testid="sma-color-10"
+                  value={settings.sma10?.color || "#FFFFFF"}
+                  onChange={(e) => updateSma("sma10", { color: e.target.value })}
+                  className="h-6 w-7 bg-transparent cursor-pointer rounded border border-slate-700 p-0.5"
+                  title="Choose SMA 10 Color"
+                />
+                <span className="text-[10px] text-slate-400">{settings.sma10?.color || "#FFFFFF"}</span>
+              </div>
+            </div>
+            <div className="flex items-center justify-between gap-3 text-[11px] text-slate-400">
+              <span>Thickness: {settings.sma10?.lineWidth ?? 1}px</span>
+              <input
+                type="range"
+                data-testid="sma-width-10"
+                min="1"
+                max="4"
+                step="1"
+                value={settings.sma10?.lineWidth ?? 1}
+                onChange={(e) => updateSma("sma10", { lineWidth: Number(e.target.value) })}
+                className="w-28 accent-white cursor-pointer"
+              />
+            </div>
           </div>
 
           {/* SMA 20 Row */}
