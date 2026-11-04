@@ -7,6 +7,12 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
   const dashPath = path.resolve(__dirname, "../../client/src/pages/WealthEngineDashboard.tsx");
   const dashSrc = fs.readFileSync(dashPath, "utf-8").replace(/\r\n/g, "\n");
 
+  const watchlistPagePath = path.resolve(__dirname, "../../client/src/pages/Watchlist.tsx");
+  const watchlistPageSrc = fs.readFileSync(watchlistPagePath, "utf-8").replace(/\r\n/g, "\n");
+
+  const appShellPath = path.resolve(__dirname, "../../client/src/components/AppShell.tsx");
+  const appShellSrc = fs.readFileSync(appShellPath, "utf-8").replace(/\r\n/g, "\n");
+
   const globalStatePath = path.resolve(__dirname, "../../client/src/lib/globalState.tsx");
   const globalStateSrc = fs.readFileSync(globalStatePath, "utf-8").replace(/\r\n/g, "\n");
 
@@ -44,6 +50,37 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
       expect(dashSrc).toContain('setNewTicker("")');
       expect(globalStateSrc).toContain("subscribeSymbol(sym)");
     });
+
+    it("Watchlist component has properly bound newTicker state, Enter key handler, and [ + Add ] button", () => {
+      expect(watchlistPageSrc).toContain("const [newTicker, setNewTicker] = useState(");
+      expect(watchlistPageSrc).toContain("setNewTicker(e.target.value.toUpperCase())");
+      expect(watchlistPageSrc).toContain('if (e.key === "Enter")');
+      expect(watchlistPageSrc).toContain("[ + Add ]");
+      expect(watchlistPageSrc).toContain("global?.addTicker");
+    });
+  });
+
+  describe("2. Implement Collapsible & Resizable Sidebar (Bloomberg Style)", () => {
+    it("renders [ < Collapse ] toggle icon at the top of the sidebar", () => {
+      expect(dashSrc).toContain("[ < Collapse ]");
+      expect(dashSrc).toContain('data-testid="button-collapse-left-sidebar"');
+      expect(appShellSrc).toContain("[ < Collapse ]");
+    });
+
+    it("collapses to 60px mini-mode displaying only Ticker Symbol and colored status dot", () => {
+      expect(dashSrc).toContain('isLeftSidebarCollapsed ? "w-[60px]"');
+      expect(dashSrc).toContain('data-testid="left-sidebar-mini-mode"');
+      expect(dashSrc).toContain("data-testid={`watchlist-mini-row-${item.symbol}`}");
+      expect(dashSrc).toContain("data-testid={`watchlist-status-dot-${item.symbol}`}");
+      expect(dashSrc).toContain("bg-emerald-400"); // Green for Ready
+      expect(dashSrc).toContain("bg-amber-400"); // Yellow for Forming
+    });
+
+    it("provides draggable CSS resize handle with cursor-col-resize between sidebar and chart container", () => {
+      expect(dashSrc).toContain("cursor-col-resize");
+      expect(dashSrc).toContain('data-testid="sidebar-resizer-left"');
+      expect(dashSrc).toContain("startResizingLeft");
+    });
   });
 
   describe("2. Seamless Global State Flow (Watchlist ⇄ Scanner ⇄ Cards)", () => {
@@ -75,6 +112,8 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
     });
 
     it("enlarges active ticker symbol and current price on chart and active setup cards (text-3xl or text-4xl font-extrabold)", () => {
+      // Top of chart
+      expect(dashSrc).toContain("text-4xl font-extrabold");
       // Setup Card in Studio
       expect(dashSrc).toContain("text-3xl sm:text-4xl font-extrabold font-mono tracking-tight");
       expect(dashSrc).toContain("text-2xl sm:text-3xl font-extrabold font-mono tabular-nums");

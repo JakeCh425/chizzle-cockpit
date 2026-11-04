@@ -309,6 +309,31 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           style={{ width: collapsed ? 56 : sidebarWidth }}
           className="hidden md:flex flex-col relative border-r border-slate-800 bg-slate-900/90 flex-shrink-0 sticky top-14 h-[calc(100vh-3.5rem)] overflow-y-auto select-none"
         >
+          {/* Top Collapse Toggle Icon */}
+          <div className="px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0 bg-black/20">
+            {!collapsed && (
+              <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-bold">
+                NAVIGATION
+              </span>
+            )}
+            <button
+              onClick={() => setCollapsed(c => !c)}
+              data-testid="button-top-collapse-sidebar"
+              title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              className={`p-1 rounded text-cyan-300 hover:text-white hover:bg-slate-800 transition-colors flex items-center gap-1 font-mono text-[10px] font-bold ${
+                collapsed ? "w-full justify-center" : ""
+              }`}
+            >
+              {collapsed ? (
+                <ChevronRight className="w-4 h-4 text-cyan-400" />
+              ) : (
+                <>
+                  <ChevronLeft className="w-4 h-4 text-cyan-400" />
+                  <span>{"[ < Collapse ]"}</span>
+                </>
+              )}
+            </button>
+          </div>
           <nav className="flex-1 py-5 px-3 space-y-1.5">
             {NAV.map(item => {
               const active = location === item.href || (item.href !== "/" && location.startsWith(item.href));

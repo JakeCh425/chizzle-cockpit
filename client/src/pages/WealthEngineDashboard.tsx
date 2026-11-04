@@ -3228,7 +3228,7 @@ export default function WealthEngineDashboard() {
                 className="px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 hover:bg-cyan-500/30 text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
                 title="Add ticker to watchlist"
               >
-                +
+                [ + Add ]
               </button>
             </form>
 

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useOptionalGlobalState } from "@/lib/globalState";
 import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
@@ -46,7 +47,10 @@ export default function Watchlist() {
   const livePrices = useLivePrices(tickers);
   const liveQuotes = useLiveQuotes();
 
-  const [newSymbol, setNewSymbol] = useState("");
+  const global = useOptionalGlobalState();
+  const [newTicker, setNewTicker] = useState("");
+  const newSymbol = newTicker;
+  const setNewSymbol = setNewTicker;
   const [newPrice, setNewPrice] = useState("");
   const [showHidden, setShowHidden] = useState(false); // toggle to surface RED/YELLOW-suppressed setups
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
@@ -68,14 +72,22 @@ export default function Watchlist() {
   };
 
   const addTicker = async () => {
-    if (!newSymbol || !newPrice) {
-      toast({ title: "Missing fields", description: "Symbol and price required." });
+    const sym = newTicker.trim().toUpperCase();
+    if (!sym) {
+      toast({ title: "Missing symbol", description: "Symbol required." });
       return;
     }
-    await apiRequest("POST", "/api/tickers", { symbol: newSymbol.toUpperCase(), price: Number(newPrice), tier: 2 });
-    queryClient.invalidateQueries({ queryKey: ["/api/tickers"] });
-    queryClient.invalidateQueries({ queryKey: ["/api/watchlist"] });
-    setNewSymbol(""); setNewPrice("");
+    if (global?.addTicker) {
+      global.addTicker(sym);
+    }
+    try {
+      const px = Number(newPrice) > 0 ? Number(newPrice) : 100;
+      await apiRequest("POST", "/api/tickers", { symbol: sym, price: px, tier: 2 });
+      queryClient.invalidateQueries({ queryKey: ["/api/tickers"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/watchlist"] });
+    } catch {}
+    setNewTicker("");
+    setNewPrice("");
   };
 
   const removeTicker = async (tickerId: number) => {
@@ -225,8 +237,17 @@ export default function Watchlist() {
             <input
               type="text"
               data-testid="input-add-symbol"
-              value={newSymbol}
-              onChange={e => setNewSymbol(e.target.value.toUpperCase())}
+              value={newTicker}
+              onChange={e => {
+                setNewTicker(e.target.value.toUpperCase());
+                setNewSymbol(e.target.value.toUpperCase());
+              }}
+              onKeyDown={e => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addTicker();
+                }
+              }}
               className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num text-[13px] focus:border-neon-blue/60 outline-none"
               placeholder="NVDA"
             />
@@ -248,7 +269,7 @@ export default function Watchlist() {
             data-testid="button-add-ticker"
             className="flex items-center gap-1.5 px-3 py-1.5 border border-neon-blue/40 text-neon-blue bg-neon-blue/10 text-[11px] uppercase tracking-wider rounded-sm hover:bg-neon-blue/20"
           >
-            <Plus className="w-3 h-3" /> Add
+            <Plus className="w-3 h-3" /> [ + Add ]
           </button>
         </div>
       </Panel>
