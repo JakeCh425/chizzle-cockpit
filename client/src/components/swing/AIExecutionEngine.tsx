@@ -73,22 +73,26 @@ export function AIExecutionEngine({
           </span>
         </div>
 
-        <div className="flex flex-col gap-2.5 font-mono text-xs">
-          <div className="flex items-start gap-2 text-emerald-300">
-            <span className="font-bold text-emerald-400 shrink-0">Step 1:</span>
+        <div className="flex flex-col gap-2 font-mono text-xs">
+          {/* Step 1 */}
+          <div className="flex items-start gap-2 p-1.5 rounded border border-emerald-500/40 bg-emerald-950/20 text-emerald-300">
+            <span className="font-bold text-emerald-400 shrink-0">[✓] Step 1:</span>
             <span>1H Candle Confirmed ✅</span>
           </div>
-          <div className="flex items-start gap-2 text-slate-200">
-            <span className="font-bold text-cyan-400 shrink-0">Step 2:</span>
-            <span>Place Limit Buy at <strong className="text-white font-bold">{formatCurrency(entryPrice)}</strong>.</span>
+          {/* Step 2 */}
+          <div className="flex items-start gap-2 p-1.5 rounded border border-cyan-400/80 bg-cyan-950/30 text-cyan-300 ring-1 ring-cyan-400/50 shadow-[0_0_10px_rgba(6,182,212,0.25)]">
+            <span className="font-bold text-cyan-400 shrink-0">[ ] Step 2:</span>
+            <span>Place Limit Buy at <strong className="text-white font-bold font-mono tabular-nums">{formatCurrency(entryPrice)}</strong>.</span>
           </div>
-          <div className="flex items-start gap-2 text-slate-200">
-            <span className="font-bold text-amber-400 shrink-0">Step 3:</span>
-            <span>Set Hard Stop at <strong className="text-white font-bold">{formatCurrency(stopLoss)}</strong> (-1R).</span>
+          {/* Step 3 */}
+          <div className="flex items-start gap-2 p-1.5 rounded border border-gray-800 text-slate-300">
+            <span className="font-bold text-amber-400 shrink-0">[ ] Step 3:</span>
+            <span>Set Hard Stop at <strong className="text-white font-bold font-mono tabular-nums">{formatCurrency(stopLoss)}</strong> <span className="font-bold font-mono text-rose-400">(-1R)</span>.</span>
           </div>
-          <div className="flex items-start gap-2 text-slate-200">
-            <span className="font-bold text-emerald-400 shrink-0">Step 4:</span>
-            <span>Once filled, queue OCO Target 1 at <strong className="text-white font-bold">{formatCurrency(target1)}</strong> (+1.5R).</span>
+          {/* Step 4 */}
+          <div className="flex items-start gap-2 p-1.5 rounded border border-gray-800 text-slate-400">
+            <span className="font-bold text-emerald-400 shrink-0">[ ] Step 4:</span>
+            <span>Once filled, queue OCO Target 1 at <strong className="text-white font-bold font-mono tabular-nums">{formatCurrency(target1)}</strong> <span className="font-bold font-mono text-emerald-400">(+1.5R)</span>.</span>
           </div>
         </div>
       </div>

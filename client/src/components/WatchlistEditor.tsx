@@ -56,6 +56,8 @@ function useDebouncedValue<T>(value: T, ms: number): T {
 export default function WatchlistEditor({ className = "" }: Props) {
   const { toast } = useToast();
   const [input, setInput] = useState<string>("");
+  const newTicker = input;
+  const setNewTicker = setInput;
   const debouncedInput = useDebouncedValue(input, 300);
   const [showArchived, setShowArchived] = useState<boolean>(false);
   const [pendingRemove, setPendingRemove] = useState<Row | null>(null);
@@ -194,8 +196,19 @@ export default function WatchlistEditor({ className = "" }: Props) {
         <input
           ref={inputRef}
           value={input}
-          onChange={e => setInput(e.target.value.toUpperCase())}
-          onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); tryAdd(); } }}
+          onChange={e => {
+            setInput(e.target.value.toUpperCase());
+            setNewTicker(e.target.value.toUpperCase());
+          }}
+          onKeyDown={e => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              tryAdd();
+            }
+          }}
+          onClick={e => e.stopPropagation()}
+          onMouseDown={e => e.stopPropagation()}
           placeholder="ADD SYMBOL"
           spellCheck={false}
           className="flex-1 bg-ink-deep/60 border border-ink-line/80 rounded-sm px-2 py-1 text-[12px] font-mono-num tracking-wider uppercase text-soft-white outline-none focus:border-neon-blue/60"

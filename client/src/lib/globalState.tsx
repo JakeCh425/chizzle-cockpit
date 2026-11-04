@@ -67,6 +67,7 @@ export interface GlobalStateContextType {
 
   // Watchlist
   watchlist: WatchlistItem[];
+  activeWatchlist: WatchlistItem[];
   addTicker: (symbol: string) => { ok: boolean; message?: string };
   removeTicker: (symbol: string) => void;
   activeItem: WatchlistItem;
@@ -788,6 +789,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       isBadTick,
       isMarketOpen: marketOpen,
       watchlist: syncedWatchlist,
+      activeWatchlist: syncedWatchlist,
       addTicker,
       removeTicker,
       activeItem,

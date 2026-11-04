@@ -39,6 +39,7 @@ export interface UseSetupScannerResult {
   smaMomentumSetups: ScannedSetup[];
   readySetups: ScannedSetup[];
   formingSetups: ScannedSetup[];
+  priorityBoardSetups: ScannedSetup[];
   getSetup: (symbol: string) => ScannedSetup | undefined;
   count: number;
 }
@@ -51,7 +52,8 @@ export interface UseSetupScannerResult {
  */
 export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResult {
   const global = useOptionalGlobalState();
-  const watchlist = global?.watchlist && global.watchlist.length > 0 ? global.watchlist : DEFAULT_WATCHLIST;
+  const rawWatchlist = global?.activeWatchlist ?? global?.watchlist;
+  const watchlist = rawWatchlist && rawWatchlist.length > 0 ? rawWatchlist : DEFAULT_WATCHLIST;
   const livePrices = global?.livePrices ?? {};
   const activeTickerData = global?.activeTickerData;
   const storePrice = global?.activePrice;
@@ -91,10 +93,20 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
         const touchesSma10 = price <= sma10 * 1.008;
         const is10SmaMomentum = (isRunawaySma10 && holdsSma10 && touchesSma10) || Boolean(item.badge?.includes("10-SMA"));
 
+        // Evaluate "No Trade" list dynamic upgrade:
+        // If a ticker on the "No Trade" list suddenly meets the 20-SMA or 10-EMA proximity rules,
+        // the scanner instantly upgrades its status and automatically mounts its Setup Card into the Priority Board
+        const itemStatusUpper = String(item.status ?? "").toUpperCase();
+        const isNoTrade = itemStatusUpper.includes("NO_TRADE") || itemStatusUpper.includes("NO TRADE") || itemStatusUpper === "STANDBY" || itemStatusUpper === "AVOID";
+        const meets20SmaRule = proximityPct <= 2.5; // Within 20-SMA support buffer
+        const meets10EmaRule = is10EmaMomentum;
+        const meetsProximityRule = meets20SmaRule || meets10EmaRule || is10SmaMomentum;
+        const isUpgradedFromNoTrade = isNoTrade && meetsProximityRule;
+
         // Predictive AI Readiness
         const is1hConfirmed = Boolean(item.is1hConfirmed ?? item.confirmed ?? false);
-        const isReady = proximityPct <= 0.5 || is1hConfirmed || is10SmaMomentum;
-        const isForming = !isReady && (proximityPct <= 2.5 || (isRunawaySma10 && !touchesSma10));
+        const isReady = proximityPct <= 0.5 || is1hConfirmed || is10SmaMomentum || (isUpgradedFromNoTrade && (proximityPct <= 0.5 || is10EmaMomentum || is10SmaMomentum));
+        const isForming = !isReady && (proximityPct <= 2.5 || (isRunawaySma10 && !touchesSma10) || isUpgradedFromNoTrade);
 
         let readinessScore = 30;
         let readinessLabel = "MONITORING (~30%)";
@@ -105,6 +117,8 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           readinessScore = 62;
           readinessLabel = "[ FORMING PULLBACK (~60%) ]";
         }
+
+        const dynamicStatus = isReady ? "Ready" : isForming ? "Forming" : (isUpgradedFromNoTrade ? "Forming" : item.status);
 
         // Auto-populate 1.5R levels
         const buyTarget = item.buyTarget && item.buyTarget > 0 ? item.buyTarget : price;
@@ -136,7 +150,11 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           target2,
           risk: riskVal,
           rewardRiskRatio,
-          rawItem: item,
+          rawItem: {
+            ...item,
+            price,
+            status: dynamicStatus as any,
+          },
         };
       });
   }, [watchlist, livePrices, activeTickerData, storePrice, customUniverse]);
@@ -145,6 +163,11 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
   const smaMomentumSetups = useMemo(() => setups.filter((s) => s.is10SmaMomentum), [setups]);
   const readySetups = useMemo(() => setups.filter((s) => s.isReady), [setups]);
   const formingSetups = useMemo(() => setups.filter((s) => s.isForming), [setups]);
+  const priorityBoardSetups = useMemo(() => {
+    return setups
+      .filter((s) => s.isReady || s.isForming || s.is10EmaMomentum || s.is10SmaMomentum)
+      .sort((a, b) => b.readinessScore - a.readinessScore);
+  }, [setups]);
 
   const setupMap = useMemo(() => {
     const map = new Map<string, ScannedSetup>();
@@ -162,6 +185,7 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
     smaMomentumSetups,
     readySetups,
     formingSetups,
+    priorityBoardSetups,
     getSetup,
     count: setups.length,
   };

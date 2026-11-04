@@ -17,6 +17,7 @@ import { usePositionSizer } from "@/hooks/usePositionSizer";
 import { useToast } from "@/hooks/use-toast";
 import { tradeApi } from "@/lib/swingTrades";
 import { SetupCard } from "@/components/swing/TradingCard";
+import { StepByStepActionChecklist } from "@/components/swing/StepByStepActionChecklist";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import {
   useTradeReadiness,
@@ -2480,7 +2481,9 @@ export default function WealthEngineDashboard() {
   const global = useGlobalState();
   const { activeTickerData, activePrice, livePrices } = global;
   const { isPracticeMode, setIsPracticeMode, removeTicker } = global;
-  const [newTickerInput, setNewTickerInput] = useState("");
+  const [newTicker, setNewTicker] = useState("");
+  const newTickerInput = newTicker;
+  const setNewTickerInput = setNewTicker;
   const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
   const { toast } = useToast();
 
@@ -2558,11 +2561,15 @@ export default function WealthEngineDashboard() {
     }
   }, [activeTicker, currentPrice, entryPriceVal, stopLossVal, t1Val, t2Val, t3Val, safeEquity, activeTickerData?.price, activePrice, activeItem?.price, watchlist?.length]);
 
-  const handleQuickAdd = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTickerInput.trim()) return;
-    global?.addTicker?.(newTickerInput);
-    setNewTickerInput("");
+  const handleQuickAdd = (e?: React.FormEvent) => {
+    if (e && typeof e.preventDefault === "function") e.preventDefault();
+    const sym = newTicker.trim().toUpperCase();
+    if (!sym) return;
+    const res = global?.addTicker?.(sym);
+    if (res?.ok === false && res.message) {
+      toast({ title: "Watchlist", description: res.message });
+    }
+    setNewTicker("");
   };
 
   // Center column tabs: "Chart" | "Setup History" | "Settings" | "Notifications & Alerts" | "Indicators"
@@ -3180,15 +3187,32 @@ export default function WealthEngineDashboard() {
           <div className={`flex-1 min-h-0 flex flex-col overflow-hidden ${isLeftSidebarCollapsed ? "hidden" : ""}`}>
             {/* Quick-Add Ticker Input */}
             <form
-              onSubmit={handleQuickAdd}
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleQuickAdd(e);
+              }}
+              onClick={(e) => e.stopPropagation()}
+              onMouseDown={(e) => e.stopPropagation()}
               className="px-3 py-2 border-b flex items-center gap-1.5 bg-black/20 flex-shrink-0"
               style={{ borderColor: "var(--border-subtle)" }}
             >
               <input
                 type="text"
                 data-testid="input-quick-add-ticker"
-                value={newTickerInput}
-                onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
+                value={newTicker}
+                onChange={(e) => {
+                  setNewTicker(e.target.value.toUpperCase());
+                  setNewTickerInput(e.target.value.toUpperCase());
+                }}
+                onKeyDown={(e) => {
+                  e.stopPropagation();
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleQuickAdd(e);
+                  }
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onMouseDown={(e) => e.stopPropagation()}
                 placeholder="Search/Add Symbol..."
                 aria-label="Search/Add Symbol"
                 maxLength={6}
@@ -3197,6 +3221,10 @@ export default function WealthEngineDashboard() {
               <button
                 type="submit"
                 data-testid="button-quick-add-ticker"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleQuickAdd(e);
+                }}
                 className="px-2.5 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 hover:bg-cyan-500/30 text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
                 title="Add ticker to watchlist"
               >
@@ -4117,13 +4145,13 @@ export default function WealthEngineDashboard() {
                   )}
 
                   {/* Card Header & Status Badge */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden" data-testid="studio-setup-card-header">
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-[var(--card-border)] overflow-hidden" data-testid="studio-setup-card-header">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xl font-black font-mono tracking-tight text-[var(--card-text-primary)] shrink-0">
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-[var(--card-text-primary)] shrink-0">
                           {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                         </span>
-                        <span className="text-xs font-mono font-semibold opacity-75 text-[var(--card-text-secondary)] shrink-0">
+                        <span className="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-emerald-400 shrink-0">
                           ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                         </span>
                       </div>
@@ -4632,7 +4660,7 @@ export default function WealthEngineDashboard() {
                     <div className="space-y-4 pt-3 mt-3 border-t border-[var(--card-border)] animate-in fade-in duration-150" data-testid="studio-setup-card-body">
                       {/* SHORT "BOTTOM LINE" SUMMARY SENTENCE */}
                       <div
-                        className="p-3 rounded-xl border text-xs font-sans leading-relaxed my-1"
+                        className="p-2.5 rounded-lg border text-xs font-sans leading-relaxed my-1"
                         style={{
                           backgroundColor: "var(--bg-panel-subtle)",
                           borderColor: "var(--border-subtle)",
@@ -4647,6 +4675,17 @@ export default function WealthEngineDashboard() {
                           {activeItem?.bottomLine ?? "Asymmetric swing trade setup."}
                         </p>
                       </div>
+
+                      {/* 4-STEP BEGINNER-FRIENDLY ACTION ENGINE CHECKLIST */}
+                      <StepByStepActionChecklist
+                        symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+                        triggerPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+                        entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+                        stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+                        target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
+                        is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready")}
+                        isArmed={isTradeReady}
+                      />
 
                       {/* Fidelity Trade Ticket Cheat Sheet Trigger */}
                       <button
@@ -4738,6 +4777,17 @@ export default function WealthEngineDashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* Beginner-Friendly Step-by-Step Action Engine Panel */}
+                <StepByStepActionChecklist
+                  symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
+                  triggerPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+                  entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+                  stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+                  target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
+                  is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready")}
+                  isArmed={isTradeReady}
+                />
 
                 {/* Fidelity Execution Cheat Sheet Component (Inline Collapsible Panel) */}
                 <FidelityExecutionCheatSheet

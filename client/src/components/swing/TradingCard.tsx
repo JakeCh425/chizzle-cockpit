@@ -1,5 +1,6 @@
 import { ModalLargeChart } from "./ModalLargeChart";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
+import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import MiniChartWidget from "@/components/MiniChartWidget";
 import { AIExecutionEngine, formatCurrency } from "./AIExecutionEngine";
 // ─── Trading Card (v2 Overhaul) ────────────────────────────────────────────
@@ -1301,7 +1302,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
       {toggle && <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}>{open ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}</button>}
       <span className="text-2xl font-bold tracking-tight text-soft-white">{d.symbol}</span>
       <div className="flex items-center gap-2">
-        <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
+        <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
         <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
       </div>
       <span className="text-sm font-medium text-slate-gray">{setupName(d.setupType)}{d.setupTimeframe && <span className="text-neon-blue"> · {d.setupTimeframe}</span>}</span>
@@ -1630,11 +1631,11 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       {/* ─── TOP ROW: Ticker symbol, Live Price, Status Badge & [Fidelity Ticket] Mini-Guide ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden">
         <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-          <span className="font-mono text-2xl font-bold tracking-tight text-white shrink-0">
+          <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-tight text-white shrink-0">
             {d.symbol}
           </span>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`inline-header-price-${d.symbol}`}>
+            <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`inline-header-price-${d.symbol}`}>
               {$(effectivePrice)}
             </span>
             <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
@@ -2029,6 +2030,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
+            {/* ─── STEP-BY-STEP ACTION ENGINE (Dynamic Checklist) ─── */}
+            <StepByStepActionChecklist
+              symbol={d.symbol}
+              triggerPrice={d.triggerPrice ?? activeEntry}
+              entryPrice={activeEntry}
+              stopLoss={activeStop}
+              target1={targets.t1 ?? +(activeEntry + 1.5 * Math.max(0.01, activeEntry - activeStop)).toFixed(2)}
+              is1hClosed={Boolean(isConfirmed || (d as any).setupStatus === "READY_TO_TRADE" || (d as any).setupStatus === "SETUP_CONFIRMED")}
+              isArmed={group === "READY" || group === "CONFIRMED"}
+            />
+
             {/* ─── LAZY-LOADED 1H CANDLE MINI-CHART (Height: 250px / h-64 with 20/50 SMAs & Native Price Lines) ─── */}
             {(cardSize === "lg" || props.showMiniChart) && (
               <div
@@ -2330,7 +2342,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}><ChevronRight className="h-5 w-5" /></button>
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
         <div className="flex items-center gap-1.5">
-          <span className="font-mono tabular-nums text-xl font-bold text-soft-white" data-testid={`compact-header-price-${d.symbol}`}>{$(effectivePrice)}</span>
+          <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`compact-header-price-${d.symbol}`}>{$(effectivePrice)}</span>
           <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
         </div>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
