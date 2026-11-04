@@ -24,6 +24,7 @@ import { ctParts } from "@shared/marketContext";
 import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { useGlobalState } from "@/lib/globalState";
+import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
 import { useExecutionTriggers } from "@/hooks/useExecutionTriggers";
 import FidelityExecutionGuide from "@/components/FidelityExecutionGuide";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
@@ -851,8 +852,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
 
   // Derived price and trade states for massive header & Fidelity cheat sheet
   const global = useGlobalState();
+  const market = useMarketDataStore();
   const ticker = symbol ?? decision?.symbol ?? "—";
-  const globalPrice = (symbol ? global.livePrices[symbol] : null) ?? (symbol === global.activeTicker ? global.activePrice : null);
+  const globalPrice = (symbol ? (market.prices[symbol] ?? global.livePrices[symbol]) : null) ?? (symbol === global.activeTicker ? (market.prices[global.activeTicker] ?? global.activePrice) : null);
   const rawPrice = globalPrice ?? liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
   const currentPrice = rawPrice.toFixed(2);
 
@@ -862,6 +864,11 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     if (!main || disposedRef.current || !data || data.length === 0 || !Number.isFinite(rawPrice) || rawPrice <= 0) return;
     const lastBar = data[data.length - 1];
     if (!lastBar) return;
+    const isBad = marketDataStore.isBadTick(ticker, rawPrice, lastBar.c);
+    if (isBad) {
+      console.warn(`[SwingChart:BadTick] Dropped outlier tick for ${ticker}: $${rawPrice} vs lastBar $${lastBar.c} (>5% jump). Candlestick NOT updated.`);
+      return;
+    }
     const time = lastBar.t as UTCTimestamp;
     const open = lastBar.o;
     const high = Math.max(lastBar.h, rawPrice);

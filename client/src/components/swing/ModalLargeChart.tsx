@@ -14,6 +14,7 @@ import {
 } from "lightweight-charts";
 import { swingGet, type BarsResp } from "@/lib/swing";
 import { useLiveQuote } from "@/lib/useLivePrices";
+import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
 import { RotateCcw, Activity, Settings, ClipboardList } from "lucide-react";
 import { loadSmaSettings, saveSmaSettings, type SmaSettings } from "@/lib/smaSettings";
 import { SmaSettingsPopover } from "@/components/SmaSettingsPopover";
@@ -462,8 +463,13 @@ export function ModalLargeChart({
   const lastBar = bars[bars.length - 1];
   useEffect(() => {
     if (!liveQuote?.price || !chartRef.current || !lastBar || lastBar.closed) return;
+    const p = liveQuote.price;
+    const isBad = marketDataStore.isBadTick(symbol, p, lastBar.c);
+    if (isBad) {
+      console.warn(`[ModalLargeChart:BadTick] Dropped outlier tick for ${symbol}: $${p} vs lastBar $${lastBar.c} (>5% jump). Candlestick NOT updated.`);
+      return;
+    }
     try {
-      const p = liveQuote.price;
       const seriesList = (chartRef.current as any)._paneWidgets?.[0]?.state()?._series || [];
       const cs = seriesList[0]?._series;
       if (cs && typeof cs.update === "function") {
@@ -476,7 +482,7 @@ export function ModalLargeChart({
         });
       }
     } catch {}
-  }, [liveQuote?.price, lastBar]);
+  }, [liveQuote?.price, lastBar, symbol]);
 
   const fitView = () => {
     chartRef.current?.timeScale().fitContent();

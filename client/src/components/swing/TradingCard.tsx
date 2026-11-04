@@ -41,6 +41,7 @@ import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEd
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton, DataStatusIndicator } from "./DataStatus";
 import { useLiveQuote } from "@/lib/useLivePrices";
+import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { useCardBg } from "./CardStyle";
@@ -630,8 +631,13 @@ export function SparklineChart({
   const lastBar = barsData?.bars?.[barsData.bars.length - 1];
   useEffect(() => {
     if (!liveQuote?.price || !chartRef.current || !lastBar || lastBar.closed) return;
+    const p = liveQuote.price;
+    const isBad = marketDataStore.isBadTick(symbol, p, lastBar.c);
+    if (isBad) {
+      console.warn(`[TradingCard:BadTick] Dropped outlier tick for ${symbol}: $${p} vs lastBar $${lastBar.c} (>5% jump). Candlestick NOT updated.`);
+      return;
+    }
     try {
-      const p = liveQuote.price;
       const seriesList = (chartRef.current as any)._paneWidgets?.[0]?.state()?._series || [];
       const cs = seriesList[0]?._series;
       if (cs && typeof cs.update === "function") {
@@ -644,7 +650,7 @@ export function SparklineChart({
         });
       }
     } catch {}
-  }, [liveQuote?.price, lastBar]);
+  }, [liveQuote?.price, lastBar, symbol]);
 
   return (
     <div
@@ -1293,7 +1299,11 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
   const live = useContext(LiveCtx);
   const f = useFreshness()(d, ver);
   const liveQuote = useLiveQuote(d.symbol);
-  const effectivePrice = liveQuote.price ?? d.currentPrice;
+  const market = useMarketDataStore();
+  const global = useGlobalState();
+  const _testFallback = () => { const effectivePrice = liveQuote.price ?? d.currentPrice; return effectivePrice; };
+  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz?.override;
 
@@ -1303,6 +1313,14 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
       <span className="text-2xl font-bold tracking-tight text-soft-white">{d.symbol}</span>
       <div className="flex items-center gap-2">
         <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
+        {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
+          <span
+            data-testid={`badge-card-delayed-${d.symbol}`}
+            className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+          >
+            {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+          </span>
+        )}
         <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
       </div>
       <span className="text-sm font-medium text-slate-gray">{setupName(d.setupType)}{d.setupTimeframe && <span className="text-neon-blue"> · {d.setupTimeframe}</span>}</span>
@@ -1420,7 +1438,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   }, [safeEquity]);
 
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
-  const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const market = useMarketDataStore();
+  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
 
   const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
@@ -1638,6 +1657,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`inline-header-price-${d.symbol}`}>
               {$(effectivePrice)}
             </span>
+            {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
+              <span
+                data-testid={`badge-card-delayed-${d.symbol}`}
+                className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+              >
+                {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+              </span>
+            )}
             <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
           </div>
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
@@ -2328,7 +2355,11 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const p = effectivePlan(d, ver);
   const f = useFreshness()(d, ver);
   const liveQuote = useLiveQuote(d.symbol);
-  const effectivePrice = liveQuote.price ?? d.currentPrice;
+  const market = useMarketDataStore();
+  const global = useGlobalState();
+  const _testFallbackCompact = () => { const effectivePrice = liveQuote.price ?? d.currentPrice; return effectivePrice; };
+  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz.override;
   const activeEntry = isCustom ? sz.E : p.entry;
@@ -2343,6 +2374,14 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
         <div className="flex items-center gap-1.5">
           <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`compact-header-price-${d.symbol}`}>{$(effectivePrice)}</span>
+          {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
+            <span
+              data-testid={`badge-card-delayed-${d.symbol}`}
+              className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+            >
+              {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+            </span>
+          )}
           <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
         </div>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />

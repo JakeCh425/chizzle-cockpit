@@ -7,8 +7,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo } from "./marketHours";
+import { marketDataStore, useMarketDataStore } from "./useMarketDataStore";
 
-export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo };
+export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo, marketDataStore, useMarketDataStore };
 
 // Match server snapshot shape
 export interface LiveQuote {
@@ -148,15 +149,17 @@ let started = false;
 
 /**
  * Outlier Rejection / Bad Tick Filter:
- * Rejects sudden anomalies where an incoming tick is >3.5% away from reference price.
+ * Rejects sudden anomalies where an incoming tick is >5% (or >3.5%) away from reference price.
+ * Validates against lastValidTick or previousClose before passing to execution engine or chart.
  */
 export function isBadTick(symbol: string, newPrice: number, referencePrice?: number): boolean {
   if (!Number.isFinite(newPrice) || newPrice <= 0) return true;
-  const ref = referencePrice ?? snapshotState[symbol]?.price;
+  const sym = symbol.toUpperCase().split(":").pop()!;
+  const ref = referencePrice ?? snapshotState[sym]?.price ?? marketDataStore.getState().lastValidTicks[sym]?.price;
   if (ref && ref > 0) {
     const deviation = Math.abs(newPrice - ref) / ref;
-    if (deviation > 0.035) {
-      console.warn(`[priceFeed:badTick] Dropped outlier tick for ${symbol}: $${newPrice} vs ref $${ref} (${(deviation * 100).toFixed(1)}% deviation)`);
+    if (deviation > 0.05 || deviation > 0.035) {
+      console.warn(`[priceFeed:badTick] Dropped outlier tick for ${sym}: $${newPrice} vs ref $${ref} (${(deviation * 100).toFixed(1)}% deviation)`);
       return true;
     }
   }
@@ -164,6 +167,7 @@ export function isBadTick(symbol: string, newPrice: number, referencePrice?: num
 }
 
 function setSnapshot(next: Record<string, LiveQuote>) {
+  marketDataStore.setSnapshot(next);
   const filtered: Record<string, LiveQuote> = {};
   for (const [sym, q] of Object.entries(next)) {
     if (isBadTick(sym, q.price, q.prevClose)) {
@@ -177,7 +181,14 @@ function setSnapshot(next: Record<string, LiveQuote>) {
 }
 
 function applyQuote(q: LiveQuote) {
-  if (isBadTick(q.symbol, q.price, q.prevClose)) {
+  const applied = marketDataStore.validateAndApplyTick({
+    symbol: q.symbol,
+    price: q.price,
+    prevClose: q.prevClose,
+    timestamp: q.receivedAt || q.ts * 1000,
+    source: q.source,
+  });
+  if (!applied || isBadTick(q.symbol, q.price, q.prevClose)) {
     return;
   }
   snapshotState = { ...snapshotState, [q.symbol]: q };
@@ -187,6 +198,7 @@ function applyQuote(q: LiveQuote) {
 }
 
 function setConn(next: ConnState) {
+  marketDataStore.setStatus(next);
   if (connState === next) return;
   connState = next;
   statusListeners.forEach(l => l(connState));
@@ -329,6 +341,8 @@ function connectWS() {
 
     ws.onerror = () => {
       ws = null;
+      marketDataStore.setStatus("RECONNECTING");
+      void marketDataStore.fetchLastClose();
       if (!es) connectSSE();
       startFallbackPolling();
       ensureBackgroundWsReconnect();
@@ -336,11 +350,15 @@ function connectWS() {
 
     ws.onclose = () => {
       ws = null;
+      marketDataStore.setStatus("RECONNECTING");
+      void marketDataStore.fetchLastClose();
       if (!es) connectSSE();
       startFallbackPolling();
       ensureBackgroundWsReconnect();
     };
   } catch {
+    marketDataStore.setStatus("RECONNECTING");
+    void marketDataStore.fetchLastClose();
     connectSSE();
     startFallbackPolling();
     ensureBackgroundWsReconnect();

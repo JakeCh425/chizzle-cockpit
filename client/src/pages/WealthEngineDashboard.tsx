@@ -1,6 +1,7 @@
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
+import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { Link } from "wouter";
 import { useGlobalState } from "@/lib/globalState";
@@ -256,9 +257,13 @@ export function LiveTradingChart({
   const { state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
   const isMarketOpenNow = globalMarketOpen ?? feedMarketOpen ?? isMarketOpen();
 
+  const marketStore = useMarketDataStore();
+  const isDelayed = marketStore.isDelayed || feedState === "STALE";
+  const isReconnecting = marketStore.isReconnecting || feedState === "CONNECTING";
+
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
-  const globalPrice = (symbol ? livePrices?.[symbol] : null) ?? (symbol === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice) : null);
+  const globalPrice = (symbol ? (marketStore.prices[symbol] ?? livePrices?.[symbol]) : null) ?? (symbol === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice) : null);
   const livePrice = globalPrice ?? quote?.price ?? item?.price ?? 100;
 
   // Direction for dynamic price coloring (green when up on the day, red when down)
@@ -569,19 +574,27 @@ export function LiveTradingChart({
     if (!sourceCandles || sourceCandles.length === 0) return null;
     const lastBase = sourceCandles[sourceCandles.length - 1];
     if (!lastBase) return null;
+
+    // Bad Tick Sandbox: Filter out impossible spikes (>5% instant jump) from candlestick update
+    const isBad = isBadTick ? isBadTick(symbol, livePrice, lastBase.c) : (lastBase.c > 0 && Math.abs((livePrice - lastBase.c) / lastBase.c) > 0.05);
+    if (isBad) {
+      console.warn(`[LiveTradingChart:BadTick] Dropped outlier tick for ${symbol}: $${livePrice} vs lastBase $${lastBase.c} (>5% jump). Candlestick NOT updated.`);
+    }
+
     const currentClose = Number.isFinite(livePrice) ? livePrice : (lastBase.c ?? 100);
-    const currentHigh = Math.max(lastBase.o ?? currentClose, lastBase.h ?? currentClose, currentClose);
-    const currentLow = Math.min(lastBase.o ?? currentClose, lastBase.l ?? currentClose, currentClose);
+    const safeClose = isBad ? (lastBase.c ?? 100) : currentClose;
+    const currentHigh = Math.max(lastBase.o ?? safeClose, lastBase.h ?? safeClose, safeClose);
+    const currentLow = Math.min(lastBase.o ?? safeClose, lastBase.l ?? safeClose, safeClose);
 
     return {
       x: lastBase.x ?? 40,
-      o: lastBase.o ?? currentClose,
-      c: currentClose,
+      o: lastBase.o ?? safeClose,
+      c: safeClose,
       h: currentHigh,
       l: currentLow,
       t: lastBase.t ?? Math.floor(Date.now() / 1000),
     };
-  }, [baseCandles, fetchedBars, livePrice]);
+  }, [baseCandles, fetchedBars, livePrice, symbol, isBadTick]);
 
   const candles = useMemo(() => {
     if (!activeCandle) return historicalCandles;
@@ -1006,6 +1019,15 @@ export function LiveTradingChart({
             >
               ${livePrice.toFixed(2)}
             </span>
+
+            {(isDelayed || isReconnecting) && (
+              <span
+                data-testid="badge-chart-delayed"
+                className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] md:text-xs font-bold px-2 py-0.5 rounded shadow-sm flex items-center gap-1"
+              >
+                {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+              </span>
+            )}
 
             {/* Pulsing Live indicator dot */}
             <span
@@ -2481,6 +2503,7 @@ export default function WealthEngineDashboard() {
   const global = useGlobalState();
   const { activeTickerData, activePrice, livePrices } = global;
   const { isPracticeMode, setIsPracticeMode, removeTicker } = global;
+  const marketStore = useMarketDataStore();
   const [newTicker, setNewTicker] = useState("");
   const newTickerInput = newTicker;
   const setNewTickerInput = setNewTicker;
@@ -2492,6 +2515,8 @@ export default function WealthEngineDashboard() {
 
   const { source: feedSource, state: feedState, isMarketOpen: feedMarketOpen } = useFeedConnection();
   const marketOpen = global?.isMarketOpen ?? feedMarketOpen ?? isMarketOpen();
+  const isDelayed = marketStore.isDelayed || global?.isDelayed || feedState === "STALE";
+  const isReconnecting = marketStore.isReconnecting || global?.isReconnecting || feedState === "CONNECTING";
 
   const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
   const cycleTheme = () => {
@@ -2514,7 +2539,7 @@ export default function WealthEngineDashboard() {
 
   // Dynamic trade levels derivation strictly for active ticker
   const currentPrice =
-    (activeTicker ? livePrices?.[activeTicker] : null) ??
+    (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker]) : null) ??
     (activeTickerData?.symbol === activeTicker ? activeTickerData?.price : null) ??
     activePrice ??
     baseActiveItem?.price ??
@@ -2925,6 +2950,14 @@ export default function WealthEngineDashboard() {
             <span className="font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]" data-testid="header-live-price">
               ${(activeTickerData?.price ?? activePrice ?? 0).toFixed(2)}
             </span>
+            {(isDelayed || isReconnecting) && (
+              <span
+                data-testid="badge-header-delayed"
+                className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] md:text-xs font-bold px-2 py-0.5 rounded shadow-sm flex items-center gap-1"
+              >
+                {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+              </span>
+            )}
             <span className={`text-[10px] font-bold ${(activeTickerData?.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {(activeTickerData?.change ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.change ?? 0).toFixed(2)} ({(activeTickerData?.changePct ?? 0) >= 0 ? "+" : ""}{(activeTickerData?.changePct ?? 0).toFixed(2)}%)
             </span>
@@ -4154,6 +4187,14 @@ export default function WealthEngineDashboard() {
                         <span className="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-emerald-400 shrink-0">
                           ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                         </span>
+                        {(isDelayed || isReconnecting) && (
+                          <span
+                            data-testid="badge-setup-card-delayed"
+                            className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+                          >
+                            {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                          </span>
+                        )}
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5 truncate">
                         <span className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold truncate">

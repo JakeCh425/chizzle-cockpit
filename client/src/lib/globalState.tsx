@@ -3,8 +3,16 @@ import { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme } from "@/li
 import { tradeApi, invalidateTrades, useTradesSummary } from "@/lib/swingTrades";
 import type { SwingTradesSummary } from "@shared/swingTrades";
 import { ensurePriceFeed, subscribe, subscribeTick, isBadTick as checkBadTick, subscribeSymbol, unsubscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
+import {
+  marketDataStore,
+  useMarketDataStore,
+  type MarketDataState,
+  type MarketTick,
+  type LastValidTick,
+} from "./useMarketDataStore";
 
-export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme };
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, useMarketDataStore };
+export type { MarketDataState, MarketTick, LastValidTick };
 
 export interface ActiveTickerData {
   symbol: string;
@@ -64,6 +72,9 @@ export interface GlobalStateContextType {
   livePrices: Record<string, number>;
   isBadTick: (symbol: string, price: number) => boolean;
   isMarketOpen: boolean;
+  isDelayed: boolean;
+  isReconnecting: boolean;
+  marketData: MarketDataState;
 
   // Watchlist
   watchlist: WatchlistItem[];
@@ -393,6 +404,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   );
 
   // Single Source of Truth for Live Prices across Watchlist, Chart, Header, and Modals
+  const marketData = useMarketDataStore();
   const [livePrices, setLivePrices] = useState<Record<string, number>>(() => {
     const initial: Record<string, number> = {};
     for (const item of (DEFAULT_WATCHLIST || [])) {
@@ -403,11 +415,28 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     return initial;
   });
 
-  // Outlier / Bad Tick Validator (3.5% threshold)
+  // Keep livePrices in strict lockstep with marketDataStore (Single Source of Truth)
+  useEffect(() => {
+    if (marketData?.prices && Object.keys(marketData.prices).length > 0) {
+      setLivePrices((prev) => {
+        let changed = false;
+        const next = { ...prev };
+        for (const [sym, px] of Object.entries(marketData.prices)) {
+          if (px > 0 && next[sym] !== px) {
+            next[sym] = px;
+            changed = true;
+          }
+        }
+        return changed ? next : prev;
+      });
+    }
+  }, [marketData.prices]);
+
+  // Outlier / Bad Tick Validator (5% threshold with sandbox)
   const isBadTick = useCallback(
     (symbol: string, newPrice: number): boolean => {
       const current = livePrices[symbol] ?? watchlist?.find((i) => i?.symbol === symbol)?.price;
-      return checkBadTick(symbol, newPrice, current);
+      return marketDataStore.isBadTick(symbol, newPrice, current) || checkBadTick(symbol, newPrice, current);
     },
     [livePrices, watchlist]
   );
@@ -788,6 +817,9 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       livePrices,
       isBadTick,
       isMarketOpen: marketOpen,
+      isDelayed: marketData.isDelayed,
+      isReconnecting: marketData.isReconnecting,
+      marketData,
       watchlist: syncedWatchlist,
       activeWatchlist: syncedWatchlist,
       addTicker,

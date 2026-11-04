@@ -24,6 +24,7 @@ import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useToast } from "@/hooks/use-toast";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
@@ -431,6 +432,7 @@ function ActionCenterInner() {
   const dlgDecision: SwingDecision | undefined = dlg ? rows.find((d) => d.symbol === dlg.symbol) : undefined;
 
   const [armingSymbol, setArmingSymbol] = useState<string | null>(null);
+  const marketStore = useMarketDataStore();
   const { toast } = useToast();
 
   // Strict State-Routing Gatekeeper for the "Active Execution Zone":
@@ -813,7 +815,7 @@ function ActionCenterInner() {
                   const isArming = armingSymbol === d.symbol;
 
                   const liveQuote = prices?.[d.symbol];
-                  const globalPrice = global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+                  const globalPrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
                   const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
 
                   const entryPrice = plan.entry ?? d.entryPrice;
@@ -849,6 +851,14 @@ function ActionCenterInner() {
                             <span className="font-mono text-base sm:text-lg font-extrabold text-amber-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
                           ) : (
                             <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                          )}
+                          {(marketStore.isDelayed || marketStore.isReconnecting) && (
+                            <span
+                              data-testid={`badge-card-delayed-${d.symbol}`}
+                              className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+                            >
+                              {marketStore.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                            </span>
                           )}
                           <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block ${
                             isPractice
