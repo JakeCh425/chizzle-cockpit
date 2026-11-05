@@ -987,3 +987,22 @@
   border-color: #cbd5e1;
   box-shadow: 0 0 18px rgba(203, 213, 225, 0.15);
 }
+
+/* ─── Watchlist Search / Add Symbol Input High-Contrast Legibility ─── */
+input[data-testid="input-quick-add-ticker"],
+input[data-testid="input-add-ticker"],
+input[data-testid="input-add-symbol"] {
+  background-color: #facc15 !important; /* bg-yellow-400 */
+  color: #111827 !important; /* text-gray-900 */
+  -webkit-text-fill-color: #111827 !important;
+  caret-color: #111827 !important;
+  font-weight: 700 !important;
+}
+input[data-testid="input-quick-add-ticker"]::placeholder,
+input[data-testid="input-add-ticker"]::placeholder,
+input[data-testid="input-add-symbol"]::placeholder {
+  color: #374151 !important; /* placeholder-gray-700 */
+  -webkit-text-fill-color: #374151 !important;
+  opacity: 1 !important;
+}
+

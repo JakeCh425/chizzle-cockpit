@@ -83,6 +83,16 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
       expect(watchlistPageSrc).toContain("global?.addTicker");
       expect(watchlistPageSrc).toContain("subscribeSymbol(sym)");
     });
+
+    it("applies high-contrast dark text (bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold) on Watchlist Search/Add Symbol inputs", () => {
+      expect(dashSrc).toContain("bg-yellow-400");
+      expect(dashSrc).toContain("text-gray-900");
+      expect(dashSrc).toContain("placeholder-gray-700");
+      expect(dashSrc).toContain("font-bold");
+
+      expect(swingWorkspaceSrc).toContain("bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold");
+      expect(watchlistPageSrc).toContain("bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold");
+    });
   });
 
   describe("1b. 10-SMA Momentum Integration & Chart Rendering", () => {

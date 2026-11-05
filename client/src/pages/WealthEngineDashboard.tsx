@@ -3271,7 +3271,8 @@ export default function WealthEngineDashboard() {
                 placeholder="Search/Add Symbol..."
                 aria-label="Search/Add Symbol"
                 maxLength={6}
-                className="flex-1 px-2.5 py-1 rounded bg-black/40 border border-white/10 text-xs font-mono font-bold tracking-wider uppercase text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                className="flex-1 px-2.5 py-1 rounded bg-yellow-400 border border-yellow-500/80 text-xs font-mono font-bold tracking-wider uppercase text-gray-900 placeholder-gray-700 focus:outline-none focus:border-cyan-400 focus:bg-yellow-400 focus:text-gray-900"
+                style={{ color: "#111827" }}
               />
               <button
                 type="submit"
