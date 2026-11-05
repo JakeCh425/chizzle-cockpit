@@ -1459,6 +1459,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const verifiedLivePrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote.price ?? null;
   const isSyncingLiveData =
     market.currentPrice === null ||
+    market.currentPrice === 0 ||
     verifiedLivePrice == null ||
     verifiedLivePrice <= 0 ||
     (d.symbol === market.activeTicker && market.isLoadingTicker);
@@ -1691,6 +1692,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             </span>
             {isSyncingLiveData && (
               <span
+                data-testid={`badge-connecting-exchange-${d.symbol}`}
+                className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+              >
+                [ 🔄 CONNECTING TO EXCHANGE... ]
+              </span>
+            )}
+            {isSyncingLiveData && (
+              <span
                 data-testid={`badge-syncing-live-data-${d.symbol}`}
                 className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
               >
@@ -1821,6 +1830,24 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </button>
         </div>
       </div>
+
+      {/* Pulsing Skeleton Overlay when currentPrice === null or 0 */}
+      {isSyncingLiveData && (
+        <div
+          data-testid={`skeleton-overlay-connecting-${d.symbol}`}
+          className="mx-3 my-2 p-3 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex flex-col gap-2 animate-pulse"
+        >
+          <div className="flex items-center justify-between">
+            <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
+            <span className="text-[10px] text-cyan-400/80">AWAITING VERIFIED LIVE TICK &gt; 0</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+          </div>
+        </div>
+      )}
 
       {/* ─── MIDDLE ROW: 3-COLUMN CORE METRICS (Buy Target, Stop Loss, Return %) - Blurred/Hidden when currentPrice === null ─── */}
       <div

@@ -8,11 +8,12 @@ import { isMarketOpen, reconnectPriceFeed, type LiveQuote, type ConnState } from
 export interface MarketTick {
   symbol: string;
   price?: number;
+  p?: number;
+  lastPrice?: number;
   c?: number;
   regularMarketPrice?: number;
   last?: number;
   close?: number;
-  p?: number;
   currentPrice?: number;
   timestamp?: number;
   ts?: number;
@@ -64,22 +65,28 @@ type Listener = () => void;
 
 export const STALE_TICK_THRESHOLD_MS = 15_000; // 15 seconds max silence while market is OPEN
 export const MAX_QUOTE_AGE_OPEN_MARKET_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms) max quote age when market is OPEN
+export const MAX_CACHE_AGE_OPEN_MARKET_MS = 15 * 60 * 1000; // 15 minutes (900,000 ms) max localStorage cache age when market is OPEN
+export const CACHE_TIMESTAMP_KEY = "chizzle-cache-timestamp";
+export const CACHE_VERSION_KEY = "chizzle-store-version";
+export const CACHE_VERSION = "v3-live-pipeline";
 export const STALE_QUOTE_ERROR_MESSAGE = "[ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]";
 export const SYNCING_LIVE_DATA_BADGE = "[ 🔄 SYNCING LIVE DATA... ]";
+export const CONNECTING_TO_EXCHANGE_BADGE = "[ 🔄 CONNECTING TO EXCHANGE... ]";
 
 /**
  * Normalizes incoming quote payloads across Finnhub (`data.c`), Yahoo (`data.regularMarketPrice`),
- * Polygon/TwelveData (`data.close` / `data.last`), and internal (`data.price`).
+ * Polygon/TwelveData (`data.close` / `data.last` / `data.p` / `data.lastPrice`), and internal (`data.price`).
  */
 export function extractQuotePrice(payload: any): number | null {
   if (!payload || typeof payload !== "object") return null;
   const raw =
     payload.price ??
+    payload.p ??
+    payload.lastPrice ??
     payload.c ??
     payload.regularMarketPrice ??
     payload.last ??
     payload.close ??
-    payload.p ??
     payload.currentPrice;
   const num = Number(raw);
   return Number.isFinite(num) && num > 0 ? num : null;
@@ -107,13 +114,28 @@ export function normalizeQuoteTimestampMs(payload: any): number | null {
 }
 
 /**
- * Purges stale cached price states from localStorage on boot so old static prices
- * never persist across page reloads.
+ * 2. Purge Stale LocalStorage on Boot (Cache Invalidation):
+ * Checks cache version and timestamp on mount.
+ * If the cached data is older than 15 minutes and the market is OPEN, executes a strict
+ * `localStorage.removeItem(...)` on store keys to wipe the slate clean before initializing the WebSocket.
  */
-export function clearStaleCachedPrices(): void {
-  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+export function purgeStaleLocalStorageOnBoot(options?: {
+  nowMs?: number;
+  marketOpenOverride?: boolean;
+}): boolean {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return false;
+  let purged = false;
   try {
+    const nowMs = options?.nowMs ?? Date.now();
+    const marketOpenNow = options?.marketOpenOverride ?? isMarketOpen(new Date(nowMs));
+    const cachedTsRaw = localStorage.getItem(CACHE_TIMESTAMP_KEY);
+    const cachedVersion = localStorage.getItem(CACHE_VERSION_KEY);
+    const cachedTs = cachedTsRaw ? Number(cachedTsRaw) : 0;
+    const isOlderThan15Min = !cachedTs || !Number.isFinite(cachedTs) || (nowMs - cachedTs > MAX_CACHE_AGE_OPEN_MARKET_MS);
+    const isVersionMismatch = cachedVersion !== CACHE_VERSION;
+
     const priceCacheKeys = [
+      "your_store_key",
       "chizzle-cached-prices",
       "chizzle-price-cache",
       "chizzle-last-prices",
@@ -124,21 +146,39 @@ export function clearStaleCachedPrices(): void {
       localStorage.removeItem(key);
     }
 
-    const savedWatchlist = localStorage.getItem("chizzle-wealth-watchlist");
-    if (savedWatchlist) {
-      const parsed = JSON.parse(savedWatchlist);
-      if (Array.isArray(parsed)) {
-        const sanitized = parsed.map((item: any) =>
-          item && typeof item === "object"
-            ? { ...item, price: 0, sparkline: [] }
-            : item
-        );
-        localStorage.setItem("chizzle-wealth-watchlist", JSON.stringify(sanitized));
+    if ((marketOpenNow && isOlderThan15Min) || isVersionMismatch) {
+      localStorage.removeItem("your_store_key");
+      localStorage.removeItem("chizzle-wealth-watchlist");
+      purged = true;
+    } else {
+      const savedWatchlist = localStorage.getItem("chizzle-wealth-watchlist");
+      if (savedWatchlist) {
+        const parsed = JSON.parse(savedWatchlist);
+        if (Array.isArray(parsed)) {
+          const sanitized = parsed.map((item: any) =>
+            item && typeof item === "object"
+              ? { ...item, price: 0, sparkline: [] }
+              : item
+          );
+          localStorage.setItem("chizzle-wealth-watchlist", JSON.stringify(sanitized));
+        }
       }
     }
+
+    localStorage.setItem(CACHE_VERSION_KEY, CACHE_VERSION);
+    localStorage.setItem(CACHE_TIMESTAMP_KEY, String(nowMs));
   } catch {
     // Ignore storage access errors in restricted environments
   }
+  return purged;
+}
+
+/**
+ * Purges stale cached price states from localStorage on boot so old static prices
+ * never persist across page reloads.
+ */
+export function clearStaleCachedPrices(): void {
+  purgeStaleLocalStorageOnBoot();
 }
 
 /**
@@ -508,6 +548,8 @@ class MarketDataStore {
 
     const tick = { ...rawTick, price: mappedPrice };
     const sym = tick.symbol.toUpperCase().split(":").pop()!;
+    const msg = { symbol: sym, price: mappedPrice };
+    console.log('🟢 LIVE TICK OVERRIDE:', { ticker: msg.symbol, price: msg.price });
 
     // 4. Timestamp Validation (Stale Data Rejection):
     // When a quote is received from the API, check its timestamp.

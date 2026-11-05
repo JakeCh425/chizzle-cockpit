@@ -172,7 +172,7 @@ export const DEFAULT_WATCHLIST: WatchlistItem[] = [
     bottomLine: "High momentum momentum reclaim through prior pivot high. Asymmetry favored for swing momentum continuation.",
     winRate: 59.2,
     atr: 8.75,
-    t2: 252.00,
+    t2: 251.50,
     t3: 265.00,
   },
   {

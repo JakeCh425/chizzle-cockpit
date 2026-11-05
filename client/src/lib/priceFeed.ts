@@ -180,12 +180,14 @@ function setSnapshot(next: Record<string, LiveQuote>) {
   listeners.forEach(l => l(snapshotState));
 }
 
-function applyQuote(raw: LiveQuote & { c?: number; regularMarketPrice?: number; last?: number; close?: number; t?: number; timestamp?: number }) {
+function applyQuote(raw: LiveQuote & { p?: number; lastPrice?: number; c?: number; regularMarketPrice?: number; last?: number; close?: number; t?: number; timestamp?: number }) {
   const payload = raw;
   console.log('LIVE TICK RECEIVED:', payload);
 
   const mappedPrice = Number(
     raw?.price ??
+    raw?.p ??
+    raw?.lastPrice ??
     raw?.c ??
     raw?.regularMarketPrice ??
     raw?.last ??
@@ -195,9 +197,13 @@ function applyQuote(raw: LiveQuote & { c?: number; regularMarketPrice?: number; 
     return;
   }
 
+  const msg = { symbol: raw.symbol.toUpperCase().split(":").pop()!, price: mappedPrice };
+  console.log('🟢 LIVE TICK OVERRIDE:', { ticker: msg.symbol, price: msg.price });
+
   const rawTs = raw.ts ?? raw.t ?? (raw.timestamp ? (raw.timestamp < 1e11 ? raw.timestamp : Math.floor(raw.timestamp / 1000)) : Math.floor(Date.now() / 1000));
   const q: LiveQuote = {
     ...raw,
+    symbol: msg.symbol,
     price: mappedPrice,
     ts: rawTs,
     receivedAt: raw.receivedAt || Date.now(),
@@ -206,6 +212,8 @@ function applyQuote(raw: LiveQuote & { c?: number; regularMarketPrice?: number; 
   const applied = marketDataStore.validateAndApplyTick({
     symbol: q.symbol,
     price: q.price,
+    p: raw.p,
+    lastPrice: raw.lastPrice,
     c: raw.c,
     regularMarketPrice: raw.regularMarketPrice,
     prevClose: q.prevClose,
@@ -231,6 +239,8 @@ export async function fetchLiveQuote(symbol: string): Promise<LiveQuote | null> 
     console.log('LIVE TICK RECEIVED:', payload);
     const mappedPrice = Number(
       payload?.price ??
+      payload?.p ??
+      payload?.lastPrice ??
       payload?.c ??
       payload?.regularMarketPrice ??
       payload?.last ??
@@ -380,8 +390,14 @@ function connectWS() {
         if (j?.type === "hello" && Array.isArray(j?.quotes)) {
           const next: Record<string, LiveQuote> = { ...snapshotState };
           for (const q of j.quotes as LiveQuote[]) {
-            if (!isBadTick(q.symbol, q.price, q.prevClose)) {
-              next[q.symbol] = q;
+            const mappedPrice = Number((q as any)?.price ?? (q as any)?.p ?? (q as any)?.lastPrice ?? (q as any)?.c ?? (q as any)?.regularMarketPrice);
+            if (q?.symbol && Number.isFinite(mappedPrice) && mappedPrice > 0) {
+              const msg = { symbol: q.symbol, price: mappedPrice };
+              console.log('🟢 LIVE TICK OVERRIDE:', { ticker: msg.symbol, price: msg.price });
+              const normalized = { ...q, price: mappedPrice };
+              if (!isBadTick(q.symbol, mappedPrice, q.prevClose)) {
+                next[q.symbol] = normalized;
+              }
             }
           }
           if (Object.keys(next).length) {
@@ -391,6 +407,15 @@ function connectWS() {
           }
         } else if (j?.type === "tick" && j?.quote) {
           applyQuote(j.quote as LiveQuote);
+          setConn("LIVE");
+          stopFallbackPolling();
+        } else if (j?.symbol && (j?.price != null || j?.p != null || j?.lastPrice != null || j?.c != null)) {
+          const msg = {
+            symbol: String(j.symbol),
+            price: Number(j.price ?? j.p ?? j.lastPrice ?? j.c),
+          };
+          console.log('🟢 LIVE TICK OVERRIDE:', { ticker: msg.symbol, price: msg.price });
+          applyQuote({ ...j, symbol: msg.symbol, price: msg.price } as LiveQuote);
           setConn("LIVE");
           stopFallbackPolling();
         }

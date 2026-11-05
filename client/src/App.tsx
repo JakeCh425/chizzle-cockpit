@@ -68,10 +68,16 @@ function WakeSyncRoot() {
   return <WakeSyncLoader />;
 }
 
+import { useEffect } from "react";
 import { GlobalStateProvider } from "@/lib/globalState";
+import { purgeStaleLocalStorageOnBoot } from "@/lib/useMarketDataStore";
 import { UniversalTradeModal } from "@/components/UniversalTradeModal";
 
 function App() {
+  useEffect(() => {
+    purgeStaleLocalStorageOnBoot();
+  }, []);
+
   if (typeof window !== "undefined") {
     console.log("[Boot:App] Mounting Chizzle Cockpit root application container");
   }

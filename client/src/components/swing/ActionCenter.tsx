@@ -823,6 +823,7 @@ function ActionCenterInner() {
                   const verifiedLivePrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? null;
                   const isSyncingLiveData =
                     marketStore.currentPrice === null ||
+                    marketStore.currentPrice === 0 ||
                     verifiedLivePrice == null ||
                     verifiedLivePrice <= 0 ||
                     (d.symbol === marketStore.activeTicker && marketStore.isLoadingTicker);
@@ -865,6 +866,14 @@ function ActionCenterInner() {
                             ) : (
                               <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
                             )
+                          )}
+                          {isSyncingLiveData && (
+                            <span
+                              data-testid={`badge-exec-connecting-${d.symbol}`}
+                              className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-md shadow-sm animate-pulse shrink-0"
+                            >
+                              [ 🔄 CONNECTING TO EXCHANGE... ]
+                            </span>
                           )}
                           {isSyncingLiveData && (
                             <span
@@ -926,6 +935,21 @@ function ActionCenterInner() {
                             )}
                           </span>
                         </div>
+
+                        {/* Pulsing Skeleton Overlay when currentPrice === null or 0 */}
+                        {isSyncingLiveData && (
+                          <div
+                            data-testid={`skeleton-exec-connecting-${d.symbol}`}
+                            className="p-2.5 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex items-center justify-between gap-3 animate-pulse"
+                          >
+                            <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
+                            <div className="flex items-center gap-2">
+                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
+                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
+                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
+                            </div>
+                          </div>
+                        )}
 
                         {/* BUY LIMIT | STOP | TARGET */}
                         <div className={`flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm transition-all ${isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""}`}>

@@ -263,6 +263,7 @@ export function LiveTradingChart({
   const isReconnecting = marketStore.isReconnecting || feedState === "CONNECTING";
   const isChartSyncingLiveData =
     marketStore.currentPrice === null ||
+    marketStore.currentPrice === 0 ||
     marketStore.isLoadingTicker ||
     (!marketStore.prices[symbol] && !livePrices?.[symbol] && !quote?.price);
   const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
@@ -1030,12 +1031,20 @@ export function LiveTradingChart({
             </span>
 
             {isChartSyncingLiveData && (
-              <span
-                data-testid="badge-chart-syncing-live-data"
-                className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)] animate-pulse flex items-center gap-1.5"
-              >
-                [ 🔄 SYNCING LIVE DATA... ]
-              </span>
+              <div className="flex items-center gap-2">
+                <span
+                  data-testid="badge-chart-connecting-exchange"
+                  className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.35)] animate-pulse flex items-center gap-1.5"
+                >
+                  [ 🔄 CONNECTING TO EXCHANGE... ]
+                </span>
+                <span
+                  data-testid="badge-chart-syncing-live-data"
+                  className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)] animate-pulse flex items-center gap-1.5"
+                >
+                  [ 🔄 SYNCING LIVE DATA... ]
+                </span>
+              </div>
             )}
 
             {isStaleQuoteRejected && (
@@ -2589,6 +2598,7 @@ export default function WealthEngineDashboard() {
     (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker] ?? null) : null);
   const isSyncingLiveData =
     marketStore.currentPrice === null ||
+    marketStore.currentPrice === 0 ||
     verifiedLivePrice == null ||
     verifiedLivePrice <= 0 ||
     marketStore.isLoadingTicker;
@@ -3017,6 +3027,14 @@ export default function WealthEngineDashboard() {
             <span className={`font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)] ${isSyncingLiveData ? "hidden" : ""}`} data-testid="header-live-price">
               ${(activeTickerData?.price ?? activePrice ?? 0).toFixed(2)}
             </span>
+            {isSyncingLiveData && (
+              <span
+                data-testid="badge-header-connecting-exchange"
+                className="border border-cyan-400/60 bg-cyan-950/80 text-cyan-200 font-mono text-[10px] font-bold px-2 py-0.5 rounded animate-pulse"
+              >
+                [ 🔄 CONNECTING TO EXCHANGE... ]
+              </span>
+            )}
             {isSyncingLiveData && (
               <span
                 data-testid="badge-header-syncing-live-data"
@@ -4273,6 +4291,14 @@ export default function WealthEngineDashboard() {
                         </span>
                         {isSyncingLiveData && (
                           <span
+                            data-testid="badge-setup-card-connecting-exchange"
+                            className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+                          >
+                            [ 🔄 CONNECTING TO EXCHANGE... ]
+                          </span>
+                        )}
+                        {isSyncingLiveData && (
+                          <span
                             data-testid="badge-setup-card-syncing-live-data"
                             className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
                           >
@@ -4426,6 +4452,24 @@ export default function WealthEngineDashboard() {
                       </button>
                     </div>
                   </div>
+
+                  {/* Pulsing Skeleton Overlay when currentPrice === null or 0 */}
+                  {isSyncingLiveData && (
+                    <div
+                      data-testid="skeleton-overlay-connecting-exchange"
+                      className="mx-3 my-2 p-3 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex flex-col gap-2 animate-pulse"
+                    >
+                      <div className="flex items-center justify-between">
+                        <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
+                        <span className="text-[10px] text-cyan-400/80">AWAITING VERIFIED LIVE TICK &gt; 0</span>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+                      </div>
+                    </div>
+                  )}
 
                   {/* HIGH-CONTRAST DYNAMIC TRADE LEVELS (Blurred/Hidden when currentPrice === null or actively syncing live data) */}
                   <div

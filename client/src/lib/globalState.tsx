@@ -7,13 +7,15 @@ import {
   marketDataStore,
   globalStore,
   useMarketDataStore,
+  purgeStaleLocalStorageOnBoot,
+  clearStaleCachedPrices,
   type MarketDataState,
   type MarketTick,
   type LastValidTick,
   type SetupAlertState,
 } from "./useMarketDataStore";
 
-export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore };
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore, purgeStaleLocalStorageOnBoot, clearStaleCachedPrices };
 export type { MarketDataState, MarketTick, LastValidTick, SetupAlertState };
 
 export interface ActiveTickerData {
@@ -464,6 +466,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   // Single WebSocket connection manager at the root: subscribes to all watchlisted tickers
   useEffect(() => {
+    // Purge stale localStorage cache (> 15 min old when market is OPEN) before initializing WebSocket
+    purgeStaleLocalStorageOnBoot();
     ensurePriceFeed();
 
     // Subscribe all watchlisted symbols to live feed
