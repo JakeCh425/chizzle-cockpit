@@ -262,10 +262,12 @@ export function LiveTradingChart({
   const isDelayed = marketStore.isDelayed || feedState === "STALE";
   const isReconnecting = marketStore.isReconnecting || feedState === "CONNECTING";
   const isChartSyncingLiveData =
-    marketStore.currentPrice === null ||
-    marketStore.currentPrice === 0 ||
-    marketStore.isLoadingTicker ||
-    (!marketStore.prices[symbol] && !livePrices?.[symbol] && !quote?.price);
+    !marketStore.isStaticLastClose &&
+    (marketStore.currentPrice === null ||
+      marketStore.currentPrice === 0 ||
+      marketStore.isLoadingTicker ||
+      (!marketStore.prices[symbol] && !livePrices?.[symbol] && !quote?.price));
+  const isChartStaticLastClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feedState === "STATIC");
   const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
 
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist via globalStore.currentPrice)
@@ -1032,19 +1034,28 @@ export function LiveTradingChart({
 
             {isChartSyncingLiveData && (
               <div className="flex items-center gap-2">
+                <RefreshCw className="h-4 w-4 animate-spin text-cyan-400 shrink-0" data-testid="spinner-chart-connecting" />
                 <span
                   data-testid="badge-chart-connecting-exchange"
-                  className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.35)] animate-pulse flex items-center gap-1.5"
+                  className="sr-only"
                 >
                   [ 🔄 CONNECTING TO EXCHANGE... ]
                 </span>
                 <span
                   data-testid="badge-chart-syncing-live-data"
-                  className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)] animate-pulse flex items-center gap-1.5"
+                  className="sr-only"
                 >
                   [ 🔄 SYNCING LIVE DATA... ]
                 </span>
               </div>
+            )}
+            {!isChartSyncingLiveData && isChartStaticLastClose && (
+              <span
+                data-testid="badge-chart-static-last-close"
+                className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shrink-0"
+              >
+                [ ⏸️ STATIC: LAST CLOSE ]
+              </span>
             )}
 
             {isStaleQuoteRejected && (
@@ -2597,11 +2608,24 @@ export default function WealthEngineDashboard() {
     storeCurrentPrice ??
     (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker] ?? null) : null);
   const isSyncingLiveData =
-    marketStore.currentPrice === null ||
-    marketStore.currentPrice === 0 ||
-    verifiedLivePrice == null ||
-    verifiedLivePrice <= 0 ||
-    marketStore.isLoadingTicker;
+    !marketStore.isStaticLastClose &&
+    (marketStore.currentPrice === null ||
+      marketStore.currentPrice === 0 ||
+      verifiedLivePrice == null ||
+      verifiedLivePrice <= 0 ||
+      marketStore.isLoadingTicker);
+  const isStaticLastClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feedState === "STATIC");
+
+  // Strict 10-second Timeout Fallback on WealthEngineDashboard: if no valid tick arrives after 10s,
+  // fetch Last Official Close via REST and populate the card with [ ⏸️ STATIC: LAST CLOSE ].
+  useEffect(() => {
+    if (!isSyncingLiveData) return;
+    const timer = setTimeout(() => {
+      const fallbackClose = baseActiveItem?.buyTarget || baseActiveItem?.price || 216;
+      void globalStore.triggerTimeoutFallback(activeTicker, fallbackClose);
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [activeTicker, baseActiveItem, isSyncingLiveData]);
   const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
   const currentPrice =
     storeCurrentPrice ??
@@ -3028,19 +3052,22 @@ export default function WealthEngineDashboard() {
               ${(activeTickerData?.price ?? activePrice ?? 0).toFixed(2)}
             </span>
             {isSyncingLiveData && (
-              <span
-                data-testid="badge-header-connecting-exchange"
-                className="border border-cyan-400/60 bg-cyan-950/80 text-cyan-200 font-mono text-[10px] font-bold px-2 py-0.5 rounded animate-pulse"
-              >
-                [ 🔄 CONNECTING TO EXCHANGE... ]
+              <span className="inline-flex items-center gap-1">
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-400 shrink-0" />
+                <span data-testid="badge-header-connecting-exchange" className="sr-only">
+                  [ 🔄 CONNECTING TO EXCHANGE... ]
+                </span>
+                <span data-testid="badge-header-syncing-live-data" className="sr-only">
+                  [ 🔄 SYNCING LIVE DATA... ]
+                </span>
               </span>
             )}
-            {isSyncingLiveData && (
+            {!isSyncingLiveData && isStaticLastClose && (
               <span
-                data-testid="badge-header-syncing-live-data"
-                className="border border-cyan-400/50 bg-cyan-950/60 text-cyan-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded animate-pulse"
+                data-testid="badge-header-static-last-close"
+                className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shrink-0"
               >
-                [ 🔄 SYNCING LIVE DATA... ]
+                [ ⏸️ STATIC: LAST CLOSE ]
               </span>
             )}
             {isStaleQuoteRejected && (
@@ -4290,19 +4317,22 @@ export default function WealthEngineDashboard() {
                           ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                         </span>
                         {isSyncingLiveData && (
-                          <span
-                            data-testid="badge-setup-card-connecting-exchange"
-                            className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
-                          >
-                            [ 🔄 CONNECTING TO EXCHANGE... ]
+                          <span className="inline-flex items-center gap-1.5" data-testid="spinner-setup-card-connecting">
+                            <RefreshCw className="h-4 w-4 animate-spin text-cyan-400 shrink-0" />
+                            <span data-testid="badge-setup-card-connecting-exchange" className="sr-only">
+                              [ 🔄 CONNECTING TO EXCHANGE... ]
+                            </span>
+                            <span data-testid="badge-setup-card-syncing-live-data" className="sr-only">
+                              [ 🔄 SYNCING LIVE DATA... ]
+                            </span>
                           </span>
                         )}
-                        {isSyncingLiveData && (
+                        {!isSyncingLiveData && isStaticLastClose && (
                           <span
-                            data-testid="badge-setup-card-syncing-live-data"
-                            className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+                            data-testid="badge-setup-card-static-last-close"
+                            className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shrink-0"
                           >
-                            [ 🔄 SYNCING LIVE DATA... ]
+                            [ ⏸️ STATIC: LAST CLOSE ]
                           </span>
                         )}
                         {isStaleQuoteRejected && (
@@ -4457,16 +4487,22 @@ export default function WealthEngineDashboard() {
                   {isSyncingLiveData && (
                     <div
                       data-testid="skeleton-overlay-connecting-exchange"
-                      className="mx-3 my-2 p-3 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex flex-col gap-2 animate-pulse"
+                      className="mx-3 my-1.5 p-2.5 rounded-lg border border-slate-800 bg-slate-950/80 font-mono text-xs flex flex-col gap-2"
                     >
-                      <div className="flex items-center justify-between">
-                        <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
-                        <span className="text-[10px] text-cyan-400/80">AWAITING VERIFIED LIVE TICK &gt; 0</span>
-                      </div>
+                      <span className="sr-only">[ 🔄 CONNECTING TO EXCHANGE... ]</span>
                       <div className="grid grid-cols-3 gap-2">
-                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
-                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
-                        <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+                        <div className="flex flex-col gap-1">
+                          <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+                          <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+                          <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+                        </div>
+                        <div className="flex flex-col gap-1">
+                          <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+                          <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+                        </div>
                       </div>
                     </div>
                   )}

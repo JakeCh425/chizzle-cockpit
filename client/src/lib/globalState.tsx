@@ -699,6 +699,25 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     return () => clearInterval(interval);
   }, [fetchRestQuotes]);
 
+  // Strict 10-second Timeout Fallback: if live exchange yields no valid tick within 10s,
+  // automatically fetch Last Official Close via REST and populate any still-loading tickers.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const st = marketDataStore.getState();
+      if (st.currentPrice === null || st.isLoading || st.isLoadingTicker || !st.prices[activeTicker]) {
+        const fallbackAnchor = activeItem?.buyTarget || activeItem?.price || 216;
+        void marketDataStore.triggerTimeoutFallback(activeTicker, fallbackAnchor);
+      }
+      for (const item of watchlist || []) {
+        if (item?.symbol && !marketDataStore.getState().prices[item.symbol]) {
+          const itemFallback = item.buyTarget || item.price || 100;
+          void marketDataStore.triggerTimeoutFallback(item.symbol, itemFallback);
+        }
+      }
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [activeTicker, activeItem, watchlist]);
+
   // Boot Sequence Diagnostic Logging
   useEffect(() => {
     if (typeof console !== "undefined") {

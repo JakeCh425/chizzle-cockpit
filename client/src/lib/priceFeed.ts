@@ -7,9 +7,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo } from "./marketHours";
-import { marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS } from "./useMarketDataStore";
+import { marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS, LIVE_EXCHANGE_TIMEOUT_MS, STATIC_LAST_CLOSE_BADGE } from "./useMarketDataStore";
 
-export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo, marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS };
+export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo, marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS, LIVE_EXCHANGE_TIMEOUT_MS, STATIC_LAST_CLOSE_BADGE };
 
 // Match server snapshot shape
 export interface LiveQuote {
@@ -576,6 +576,19 @@ export function ensurePriceFeed() {
   };
 
   checkMarketHoursFeedMode();
+
+  // Strict 10-second Timeout Fallback:
+  // If the app attempts to connect to the live exchange and receives no valid ticks
+  // for > 10 seconds, automatically execute a REST API call to fetch 'Last Official Close',
+  // set isLoading to false, and mark STATIC: LAST CLOSE.
+  setTimeout(() => {
+    const st = marketDataStore.getState();
+    if (!lastEventAt && (st.currentPrice === null || st.isLoading || st.isLoadingTicker)) {
+      void fetchLastOfficialClose();
+      void marketDataStore.triggerTimeoutFallback(st.activeTicker);
+      setConn("STATIC");
+    }
+  }, LIVE_EXCHANGE_TIMEOUT_MS);
 
   // Stale-monitor ("last tick timestamp" checker):
   // Re-evaluate every 1s based on WebSocket status and lastTickTimestamp / lastEventAt.

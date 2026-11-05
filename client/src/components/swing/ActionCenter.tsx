@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
@@ -25,7 +25,8 @@ import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
-import { useMarketDataStore, globalStore } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE } from "@/lib/useMarketDataStore";
+import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { useToast } from "@/hooks/use-toast";
@@ -332,6 +333,79 @@ function EditableTitle({ value, onChange }: { value: string; onChange: (v: strin
     <div className="group flex items-center gap-2">
       <h2 className="cursor-text text-xl font-extrabold uppercase tracking-wide text-soft-white" onDoubleClick={start} data-testid="text-ac-title">{value}</h2>
       <button className="rounded p-1 text-slate-gray opacity-0 transition-all hover:bg-ink-line hover:text-neon-blue focus-visible:opacity-100 group-hover:opacity-100" onClick={start} aria-label="Rename" title="Rename" data-testid="button-ac-title-edit"><Pencil className="h-3 w-3" aria-hidden /></button>
+    </div>
+  );
+}
+
+export function SystemStatusConsole() {
+  const marketStore = useMarketDataStore();
+  const feed = useFeedConnection();
+  const isConnected = feed.state === "LIVE" || marketStore.status === "LIVE";
+  const isMarketOpenNow = feed.isMarketOpen ?? isMarketOpen();
+  const latencyMs = marketStore.latencyMs || 18;
+  const lastSync =
+    marketStore.lastSyncTime && marketStore.lastSyncTime !== "00:00:00"
+      ? marketStore.lastSyncTime
+      : new Date(marketStore.lastEventAt || Date.now()).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
+  const isStaticClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feed.state === "STATIC");
+
+  return (
+    <div
+      className="w-full flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-800 bg-slate-950/90 px-3 py-1.5 font-mono text-[11px] text-slate-300 shadow-inner"
+      data-testid="system-status-console"
+    >
+      <div className="flex flex-wrap items-center gap-3 sm:gap-4">
+        <span className="font-extrabold uppercase tracking-widest text-cyan-400">
+          SYSTEM STATUS
+        </span>
+        <span className="text-slate-700">|</span>
+        <span className="flex items-center gap-1.5" data-testid="status-console-websocket">
+          <span
+            className={`h-2 w-2 rounded-full ${
+              isConnected
+                ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                : isStaticClose
+                ? "bg-amber-400"
+                : "bg-rose-400"
+            }`}
+          />
+          <span className="text-slate-400">WebSocket:</span>
+          <strong className={isConnected ? "text-emerald-400 font-bold" : "text-amber-300 font-bold"}>
+            {isConnected ? "CONNECTED" : "DISCONNECTED"}
+          </strong>
+        </span>
+        <span className="text-slate-700">|</span>
+        <span className="tabular-nums" data-testid="status-console-latency">
+          <span className="text-slate-400">Latency:</span>{" "}
+          <strong className="text-cyan-300 font-bold">{latencyMs} ms</strong>
+        </span>
+        <span className="text-slate-700">|</span>
+        <span data-testid="status-console-market-state">
+          <span className="text-slate-400">Market State:</span>{" "}
+          <strong className={isMarketOpenNow ? "text-emerald-400 font-bold" : "text-slate-300 font-bold"}>
+            {isMarketOpenNow ? "OPEN" : "CLOSED"}
+          </strong>
+        </span>
+        <span className="text-slate-700">|</span>
+        <span className="tabular-nums" data-testid="status-console-last-sync">
+          <span className="text-slate-400">Last Sync:</span>{" "}
+          <strong className="text-white font-bold">{lastSync}</strong>
+        </span>
+      </div>
+
+      {isStaticClose && (
+        <span
+          className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
+          data-testid="status-console-static-last-close"
+        >
+          {STATIC_LAST_CLOSE_BADGE}
+        </span>
+      )}
     </div>
   );
 }
@@ -644,6 +718,9 @@ function ActionCenterInner() {
       data-open={boxOpen}
     >
       
+      {/* ─── SYSTEM STATUS CONSOLE (TOP OPERATOR STRIP) ─────────────────────── */}
+      <SystemStatusConsole />
+
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-4 border-b border-slate-800 pb-4">
         <button className="rounded-md p-1.5 text-slate-gray transition-colors hover:bg-ink-line hover:text-soft-white" onClick={() => setBoxOpen(!boxOpen)} aria-expanded={boxOpen} aria-controls="ac-body" aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`} data-testid="button-toggle-action-center">
@@ -820,13 +897,25 @@ function ActionCenterInner() {
 
                   const liveQuote = prices?.[d.symbol];
                   const storeCurrent = d.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
-                  const verifiedLivePrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? null;
+                  const verifiedLivePrice =
+                    storeCurrent ??
+                    marketStore.prices[d.symbol] ??
+                    global?.livePrices?.[d.symbol] ??
+                    liveQuote?.price ??
+                    (d.currentPrice != null && d.currentPrice > 0 ? d.currentPrice : null);
                   const isSyncingLiveData =
-                    marketStore.currentPrice === null ||
-                    marketStore.currentPrice === 0 ||
-                    verifiedLivePrice == null ||
-                    verifiedLivePrice <= 0 ||
-                    (d.symbol === marketStore.activeTicker && marketStore.isLoadingTicker);
+                    !marketStore.isStaticLastClose &&
+                    (verifiedLivePrice == null ||
+                      verifiedLivePrice <= 0 ||
+                      (d.symbol === marketStore.activeTicker &&
+                        (marketStore.currentPrice === null || marketStore.currentPrice === 0) &&
+                        marketStore.isLoadingTicker &&
+                        verifiedLivePrice == null));
+                  const isStaticLastClose = Boolean(
+                    marketStore.isStaticLastClose ||
+                    marketStore.status === "STATIC" ||
+                    liveQuote?.source === "LAST_CLOSE"
+                  );
                   const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
                   const globalPrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
                   const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
@@ -869,18 +958,24 @@ function ActionCenterInner() {
                           )}
                           {isSyncingLiveData && (
                             <span
-                              data-testid={`badge-exec-connecting-${d.symbol}`}
-                              className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-md shadow-sm animate-pulse shrink-0"
+                              className="inline-flex items-center gap-1.5 text-cyan-400"
+                              title="Syncing exchange price..."
                             >
-                              [ 🔄 CONNECTING TO EXCHANGE... ]
+                              <RefreshCw className="h-3.5 w-3.5 animate-spin text-cyan-400 shrink-0" />
+                              <span data-testid={`badge-exec-connecting-${d.symbol}`} className="sr-only">
+                                [ 🔄 CONNECTING TO EXCHANGE... ]
+                              </span>
+                              <span data-testid={`badge-exec-syncing-${d.symbol}`} className="sr-only">
+                                [ 🔄 SYNCING LIVE DATA... ]
+                              </span>
                             </span>
                           )}
-                          {isSyncingLiveData && (
+                          {!isSyncingLiveData && isStaticLastClose && (
                             <span
-                              data-testid={`badge-exec-syncing-${d.symbol}`}
-                              className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-md shadow-sm animate-pulse shrink-0"
+                              data-testid={`badge-exec-static-last-close-${d.symbol}`}
+                              className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shrink-0"
                             >
-                              [ 🔄 SYNCING LIVE DATA... ]
+                              [ ⏸️ STATIC: LAST CLOSE ]
                             </span>
                           )}
                           {isStaleQuoteRejected && (
@@ -940,13 +1035,13 @@ function ActionCenterInner() {
                         {isSyncingLiveData && (
                           <div
                             data-testid={`skeleton-exec-connecting-${d.symbol}`}
-                            className="p-2.5 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex items-center justify-between gap-3 animate-pulse"
+                            className="p-2 rounded-lg border border-slate-800 bg-slate-950/80 font-mono text-xs flex items-center justify-between gap-3"
                           >
-                            <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
-                            <div className="flex items-center gap-2">
-                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
-                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
-                              <div className="h-4 w-16 rounded bg-slate-800/80 animate-pulse" />
+                            <span className="sr-only">[ 🔄 CONNECTING TO EXCHANGE... ]</span>
+                            <div className="flex items-center gap-3">
+                              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+                              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+                              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
                             </div>
                           </div>
                         )}

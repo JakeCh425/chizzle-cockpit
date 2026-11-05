@@ -1456,16 +1456,39 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
   const market = useMarketDataStore();
   const storeCurrent = d.symbol === market.activeTicker && market.currentPrice != null ? globalStore.currentPrice : null;
-  const verifiedLivePrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote.price ?? null;
+  const verifiedLivePrice =
+    storeCurrent ??
+    market.prices[d.symbol] ??
+    global?.livePrices?.[d.symbol] ??
+    liveQuote.price ??
+    (d.currentPrice != null && d.currentPrice > 0 ? d.currentPrice : null);
   const isSyncingLiveData =
-    market.currentPrice === null ||
-    market.currentPrice === 0 ||
-    verifiedLivePrice == null ||
-    verifiedLivePrice <= 0 ||
-    (d.symbol === market.activeTicker && market.isLoadingTicker);
+    !market.isStaticLastClose &&
+    (verifiedLivePrice == null ||
+      verifiedLivePrice <= 0 ||
+      (d.symbol === market.activeTicker &&
+        (market.currentPrice === null || market.currentPrice === 0) &&
+        market.isLoadingTicker &&
+        verifiedLivePrice == null));
+  const isStaticLastClose = Boolean(
+    market.isStaticLastClose ||
+    market.status === "STATIC" ||
+    liveQuote.source === "LAST_CLOSE"
+  );
   const isStaleQuoteRejected = Boolean(market.staleQuoteRejected || market.dataFeedError);
   const globalPrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
+
+  // Strict 10-second Timeout Fallback on card mount: if no valid tick arrives after 10s,
+  // fetch Last Official Close via REST and populate the card with [ ⏸️ STATIC: LAST CLOSE ].
+  useEffect(() => {
+    if (!isSyncingLiveData) return;
+    const timer = setTimeout(() => {
+      const fallbackClose = d.currentPrice || p.entry || d.entryPrice || 216;
+      void globalStore.triggerTimeoutFallback(d.symbol, fallbackClose);
+    }, 10_000);
+    return () => clearTimeout(timer);
+  }, [d.symbol, d.currentPrice, d.entryPrice, p.entry, isSyncingLiveData]);
 
   const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
   const auditLog = useNotificationAuditLog(d.symbol);
@@ -1692,18 +1715,25 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             </span>
             {isSyncingLiveData && (
               <span
-                data-testid={`badge-connecting-exchange-${d.symbol}`}
-                className="border border-cyan-400/70 bg-cyan-950/80 text-cyan-200 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+                className="inline-flex items-center gap-1.5 text-cyan-400"
+                title="Syncing exchange price..."
+                data-testid={`spinner-connecting-${d.symbol}`}
               >
-                [ 🔄 CONNECTING TO EXCHANGE... ]
+                <RefreshCw className="h-4 w-4 animate-spin text-cyan-400 shrink-0" />
+                <span data-testid={`badge-connecting-exchange-${d.symbol}`} className="sr-only">
+                  [ 🔄 CONNECTING TO EXCHANGE... ]
+                </span>
+                <span data-testid={`badge-syncing-live-data-${d.symbol}`} className="sr-only">
+                  [ 🔄 SYNCING LIVE DATA... ]
+                </span>
               </span>
             )}
-            {isSyncingLiveData && (
+            {!isSyncingLiveData && isStaticLastClose && (
               <span
-                data-testid={`badge-syncing-live-data-${d.symbol}`}
-                className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+                data-testid={`badge-static-last-close-${d.symbol}`}
+                className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shrink-0"
               >
-                [ 🔄 SYNCING LIVE DATA... ]
+                [ ⏸️ STATIC: LAST CLOSE ]
               </span>
             )}
             {isStaleQuoteRejected && (
@@ -1835,16 +1865,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       {isSyncingLiveData && (
         <div
           data-testid={`skeleton-overlay-connecting-${d.symbol}`}
-          className="mx-3 my-2 p-3 rounded-lg border border-cyan-500/40 bg-slate-950/90 text-cyan-300 font-mono text-xs font-extrabold flex flex-col gap-2 animate-pulse"
+          className="mx-3 my-1.5 p-2.5 rounded-lg border border-slate-800 bg-slate-950/80 font-mono text-xs flex flex-col gap-2"
         >
-          <div className="flex items-center justify-between">
-            <span>[ 🔄 CONNECTING TO EXCHANGE... ]</span>
-            <span className="text-[10px] text-cyan-400/80">AWAITING VERIFIED LIVE TICK &gt; 0</span>
-          </div>
-          <div className="grid grid-cols-3 gap-2">
-            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
-            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
-            <div className="h-6 rounded bg-slate-800/80 animate-pulse" />
+          <span className="sr-only">[ 🔄 CONNECTING TO EXCHANGE... ]</span>
+          <div className="grid grid-cols-3 gap-3">
+            <div className="flex flex-col gap-1">
+              <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <div className="h-3 bg-gray-700/60 rounded w-16 animate-pulse"></div>
+              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
+            </div>
           </div>
         </div>
       )}
@@ -1885,17 +1921,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
       {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
       <div
-        className={`flex flex-col gap-2 px-3 py-2.5 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden transition-all ${
+        className={`flex flex-col gap-1.5 px-2.5 py-1.5 my-1 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono tabular-nums text-xs shadow-inner overflow-hidden truncate transition-all ${
           isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
         }`}
         data-testid={`setup-card-summary-strip-${d.symbol}`}
         data-syncing-live={isSyncingLiveData ? "true" : "false"}
       >
         {/* Header row with Risk ($1R) and Inline Interactive Risk Toggle (1% / 1.5% / 2%) */}
-        <div className="flex items-center justify-between gap-2 overflow-hidden text-ellipsis whitespace-nowrap pb-1.5 border-b border-slate-800/80">
+        <div className="flex items-center justify-between gap-2 overflow-hidden text-ellipsis whitespace-nowrap pb-1 border-b border-slate-800/80">
           <div className="flex items-center gap-1.5 min-w-0 truncate">
             <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Risk ($1R):</span>
-            <strong className="text-emerald-400 font-bold font-mono truncate" data-testid={`card-dollar-risk-${d.symbol}`}>
+            <strong className="text-emerald-400 font-bold font-mono tabular-nums truncate" data-testid={`card-dollar-risk-${d.symbol}`}>
               ${sizer.totalDollarRiskAllowed.toFixed(2)}
             </strong>
           </div>
@@ -1924,21 +1960,21 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
         {/* Primary 3-Col Data Metrics */}
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
             <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
-            <strong className="text-emerald-400 font-bold truncate">
+            <strong className="text-emerald-400 font-mono tabular-nums font-bold truncate">
               ${dynamicFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </strong>
           </div>
-          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
             <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
-            <strong className="text-cyan-300 font-bold truncate">
+            <strong className="text-cyan-300 font-mono tabular-nums font-bold truncate">
               {dynamicShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${dynamicFunding.toLocaleString()})</span>
             </strong>
           </div>
-          <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
+          <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
             <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>
-            <strong className="text-emerald-400 font-extrabold text-sm truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
+            <strong className="text-emerald-400 font-mono tabular-nums font-extrabold text-sm truncate">{targetRMultiple}R ({scaleOutMode ? "1.5R" : "2.0R"})</strong>
           </div>
         </div>
 
