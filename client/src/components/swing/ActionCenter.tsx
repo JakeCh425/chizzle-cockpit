@@ -820,6 +820,13 @@ function ActionCenterInner() {
 
                   const liveQuote = prices?.[d.symbol];
                   const storeCurrent = d.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
+                  const verifiedLivePrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? null;
+                  const isSyncingLiveData =
+                    marketStore.currentPrice === null ||
+                    verifiedLivePrice == null ||
+                    verifiedLivePrice <= 0 ||
+                    (d.symbol === marketStore.activeTicker && marketStore.isLoadingTicker);
+                  const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
                   const globalPrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
                   const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
 
@@ -852,10 +859,28 @@ function ActionCenterInner() {
                         {/* Ticker & Live Price */}
                         <div className="flex items-center gap-2.5 shrink-0">
                           <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
-                          {isPractice ? (
-                            <span className="font-mono text-base sm:text-lg font-extrabold text-amber-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
-                          ) : (
-                            <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                          {!isSyncingLiveData && (
+                            isPractice ? (
+                              <span className="font-mono text-base sm:text-lg font-extrabold text-amber-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            ) : (
+                              <span className="font-mono text-base sm:text-lg font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            )
+                          )}
+                          {isSyncingLiveData && (
+                            <span
+                              data-testid={`badge-exec-syncing-${d.symbol}`}
+                              className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-0.5 rounded-md shadow-sm animate-pulse shrink-0"
+                            >
+                              [ 🔄 SYNCING LIVE DATA... ]
+                            </span>
+                          )}
+                          {isStaleQuoteRejected && (
+                            <span
+                              data-testid={`badge-exec-stale-quote-${d.symbol}`}
+                              className="border border-rose-500 bg-rose-950/80 text-rose-300 font-mono text-[10px] font-extrabold px-2 py-0.5 rounded shadow-sm animate-pulse shrink-0"
+                            >
+                              [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
+                            </span>
                           )}
                           {(marketStore.isDelayed || marketStore.isReconnecting) && (
                             <span
@@ -903,7 +928,7 @@ function ActionCenterInner() {
                         </div>
 
                         {/* BUY LIMIT | STOP | TARGET */}
-                        <div className="flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm">
+                        <div className={`flex flex-wrap items-center gap-4 sm:gap-6 font-mono text-xs sm:text-sm transition-all ${isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""}`}>
                           <div className="flex items-baseline gap-1.5">
                             <span className="text-[10px] sm:text-xs font-bold uppercase tracking-wider text-slate-400">BUY LIMIT:</span>
                             <span className="font-extrabold text-white tabular-nums text-sm sm:text-base">{formatCurrency(entryPrice)}</span>

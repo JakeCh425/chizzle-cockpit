@@ -33,7 +33,7 @@ describe("Fix Chart/Header Data Desync & Clean Stale State Architecture", () => 
   const actionCenterSrc = fs.readFileSync(actionCenterPath, "utf-8").replace(/\r\n/g, "\n");
 
   beforeEach(() => {
-    globalStore.setCurrentPrice(232.15, "AAPL");
+    globalStore.setCurrentPrice(185.00, "AAPL");
   });
 
   describe("1. Fix Cross-Component Data Bleed (The AAPL / XLV Mismatch)", () => {
@@ -60,7 +60,7 @@ describe("Fix Chart/Header Data Desync & Clean Stale State Architecture", () => 
       expect(clearedState.activeTicker).toBe("AAPL");
       expect(clearedState.currentPrice).toBeNull();
       expect(clearedState.isLoadingTicker).toBe(true);
-      // Stale seed reference for AAPL is cleared so fresh quote ($352.00) is not blocked by old $232.15 cache
+      // Stale seed reference for AAPL is cleared so fresh quote ($352.00) is not blocked by old cached values
       expect(clearedState.lastValidTicks["AAPL"]).toBeUndefined();
     });
 

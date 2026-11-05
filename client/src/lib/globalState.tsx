@@ -271,12 +271,15 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
           if (Array.isArray(parsed) && parsed.length > 0) {
             let migrated = false;
             const existingSymbols = new Set(parsed.map((item: any) => item?.symbol?.toUpperCase()));
-            const nextList = [...parsed];
+            // Strip any stale cached prices from localStorage between page reloads
+            const nextList = parsed.map((item: any) =>
+              item && typeof item === "object" ? { ...item, price: 0, sparkline: [] } : item
+            );
 
             for (const defItem of DEFAULT_WATCHLIST) {
               const defSym = defItem.symbol.toUpperCase();
               if (!existingSymbols.has(defSym) && !removedSet.has(defSym)) {
-                nextList.push(defItem);
+                nextList.push({ ...defItem, price: 0, sparkline: [] });
                 existingSymbols.add(defSym);
                 migrated = true;
               }
@@ -417,16 +420,9 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   );
 
   // Single Source of Truth for Live Prices across Watchlist, Chart, Header, and Modals
+  // Strict initial state: never seed livePrices from static DEFAULT_WATCHLIST mock prices
   const marketData = useMarketDataStore();
-  const [livePrices, setLivePrices] = useState<Record<string, number>>(() => {
-    const initial: Record<string, number> = {};
-    for (const item of (DEFAULT_WATCHLIST || [])) {
-      if (item?.symbol && item?.price != null) {
-        initial[item.symbol] = item.price;
-      }
-    }
-    return initial;
-  });
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({});
 
   // Keep livePrices in strict lockstep with marketDataStore (Single Source of Truth)
   useEffect(() => {
@@ -445,13 +441,13 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     }
   }, [marketData.prices]);
 
-  // Outlier / Bad Tick Validator (5% threshold with sandbox)
+  // Outlier / Bad Tick Validator (5% threshold with sandbox against verified livePrices only)
   const isBadTick = useCallback(
     (symbol: string, newPrice: number): boolean => {
-      const current = livePrices[symbol] ?? watchlist?.find((i) => i?.symbol === symbol)?.price;
+      const current = livePrices[symbol];
       return marketDataStore.isBadTick(symbol, newPrice, current) || checkBadTick(symbol, newPrice, current);
     },
-    [livePrices, watchlist]
+    [livePrices]
   );
 
   // Single WebSocket connection manager at the root: subscribes to all watchlisted tickers
@@ -469,15 +465,16 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         let changed = false;
         const next = { ...prev };
         for (const [sym, q] of Object.entries(snap || {})) {
-          if (q && q.price > 0) {
-            const ref = prev[sym] ?? watchlist?.find((i) => i?.symbol === sym)?.price;
-            // Validate: If incoming tick is >3.5% away, classify as Bad Tick and drop it
-            if (ref && ref > 0 && Math.abs(q.price - ref) / ref > 0.035) {
-              console.warn(`[globalState:badTick] Dropped outlier tick for ${sym}: $${q.price} vs ref $${ref}`);
+          const mappedPrice = Number((q as any)?.price ?? (q as any)?.c ?? (q as any)?.regularMarketPrice);
+          if (q && Number.isFinite(mappedPrice) && mappedPrice > 0) {
+            const ref = prev[sym];
+            // Validate against previously verified live tick only (never static watchlist mock prices)
+            if (ref && ref > 0 && Math.abs(mappedPrice - ref) / ref > 0.05) {
+              console.warn(`[globalState:badTick] Dropped outlier tick for ${sym}: $${mappedPrice} vs ref $${ref}`);
               continue;
             }
-            if (next[sym] !== q.price) {
-              next[sym] = q.price;
+            if (next[sym] !== mappedPrice) {
+              next[sym] = mappedPrice;
               changed = true;
             }
           }
@@ -487,14 +484,16 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     });
 
     const unsubTick = subscribeTick((q) => {
-      if (!q || !q.symbol || q.price <= 0) return;
+      console.log('LIVE TICK RECEIVED:', q);
+      const mappedPrice = Number((q as any)?.price ?? (q as any)?.c ?? (q as any)?.regularMarketPrice);
+      if (!q || !q.symbol || !Number.isFinite(mappedPrice) || mappedPrice <= 0) return;
       setLivePrices((prev) => {
-        const ref = prev[q.symbol] ?? watchlist?.find((i) => i?.symbol === q.symbol)?.price;
-        if (ref && ref > 0 && Math.abs(q.price - ref) / ref > 0.035) {
+        const ref = prev[q.symbol];
+        if (ref && ref > 0 && Math.abs(mappedPrice - ref) / ref > 0.05) {
           return prev;
         }
-        if (prev[q.symbol] === q.price) return prev;
-        return { ...prev, [q.symbol]: q.price };
+        if (prev[q.symbol] === mappedPrice) return prev;
+        return { ...prev, [q.symbol]: mappedPrice };
       });
     });
 
@@ -626,14 +625,17 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       const res = await fetch("/api/prices").catch(() => null);
       if (res && res.ok) {
         const snap = await res.json();
+        console.log('LIVE TICK RECEIVED:', snap);
         if (snap && typeof snap === "object") {
+          marketDataStore.setSnapshot(snap);
           setLivePrices((prev) => {
             const next = { ...prev };
             let changed = false;
             for (const [sym, q] of Object.entries(snap as Record<string, any>)) {
-              if (q && typeof q.price === "number" && q.price > 0) {
-                if (next[sym] !== q.price) {
-                  next[sym] = q.price;
+              const mappedPrice = Number(q?.price ?? q?.c ?? q?.regularMarketPrice ?? q?.last ?? q?.close);
+              if (q && Number.isFinite(mappedPrice) && mappedPrice > 0) {
+                if (next[sym] !== mappedPrice) {
+                  next[sym] = mappedPrice;
                   changed = true;
                 }
               }
@@ -651,12 +653,22 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
         const clean = activeTicker.toUpperCase().split(":").pop()!;
         const res = await fetch(`/api/quote/${encodeURIComponent(clean)}`).catch(() => null);
         if (res && res.ok) {
-          const q = await res.json();
-          if (q && typeof q.price === "number" && q.price > 0) {
-            setLivePrices((prev) => {
-              if (prev[clean] === q.price) return prev;
-              return { ...prev, [clean]: q.price };
+          const payload = await res.json();
+          console.log('LIVE TICK RECEIVED:', payload);
+          const q = payload;
+          const mappedPrice = Number(q?.price ?? q?.c ?? q?.regularMarketPrice ?? q?.last ?? q?.close);
+          if (q && Number.isFinite(mappedPrice) && mappedPrice > 0) {
+            const applied = marketDataStore.validateAndApplyTick({
+              ...q,
+              symbol: clean,
+              price: mappedPrice,
             });
+            if (applied) {
+              setLivePrices((prev) => {
+                if (prev[clean] === mappedPrice) return prev;
+                return { ...prev, [clean]: mappedPrice };
+              });
+            }
           }
         }
       } catch {}

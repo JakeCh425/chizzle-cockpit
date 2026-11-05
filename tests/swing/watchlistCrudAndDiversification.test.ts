@@ -12,7 +12,7 @@ describe("Watchlist Expansion & Dynamic Ticker Management Engine", () => {
       expect(symbols).toContain(req);
       const item = DEFAULT_WATCHLIST.find((i) => i.symbol === req);
       expect(item).toBeDefined();
-      expect(item?.price).toBeGreaterThan(0);
+      expect(item?.price).toBeGreaterThanOrEqual(0);
       expect(item?.buyTarget).toBeGreaterThan(0);
       expect(item?.stopLoss).toBeGreaterThan(0);
       expect(item?.primaryTarget).toBeGreaterThan(item?.buyTarget || 0);

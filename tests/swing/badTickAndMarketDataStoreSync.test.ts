@@ -60,7 +60,8 @@ describe("Architecture Overhaul - 'Bad Tick' Filtering & Single Source of Truth 
     });
 
     it("synchronously updates all prices across subscribers when a valid tick arrives in the store", () => {
-      const initialAAPL = marketDataStore.getState().prices["AAPL"] ?? 232.15;
+      marketDataStore.setCurrentPrice(185.00, "AAPL");
+      const initialAAPL = marketDataStore.getState().prices["AAPL"];
       expect(initialAAPL).toBeGreaterThan(0);
 
       const validTick = { symbol: "AAPL", price: +(initialAAPL * 1.01).toFixed(2), timestamp: Date.now() };
@@ -87,9 +88,9 @@ describe("Architecture Overhaul - 'Bad Tick' Filtering & Single Source of Truth 
 
     it("classifies >5% sudden jumps as BAD TICK and drops them", () => {
       const consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
-      const currentPrice = marketDataStore.getState().prices["AAPL"] || 232.15;
-      
-      // Massive dirty print ($352.73 vs ~$232.15 is >50% jump)
+      marketDataStore.setCurrentPrice(185.00, "AAPL");
+
+      // Massive dirty print ($352.73 vs $185.00 is >50% jump)
       const dirtyTick = { symbol: "AAPL", price: 352.73, timestamp: Date.now() };
       const applied = marketDataStore.validateAndApplyTick(dirtyTick);
 

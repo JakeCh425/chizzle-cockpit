@@ -1,18 +1,29 @@
 import { useSyncExternalStore } from "react";
-import type { LiveQuote, ConnState } from "./priceFeed";
-import { DEFAULT_WATCHLIST } from "./wealthWatchlist";
+import { isMarketOpen, reconnectPriceFeed, type LiveQuote, type ConnState } from "./priceFeed";
 
 /**
- * Valid tick payload structure for incoming market events
+ * Valid tick payload structure for incoming market events.
+ * Supports standard `price`, Finnhub `c`, Yahoo `regularMarketPrice`, and raw trade `p` / `close`.
  */
 export interface MarketTick {
   symbol: string;
-  price: number;
+  price?: number;
+  c?: number;
+  regularMarketPrice?: number;
+  last?: number;
+  close?: number;
+  p?: number;
+  currentPrice?: number;
   timestamp?: number;
+  ts?: number;
+  t?: number;
+  regularMarketTime?: number;
   prevClose?: number;
+  pc?: number;
   volume?: number;
   source?: string;
   forceAuthoritative?: boolean;
+  isMarketOpen?: boolean;
 }
 
 export interface LastValidTick {
@@ -35,11 +46,112 @@ export interface MarketDataState {
   lastEventAt: number;
   lastTickTimestamp: number;
   lastError: string | null;
+  dataFeedError: string | null;
+  staleQuoteRejected: boolean;
 }
 
 type Listener = () => void;
 
 export const STALE_TICK_THRESHOLD_MS = 15_000; // 15 seconds max silence while market is OPEN
+export const MAX_QUOTE_AGE_OPEN_MARKET_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms) max quote age when market is OPEN
+export const STALE_QUOTE_ERROR_MESSAGE = "[ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]";
+export const SYNCING_LIVE_DATA_BADGE = "[ 🔄 SYNCING LIVE DATA... ]";
+
+/**
+ * Normalizes incoming quote payloads across Finnhub (`data.c`), Yahoo (`data.regularMarketPrice`),
+ * Polygon/TwelveData (`data.close` / `data.last`), and internal (`data.price`).
+ */
+export function extractQuotePrice(payload: any): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const raw =
+    payload.price ??
+    payload.c ??
+    payload.regularMarketPrice ??
+    payload.last ??
+    payload.close ??
+    payload.p ??
+    payload.currentPrice;
+  const num = Number(raw);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+/**
+ * Normalizes quote timestamps (seconds or milliseconds) into epoch milliseconds.
+ */
+export function normalizeQuoteTimestampMs(payload: any): number | null {
+  if (!payload || typeof payload !== "object") return null;
+  const raw =
+    payload.timestamp ??
+    payload.ts ??
+    payload.t ??
+    payload.regularMarketTime;
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const parsed = Date.parse(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+  const num = Number(raw);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  // Unix seconds are < 1e11; convert to milliseconds
+  return num < 1e11 ? num * 1000 : num;
+}
+
+/**
+ * Purges stale cached price states from localStorage on boot so old static prices
+ * never persist across page reloads.
+ */
+export function clearStaleCachedPrices(): void {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+  try {
+    const priceCacheKeys = [
+      "chizzle-cached-prices",
+      "chizzle-price-cache",
+      "chizzle-last-prices",
+      "chizzle-market-prices",
+      "chizzle-live-prices",
+    ];
+    for (const key of priceCacheKeys) {
+      localStorage.removeItem(key);
+    }
+
+    const savedWatchlist = localStorage.getItem("chizzle-wealth-watchlist");
+    if (savedWatchlist) {
+      const parsed = JSON.parse(savedWatchlist);
+      if (Array.isArray(parsed)) {
+        const sanitized = parsed.map((item: any) =>
+          item && typeof item === "object"
+            ? { ...item, price: 0, sparkline: [] }
+            : item
+        );
+        localStorage.setItem("chizzle-wealth-watchlist", JSON.stringify(sanitized));
+      }
+    }
+  } catch {
+    // Ignore storage access errors in restricted environments
+  }
+}
+
+/**
+ * Strict initial state: `currentPrice` is strictly `null` (never a fake historical price),
+ * and `prices`, `lastValidTicks`, `previousClose` start empty until verified live quotes arrive.
+ */
+export const initialState: MarketDataState = {
+  activeTicker: "NVDA",
+  currentPrice: null,
+  isLoadingTicker: true,
+  prices: {},
+  quotes: {},
+  lastValidTicks: {},
+  previousClose: {},
+  status: "CONNECTING",
+  isDelayed: false,
+  isReconnecting: false,
+  lastEventAt: 0,
+  lastTickTimestamp: 0,
+  lastError: null,
+  dataFeedError: null,
+  staleQuoteRejected: false,
+};
 
 /**
  * Singleton Market Data Store (Single Source of Truth)
@@ -57,39 +169,13 @@ class MarketDataStore {
   private readonly BAD_TICK_THRESHOLD = 0.05; // 5% max instantaneous jump
 
   constructor() {
-    const initialPrices: Record<string, number> = {};
-    const initialTicks: Record<string, LastValidTick> = {};
-    const initialPrevClose: Record<string, number> = {};
-    const now = Date.now();
-
-    for (const item of DEFAULT_WATCHLIST || []) {
-      if (item?.symbol && item?.price != null && item.price > 0) {
-        initialPrices[item.symbol] = item.price;
-        const prev = item.todayOpen ?? (item.price - (item.change ?? 0));
-        initialPrevClose[item.symbol] = prev > 0 ? prev : item.price;
-        initialTicks[item.symbol] = {
-          price: item.price,
-          timestamp: now,
-          prevClose: initialPrevClose[item.symbol],
-        };
-      }
-    }
-
-    const defaultActive = "NVDA";
+    clearStaleCachedPrices();
     this.state = {
-      activeTicker: defaultActive,
-      currentPrice: initialPrices[defaultActive] ?? null,
-      isLoadingTicker: false,
-      prices: initialPrices,
+      ...initialState,
+      prices: {},
       quotes: {},
-      lastValidTicks: initialTicks,
-      previousClose: initialPrevClose,
-      status: "LIVE",
-      isDelayed: false,
-      isReconnecting: false,
-      lastEventAt: now,
-      lastTickTimestamp: now,
-      lastError: null,
+      lastValidTicks: {},
+      previousClose: {},
     };
   }
 
@@ -140,7 +226,7 @@ class MarketDataStore {
    * 1. Cross-Component Data Bleed Prevention:
    * Explicitly clears the active ticker's transient chart/header display state BEFORE fetching new data.
    * Forces the chart and header to show a momentary loading state / blank slate (`isLoadingTicker = true`, `currentPrice = null`),
-   * preventing the previous ticker's numbers (e.g., XLV at $190) or stale cached prices ($232.15) from masquerading as the new ticker's data.
+   * preventing the previous ticker's numbers (e.g., XLV at $190) or stale cached prices from masquerading as the new ticker's data.
    */
   public clearData(nextTicker?: string): void {
     const cleanNext = nextTicker ? nextTicker.toUpperCase().trim().split(":").pop()! : this.state.activeTicker;
@@ -148,7 +234,7 @@ class MarketDataStore {
     const nextPrevClose = { ...this.state.previousClose };
     const nextPrices = { ...this.state.prices };
     if (cleanNext) {
-      // Clear stale cached tick/seed references for the newly focused ticker so fresh authoritative REST/WS data is never blocked by old seed values ($232.15)
+      // Clear stale cached tick/seed references for the newly focused ticker so fresh authoritative REST/WS data is never blocked by old seed values
       delete nextLastValid[cleanNext];
       delete nextPrevClose[cleanNext];
       delete nextPrices[cleanNext];
@@ -183,7 +269,7 @@ class MarketDataStore {
       ...this.state,
       activeTicker: sym,
       currentPrice: knownPrice,
-      isLoadingTicker: false,
+      isLoadingTicker: knownPrice == null,
     };
     this.notify();
   }
@@ -219,9 +305,38 @@ class MarketDataStore {
       lastTickTimestamp: now,
       isDelayed: false,
       isReconnecting: false,
+      lastError: null,
+      dataFeedError: null,
+      staleQuoteRejected: false,
       status: "LIVE",
     };
     this.notify();
+  }
+
+  /**
+   * Triggers UI error state `[ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]` and attempts to reconnect
+   * to the primary data source without updating the global store price.
+   */
+  public rejectStaleQuote(symbol: string, payload?: any): void {
+    console.warn(
+      `[MarketDataStore:StaleQuote] ${STALE_QUOTE_ERROR_MESSAGE} for ${symbol}`,
+      payload
+    );
+    this.state = {
+      ...this.state,
+      status: "DELAYED",
+      isDelayed: true,
+      isReconnecting: true,
+      lastError: STALE_QUOTE_ERROR_MESSAGE,
+      dataFeedError: STALE_QUOTE_ERROR_MESSAGE,
+      staleQuoteRejected: true,
+    };
+    this.notify();
+    try {
+      reconnectPriceFeed();
+    } catch {
+      // Ignore reconnect errors in headless test environments
+    }
   }
 
   /**
@@ -254,14 +369,36 @@ class MarketDataStore {
 
   /**
    * Validates and applies an incoming tick to the Single Source of Truth store.
-   * Drops bad ticks without updating candlestickSeries or global currentPrice.
+   * - Logs `LIVE TICK RECEIVED:` for browser console verification.
+   * - Maps `data.c` (Finnhub), `data.price`, `data.regularMarketPrice` directly to `currentPrice`.
+   * - Rejects quotes > 5 minutes old when the market is OPEN and triggers `[ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]`.
+   * - Drops bad ticks (> 5% jump) without updating candlestickSeries or global currentPrice.
    */
-  public validateAndApplyTick(tick: MarketTick): boolean {
-    if (!tick || !tick.symbol || !Number.isFinite(tick.price) || tick.price <= 0) {
+  public validateAndApplyTick(rawTick: MarketTick): boolean {
+    const payload = rawTick;
+    console.log('LIVE TICK RECEIVED:', payload);
+
+    const mappedPrice = extractQuotePrice(rawTick);
+    if (!rawTick || !rawTick.symbol || mappedPrice == null || !Number.isFinite(mappedPrice) || mappedPrice <= 0) {
       return false;
     }
 
+    const tick = { ...rawTick, price: mappedPrice };
     const sym = tick.symbol.toUpperCase().split(":").pop()!;
+
+    // 4. Timestamp Validation (Stale Data Rejection):
+    // When a quote is received from the API, check its timestamp.
+    // If the market is OPEN and the quote timestamp is more than 5 minutes old, reject it.
+    const quoteTsMs = normalizeQuoteTimestampMs(rawTick);
+    const marketOpenNow = rawTick.isMarketOpen != null ? rawTick.isMarketOpen : isMarketOpen();
+    if (marketOpenNow && quoteTsMs != null && quoteTsMs > 0) {
+      const ageMs = Date.now() - quoteTsMs;
+      if (ageMs > MAX_QUOTE_AGE_OPEN_MARKET_MS) {
+        this.rejectStaleQuote(sym, rawTick);
+        return false;
+      }
+    }
+
     const lastValid =
       this.state.lastValidTicks[sym]?.price ??
       this.state.previousClose[sym] ??
@@ -280,8 +417,8 @@ class MarketDataStore {
       }
     }
 
-    const now = tick.timestamp || Date.now();
-    const prevClose = tick.prevClose ?? this.state.previousClose[sym] ?? lastValid ?? tick.price;
+    const now = quoteTsMs || Date.now();
+    const prevClose = tick.prevClose ?? tick.pc ?? this.state.previousClose[sym] ?? lastValid ?? tick.price;
     const isActiveSym = sym === this.state.activeTicker;
 
     this.state = {
@@ -304,10 +441,13 @@ class MarketDataStore {
         ...this.state.previousClose,
         [sym]: prevClose,
       },
-      lastEventAt: now,
+      lastEventAt: Date.now(),
       lastTickTimestamp: now,
       isDelayed: false,
       isReconnecting: false,
+      lastError: null,
+      dataFeedError: null,
+      staleQuoteRejected: false,
       status: this.state.status === "CONNECTING" || this.state.status === "RECONNECTING" || this.state.status === "DELAYED" || this.state.status === "STALE" ? "LIVE" : this.state.status,
     };
 
@@ -316,7 +456,35 @@ class MarketDataStore {
   }
 
   /**
-   * Sets entire quotes snapshot (filtering each quote through Bad Tick sandbox)
+   * Fetches a live quote for a single symbol, maps `data.c` / `data.price` / `data.regularMarketPrice`,
+   * logs `LIVE TICK RECEIVED:`, validates the 5-minute timestamp threshold, and updates `currentPrice`.
+   */
+  public async fetchLiveQuote(symbol?: string, marketOpenOverride?: boolean): Promise<number | null> {
+    const sym = (symbol || this.state.activeTicker || "NVDA").toUpperCase().trim().split(":").pop()!;
+    try {
+      const res = await fetch(`/api/quote/${encodeURIComponent(sym)}`).catch(() => null);
+      if (res && res.ok) {
+        const payload = await res.json();
+        console.log('LIVE TICK RECEIVED:', payload);
+        const mappedPrice = extractQuotePrice(payload);
+        if (mappedPrice != null && mappedPrice > 0) {
+          const applied = this.validateAndApplyTick({
+            ...payload,
+            symbol: sym,
+            price: mappedPrice,
+            isMarketOpen: marketOpenOverride,
+          });
+          return applied ? mappedPrice : null;
+        }
+      }
+    } catch (e) {
+      console.warn(`[MarketDataStore] fetchLiveQuote failed for ${sym}:`, e);
+    }
+    return null;
+  }
+
+  /**
+   * Sets entire quotes snapshot (filtering each quote through Bad Tick sandbox and 5-minute timestamp check)
    */
   public setSnapshot(quotes: Record<string, LiveQuote>) {
     const nextPrices = { ...this.state.prices };
@@ -324,10 +492,24 @@ class MarketDataStore {
     const nextLastValid = { ...this.state.lastValidTicks };
     const nextPrevClose = { ...this.state.previousClose };
     let changed = false;
+    const marketOpenNow = isMarketOpen();
 
-    for (const [s, q] of Object.entries(quotes || {})) {
-      if (!q || !Number.isFinite(q.price) || q.price <= 0) continue;
+    for (const [s, rawQ] of Object.entries(quotes || {})) {
+      if (!rawQ) continue;
+      console.log('LIVE TICK RECEIVED:', rawQ);
+      const mappedPrice = extractQuotePrice(rawQ);
+      if (mappedPrice == null || !Number.isFinite(mappedPrice) || mappedPrice <= 0) continue;
+      const q: LiveQuote = { ...rawQ, price: mappedPrice };
       const sym = s.toUpperCase().split(":").pop()!;
+
+      const quoteTsMs = normalizeQuoteTimestampMs(rawQ);
+      if (marketOpenNow && quoteTsMs != null && quoteTsMs > 0) {
+        if (Date.now() - quoteTsMs > MAX_QUOTE_AGE_OPEN_MARKET_MS) {
+          this.rejectStaleQuote(sym, rawQ);
+          continue;
+        }
+      }
+
       const ref = nextLastValid[sym]?.price ?? q.prevClose ?? nextPrices[sym];
 
       if (ref && ref > 0 && Math.abs((q.price - ref) / ref) > this.BAD_TICK_THRESHOLD) {
@@ -342,7 +524,7 @@ class MarketDataStore {
       if (q.prevClose) nextPrevClose[sym] = q.prevClose;
       nextLastValid[sym] = {
         price: q.price,
-        timestamp: q.receivedAt || q.ts * 1000 || Date.now(),
+        timestamp: quoteTsMs || q.receivedAt || Date.now(),
         prevClose: q.prevClose ?? nextPrevClose[sym],
       };
       changed = true;
@@ -363,6 +545,9 @@ class MarketDataStore {
         lastTickTimestamp: now,
         isDelayed: false,
         isReconnecting: false,
+        lastError: null,
+        dataFeedError: null,
+        staleQuoteRejected: false,
       };
       this.notify();
     }
@@ -438,26 +623,34 @@ class MarketDataStore {
       const res = await fetch(url).catch(() => null);
 
       if (res && res.ok) {
-        const data = await res.json();
+        const payload = await res.json();
+        console.log('LIVE TICK RECEIVED:', payload);
+        const data = payload;
         if (data && typeof data === "object") {
           const quotesToApply: Record<string, LiveQuote> = {};
+          const singlePrice = extractQuotePrice(data);
 
-          if (symbol && typeof (data as any).price === "number") {
+          if (symbol && singlePrice != null) {
             const sym = symbol.toUpperCase().split(":").pop()!;
             quotesToApply[sym] = {
               symbol: sym,
-              price: (data as any).price,
-              change: (data as any).change ?? 0,
-              changePct: (data as any).changePct ?? 0,
-              prevClose: (data as any).prevClose,
+              price: singlePrice,
+              change: (data as any).change ?? (data as any).d ?? 0,
+              changePct: (data as any).changePct ?? (data as any).dp ?? 0,
+              prevClose: (data as any).prevClose ?? (data as any).pc,
               source: (data as any).source || "REST_FALLBACK",
-              ts: Math.floor(Date.now() / 1000),
+              ts: Number((data as any).ts ?? (data as any).t ?? Math.floor(Date.now() / 1000)),
               receivedAt: Date.now(),
             };
           } else {
             for (const [k, v] of Object.entries(data as Record<string, any>)) {
-              if (v && typeof v.price === "number") {
-                quotesToApply[k] = v as LiveQuote;
+              const p = extractQuotePrice(v);
+              if (v && p != null) {
+                quotesToApply[k] = {
+                  ...(v as LiveQuote),
+                  symbol: v.symbol || k,
+                  price: p,
+                };
               }
             }
           }

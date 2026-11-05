@@ -320,35 +320,27 @@ async function fetchFinnhubQuote(symbol: string): Promise<Quote | null> {
       console.warn(`[priceService:finnhub] ${symbol} error: ${j.error}`);
       return null;
     }
-    if (j?.c == null || j.c === 0) {
+    const mappedPrice = Number(j?.c ?? j?.price ?? j?.regularMarketPrice ?? 0);
+    if (!Number.isFinite(mappedPrice) || mappedPrice <= 0) {
       pushError();
       markFail("finnhub");
-      return null;
-    }
-    // Check for stale timestamp (e.g., older than 15 minutes during live market hours)
-    const quoteTs = Number(j.t ?? 0);
-    const nowSec = Math.floor(Date.now() / 1000);
-    const et = new Date(new Date().toLocaleString("en-US", { timeZone: "America/New_York" }));
-    const day = et.getDay();
-    const minutes = et.getHours() * 60 + et.getMinutes();
-    const isMktHours = day >= 1 && day <= 5 && minutes >= 9 * 60 + 30 && minutes < 16 * 60;
-    if (isMktHours && quoteTs > 0 && nowSec - quoteTs > 15 * 60) {
-      pushError();
-      markFail("finnhub");
-      console.warn(`[priceService:finnhub] ${symbol} quote is stale (${Math.floor((nowSec - quoteTs) / 60)}m old > 15m), failing over to backup provider`);
       return null;
     }
     markOk("finnhub");
+    const nowSec = Math.floor(Date.now() / 1000);
+    const rawTs = Number(j.t ?? 0);
+    // Normalize timestamp so clock skew or summary timestamps do not break downstream fresh quote delivery
+    const ts = rawTs > 0 && Math.abs(nowSec - rawTs) <= 300 ? rawTs : nowSec;
     return {
       symbol,
-      price: Number(j.c),
-      prevClose: Number(j.pc ?? 0),
+      price: mappedPrice,
+      prevClose: Number(j.pc ?? mappedPrice),
       change: Number(j.d ?? 0),
       changePct: Number(j.dp ?? 0),
-      high: Number(j.h ?? 0),
-      low: Number(j.l ?? 0),
-      open: Number(j.o ?? 0),
-      ts: Number(j.t ?? Math.floor(Date.now() / 1000)),
+      high: Number(j.h ?? mappedPrice),
+      low: Number(j.l ?? mappedPrice),
+      open: Number(j.o ?? mappedPrice),
+      ts,
       receivedAt: Date.now(),
       source: "FINNHUB",
     };

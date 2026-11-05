@@ -261,6 +261,11 @@ export function LiveTradingChart({
   const marketStore = useMarketDataStore();
   const isDelayed = marketStore.isDelayed || feedState === "STALE";
   const isReconnecting = marketStore.isReconnecting || feedState === "CONNECTING";
+  const isChartSyncingLiveData =
+    marketStore.currentPrice === null ||
+    marketStore.isLoadingTicker ||
+    (!marketStore.prices[symbol] && !livePrices?.[symbol] && !quote?.price);
+  const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
 
   // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist via globalStore.currentPrice)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
@@ -1013,6 +1018,8 @@ export function LiveTradingChart({
           >
             <span
               className={`font-black text-4xl md:text-5xl tabular-nums tracking-tight transition-colors duration-200 ${
+                isChartSyncingLiveData ? "hidden" : ""
+              } ${
                 isUp
                   ? "text-[#00E676] drop-shadow-[0_0_14px_rgba(0,230,118,0.4)]"
                   : "text-[#FF5252] drop-shadow-[0_0_14px_rgba(255,82,82,0.4)]"
@@ -1021,6 +1028,24 @@ export function LiveTradingChart({
             >
               ${livePrice.toFixed(2)}
             </span>
+
+            {isChartSyncingLiveData && (
+              <span
+                data-testid="badge-chart-syncing-live-data"
+                className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs md:text-sm font-extrabold px-3 py-1 rounded-lg shadow-[0_0_15px_rgba(6,182,212,0.3)] animate-pulse flex items-center gap-1.5"
+              >
+                [ 🔄 SYNCING LIVE DATA... ]
+              </span>
+            )}
+
+            {isStaleQuoteRejected && (
+              <span
+                data-testid="badge-chart-stale-quote-rejected"
+                className="border border-rose-500 bg-rose-950/80 text-rose-300 font-mono text-[10px] md:text-xs font-extrabold px-2.5 py-0.5 rounded shadow-[0_0_15px_rgba(244,63,94,0.45)] animate-pulse flex items-center gap-1"
+              >
+                [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
+              </span>
+            )}
 
             {(isDelayed || isReconnecting) && (
               <span
@@ -2559,6 +2584,15 @@ export default function WealthEngineDashboard() {
     activeTicker && marketStore.activeTicker === activeTicker && marketStore.currentPrice != null
       ? globalStore.currentPrice
       : null;
+  const verifiedLivePrice =
+    storeCurrentPrice ??
+    (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker] ?? null) : null);
+  const isSyncingLiveData =
+    marketStore.currentPrice === null ||
+    verifiedLivePrice == null ||
+    verifiedLivePrice <= 0 ||
+    marketStore.isLoadingTicker;
+  const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
   const currentPrice =
     storeCurrentPrice ??
     (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker]) : null) ??
@@ -2969,9 +3003,25 @@ export default function WealthEngineDashboard() {
           >
             <span className={`h-2 w-2 rounded-full bg-cyan-400 ${marketOpen ? "animate-pulse" : ""} shadow-[0_0_6px_#22D3EE]`} />
             <span className="font-black text-white">{activeTickerData?.symbol ?? activeTicker}</span>
-            <span className="font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)]" data-testid="header-live-price">
+            <span className={`font-black text-cyan-400 tabular-nums drop-shadow-[0_0_6px_rgba(6,182,212,0.5)] ${isSyncingLiveData ? "hidden" : ""}`} data-testid="header-live-price">
               ${(activeTickerData?.price ?? activePrice ?? 0).toFixed(2)}
             </span>
+            {isSyncingLiveData && (
+              <span
+                data-testid="badge-header-syncing-live-data"
+                className="border border-cyan-400/50 bg-cyan-950/60 text-cyan-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded animate-pulse"
+              >
+                [ 🔄 SYNCING LIVE DATA... ]
+              </span>
+            )}
+            {isStaleQuoteRejected && (
+              <span
+                data-testid="badge-header-stale-quote-rejected"
+                className="border border-rose-500 bg-rose-950/80 text-rose-300 font-mono text-[10px] font-extrabold px-2 py-0.5 rounded shadow-sm animate-pulse"
+              >
+                [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
+              </span>
+            )}
             {(isDelayed || isReconnecting) && (
               <span
                 data-testid="badge-header-delayed"
@@ -4207,9 +4257,25 @@ export default function WealthEngineDashboard() {
                         <span className="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-[var(--card-text-primary)] shrink-0">
                           {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                         </span>
-                        <span className="text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-emerald-400 shrink-0">
+                        <span className={`text-2xl sm:text-3xl font-extrabold font-mono tabular-nums text-emerald-400 shrink-0 ${isSyncingLiveData ? "hidden" : ""}`}>
                           ${activeItem?.price != null ? activeItem.price.toFixed(2) : "0.00"}
                         </span>
+                        {isSyncingLiveData && (
+                          <span
+                            data-testid="badge-setup-card-syncing-live-data"
+                            className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+                          >
+                            [ 🔄 SYNCING LIVE DATA... ]
+                          </span>
+                        )}
+                        {isStaleQuoteRejected && (
+                          <span
+                            data-testid="badge-setup-card-stale-quote-rejected"
+                            className="border border-rose-500 bg-rose-950/80 text-rose-300 font-mono text-[10px] font-extrabold px-2 py-0.5 rounded shadow-sm animate-pulse shrink-0"
+                          >
+                            [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
+                          </span>
+                        )}
                         {(isDelayed || isReconnecting) && (
                           <span
                             data-testid="badge-setup-card-delayed"
@@ -4344,10 +4410,13 @@ export default function WealthEngineDashboard() {
                     </div>
                   </div>
 
-                  {/* HIGH-CONTRAST DYNAMIC TRADE LEVELS */}
+                  {/* HIGH-CONTRAST DYNAMIC TRADE LEVELS (Blurred/Hidden when currentPrice === null or actively syncing live data) */}
                   <div
-                    className="p-3 bg-black/50 border-b border-[var(--card-border)] space-y-1.5 font-mono"
+                    className={`p-3 bg-black/50 border-b border-[var(--card-border)] space-y-1.5 font-mono transition-all ${
+                      isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
+                    }`}
                     data-testid="active-trade-plan-levels"
+                    data-syncing-live={isSyncingLiveData ? "true" : "false"}
                   >
                     <div className="text-[10px] uppercase tracking-wider text-slate-400 font-bold flex justify-between items-center pb-1 border-b border-white/5">
                       <span>Dynamic Trade Levels</span>
@@ -4407,8 +4476,14 @@ export default function WealthEngineDashboard() {
                     </div>
                   </div>
 
-                  {/* EXACTLY THREE LARGE, BOLD DATA POINTS */}
-                  <div className="grid grid-cols-3 gap-2 px-3 py-2 w-full" data-testid="setup-three-bold-datapoints">
+                  {/* EXACTLY THREE LARGE, BOLD DATA POINTS (Blurred/Hidden when currentPrice === null or actively syncing live data) */}
+                  <div
+                    className={`grid grid-cols-3 gap-2 px-3 py-2 w-full transition-all ${
+                      isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
+                    }`}
+                    data-testid="setup-three-bold-datapoints"
+                    data-syncing-live={isSyncingLiveData ? "true" : "false"}
+                  >
                     {/* 1. Buy Target (Entry) */}
                     <div
                       className="p-2 rounded-xl border flex flex-col items-center justify-center text-center shadow-md bg-[var(--card-bg)] border-[var(--card-border)]"

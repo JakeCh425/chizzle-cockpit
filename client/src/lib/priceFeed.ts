@@ -180,12 +180,37 @@ function setSnapshot(next: Record<string, LiveQuote>) {
   listeners.forEach(l => l(snapshotState));
 }
 
-function applyQuote(q: LiveQuote) {
+function applyQuote(raw: LiveQuote & { c?: number; regularMarketPrice?: number; last?: number; close?: number; t?: number; timestamp?: number }) {
+  const payload = raw;
+  console.log('LIVE TICK RECEIVED:', payload);
+
+  const mappedPrice = Number(
+    raw?.price ??
+    raw?.c ??
+    raw?.regularMarketPrice ??
+    raw?.last ??
+    raw?.close
+  );
+  if (!raw || !raw.symbol || !Number.isFinite(mappedPrice) || mappedPrice <= 0) {
+    return;
+  }
+
+  const rawTs = raw.ts ?? raw.t ?? (raw.timestamp ? (raw.timestamp < 1e11 ? raw.timestamp : Math.floor(raw.timestamp / 1000)) : Math.floor(Date.now() / 1000));
+  const q: LiveQuote = {
+    ...raw,
+    price: mappedPrice,
+    ts: rawTs,
+    receivedAt: raw.receivedAt || Date.now(),
+  };
+
   const applied = marketDataStore.validateAndApplyTick({
     symbol: q.symbol,
     price: q.price,
+    c: raw.c,
+    regularMarketPrice: raw.regularMarketPrice,
     prevClose: q.prevClose,
-    timestamp: q.receivedAt || q.ts * 1000,
+    timestamp: q.ts ? q.ts * 1000 : q.receivedAt,
+    ts: q.ts,
     source: q.source,
   });
   if (!applied || isBadTick(q.symbol, q.price, q.prevClose)) {
@@ -195,6 +220,39 @@ function applyQuote(q: LiveQuote) {
   lastEventAt = Date.now();
   listeners.forEach(l => l(snapshotState));
   tickListeners.forEach(l => l(q));
+}
+
+export async function fetchLiveQuote(symbol: string): Promise<LiveQuote | null> {
+  const sym = symbol.toUpperCase().trim().split(":").pop()!;
+  try {
+    const res = await fetch(`${API_BASE}/api/quote/${encodeURIComponent(sym)}`);
+    if (!res.ok) return null;
+    const payload = await res.json();
+    console.log('LIVE TICK RECEIVED:', payload);
+    const mappedPrice = Number(
+      payload?.price ??
+      payload?.c ??
+      payload?.regularMarketPrice ??
+      payload?.last ??
+      payload?.close
+    );
+    if (!Number.isFinite(mappedPrice) || mappedPrice <= 0) return null;
+    const quote: LiveQuote = {
+      symbol: sym,
+      price: mappedPrice,
+      change: Number(payload?.change ?? payload?.d ?? 0),
+      changePct: Number(payload?.changePct ?? payload?.dp ?? 0),
+      prevClose: Number(payload?.prevClose ?? payload?.pc ?? mappedPrice),
+      source: payload?.source || "FINNHUB",
+      ts: Number(payload?.ts ?? payload?.t ?? Math.floor(Date.now() / 1000)),
+      receivedAt: Date.now(),
+    };
+    applyQuote(quote);
+    return snapshotState[sym] ?? null;
+  } catch (err) {
+    console.warn(`[priceFeed] fetchLiveQuote failed for ${sym}:`, err);
+    return null;
+  }
 }
 
 function setConn(next: ConnState) {

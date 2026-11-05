@@ -1456,6 +1456,13 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
   const market = useMarketDataStore();
   const storeCurrent = d.symbol === market.activeTicker && market.currentPrice != null ? globalStore.currentPrice : null;
+  const verifiedLivePrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote.price ?? null;
+  const isSyncingLiveData =
+    market.currentPrice === null ||
+    verifiedLivePrice == null ||
+    verifiedLivePrice <= 0 ||
+    (d.symbol === market.activeTicker && market.isLoadingTicker);
+  const isStaleQuoteRejected = Boolean(market.staleQuoteRejected || market.dataFeedError);
   const globalPrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
 
@@ -1674,9 +1681,25 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             {d.symbol}
           </span>
           <div className="flex items-center gap-2 shrink-0">
-            <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`inline-header-price-${d.symbol}`}>
+            <span className={`font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400 ${isSyncingLiveData ? "hidden" : ""}`} data-testid={`inline-header-price-${d.symbol}`}>
               {$(effectivePrice)}
             </span>
+            {isSyncingLiveData && (
+              <span
+                data-testid={`badge-syncing-live-data-${d.symbol}`}
+                className="border border-cyan-400/60 bg-cyan-950/60 text-cyan-300 font-mono text-xs font-extrabold px-2.5 py-1 rounded-md shadow-sm animate-pulse shrink-0"
+              >
+                [ 🔄 SYNCING LIVE DATA... ]
+              </span>
+            )}
+            {isStaleQuoteRejected && (
+              <span
+                data-testid={`badge-stale-quote-rejected-${d.symbol}`}
+                className="border border-rose-500 bg-rose-950/80 text-rose-300 font-mono text-[10px] font-extrabold px-2 py-0.5 rounded shadow-sm animate-pulse shrink-0"
+              >
+                [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
+              </span>
+            )}
             {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
               <span
                 data-testid={`badge-card-delayed-${d.symbol}`}
@@ -1794,8 +1817,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         </div>
       </div>
 
-      {/* ─── MIDDLE ROW: 3-COLUMN CORE METRICS (Buy Target, Stop Loss, Return %) - ALWAYS VISIBLE ─── */}
-      <div className="grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner" data-testid={`core-metrics-${d.symbol}`}>
+      {/* ─── MIDDLE ROW: 3-COLUMN CORE METRICS (Buy Target, Stop Loss, Return %) - Blurred/Hidden when currentPrice === null ─── */}
+      <div
+        className={`grid grid-cols-3 gap-3 my-2 rounded-lg border border-[var(--card-border)] bg-[var(--card-bg)]/80 backdrop-blur-sm p-3 shadow-inner transition-all ${
+          isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
+        }`}
+        data-testid={`core-metrics-${d.symbol}`}
+        data-syncing-live={isSyncingLiveData ? "true" : "false"}
+      >
         <div className="flex flex-col gap-1">
           <span className="text-xs text-slate-400 uppercase tracking-wider font-mono font-bold">
             Buy Target
@@ -1824,8 +1853,11 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
       {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
       <div
-        className="flex flex-col gap-2 px-3 py-2.5 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden"
+        className={`flex flex-col gap-2 px-3 py-2.5 my-2 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono text-xs shadow-inner overflow-hidden transition-all ${
+          isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
+        }`}
         data-testid={`setup-card-summary-strip-${d.symbol}`}
+        data-syncing-live={isSyncingLiveData ? "true" : "false"}
       >
         {/* Header row with Risk ($1R) and Inline Interactive Risk Toggle (1% / 1.5% / 2%) */}
         <div className="flex items-center justify-between gap-2 overflow-hidden text-ellipsis whitespace-nowrap pb-1.5 border-b border-slate-800/80">
