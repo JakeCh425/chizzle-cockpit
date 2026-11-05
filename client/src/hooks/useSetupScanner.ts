@@ -24,6 +24,8 @@ export interface ScannedSetup {
   isReady: boolean;
   isForming: boolean;
   is1hConfirmed: boolean;
+  alertSent: boolean;
+  lastAlertTimestamp: number | null;
   buyTarget: number;
   stopLoss: number;
   target1: number;
@@ -129,6 +131,11 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
         const target2 = +(buyTarget + riskVal * 2.5).toFixed(2);
         const rewardRiskRatio = +( (target1 - buyTarget) / riskVal ).toFixed(1);
 
+        const alertState = global?.setupAlerts?.[sym.toUpperCase()];
+        const isInvalidated = price > 0 && stopLoss > 0 && price < stopLoss;
+        const alertSent = isInvalidated ? false : Boolean(alertState?.alertSent);
+        const lastAlertTimestamp = isInvalidated ? null : (alertState?.lastAlertTimestamp ?? null);
+
         return {
           symbol: sym,
           name: item.name ?? sym,
@@ -144,6 +151,8 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           isReady,
           isForming,
           is1hConfirmed,
+          alertSent,
+          lastAlertTimestamp,
           buyTarget,
           stopLoss,
           target1,
@@ -157,7 +166,7 @@ export function useSetupScanner(customUniverse?: string[]): UseSetupScannerResul
           },
         };
       });
-  }, [watchlist, livePrices, activeTickerData, storePrice, customUniverse]);
+  }, [watchlist, livePrices, activeTickerData, storePrice, customUniverse, global?.setupAlerts]);
 
   const momentumSetups = useMemo(() => setups.filter((s) => s.is10EmaMomentum), [setups]);
   const smaMomentumSetups = useMemo(() => setups.filter((s) => s.is10SmaMomentum), [setups]);

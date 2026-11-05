@@ -10,10 +10,11 @@ import {
   type MarketDataState,
   type MarketTick,
   type LastValidTick,
+  type SetupAlertState,
 } from "./useMarketDataStore";
 
 export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore };
-export type { MarketDataState, MarketTick, LastValidTick };
+export type { MarketDataState, MarketTick, LastValidTick, SetupAlertState };
 
 export interface ActiveTickerData {
   symbol: string;
@@ -118,6 +119,17 @@ export interface GlobalStateContextType {
   confirmedSetups: Record<string, boolean>;
   setConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
   registerConfirmedSetup: (symbol: string, confirmed?: boolean) => void;
+
+  // Alert Deduplication State Sync (Fire Only Once per Setup)
+  setupAlerts: Record<string, SetupAlertState>;
+  updateSetup: (
+    symbolOrPatch: string | ({ symbol?: string } & Partial<SetupAlertState>),
+    patch?: Partial<SetupAlertState>
+  ) => SetupAlertState;
+  resetSetupAlert: (
+    symbol: string,
+    reason?: "INVALIDATED" | "CLOSED" | "NEW_TRADING_DAY"
+  ) => SetupAlertState;
 
   // Practice Sandbox Mode (Paper Trading Isolation)
   isPracticeMode: boolean;
@@ -739,6 +751,26 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const registerConfirmedSetup = setConfirmedSetup;
 
+  const updateSetup = useCallback(
+    (
+      symbolOrPatch: string | ({ symbol?: string } & Partial<SetupAlertState>),
+      patch?: Partial<SetupAlertState>
+    ) => {
+      return marketDataStore.updateSetup(symbolOrPatch, patch);
+    },
+    []
+  );
+
+  const resetSetupAlert = useCallback(
+    (
+      symbol: string,
+      reason: "INVALIDATED" | "CLOSED" | "NEW_TRADING_DAY" = "INVALIDATED"
+    ) => {
+      return marketDataStore.resetSetupAlert(symbol, reason);
+    },
+    []
+  );
+
   // Reactively calculate total confirmed setups across synced watchlist items and live WebSocket confirmations
   const confirmedCount = useMemo(() => {
     const confirmedSyms = new Set<string>();
@@ -880,6 +912,9 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       confirmedSetups: liveConfirmedSetups,
       setConfirmedSetup,
       registerConfirmedSetup,
+      setupAlerts: marketData.setupAlerts,
+      updateSetup,
+      resetSetupAlert,
       isPracticeMode,
       setIsPracticeMode,
       practiceTrades,

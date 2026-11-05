@@ -1468,7 +1468,12 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
   const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
   const auditLog = useNotificationAuditLog(d.symbol);
-  const hasAlertFired = auditLog.isAlertSent || isConfirmed || d.setupStatus === "READY_TO_TRADE";
+  const setupAlertState = market.setupAlerts?.[d.symbol] ?? global?.setupAlerts?.[d.symbol];
+  const hasAlertFired =
+    Boolean(setupAlertState?.alertSent) ||
+    auditLog.isAlertSent ||
+    isConfirmed ||
+    d.setupStatus === "READY_TO_TRADE";
   const alertTimestampText = auditLog.formattedTime || fmtCT(d.quoteTimestamp);
   const cardSize = resolveCardSize(d, group, f.isTradeable, isConfirmed, props.size);
   const [isSmallExpanded, setIsSmallExpanded] = useState(false);

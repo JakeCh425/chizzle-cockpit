@@ -2478,7 +2478,40 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/pre-entry", async (req, res) => {
     try {
       const { serverlessPreEntryAlertHandler } = await import("./alert-dispatcher");
-      const { recordNotificationAudit } = await import("./backendNotificationWorker");
+      const {
+        recordNotificationAudit,
+        getSetupAlertState,
+        updateSetup,
+        evaluateExecutionZoneAlertGate,
+      } = await import("./backendNotificationWorker");
+      const symbol = String(req.body?.ticker || "NVDA").trim().toUpperCase();
+      const isTest = Boolean(req.body?.force || req.body?.isTest || req.body?.context?.includes("Test"));
+      const setup = getSetupAlertState(symbol);
+
+      if (!isTest && req.body?.strictExecutionZone) {
+        const gate = evaluateExecutionZoneAlertGate({
+          symbol,
+          currentPrice: Number(req.body?.currentPrice ?? req.body?.entryPrice ?? 0),
+          sma20: req.body?.sma20 != null ? Number(req.body.sma20) : undefined,
+          ema10: req.body?.ema10 != null ? Number(req.body.ema10) : undefined,
+          sma10: req.body?.sma10 != null ? Number(req.body.sma10) : undefined,
+          entryPrice: Number(req.body?.entryPrice || 0),
+          stopLoss: req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined,
+          isTradeConfirmed: Boolean(req.body?.isTradeConfirmed),
+          status: req.body?.status,
+        });
+        if (!gate.setupIsReady || setup.alertSent) {
+          return res.json({
+            ok: true,
+            suppressed: true,
+            alertSent: setup.alertSent,
+            lastAlertTimestamp: setup.lastAlertTimestamp,
+            setupState: setup,
+            reason: gate.reason,
+          });
+        }
+      }
+
       const targetEmail = req.body?.email || req.body?.emailAddress || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await serverlessPreEntryAlertHandler({
         body: {
@@ -2490,8 +2523,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           emailEnabled: typeof req.body?.emailEnabled === "boolean" ? req.body.emailEnabled : savedOffScreenAlertSettings.emailEnabled,
         },
       });
+      const updatedState = updateSetup(symbol, {
+        alertSent: true,
+        lastAlertTimestamp: Date.now(),
+        stopLoss: Number(req.body?.stopLoss || 0) || undefined,
+      });
       const audit = recordNotificationAudit({
-        symbol: req.body?.ticker || "NVDA",
+        symbol,
         alertType: "PRE_ENTRY_ALERT",
         entryPrice: Number(req.body?.entryPrice || 0),
         stopLoss: Number(req.body?.stopLoss || 0),
@@ -2501,7 +2539,13 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         status: "SENT",
         message: result.message,
       });
-      res.json({ ...result, audit });
+      res.json({
+        ...result,
+        alertSent: true,
+        lastAlertTimestamp: updatedState.lastAlertTimestamp,
+        setupState: updatedState,
+        audit,
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
@@ -2510,51 +2554,83 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/email", async (req, res) => {
     try {
       const { sendPreEntryEmail } = await import("./sendEmailAlert");
-      const { recordNotificationAudit } = await import("./backendNotificationWorker");
+      const { recordNotificationAudit, updateSetup } = await import("./backendNotificationWorker");
+      const symbol = String(req.body?.ticker || "NVDA").trim().toUpperCase();
       const userEmail = req.body?.email || req.body?.emailAddress || req.body?.userEmail || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await sendPreEntryEmail({
         userEmail,
-        ticker: req.body?.ticker || "NVDA",
+        ticker: symbol,
         price: req.body?.price ?? req.body?.entryPrice ?? 0,
         context: req.body?.context || "Price within 0.25% of SMA",
         plan: req.body?.plan,
         target1: req.body?.target1,
       });
-      recordNotificationAudit({
-        symbol: req.body?.ticker || "NVDA",
+      const updatedState = updateSetup(symbol, {
+        alertSent: true,
+        lastAlertTimestamp: Date.now(),
+      });
+      const audit = recordNotificationAudit({
+        symbol,
         alertType: "PRE_ENTRY_ALERT",
         entryPrice: Number(req.body?.price ?? req.body?.entryPrice ?? 0),
         target1: Number(req.body?.target1 ?? 0),
         channels: ["email"],
         status: "SENT",
       });
-      res.json(result);
+      res.json({
+        ...result,
+        alertSent: true,
+        lastAlertTimestamp: updatedState.lastAlertTimestamp,
+        setupState: updatedState,
+        audit,
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
   });
 
-  // ── Proximity Early-Warning Alert (Telegram & Email when price within 0.3% of Entry) ──
+  // ── Proximity Early-Warning Alert (Telegram & Email when price within 0.5% of Target MA / Entry) ──
   app.post("/api/alerts/proximity", async (req, res) => {
     try {
       const { sendProximityEarlyWarningAlert } = await import("./pre-entry-alerts");
-      const { recordNotificationAudit } = await import("./backendNotificationWorker");
+      const { recordNotificationAudit, updateSetup, getSetupAlertState } = await import("./backendNotificationWorker");
+      const symbol = String(req.body?.ticker || "NVDA").trim().toUpperCase();
+      const existingSetup = getSetupAlertState(symbol);
+      if (existingSetup.alertSent && !req.body?.force) {
+        return res.json({
+          ok: true,
+          suppressed: true,
+          alertSent: true,
+          lastAlertTimestamp: existingSetup.lastAlertTimestamp,
+          setupState: existingSetup,
+        });
+      }
       const result = await sendProximityEarlyWarningAlert({
-        ticker: req.body?.ticker || "NVDA",
+        ticker: symbol,
         entryPrice: Number(req.body?.entryPrice || 0),
         currentPrice: Number(req.body?.currentPrice || 0),
         chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
         email: req.body?.email || process.env.USER_ALERT_EMAIL,
       });
+      const updatedState = updateSetup(symbol, {
+        alertSent: true,
+        lastAlertTimestamp: Date.now(),
+      });
       const audit = recordNotificationAudit({
-        symbol: req.body?.ticker || "NVDA",
+        symbol,
         alertType: "PROXIMITY_EARLY_WARNING",
         entryPrice: Number(req.body?.entryPrice || 0),
         channels: ["telegram", "email"],
         status: "SENT",
         message: result.message,
       });
-      res.json({ ...result, audit });
+      res.json({
+        ...result,
+        alertSent: true,
+        lastAlertTimestamp: updatedState.lastAlertTimestamp,
+        setupState: updatedState,
+        audit,
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
@@ -2563,13 +2639,30 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Persistent 24/7 Backend Notification Audit Log & Watchlist Alert Worker ──
   app.get("/api/alerts/audit-log", async (req, res) => {
     try {
-      const { getNotificationAuditLog, getLatestAlertsBySymbolMap } = await import("./backendNotificationWorker");
+      const {
+        getNotificationAuditLog,
+        getLatestAlertsBySymbolMap,
+        getAllSetupAlertStates,
+      } = await import("./backendNotificationWorker");
       const symbol = typeof req.query.symbol === "string" ? req.query.symbol : undefined;
       res.json({
         ok: true,
         alerts: getNotificationAuditLog(symbol),
         bySymbol: getLatestAlertsBySymbolMap(),
+        setupStates: getAllSetupAlertStates(),
       });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  app.post("/api/alerts/reset-setup", async (req, res) => {
+    try {
+      const { resetSetupAlertState } = await import("./backendNotificationWorker");
+      const symbol = String(req.body?.symbol || req.body?.ticker || "NVDA").trim().toUpperCase();
+      const reason = req.body?.reason || "INVALIDATED";
+      const resetState = resetSetupAlertState(symbol, reason);
+      res.json({ ok: true, setupState: resetState });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
@@ -2584,6 +2677,12 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           entryPrice: Number(req.body.entryPrice),
           stopLoss: Number(req.body.stopLoss || Number(req.body.entryPrice) * 0.985),
           target1: Number(req.body.target1 || Number(req.body.entryPrice) * 1.03),
+          currentPrice: req.body.currentPrice != null ? Number(req.body.currentPrice) : undefined,
+          sma20: req.body.sma20 != null ? Number(req.body.sma20) : undefined,
+          ema10: req.body.ema10 != null ? Number(req.body.ema10) : undefined,
+          sma10: req.body.sma10 != null ? Number(req.body.sma10) : undefined,
+          isTradeConfirmed: typeof req.body.isTradeConfirmed === "boolean" ? req.body.isTradeConfirmed : undefined,
+          status: req.body.status,
           calculatedShares: Number(req.body.calculatedShares || 0) || undefined,
           alertType: req.body.alertType || "CONFIRMED_1H_20SMA",
           setupType: req.body.setupType,
@@ -2593,7 +2692,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           phoneNumber: req.body.phoneNumber || savedOffScreenAlertSettings.phoneNumber,
           force: Boolean(req.body.force),
         });
-        return res.json({ ok: true, fired: [single.auditEntry], suppressed: single.suppressed });
+        return res.json({
+          ok: true,
+          fired: [single.auditEntry],
+          suppressed: single.suppressed,
+          alertSent: single.alertSent,
+          lastAlertTimestamp: single.lastAlertTimestamp,
+          setupState: single.setupState,
+        });
       }
       const symbols = Array.isArray(req.body?.symbols) ? req.body.symbols : undefined;
       const scanRes = await runBackendWatchlistAlertScan({

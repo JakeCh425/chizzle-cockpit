@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useToast } from "@/hooks/use-toast";
+import { globalStore } from "@/lib/useMarketDataStore";
+import { evaluateExecutionZoneProximityFilter } from "./useProximityAlert";
 
 /**
  * Sanitizes an SMS phone number for Twilio (E.164 format):
@@ -78,6 +80,13 @@ export interface PreEntryTriggerInput {
   currentPrice: number;
   entryPrice: number;
   target1: number;
+  stopLoss?: number;
+  sma20?: number;
+  ema10?: number;
+  sma10?: number;
+  isTradeConfirmed?: boolean;
+  alertSent?: boolean;
+  strictExecutionZoneOnly?: boolean;
   setupId?: string | number;
   status?: string;
   now?: Date | number;
@@ -86,11 +95,12 @@ export interface PreEntryTriggerInput {
 
 export interface PreEntryTriggerEvaluation {
   shouldFire: boolean;
-  triggerType: "PROXIMITY_025_PCT" | "TIME_3MIN_BEFORE_CLOSE" | null;
-  context: PreEntryTriggerContext | null;
+  triggerType: "PROXIMITY_025_PCT" | "TIME_3MIN_BEFORE_CLOSE" | "TRIGGER_CONFIRMED" | "PROXIMITY_05_PCT" | null;
+  context: PreEntryTriggerContext | string | null;
   dedupeKey: string | null;
   distancePct: number;
   isWithin025Pct: boolean;
+  isWithin05Pct?: boolean;
   isFormingThreeMinBeforeClose: boolean;
   formattedMessage: string | null;
   message: string | null;
@@ -141,6 +151,13 @@ export function evaluatePreEntryAlertTriggers(
     currentPrice,
     entryPrice,
     target1,
+    stopLoss,
+    sma20,
+    ema10,
+    sma10,
+    isTradeConfirmed,
+    alertSent = false,
+    strictExecutionZoneOnly = false,
     status = "",
     now = new Date(),
     alreadyFiredKeys = externalFiredKeys,
@@ -156,6 +173,54 @@ export function evaluatePreEntryAlertTriggers(
   const distancePct = validPrices
     ? +((Math.abs(currentPrice - entryPrice) / entryPrice) * 100).toFixed(4)
     : Infinity;
+
+  // Strict Execution Zone Proximity Filter when enabled or when moving averages / confirmation state are provided:
+  // Condition A (Trigger Confirmed): isTradeConfirmed === true
+  // Condition B (Proximity Warning): live price within <= 0.5% (0.005) of SMA 20 or EMA 10
+  // Never fires for setups that are simply "Forming" or sitting on the Watchlist out of range (> 0.5%).
+  if (strictExecutionZoneOnly || sma20 != null || ema10 != null || sma10 != null || typeof isTradeConfirmed === "boolean") {
+    const gate = evaluateExecutionZoneProximityFilter({
+      ticker: cleanTicker,
+      currentPrice,
+      sma20,
+      ema10,
+      sma10,
+      entryPrice,
+      stopLoss,
+      isTradeConfirmed,
+      alertSent,
+    });
+    const dedupeKey = `${cleanTicker}::EXEC_ZONE::${entryPrice.toFixed(2)}`;
+    const alreadyFired = alertSent || Boolean(alreadyFiredKeys && alreadyFiredKeys.has(dedupeKey));
+    const shouldFire = gate.setupIsReady && !alreadyFired;
+    const context: PreEntryTriggerContext = "Price within 0.25% of SMA";
+    const formattedMessage = shouldFire
+      ? formatPreEntryAlertMessage({
+          ticker: cleanTicker,
+          entryPrice,
+          target1,
+          currentPrice,
+          context,
+        })
+      : null;
+
+    return {
+      shouldFire,
+      triggerType: shouldFire
+        ? gate.conditionMet === "CONDITION_A_TRIGGER_CONFIRMED"
+          ? "TRIGGER_CONFIRMED"
+          : "PROXIMITY_025_PCT"
+        : null,
+      context: shouldFire ? context : null,
+      dedupeKey: shouldFire ? dedupeKey : null,
+      distancePct: gate.minDistancePct ?? distancePct,
+      isWithin025Pct: gate.setupIsReady,
+      isWithin05Pct: gate.setupIsReady,
+      isFormingThreeMinBeforeClose: false,
+      formattedMessage,
+      message: formattedMessage,
+    };
+  }
 
   // Trigger 1 (Proximity Warning): Live price within 0.25% of entryPrice
   const isWithin025Pct = validPrices && distancePct <= 0.25 + 1e-9;
@@ -177,11 +242,12 @@ export function evaluatePreEntryAlertTriggers(
   const proximityKey = `${cleanTicker}::PROXIMITY_025::${entryPrice.toFixed(2)}`;
   const timeKey = `${cleanTicker}::TIME_3MIN::${entryPrice.toFixed(2)}`;
 
-  if (isWithin025Pct && (!alreadyFiredKeys || !alreadyFiredKeys.has(proximityKey))) {
+  if (!alertSent && isWithin025Pct && (!alreadyFiredKeys || !alreadyFiredKeys.has(proximityKey))) {
     triggerType = "PROXIMITY_025_PCT";
     context = "Price within 0.25% of SMA";
     dedupeKey = proximityKey;
   } else if (
+    !alertSent &&
     isFormingThreeMinBeforeClose &&
     (!alreadyFiredKeys || !alreadyFiredKeys.has(timeKey))
   ) {
@@ -190,7 +256,7 @@ export function evaluatePreEntryAlertTriggers(
     dedupeKey = timeKey;
   }
 
-  const shouldFire = Boolean(triggerType && context && dedupeKey);
+  const shouldFire = Boolean(triggerType && context && dedupeKey && !alertSent);
   const formattedMessage =
     shouldFire && context
       ? formatPreEntryAlertMessage({
@@ -407,11 +473,29 @@ export interface UseOffScreenPreEntryAlertsInput {
   currentPrice: number;
   entryPrice: number;
   target1: number;
+  stopLoss?: number;
+  sma20?: number;
+  ema10?: number;
+  sma10?: number;
+  isTradeConfirmed?: boolean;
+  setupId?: string | number;
   status?: string;
 }
 
 export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInput) {
-  const { ticker, currentPrice, entryPrice, target1, setupId, status } = input;
+  const {
+    ticker,
+    currentPrice,
+    entryPrice,
+    target1,
+    stopLoss,
+    sma20,
+    ema10,
+    sma10,
+    isTradeConfirmed,
+    setupId,
+    status,
+  } = input;
   const { toast } = useToast();
 
   const [settings, setSettings] = useState<OffScreenAlertSettings>(() =>
@@ -434,15 +518,24 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     async (
       message: string,
       currentSettings: OffScreenAlertSettings,
-      alertType: string = "PROXIMITY"
+      alertType: string = "PROXIMITY",
+      isTest: boolean = false
     ) => {
+      const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
       const effectiveSetupId = setupId ?? entryPrice.toFixed(2);
-      const alertKey = createAlertDedupeKey(ticker, effectiveSetupId, alertType);
+      const alertKey = createAlertDedupeKey(cleanTicker, effectiveSetupId, alertType);
+      const setup = globalStore.getSetupAlertState(cleanTicker);
 
-      if (firedAlerts.current.has(alertKey)) {
-        return; // Already fired, abort.
+      if (!isTest && (setup.alertSent || firedAlerts.current.has(alertKey))) {
+        return; // Already fired for this setup, abort.
       }
       firedAlerts.current.add(alertKey);
+      const nowTs = Date.now();
+      globalStore.updateSetup(cleanTicker, {
+        alertSent: true,
+        lastAlertTimestamp: nowTs,
+        stopLoss,
+      });
 
       setLastDispatchedMessage(message);
 
@@ -463,7 +556,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       if (currentSettings.emailEnabled && userEmail) {
         tasks.push(
           sendEmailAlert(message, userEmail, {
-            ticker,
+            ticker: cleanTicker,
             entryPrice,
             target1,
             plan: `Limit BUY at $${Number(entryPrice).toFixed(2)}. Scale 50% at $${Number(target1).toFixed(2)}.`,
@@ -476,33 +569,69 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       }
 
       toast({
-        title: `🚨 Off-Screen Pre-Entry Alert Dispatched (${ticker})`,
+        title: `🚨 Off-Screen Pre-Entry Alert Dispatched (${cleanTicker})`,
         description: message,
       });
     },
-    [ticker, entryPrice, target1, setupId, toast]
+    [ticker, entryPrice, target1, stopLoss, setupId, toast]
   );
 
-  // Evaluate triggers on live price updates & 1H clock ticks
+  // Evaluate triggers on live price updates & 1H clock ticks with strict Execution Zone Proximity Filter
   useEffect(() => {
     const checkTriggers = () => {
+      if (!ticker || currentPrice <= 0 || entryPrice <= 0) return;
+      const cleanTicker = ticker.trim().toUpperCase();
+      const statusUpper = String(status || "").toUpperCase();
+
+      // Reset alertSent if setup invalidates (< stopLoss) or gets closed out
+      if (
+        (stopLoss != null && stopLoss > 0 && currentPrice < stopLoss) ||
+        statusUpper === "INVALIDATED" ||
+        statusUpper === "CLOSED" ||
+        statusUpper === "CANCELLED"
+      ) {
+        globalStore.resetSetupAlert(cleanTicker, statusUpper === "CLOSED" ? "CLOSED" : "INVALIDATED");
+        for (const k of Array.from(firedAlerts.current)) {
+          if (k.startsWith(`${cleanTicker}-`) || k.startsWith(`${cleanTicker}::`)) {
+            firedAlerts.current.delete(k);
+          }
+        }
+        return;
+      }
+
+      const setup = globalStore.getSetupAlertState(cleanTicker);
       const evalResult = evaluatePreEntryAlertTriggers({
-        ticker,
+        ticker: cleanTicker,
         currentPrice,
         entryPrice,
         target1,
+        stopLoss,
+        sma20: sma20 ?? entryPrice,
+        ema10,
+        sma10,
+        isTradeConfirmed: Boolean(isTradeConfirmed || statusUpper === "READY" || statusUpper === "READY_TO_TRADE"),
+        alertSent: setup.alertSent,
+        strictExecutionZoneOnly: true,
         status,
         now: new Date(),
         alreadyFiredKeys: firedAlerts.current,
       });
 
-      if (evalResult.shouldFire && evalResult.formattedMessage && evalResult.triggerType) {
+      const setupIsReady = Boolean(evalResult.isWithin05Pct || evalResult.isWithin025Pct);
+
+      // Strict logic gate: if (setupIsReady && !setup.alertSent) { sendAlert(); updateSetup({ alertSent: true }); }
+      if (setupIsReady && !setup.alertSent && evalResult.shouldFire && evalResult.formattedMessage && evalResult.triggerType) {
         const alertType = evalResult.triggerType === "TIME_3MIN_BEFORE_CLOSE" ? "TIME_3MIN" : "PROXIMITY";
         const effectiveSetupId = setupId ?? entryPrice.toFixed(2);
-        const alertKey = createAlertDedupeKey(ticker, effectiveSetupId, alertType);
+        const alertKey = createAlertDedupeKey(cleanTicker, effectiveSetupId, alertType);
 
         if (firedAlerts.current.has(alertKey)) return; // Already fired, abort.
         firedAlerts.current.add(alertKey);
+        globalStore.updateSetup(cleanTicker, {
+          alertSent: true,
+          lastAlertTimestamp: Date.now(),
+          stopLoss,
+        });
 
         if (settings.smsEnabled || settings.telegramEnabled || settings.emailEnabled) {
           void dispatchFormattedAlert(evalResult.formattedMessage, settings, alertType);
@@ -513,7 +642,21 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     checkTriggers();
     const interval = setInterval(checkTriggers, 10000);
     return () => clearInterval(interval);
-  }, [ticker, currentPrice, entryPrice, target1, setupId, status, settings, dispatchFormattedAlert]);
+  }, [
+    ticker,
+    currentPrice,
+    entryPrice,
+    target1,
+    stopLoss,
+    sma20,
+    ema10,
+    sma10,
+    isTradeConfirmed,
+    setupId,
+    status,
+    settings,
+    dispatchFormattedAlert,
+  ]);
 
   const sendTestPreEntryAlert = useCallback(async () => {
     const msg = formatPreEntryAlertMessage({
@@ -523,14 +666,18 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       currentPrice,
       context: "Price within 0.25% of SMA",
     });
-    await dispatchFormattedAlert(msg, settings);
+    await dispatchFormattedAlert(msg, settings, "TEST", true);
     return msg;
   }, [ticker, entryPrice, target1, currentPrice, settings, dispatchFormattedAlert]);
+
+  const setupState = ticker ? globalStore.getSetupAlertState(ticker) : null;
 
   return {
     settings,
     updateSettings,
     lastDispatchedMessage,
+    alertSent: Boolean(setupState?.alertSent),
+    lastAlertTimestamp: setupState?.lastAlertTimestamp ?? null,
     sendTestPreEntryAlert,
     previewMessage: formatPreEntryAlertMessage({
       ticker,

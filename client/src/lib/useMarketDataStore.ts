@@ -32,6 +32,15 @@ export interface LastValidTick {
   prevClose?: number;
 }
 
+export interface SetupAlertState {
+  symbol: string;
+  alertSent: boolean;
+  lastAlertTimestamp: number | null;
+  tradingDay: string;
+  stopLoss?: number;
+  status?: string;
+}
+
 export interface MarketDataState {
   activeTicker: string;
   currentPrice: number | null;
@@ -40,6 +49,7 @@ export interface MarketDataState {
   quotes: Record<string, LiveQuote>;
   lastValidTicks: Record<string, LastValidTick>;
   previousClose: Record<string, number>;
+  setupAlerts: Record<string, SetupAlertState>;
   status: ConnState | "DELAYED" | "RECONNECTING";
   isDelayed: boolean;
   isReconnecting: boolean;
@@ -143,6 +153,7 @@ export const initialState: MarketDataState = {
   quotes: {},
   lastValidTicks: {},
   previousClose: {},
+  setupAlerts: {},
   status: "CONNECTING",
   isDelayed: false,
   isReconnecting: false,
@@ -176,7 +187,119 @@ class MarketDataStore {
       quotes: {},
       lastValidTicks: {},
       previousClose: {},
+      setupAlerts: {},
     };
+  }
+
+  public getTradingDayKey(now: Date | number = Date.now()): string {
+    const d = typeof now === "number" ? new Date(now) : now;
+    try {
+      return d.toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+    } catch {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+
+  public getSetupAlertState(symbol: string, now: Date | number = Date.now()): SetupAlertState {
+    const sym = (symbol || this.state.activeTicker || "NVDA").toUpperCase().trim().split(":").pop()!;
+    const todayKey = this.getTradingDayKey(now);
+    const existing = this.state.setupAlerts[sym];
+    if (!existing) {
+      return {
+        symbol: sym,
+        alertSent: false,
+        lastAlertTimestamp: null,
+        tradingDay: todayKey,
+      };
+    }
+    if (existing.tradingDay !== todayKey) {
+      const resetDay: SetupAlertState = {
+        ...existing,
+        alertSent: false,
+        lastAlertTimestamp: null,
+        tradingDay: todayKey,
+      };
+      this.state = {
+        ...this.state,
+        setupAlerts: {
+          ...this.state.setupAlerts,
+          [sym]: resetDay,
+        },
+      };
+      this.notify();
+      return resetDay;
+    }
+    return existing;
+  }
+
+  /**
+   * Updates a setup's alert deduplication state in the Global Store:
+   *   `updateSetup({ alertSent: true })` or `updateSetup(symbol, { alertSent: true })`
+   */
+  public updateSetup(
+    symbolOrPatch: string | ({ symbol?: string } & Partial<SetupAlertState>),
+    patch?: Partial<SetupAlertState>
+  ): SetupAlertState {
+    const symRaw =
+      typeof symbolOrPatch === "string"
+        ? symbolOrPatch
+        : symbolOrPatch.symbol || this.state.activeTicker || "NVDA";
+    const sym = symRaw.toUpperCase().trim().split(":").pop()!;
+    const resolvedPatch = typeof symbolOrPatch === "string" ? (patch || {}) : symbolOrPatch;
+    const prev = this.getSetupAlertState(sym);
+    const nextAlertSent = resolvedPatch.alertSent !== undefined ? Boolean(resolvedPatch.alertSent) : prev.alertSent;
+    const nextTimestamp =
+      resolvedPatch.lastAlertTimestamp !== undefined
+        ? resolvedPatch.lastAlertTimestamp
+        : nextAlertSent
+        ? prev.lastAlertTimestamp ?? Date.now()
+        : null;
+
+    const updated: SetupAlertState = {
+      ...prev,
+      ...resolvedPatch,
+      symbol: sym,
+      alertSent: nextAlertSent,
+      lastAlertTimestamp: nextTimestamp,
+    };
+
+    this.state = {
+      ...this.state,
+      setupAlerts: {
+        ...this.state.setupAlerts,
+        [sym]: updated,
+      },
+    };
+    this.notify();
+    return updated;
+  }
+
+  /**
+   * Resets `alertSent` to `false` only when the setup invalidates (< stopLoss),
+   * gets closed out, or a new trading day begins.
+   */
+  public resetSetupAlert(
+    symbol: string,
+    reason: "INVALIDATED" | "CLOSED" | "NEW_TRADING_DAY" = "INVALIDATED",
+    now: Date | number = Date.now()
+  ): SetupAlertState {
+    const sym = (symbol || this.state.activeTicker || "NVDA").toUpperCase().trim().split(":").pop()!;
+    const reset: SetupAlertState = {
+      symbol: sym,
+      alertSent: false,
+      lastAlertTimestamp: null,
+      tradingDay: this.getTradingDayKey(now),
+      status: reason,
+    };
+    this.state = {
+      ...this.state,
+      setupAlerts: {
+        ...this.state.setupAlerts,
+        [sym]: reset,
+      },
+    };
+    this.notify();
+    return reset;
   }
 
   public getState(): MarketDataState {

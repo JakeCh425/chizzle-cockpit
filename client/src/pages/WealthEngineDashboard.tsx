@@ -2848,17 +2848,28 @@ export default function WealthEngineDashboard() {
     currentPrice,
     entryPrice: entryPriceVal,
     target1: t1Val,
+    stopLoss: stopLossVal,
+    sma20: sma20Price,
+    ema10: activeItem?.ema10,
+    sma10: activeItem?.sma10,
+    isTradeConfirmed,
     setupId: activeSetupIdentifier,
     status: activeTickerData?.status ?? activeItem?.status ?? (isSetupForming ? "FORMING" : "Ready"),
   });
 
-  // Proximity Early-Warning Notification Engine (Telegram & Email when price within 0.3% of Entry: alertThreshold = entryPrice * 1.003)
+  // Proximity Early-Warning Notification Engine (Telegram & Email when price within 0.5% of Target MA or Trigger Confirmed)
   // Deduplication lock: useOffScreenPreEntryAlerts handles the primary pre-entry alert (Telegram/SMS/Email).
   // Suppress email on proximityAlert to prevent duplicate emails for the same active setup.
   const proximityAlert = useProximityAlert({
     ticker: activeTicker,
     currentPrice,
     entryPrice: entryPriceVal,
+    stopLoss: stopLossVal,
+    sma20: sma20Price,
+    ema10: activeItem?.ema10,
+    sma10: activeItem?.sma10,
+    isTradeConfirmed,
+    status: activeTickerData?.status ?? activeItem?.status,
     chatId: offScreenAlerts.settings?.telegramChatId,
     email: undefined,
   });
@@ -4305,7 +4316,13 @@ export default function WealthEngineDashboard() {
                             [ MOMENTUM SETUP: 10-SMA ]
                           </span>
                         )}
-                        {(notificationAudit.isAlertSent || isTradeConfirmed || isTradeReady) && (
+                        {(Boolean(marketStore.setupAlerts?.[activeTicker]?.alertSent) ||
+                          Boolean(global?.setupAlerts?.[activeTicker]?.alertSent) ||
+                          notificationAudit.isAlertSent ||
+                          offScreenAlerts.alertSent ||
+                          proximityAlert.alertSent ||
+                          isTradeConfirmed ||
+                          isTradeReady) && (
                           <span
                             className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-1.5 py-0.5 text-[8.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
                             data-testid="badge-alert-sent"
