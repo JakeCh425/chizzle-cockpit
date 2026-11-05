@@ -26,6 +26,7 @@ export interface ModalLargeChartProps {
   stop?: number | null;
   target1?: number | null;
   target2?: number | null;
+  calculatedShares?: number | null;
   defaultTf?: "1H" | "4H" | "1D";
 }
 
@@ -64,6 +65,7 @@ export function ModalLargeChart({
   entry,
   stop,
   target1,
+  calculatedShares,
   defaultTf = "1H",
 }: ModalLargeChartProps) {
   const [tf, setTf] = useState<"1H" | "4H" | "1D">(defaultTf);
@@ -743,9 +745,10 @@ export function ModalLargeChart({
       {/* Fidelity Execution Cheat Sheet Modal */}
       <FidelityExecutionCheatSheet
         symbol={symbol}
-        entry={entry ?? liveQuote?.price ?? 100}
-        stop={stop ?? ((entry ?? liveQuote?.price ?? 100) * 0.95)}
-        target1={target1 ?? ((entry ?? liveQuote?.price ?? 100) * 1.1)}
+        entryPrice={entry ?? undefined}
+        stopLoss={stop ?? undefined}
+        target1={target1 ?? undefined}
+        calculatedShares={calculatedShares ?? undefined}
         isOpenModal={isFidelityGuideOpen}
         onCloseModal={() => setIsFidelityGuideOpen(false)}
       />

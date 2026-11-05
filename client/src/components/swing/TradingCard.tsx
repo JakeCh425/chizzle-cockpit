@@ -1,5 +1,7 @@
 import { ModalLargeChart } from "./ModalLargeChart";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
+import { FidelityExecutionGuide } from "@/components/FidelityExecutionGuide";
+import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import MiniChartWidget from "@/components/MiniChartWidget";
 import { AIExecutionEngine, formatCurrency } from "./AIExecutionEngine";
@@ -1458,6 +1460,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
 
   const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
+  const auditLog = useNotificationAuditLog(d.symbol);
+  const hasAlertFired = auditLog.isAlertSent || isConfirmed || d.setupStatus === "READY_TO_TRADE";
+  const alertTimestampText = auditLog.formattedTime || fmtCT(d.quoteTimestamp);
   const cardSize = resolveCardSize(d, group, f.isTradeable, isConfirmed, props.size);
   const [isSmallExpanded, setIsSmallExpanded] = useState(false);
 
@@ -1699,6 +1704,16 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               data-symbol={d.symbol}
             >
               [ MOMENTUM SETUP: 10-SMA ]
+            </span>
+          )}
+          {hasAlertFired && (
+            <span
+              className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-2 py-0.5 text-[9.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
+              data-testid={`badge-alert-sent-${d.symbol}`}
+              title={`Backend 24/7 Notification Engine pushed Telegram/Email/SMS alert at ${alertTimestampText}`}
+            >
+              <span>[ 🔔 Alert Sent ]</span>
+              <span className="text-[8.5px] text-emerald-400/90 tabular-nums">· {alertTimestampText}</span>
             </span>
           )}
           {isCustom && (
@@ -2036,27 +2051,40 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       {/* ─── 'QUICK VIEW' MINI-GUIDE (Below core numbers when toggled) ─── */}
       {isMiniGuideOpen && (
         <div
-          className="my-2 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-wrap items-center justify-between gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150"
+          className="my-2 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-col gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150 relative"
           data-testid={`mini-fidelity-guide-${d.symbol}`}
           onClick={(e) => e.stopPropagation()}
         >
-          <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
-            <ClipboardList className="h-3.5 w-3.5" />
-            <span>Broker Ticket:</span>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
+              <ClipboardList className="h-3.5 w-3.5" />
+              <span>Broker Ticket ({dynamicShares} Shares):</span>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold tabular-nums">
+              <span className="text-emerald-400">
+                BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({dynamicShares} sh)
+              </span>
+              <span className="text-slate-500">|</span>
+              <span className="text-cyan-300">
+                SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(dynamicShares / 2)} sh)
+              </span>
+              <span className="text-slate-500">|</span>
+              <span className="text-rose-400">
+                SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({dynamicShares - Math.floor(dynamicShares / 2)} sh)
+              </span>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold">
-            <span className="text-emerald-400">
-              BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong>
-            </span>
-            <span className="text-slate-500">|</span>
-            <span className="text-cyan-300">
-              SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong>
-            </span>
-            <span className="text-slate-500">|</span>
-            <span className="text-rose-400">
-              SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong>
-            </span>
-          </div>
+          <FidelityExecutionGuide
+            ticker={d.symbol}
+            entryPrice={activeEntry}
+            stopLoss={activeStop}
+            target1={targets.t1}
+            target2={targets.t2}
+            calculatedShares={dynamicShares}
+            isOpen={isMiniGuideOpen}
+            onClose={() => setIsMiniGuideOpen(false)}
+            className="!static !w-full !max-w-full mt-1"
+          />
         </div>
       )}
 
@@ -2464,6 +2492,7 @@ export function TradingCardDialog({ open, onClose, mode, setMode, ...props }: Om
               stop={stopVal}
               target1={target1Val}
               target2={sz.override && sz.activeT2 != null ? sz.activeT2 : p.t2}
+              calculatedShares={sz.sizing?.shares ?? d.shares ?? undefined}
             />
           </div>
           {mode === "adjust" && canEditPlan(d) ? (

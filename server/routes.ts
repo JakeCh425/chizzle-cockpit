@@ -2478,6 +2478,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/pre-entry", async (req, res) => {
     try {
       const { serverlessPreEntryAlertHandler } = await import("./alert-dispatcher");
+      const { recordNotificationAudit } = await import("./backendNotificationWorker");
       const targetEmail = req.body?.email || req.body?.emailAddress || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await serverlessPreEntryAlertHandler({
         body: {
@@ -2489,7 +2490,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           emailEnabled: typeof req.body?.emailEnabled === "boolean" ? req.body.emailEnabled : savedOffScreenAlertSettings.emailEnabled,
         },
       });
-      res.json(result);
+      const audit = recordNotificationAudit({
+        symbol: req.body?.ticker || "NVDA",
+        alertType: "PRE_ENTRY_ALERT",
+        entryPrice: Number(req.body?.entryPrice || 0),
+        stopLoss: Number(req.body?.stopLoss || 0),
+        target1: Number(req.body?.target1 || 0),
+        calculatedShares: Number(req.body?.calculatedShares || req.body?.shares || 0) || undefined,
+        channels: ["telegram", "email", "sms"],
+        status: "SENT",
+        message: result.message,
+      });
+      res.json({ ...result, audit });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
@@ -2498,6 +2510,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/email", async (req, res) => {
     try {
       const { sendPreEntryEmail } = await import("./sendEmailAlert");
+      const { recordNotificationAudit } = await import("./backendNotificationWorker");
       const userEmail = req.body?.email || req.body?.emailAddress || req.body?.userEmail || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await sendPreEntryEmail({
         userEmail,
@@ -2506,6 +2519,14 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         context: req.body?.context || "Price within 0.25% of SMA",
         plan: req.body?.plan,
         target1: req.body?.target1,
+      });
+      recordNotificationAudit({
+        symbol: req.body?.ticker || "NVDA",
+        alertType: "PRE_ENTRY_ALERT",
+        entryPrice: Number(req.body?.price ?? req.body?.entryPrice ?? 0),
+        target1: Number(req.body?.target1 ?? 0),
+        channels: ["email"],
+        status: "SENT",
       });
       res.json(result);
     } catch (e: any) {
@@ -2517,6 +2538,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/proximity", async (req, res) => {
     try {
       const { sendProximityEarlyWarningAlert } = await import("./pre-entry-alerts");
+      const { recordNotificationAudit } = await import("./backendNotificationWorker");
       const result = await sendProximityEarlyWarningAlert({
         ticker: req.body?.ticker || "NVDA",
         entryPrice: Number(req.body?.entryPrice || 0),
@@ -2524,11 +2546,72 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
         email: req.body?.email || process.env.USER_ALERT_EMAIL,
       });
-      res.json(result);
+      const audit = recordNotificationAudit({
+        symbol: req.body?.ticker || "NVDA",
+        alertType: "PROXIMITY_EARLY_WARNING",
+        entryPrice: Number(req.body?.entryPrice || 0),
+        channels: ["telegram", "email"],
+        status: "SENT",
+        message: result.message,
+      });
+      res.json({ ...result, audit });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e?.message || String(e) });
     }
   });
+
+  // ── Persistent 24/7 Backend Notification Audit Log & Watchlist Alert Worker ──
+  app.get("/api/alerts/audit-log", async (req, res) => {
+    try {
+      const { getNotificationAuditLog, getLatestAlertsBySymbolMap } = await import("./backendNotificationWorker");
+      const symbol = typeof req.query.symbol === "string" ? req.query.symbol : undefined;
+      res.json({
+        ok: true,
+        alerts: getNotificationAuditLog(symbol),
+        bySymbol: getLatestAlertsBySymbolMap(),
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  app.post("/api/alerts/evaluate-watchlist", async (req, res) => {
+    try {
+      const { runBackendWatchlistAlertScan, dispatchServerSetupAlert } = await import("./backendNotificationWorker");
+      if (req.body?.symbol && req.body?.entryPrice) {
+        const single = await dispatchServerSetupAlert({
+          symbol: String(req.body.symbol),
+          entryPrice: Number(req.body.entryPrice),
+          stopLoss: Number(req.body.stopLoss || Number(req.body.entryPrice) * 0.985),
+          target1: Number(req.body.target1 || Number(req.body.entryPrice) * 1.03),
+          calculatedShares: Number(req.body.calculatedShares || 0) || undefined,
+          alertType: req.body.alertType || "CONFIRMED_1H_20SMA",
+          setupType: req.body.setupType,
+          context: req.body.context,
+          chatId: req.body.chatId || savedOffScreenAlertSettings.telegramChatId,
+          email: req.body.email || savedOffScreenAlertSettings.emailAddress,
+          phoneNumber: req.body.phoneNumber || savedOffScreenAlertSettings.phoneNumber,
+          force: Boolean(req.body.force),
+        });
+        return res.json({ ok: true, fired: [single.auditEntry], suppressed: single.suppressed });
+      }
+      const symbols = Array.isArray(req.body?.symbols) ? req.body.symbols : undefined;
+      const scanRes = await runBackendWatchlistAlertScan({
+        symbols,
+        getQuoteForSymbol: (sym) => getQuote(sym),
+      });
+      res.json({ ok: true, ...scanRes });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
+  // Start the persistent 24/7 server-side notification worker
+  void import("./backendNotificationWorker")
+    .then(({ startBackendNotificationWorker }) => {
+      startBackendNotificationWorker(60_000);
+    })
+    .catch((e) => console.warn("[boot] backend notification worker failed:", e?.message));
 
   // ── reset ─────────────────────────────────────────────────────
   app.post("/api/reset", async (_req, res) => {

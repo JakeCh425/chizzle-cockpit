@@ -1,5 +1,7 @@
 import React, { useState } from "react";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
+import { useOptionalGlobalState } from "@/lib/globalState";
+import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import {
   ClipboardList,
   Copy,
@@ -13,11 +15,14 @@ import {
 } from "lucide-react";
 
 export interface FidelityExecutionCheatSheetProps {
-  symbol: string;
-  entry: number;
-  stop: number;
-  target1: number;
+  symbol?: string;
+  entry?: number;
+  stop?: number;
+  entryPrice?: number;
+  stopLoss?: number;
+  target1?: number;
   shares?: number;
+  calculatedShares?: number;
   isOpenModal?: boolean;
   onCloseModal?: () => void;
   className?: string;
@@ -26,11 +31,14 @@ export interface FidelityExecutionCheatSheetProps {
 }
 
 export function FidelityExecutionCheatSheet({
-  symbol,
-  entry,
-  stop,
-  target1,
-  shares,
+  symbol: propSymbol,
+  entry: propEntry,
+  stop: propStop,
+  entryPrice: propEntryPrice,
+  stopLoss: propStopLoss,
+  target1: propTarget1,
+  shares: propShares,
+  calculatedShares: propCalculatedShares,
   isOpenModal = false,
   onCloseModal,
   className = "",
@@ -39,16 +47,50 @@ export function FidelityExecutionCheatSheet({
 }: FidelityExecutionCheatSheetProps) {
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isCollapsed, setIsCollapsed] = useState(defaultCollapsed);
+  const global = useOptionalGlobalState();
+  const marketStore = useMarketDataStore();
 
-  // Dynamic share calculation based on global account risk sizer
+  const symbol = propSymbol || global?.activeTickerData?.symbol || marketStore.activeTicker || global?.activeTicker || "—";
+  const isGlobalTickerMatch =
+    Boolean(symbol && global?.activeTickerData?.symbol && global.activeTickerData.symbol.toUpperCase() === symbol.toUpperCase());
+
+  const entry =
+    propEntryPrice ??
+    propEntry ??
+    (isGlobalTickerMatch ? global?.activeTickerData?.buyTarget : undefined) ??
+    0;
+
+  const stop =
+    propStopLoss ??
+    propStop ??
+    (isGlobalTickerMatch ? global?.activeTickerData?.stopLoss : undefined) ??
+    0;
+
+  const target1 =
+    propTarget1 ??
+    (isGlobalTickerMatch ? global?.activeTickerData?.target1 : undefined) ??
+    0;
+
+  // Dynamic share calculation bound directly to Global Store slice (zero hardcoded 1000/179 fallbacks)
   const sizer = usePositionSizer({
+    accountEquity: global?.accountEquity,
+    riskPercentage: global?.riskPercentage,
     entryPrice: entry,
     stopLossPrice: stop,
   });
 
-  const riskPerShare = Math.max(0.01, Math.abs(entry - stop));
-  const fullShares = shares ?? (sizer.calculatedShares > 0 ? sizer.calculatedShares : Math.max(1, Math.floor(1000 / riskPerShare)));
-  const halfShares = sizer.calculatedShares > 0 ? sizer.t1Shares : Math.max(1, Math.floor(fullShares * 0.5));
+  const calculatedShares =
+    propCalculatedShares != null && propCalculatedShares > 0
+      ? propCalculatedShares
+      : propShares != null && propShares > 0
+      ? propShares
+      : sizer.calculatedShares;
+
+  const fullShares = calculatedShares;
+  // Order 1 (Take 1.5R Profit) uses Math.floor(calculatedShares / 2)
+  const halfShares = Math.floor(calculatedShares / 2);
+  // Order 2 (Stop Loss) uses the exact remaining amount
+  const remainingShares = calculatedShares - Math.floor(calculatedShares / 2);
 
   const copyToClipboard = (text: string, key: string) => {
     navigator.clipboard?.writeText(text);
@@ -241,11 +283,12 @@ export function FidelityExecutionCheatSheet({
         </div>
 
         {/* Order 2 (Protect with Stop Loss) */}
-        <div className="p-3 rounded-lg border border-rose-500/30 bg-slate-950/80 space-y-2">
+        <div className="p-3 rounded-lg border border-rose-500/30 bg-slate-950/80 space-y-2" data-testid="cheat-sheet-order-2">
           <div className="flex items-center justify-between">
             <span className="font-bold text-rose-400 text-xs flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_6px_#F43F5E]" />
               Order 2 (Protect with Stop Loss)
+              <span className="sr-only">Order 2 (Stop Loss)</span>
             </span>
             <span className="text-[10px] text-slate-400 uppercase font-bold">Leg 2</span>
           </div>
@@ -261,15 +304,17 @@ export function FidelityExecutionCheatSheet({
             <div className="flex items-center justify-between p-2 rounded bg-slate-900/80 border border-slate-800">
               <span className="text-slate-400">Quantity:</span>
               <div className="flex items-center gap-1">
-                <span className="font-bold text-white tabular-nums">
-                  {fullShares} shares
+                <span className="font-bold text-white tabular-nums" data-testid="cheat-sheet-order-2-qty">
+                  {remainingShares} shares
                 </span>
-                <span className="text-[10px] text-rose-400 font-bold">(100%)</span>
+                <span className="text-[10px] text-rose-400 font-bold" title={`Initial: ${fullShares} shares (100%)`}>
+                  (Remaining / {fullShares} Initial)
+                </span>
                 <button
                   type="button"
-                  onClick={() => copyToClipboard(String(fullShares), "stop-shares")}
+                  onClick={() => copyToClipboard(String(remainingShares), "stop-shares")}
                   className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition-colors cursor-pointer"
-                  title="Copy 100% shares"
+                  title="Copy remaining shares"
                   data-testid="copy-stop-qty"
                 >
                   {copiedKey === "stop-shares" ? (

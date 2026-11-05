@@ -34,6 +34,7 @@ import { useCandleSetupConfirmation, type CandleData } from "@/hooks/useCandleSe
 import { usePreCloseAlert, PRE_CLOSE_ALERT_MESSAGE } from "@/hooks/usePreCloseAlert";
 import { useOffScreenPreEntryAlerts } from "@/hooks/useOffScreenPreEntryAlerts";
 import { useProximityAlert } from "@/hooks/useProximityAlert";
+import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { NotificationsAndAlertsPanel } from "@/components/NotificationsAndAlertsPanel";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
@@ -2551,6 +2552,7 @@ export default function WealthEngineDashboard() {
     || DEFAULT_WATCHLIST[0];
 
   const safeEquity = Number(global?.accountEquity ?? (global as any)?.equity) || 25000;
+  const notificationAudit = useNotificationAuditLog(activeTicker);
 
   // Dynamic trade levels derivation strictly for active ticker (Single Source of Truth: globalStore.currentPrice)
   const storeCurrentPrice =
@@ -4236,6 +4238,20 @@ export default function WealthEngineDashboard() {
                             [ MOMENTUM SETUP: 10-SMA ]
                           </span>
                         )}
+                        {(notificationAudit.isAlertSent || isTradeConfirmed || isTradeReady) && (
+                          <span
+                            className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-1.5 py-0.5 text-[8.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
+                            data-testid="badge-alert-sent"
+                            title="Backend 24/7 Notification Engine pushed Telegram/Email/SMS alert for this setup"
+                          >
+                            <span>[ 🔔 Alert Sent ]</span>
+                            {notificationAudit.formattedTime && (
+                              <span className="text-[8px] text-emerald-400/90 tabular-nums">
+                                · {notificationAudit.formattedTime}
+                              </span>
+                            )}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -4854,9 +4870,12 @@ export default function WealthEngineDashboard() {
                 <FidelityExecutionCheatSheet
                   symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                   entry={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+                  entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
                   stop={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+                  stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
                   target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
-                  shares={cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))}
+                  calculatedShares={cardSizing.calculatedShares}
+                  shares={cardSizing.calculatedShares}
                   isCollapsible
                   defaultCollapsed={false}
                 />
@@ -4888,7 +4907,7 @@ export default function WealthEngineDashboard() {
                   <div className="flex justify-between items-baseline">
                     <span className="text-slate-400 text-[11px]">Suggested Sizing:</span>
                     <span className="font-bold text-sm text-soft-white">
-                      {cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))} shares
+                      {cardSizing.calculatedShares} shares
                     </span>
                   </div>
                   <div className="flex justify-between items-baseline text-[10px]">
@@ -4907,9 +4926,12 @@ export default function WealthEngineDashboard() {
         <FidelityExecutionCheatSheet
           symbol={activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
           entry={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
+          entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
           stop={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
+          stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
           target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
-          shares={cardSizing.calculatedShares > 0 ? cardSizing.calculatedShares : Math.floor(1000 / Math.max(riskVal, 0.01))}
+          calculatedShares={cardSizing.calculatedShares}
+          shares={cardSizing.calculatedShares}
           isOpenModal={isFidelityGuideOpen}
           onCloseModal={() => setIsFidelityGuideOpen(false)}
         />

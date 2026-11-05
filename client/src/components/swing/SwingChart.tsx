@@ -26,6 +26,7 @@ import { useLiveQuote } from "@/lib/useLivePrices";
 import { useGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, marketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { useExecutionTriggers } from "@/hooks/useExecutionTriggers";
+import { usePositionSizer } from "@/hooks/usePositionSizer";
 import FidelityExecutionGuide from "@/components/FidelityExecutionGuide";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
 import {
@@ -917,6 +918,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const effectiveStop = userLevels.find((l) => l.kind === "STOP")?.price ?? decision?.structuralStop ?? decision?.stopBuffer ?? null;
   const effectiveTarget2 = userLevels.find((l) => l.kind === "T2")?.price ?? decision?.target2 ?? (effectiveEntry != null && effectiveStop != null ? +(effectiveEntry + Math.abs(effectiveEntry - effectiveStop) * 2.0).toFixed(2) : (effectiveEntry != null && effectiveTarget1 != null ? +(effectiveEntry + (effectiveTarget1 - effectiveEntry) * (2.0 / 1.5)).toFixed(2) : null));
 
+  const chartSizer = usePositionSizer({
+    accountEquity: global.accountEquity,
+    riskPercentage: global.riskPercentage,
+    entryPrice: effectiveEntry,
+    stopLossPrice: effectiveStop,
+  });
+  const effectiveShares = userPlan?.result.shares ?? decision?.shares ?? chartSizer.calculatedShares;
+
   const lastBarClose = b?.bars && b.bars.length > 0 ? b.bars[b.bars.length - 1].c : null;
   const executionTrigger = useExecutionTriggers(
     rawPrice,
@@ -1499,6 +1508,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
         target1={effectiveTarget1}
         target2={effectiveTarget2}
         stopLoss={effectiveStop}
+        calculatedShares={effectiveShares}
       />
     </div>
 

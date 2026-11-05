@@ -1,12 +1,15 @@
 import React, { useState } from "react";
 import { Copy, Check, X } from "lucide-react";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
+import { useOptionalGlobalState } from "@/lib/globalState";
+import { useMarketDataStore } from "@/lib/useMarketDataStore";
 
 export interface FidelityExecutionGuideProps {
   entryPrice?: number | null;
   target1?: number | null;
   target2?: number | null;
   stopLoss?: number | null;
+  calculatedShares?: number | null;
   ticker?: string;
   isOpen?: boolean;
   onClose?: () => void;
@@ -17,11 +20,12 @@ export interface FidelityExecutionGuideProps {
 }
 
 export function FidelityExecutionGuide({
-  entryPrice,
-  target1,
-  target2,
-  stopLoss,
-  ticker,
+  entryPrice: propEntryPrice,
+  target1: propTarget1,
+  target2: propTarget2,
+  stopLoss: propStopLoss,
+  calculatedShares: propCalculatedShares,
+  ticker: propTicker,
   isOpen = true,
   onClose,
   className = "",
@@ -30,15 +34,61 @@ export function FidelityExecutionGuide({
   t2Shares,
 }: FidelityExecutionGuideProps) {
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const global = useOptionalGlobalState();
+  const marketStore = useMarketDataStore();
+
+  // Bind directly to Global Store slice when props are omitted, with zero hardcoded price/share defaults
+  const ticker = propTicker || global?.activeTickerData?.symbol || marketStore.activeTicker || global?.activeTicker;
+  const isGlobalTickerMatch =
+    Boolean(ticker && global?.activeTickerData?.symbol && global.activeTickerData.symbol.toUpperCase() === ticker.toUpperCase());
+
+  const entryPrice =
+    propEntryPrice != null && propEntryPrice > 0
+      ? propEntryPrice
+      : isGlobalTickerMatch
+      ? global?.activeTickerData?.buyTarget ?? null
+      : null;
+
+  const stopLoss =
+    propStopLoss != null && propStopLoss > 0
+      ? propStopLoss
+      : isGlobalTickerMatch
+      ? global?.activeTickerData?.stopLoss ?? null
+      : null;
+
+  const target1 =
+    propTarget1 != null && propTarget1 > 0
+      ? propTarget1
+      : isGlobalTickerMatch
+      ? global?.activeTickerData?.target1 ?? null
+      : null;
+
+  const target2 =
+    propTarget2 != null && propTarget2 > 0
+      ? propTarget2
+      : isGlobalTickerMatch
+      ? global?.activeTickerData?.target2 ?? null
+      : null;
 
   const sizer = usePositionSizer({
+    accountEquity: global?.accountEquity,
+    riskPercentage: global?.riskPercentage,
     entryPrice,
     stopLossPrice: stopLoss,
   });
 
-  const calculatedShares = shares ?? sizer.calculatedShares;
-  const t1SharesCount = t1Shares ?? sizer.t1Shares;
-  const t2SharesCount = t2Shares ?? sizer.t2Shares;
+  const calculatedShares =
+    propCalculatedShares != null && propCalculatedShares > 0
+      ? propCalculatedShares
+      : shares != null && shares > 0
+      ? shares
+      : sizer.calculatedShares;
+
+  // Strict OCO mathematical split: Order 1 uses Math.floor(calculatedShares / 2), Order 2 uses exact remaining shares
+  const order1Shares = t1Shares ?? Math.floor(calculatedShares / 2);
+  const order2RemainingShares = t2Shares ?? (calculatedShares - Math.floor(calculatedShares / 2));
+  const t1SharesCount = order1Shares;
+  const t2SharesCount = order2RemainingShares;
 
   if (!isOpen) return null;
 
@@ -174,9 +224,10 @@ export function FidelityExecutionGuide({
           </div>
 
           {/* Order 1 (Lock in 1.5R Profit) */}
-          <div className="rounded border border-emerald-500/30 bg-slate-950/70 p-2.5 space-y-1 text-[11px]">
+          <div className="rounded border border-emerald-500/30 bg-slate-950/70 p-2.5 space-y-1 text-[11px]" data-testid="guide-order-1">
             <div className="font-bold text-emerald-300 text-[10.5px]">
               Order 1 (Lock in 1.5R Profit):
+              <span className="sr-only">Order 1 (Take 1.5R Profit)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Action:</span>
@@ -186,10 +237,10 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">
+              <span className="font-semibold text-slate-200" data-testid="guide-order-1-qty">
                 {t1SharesCount > 0 ? (
                   <>
-                    <span className="font-mono font-bold text-emerald-400">{t1SharesCount} Shares</span>
+                    <span className="font-mono font-bold text-emerald-400 tabular-nums">{t1SharesCount} Shares</span>
                     <span className="text-slate-400 text-[10px] ml-1.5">(50% of shares)</span>
                   </>
                 ) : (
@@ -225,9 +276,10 @@ export function FidelityExecutionGuide({
           </div>
 
           {/* Order 2 (Initial Stop Loss) */}
-          <div className="rounded border border-rose-500/30 bg-slate-950/70 p-2.5 space-y-1 text-[11px]">
+          <div className="rounded border border-rose-500/30 bg-slate-950/70 p-2.5 space-y-1 text-[11px]" data-testid="guide-order-2">
             <div className="font-bold text-rose-300 text-[10.5px]">
               Order 2 (Initial Stop Loss):
+              <span className="sr-only">Order 2 (Stop Loss)</span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Action:</span>
@@ -237,11 +289,13 @@ export function FidelityExecutionGuide({
             </div>
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
-              <span className="font-semibold text-slate-200">
+              <span className="font-semibold text-slate-200" data-testid="guide-order-2-qty">
                 {calculatedShares > 0 ? (
                   <>
-                    <span className="font-mono font-bold text-rose-400">{calculatedShares} Shares</span>
-                    <span className="text-slate-400 text-[10px] ml-1.5">(100% of shares)</span>
+                    <span className="font-mono font-bold text-rose-400 tabular-nums">{order2RemainingShares} Shares</span>
+                    <span className="text-slate-400 text-[10px] ml-1.5">
+                      (Remaining • {calculatedShares} Shares 100% of shares)
+                    </span>
                   </>
                 ) : (
                   "100% of shares"

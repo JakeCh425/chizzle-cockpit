@@ -27,6 +27,7 @@ import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
+import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { useToast } from "@/hooks/use-toast";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
 
@@ -435,6 +436,7 @@ function ActionCenterInner() {
 
   const [armingSymbol, setArmingSymbol] = useState<string | null>(null);
   const marketStore = useMarketDataStore();
+  const auditLog = useNotificationAuditLog();
   const { toast } = useToast();
 
   // Strict State-Routing Gatekeeper for the "Active Execution Zone":
@@ -886,6 +888,18 @@ function ActionCenterInner() {
                               [ MOMENTUM SETUP: 10-SMA ]
                             </span>
                           )}
+                          <span
+                            data-testid={`badge-alert-sent-${d.symbol}`}
+                            className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-2 py-0.5 text-[9.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
+                            title="Backend 24/7 Notification Engine pushed Telegram/Email/SMS alert for this confirmed setup"
+                          >
+                            <span>[ 🔔 Alert Sent ]</span>
+                            {auditLog.getAlertForSymbol(d.symbol)?.formattedTime && (
+                              <span className="text-[8.5px] text-emerald-400/90 tabular-nums">
+                                · {auditLog.getAlertForSymbol(d.symbol)?.formattedTime}
+                              </span>
+                            )}
+                          </span>
                         </div>
 
                         {/* BUY LIMIT | STOP | TARGET */}
