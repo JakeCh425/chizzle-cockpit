@@ -1668,7 +1668,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       <ReadyRibbon d={d} ver={ver} />
 
       {/* ─── TOP ROW: Ticker symbol, Live Price, Status Badge & [Fidelity Ticket] Mini-Guide ─── */}
-      <div className="flex flex-wrap items-center justify-between gap-2 p-4 border-b border-[var(--card-border)] overflow-hidden">
+      <div className="flex flex-wrap items-center justify-between gap-2 overflow-hidden p-4 border-b border-[var(--card-border)]" data-testid={`compact-card-header-${d.symbol}`}>
         <div className="flex flex-wrap items-center gap-2.5 min-w-0">
           <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-tight text-white shrink-0">
             {d.symbol}
@@ -1733,7 +1733,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         </div>
 
         {/* Right Actions: [Fidelity Ticket] Mini-Guide Button & Pinned Gain Badge */}
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 max-w-full">
           <button
             type="button"
             disabled={isPracticeMode}
@@ -1755,11 +1755,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </button>
 
           {potentialGainPct > 0 ? (
-            <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0">
+            <span
+              className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0 whitespace-nowrap"
+              data-testid={`badge-potential-gain-${d.symbol}`}
+            >
               +{potentialGainPct.toFixed(2)}% Potential Gain
             </span>
           ) : (
-            <span className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums shrink-0">
+            <span
+              className="rounded-full border border-[var(--card-border)] bg-white/5 px-2.5 py-1 font-mono text-xs font-bold text-[var(--card-text-secondary)] tabular-nums shrink-0 whitespace-nowrap"
+              data-testid={`badge-potential-gain-${d.symbol}`}
+            >
               0.00% Potential Gain
             </span>
           )}
@@ -1771,7 +1777,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="p-1 px-2.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-colors cursor-pointer flex items-center gap-1.5 relative z-20 pointer-events-auto font-mono text-[11px] font-bold shadow-sm"
+            className="p-1 px-2.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-colors cursor-pointer flex items-center gap-1.5 relative z-20 pointer-events-auto font-mono text-[11px] font-bold shadow-sm shrink-0 whitespace-nowrap"
             data-testid={`button-toggle-card-collapse-${d.symbol}`}
             title={isExpanded ? "Collapse card details" : "Expand chart & details"}
             aria-label={isExpanded ? "Collapse card details" : "Expand chart & details"}
@@ -1780,9 +1786,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               {isExpanded ? "[ Collapse Chart & Details ⌃ ]" : "[ Expand Chart & Details ⌄ ]"}
             </span>
             {isExpanded ? (
-              <ChevronUp className="h-4 w-4 text-cyan-400" />
+              <ChevronUp className="h-4 w-4 text-cyan-400 shrink-0" />
             ) : (
-              <ChevronDown className="h-4 w-4 text-cyan-400" />
+              <ChevronDown className="h-4 w-4 text-cyan-400 shrink-0" />
             )}
           </button>
         </div>
@@ -2657,4 +2663,5 @@ export function AdjustPlan({ d, ver, equity, minRr, onDone }: Omit<CardProps, "i
 
 export { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 export const SetupCard = InlineTradingCard;
+export const CompactCard = InlineTradingCard;
 

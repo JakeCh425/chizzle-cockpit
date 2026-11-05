@@ -136,5 +136,22 @@ describe("Architecture Overhaul - 'Bad Tick' Filtering & Single Source of Truth 
       expect(actionCenterSrc).toContain('data-testid={`badge-card-delayed-${d.symbol}`}');
     });
   });
+
+  describe("4. Fix Setup Card UI (Text Overflow & Layout Break on CompactCard Header)", () => {
+    it("exports CompactCard and enforces flex flex-wrap items-center justify-between gap-2 overflow-hidden on the top header row", () => {
+      expect(tradingCardSrc).toContain("export const CompactCard = InlineTradingCard");
+      expect(tradingCardSrc).toContain("flex flex-wrap items-center justify-between gap-2 overflow-hidden");
+      expect(dashboardSrc).toContain("flex flex-wrap items-center justify-between gap-2 overflow-hidden");
+    });
+
+    it("keeps Potential Gain badge and Expand Chart & Details button in flex flow with shrink-0 and no absolute positioning", () => {
+      expect(tradingCardSrc).toContain("Potential Gain");
+      expect(tradingCardSrc).toContain("[ Expand Chart & Details ⌄ ]");
+      expect(tradingCardSrc).toContain('data-testid={`badge-potential-gain-${d.symbol}`}');
+      expect(tradingCardSrc).toContain('data-testid={`button-toggle-card-collapse-${d.symbol}`}');
+      // Verify the right action group wraps cleanly with shrink-0
+      expect(tradingCardSrc).toContain("flex flex-wrap items-center justify-end gap-2 shrink-0 max-w-full");
+    });
+  });
 });
 

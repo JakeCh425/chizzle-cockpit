@@ -4201,9 +4201,9 @@ export default function WealthEngineDashboard() {
                   )}
 
                   {/* Card Header & Status Badge */}
-                  <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-b border-[var(--card-border)] overflow-hidden" data-testid="studio-setup-card-header">
+                  <div className="flex flex-wrap items-center justify-between gap-2 overflow-hidden px-3 py-2 border-b border-[var(--card-border)]" data-testid="studio-setup-card-header">
                     <div className="min-w-0">
-                      <div className="flex items-center gap-2.5">
+                      <div className="flex flex-wrap items-center gap-2.5">
                         <span className="text-3xl sm:text-4xl font-extrabold font-mono tracking-tight text-[var(--card-text-primary)] shrink-0">
                           {activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker}
                         </span>
@@ -4213,13 +4213,13 @@ export default function WealthEngineDashboard() {
                         {(isDelayed || isReconnecting) && (
                           <span
                             data-testid="badge-setup-card-delayed"
-                            className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+                            className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm shrink-0"
                           >
                             {isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
                           </span>
                         )}
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 truncate">
+                      <div className="flex flex-wrap items-center gap-1.5 mt-0.5 min-w-0">
                         <span className="text-[10.5px] font-mono uppercase tracking-wider text-[var(--card-accent-buy)] font-bold truncate">
                           {activeTickerData?.setupType ?? activeItem?.setupType ?? "20-SMA BOUNCE · 4H"}
                         </span>
@@ -4256,10 +4256,10 @@ export default function WealthEngineDashboard() {
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 max-w-full">
                       {/* Dynamic Predictive Proximity Readiness Score Badge */}
                       <span
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-wider border shadow-sm shrink-0 ${
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-black uppercase tracking-wider border shadow-sm shrink-0 whitespace-nowrap ${
                           (proximityPct <= 0.5 || isTradeConfirmed || isTradeReady)
                             ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.4)]"
                             : proximityPct <= 2.5
@@ -4280,7 +4280,7 @@ export default function WealthEngineDashboard() {
                           e.stopPropagation();
                           setIsStudioMiniGuideOpen((prev) => !prev);
                         }}
-                        className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
+                        className={`px-2 py-0.5 rounded-md border font-mono text-[9px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 whitespace-nowrap ${
                           isStudioMiniGuideOpen
                             ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                             : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
@@ -4298,7 +4298,7 @@ export default function WealthEngineDashboard() {
                         const gainPct = buy > 0 && tgt > buy ? ((tgt - buy) / buy) * 100 : 0;
                         if (gainPct <= 0) return null;
                         return (
-                          <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-0.5 font-mono text-[10px] font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0 hidden sm:inline-block">
+                          <span className="rounded-full border border-[var(--card-border)] bg-[var(--card-badge-bg)] px-2.5 py-0.5 font-mono text-[10px] font-bold text-[var(--card-badge-text)] tabular-nums shadow-sm shrink-0 whitespace-nowrap">
                             +{gainPct.toFixed(2)}% Potential Gain
                           </span>
                         );
@@ -4306,7 +4306,7 @@ export default function WealthEngineDashboard() {
 
                       {/* Gatekeeper Status Badge & Max Chase Proximity Status */}
                       <div
-                        className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 ${
+                        className={`px-2.5 py-1 rounded-full text-[10px] font-mono font-bold uppercase tracking-wider shadow-sm border shrink-0 whitespace-nowrap ${
                           isTradeReady
                             ? "bg-emerald-500/20 text-[#00E676] border-emerald-400/50 animate-pulse shadow-[0_0_15px_rgba(0,230,118,0.4)]"
                             : tradeReadiness.statusBadge.badgeClass
@@ -4330,15 +4330,15 @@ export default function WealthEngineDashboard() {
                           e.stopPropagation();
                           setIsStudioSetupCardExpanded((prev) => !prev);
                         }}
-                        className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
+                        className="p-1 rounded-md border border-[var(--card-border)] bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer shrink-0"
                         data-testid="button-toggle-setup-card-collapse"
                         title={isStudioSetupCardExpanded ? "Collapse card details" : "Expand card details"}
                         aria-label={isStudioSetupCardExpanded ? "Collapse card details" : "Expand card details"}
                       >
                         {isStudioSetupCardExpanded ? (
-                          <ChevronUp className="h-4 w-4 text-cyan-400" />
+                          <ChevronUp className="h-4 w-4 text-cyan-400 shrink-0" />
                         ) : (
-                          <ChevronDown className="h-4 w-4 text-cyan-400" />
+                          <ChevronDown className="h-4 w-4 text-cyan-400 shrink-0" />
                         )}
                       </button>
                     </div>
