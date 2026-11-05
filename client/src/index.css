@@ -77,6 +77,29 @@ select option:checked {
   color: #ffffff !important;
 }
 
+/* High-contrast styling for inputs and search fields */
+input[type="text"],
+input[type="search"],
+input[type="number"],
+textarea {
+  color-scheme: dark;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: #94a3b8;
+}
+
+.bg-yellow-400,
+[class*="bg-yellow"] {
+  color: #111827 !important;
+}
+
+.bg-yellow-400::placeholder,
+[class*="bg-yellow"]::placeholder {
+  color: #374151 !important;
+}
+
 /*
  * CHIZZLE WEALTH ENGINE — LIGHT NEON BLOOMBERG PALETTE
  *

@@ -1017,18 +1017,20 @@ function ActionCenterInner() {
                               [ MOMENTUM SETUP: 10-SMA ]
                             </span>
                           )}
-                          <span
-                            data-testid={`badge-alert-sent-${d.symbol}`}
-                            className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-2 py-0.5 text-[9.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
-                            title="Backend 24/7 Notification Engine pushed Telegram/Email/SMS alert for this confirmed setup"
-                          >
-                            <span>[ 🔔 Alert Sent ]</span>
-                            {auditLog.getAlertForSymbol(d.symbol)?.formattedTime && (
-                              <span className="text-[8.5px] text-emerald-400/90 tabular-nums">
-                                · {auditLog.getAlertForSymbol(d.symbol)?.formattedTime}
-                              </span>
-                            )}
-                          </span>
+                          {Boolean(marketStore.setupAlerts?.[d.symbol]?.alertSent || auditLog.isSymbolAlertSent(d.symbol) || auditLog.getAlertForSymbol(d.symbol)) && (
+                            <span
+                              data-testid={`badge-alert-sent-${d.symbol}`}
+                              className="rounded-md border border-emerald-400/70 bg-emerald-950/80 px-2 py-0.5 text-[9.5px] font-mono font-bold tracking-wider text-emerald-300 shadow-sm shrink-0 flex items-center gap-1"
+                              title="Backend 24/7 Notification Engine pushed Telegram/Email/SMS alert for this confirmed setup"
+                            >
+                              <span>[ 🔔 Alert Sent ]</span>
+                              {auditLog.getAlertForSymbol(d.symbol)?.formattedTime && (
+                                <span className="text-[8.5px] text-emerald-400/90 tabular-nums">
+                                  · {auditLog.getAlertForSymbol(d.symbol)?.formattedTime}
+                                </span>
+                              )}
+                            </span>
+                          )}
                         </div>
 
                         {/* Pulsing Skeleton Overlay when currentPrice === null or 0 */}

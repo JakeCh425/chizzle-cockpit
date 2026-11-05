@@ -2488,27 +2488,39 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       const isTest = Boolean(req.body?.force || req.body?.isTest || req.body?.context?.includes("Test"));
       const setup = getSetupAlertState(symbol);
 
-      if (!isTest && req.body?.strictExecutionZone) {
-        const gate = evaluateExecutionZoneAlertGate({
-          symbol,
-          currentPrice: Number(req.body?.currentPrice ?? req.body?.entryPrice ?? 0),
-          sma20: req.body?.sma20 != null ? Number(req.body.sma20) : undefined,
-          ema10: req.body?.ema10 != null ? Number(req.body.ema10) : undefined,
-          sma10: req.body?.sma10 != null ? Number(req.body.sma10) : undefined,
-          entryPrice: Number(req.body?.entryPrice || 0),
-          stopLoss: req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined,
-          isTradeConfirmed: Boolean(req.body?.isTradeConfirmed),
-          status: req.body?.status,
-        });
-        if (!gate.setupIsReady || setup.alertSent) {
+      if (!isTest) {
+        if (setup.alertSent) {
           return res.json({
             ok: true,
             suppressed: true,
-            alertSent: setup.alertSent,
+            alertSent: true,
             lastAlertTimestamp: setup.lastAlertTimestamp,
             setupState: setup,
-            reason: gate.reason,
+            reason: `${symbol} alert already sent for this setup today. Duplicate suppressed.`,
           });
+        }
+        if (req.body?.strictExecutionZone || req.body?.sma20 != null || req.body?.ema10 != null || typeof req.body?.isTradeConfirmed === "boolean") {
+          const gate = evaluateExecutionZoneAlertGate({
+            symbol,
+            currentPrice: Number(req.body?.currentPrice ?? req.body?.entryPrice ?? 0),
+            sma20: req.body?.sma20 != null ? Number(req.body.sma20) : undefined,
+            ema10: req.body?.ema10 != null ? Number(req.body.ema10) : undefined,
+            sma10: req.body?.sma10 != null ? Number(req.body.sma10) : undefined,
+            entryPrice: Number(req.body?.entryPrice || 0),
+            stopLoss: req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined,
+            isTradeConfirmed: Boolean(req.body?.isTradeConfirmed),
+            status: req.body?.status,
+          });
+          if (!gate.setupIsReady) {
+            return res.json({
+              ok: true,
+              suppressed: true,
+              alertSent: false,
+              lastAlertTimestamp: null,
+              setupState: setup,
+              reason: gate.reason,
+            });
+          }
         }
       }
 
@@ -2554,8 +2566,52 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/email", async (req, res) => {
     try {
       const { sendPreEntryEmail } = await import("./sendEmailAlert");
-      const { recordNotificationAudit, updateSetup } = await import("./backendNotificationWorker");
+      const {
+        recordNotificationAudit,
+        updateSetup,
+        getSetupAlertState,
+        evaluateExecutionZoneAlertGate,
+      } = await import("./backendNotificationWorker");
       const symbol = String(req.body?.ticker || "NVDA").trim().toUpperCase();
+      const isTest = Boolean(req.body?.force || req.body?.isTest);
+      const setup = getSetupAlertState(symbol);
+
+      if (!isTest) {
+        if (setup.alertSent) {
+          return res.json({
+            ok: true,
+            suppressed: true,
+            alertSent: true,
+            lastAlertTimestamp: setup.lastAlertTimestamp,
+            setupState: setup,
+            reason: `${symbol} email alert already sent for this setup today. Duplicate suppressed.`,
+          });
+        }
+        if (req.body?.strictExecutionZone || req.body?.sma20 != null || req.body?.ema10 != null || typeof req.body?.isTradeConfirmed === "boolean") {
+          const gate = evaluateExecutionZoneAlertGate({
+            symbol,
+            currentPrice: Number(req.body?.price ?? req.body?.currentPrice ?? req.body?.entryPrice ?? 0),
+            sma20: req.body?.sma20 != null ? Number(req.body.sma20) : undefined,
+            ema10: req.body?.ema10 != null ? Number(req.body.ema10) : undefined,
+            sma10: req.body?.sma10 != null ? Number(req.body.sma10) : undefined,
+            entryPrice: Number(req.body?.price ?? req.body?.entryPrice ?? 0),
+            stopLoss: req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined,
+            isTradeConfirmed: Boolean(req.body?.isTradeConfirmed),
+            status: req.body?.status,
+          });
+          if (!gate.setupIsReady) {
+            return res.json({
+              ok: true,
+              suppressed: true,
+              alertSent: false,
+              lastAlertTimestamp: null,
+              setupState: setup,
+              reason: gate.reason,
+            });
+          }
+        }
+      }
+
       const userEmail = req.body?.email || req.body?.emailAddress || req.body?.userEmail || savedOffScreenAlertSettings.emailAddress || savedOffScreenAlertSettings.email;
       const result = await sendPreEntryEmail({
         userEmail,
@@ -2593,17 +2649,47 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   app.post("/api/alerts/proximity", async (req, res) => {
     try {
       const { sendProximityEarlyWarningAlert } = await import("./pre-entry-alerts");
-      const { recordNotificationAudit, updateSetup, getSetupAlertState } = await import("./backendNotificationWorker");
+      const {
+        recordNotificationAudit,
+        updateSetup,
+        getSetupAlertState,
+        evaluateExecutionZoneAlertGate,
+      } = await import("./backendNotificationWorker");
       const symbol = String(req.body?.ticker || "NVDA").trim().toUpperCase();
+      const isTest = Boolean(req.body?.force || req.body?.isTest);
       const existingSetup = getSetupAlertState(symbol);
-      if (existingSetup.alertSent && !req.body?.force) {
+      if (existingSetup.alertSent && !isTest) {
         return res.json({
           ok: true,
           suppressed: true,
           alertSent: true,
           lastAlertTimestamp: existingSetup.lastAlertTimestamp,
           setupState: existingSetup,
+          reason: `${symbol} proximity alert already sent for this setup today. Duplicate suppressed.`,
         });
+      }
+      if (!isTest && (req.body?.strictExecutionZone || req.body?.sma20 != null || req.body?.ema10 != null || req.body?.currentPrice != null)) {
+        const gate = evaluateExecutionZoneAlertGate({
+          symbol,
+          currentPrice: Number(req.body?.currentPrice ?? req.body?.entryPrice ?? 0),
+          sma20: req.body?.sma20 != null ? Number(req.body.sma20) : undefined,
+          ema10: req.body?.ema10 != null ? Number(req.body.ema10) : undefined,
+          sma10: req.body?.sma10 != null ? Number(req.body.sma10) : undefined,
+          entryPrice: Number(req.body?.entryPrice || 0),
+          stopLoss: req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined,
+          isTradeConfirmed: Boolean(req.body?.isTradeConfirmed),
+          status: req.body?.status,
+        });
+        if (!gate.setupIsReady) {
+          return res.json({
+            ok: true,
+            suppressed: true,
+            alertSent: false,
+            lastAlertTimestamp: null,
+            setupState: existingSetup,
+            reason: gate.reason,
+          });
+        }
       }
       const result = await sendProximityEarlyWarningAlert({
         ticker: symbol,

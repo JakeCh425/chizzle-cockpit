@@ -300,5 +300,48 @@ describe("Notification Engine Refactor — Alert Deduplication & Strict Proximit
       expect(auditHookSrc).toContain("globalStore.updateSetup");
     });
   });
+
+  describe("4. UI Text Contrast: Dropdown & Search Input Fields", () => {
+    it("enforces dark dropdown containers (bg-gray-900 text-white) and prevents Chromium OS option inversion", () => {
+      const indexCss = fs.readFileSync(path.resolve(rootDir, "client/src/index.css"), "utf-8");
+      expect(indexCss).toContain("color-scheme: dark !important;");
+      expect(indexCss).toContain("background-color: #111827 !important;");
+      expect(indexCss).toContain("color: #ffffff !important;");
+      expect(indexCss).toContain("--popover: 222 47% 11%;");
+    });
+
+    it("enforces high-contrast search input styles across Watchlist, SwingWorkspace, and Cockpit", () => {
+      const swingWorkspaceSrc = fs.readFileSync(
+        path.resolve(rootDir, "client/src/components/swing/SwingWorkspace.tsx"),
+        "utf-8"
+      );
+      const watchlistSrc = fs.readFileSync(
+        path.resolve(rootDir, "client/src/pages/Watchlist.tsx"),
+        "utf-8"
+      );
+      const dashboardSrc = fs.readFileSync(
+        path.resolve(rootDir, "client/src/pages/WealthEngineDashboard.tsx"),
+        "utf-8"
+      );
+
+      // SwingWorkspace search/add input
+      expect(swingWorkspaceSrc).toContain('data-testid="input-add-ticker"');
+      expect(swingWorkspaceSrc).toContain("bg-yellow-400");
+      expect(swingWorkspaceSrc).toContain("text-gray-900");
+      expect(swingWorkspaceSrc).toContain("placeholder-gray-700");
+
+      // Watchlist page search input
+      expect(watchlistSrc).toContain('data-testid="input-add-symbol"');
+      expect(watchlistSrc).toContain("bg-yellow-400");
+      expect(watchlistSrc).toContain("text-gray-900");
+      expect(watchlistSrc).toContain("placeholder-gray-700");
+
+      // WealthEngineDashboard search input
+      expect(dashboardSrc).toContain('placeholder="Search/Add Symbol..."');
+      expect(dashboardSrc).toContain("bg-yellow-400");
+      expect(dashboardSrc).toContain("text-gray-900");
+      expect(dashboardSrc).toContain("placeholder-gray-700");
+    });
+  });
 });
 

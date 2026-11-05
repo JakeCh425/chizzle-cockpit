@@ -255,7 +255,7 @@ export default function Watchlist() {
               }}
               onClick={e => e.stopPropagation()}
               onMouseDown={e => e.stopPropagation()}
-              className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono font-mono-num text-[13px] text-white text-cyan-400 bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold focus:bg-yellow-400 focus:text-gray-900 focus:border-neon-blue/60 outline-none"
+              className="w-full mt-1 px-3 py-1.5 rounded-sm font-mono font-mono-num text-[13px] text-white text-cyan-400 bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold focus:bg-yellow-400 focus:text-gray-900 focus:border-neon-blue/60 outline-none"
               style={{ color: "#111827" }}
               placeholder="NVDA"
             />

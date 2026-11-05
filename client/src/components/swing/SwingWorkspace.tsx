@@ -131,7 +131,7 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}
           placeholder="Add ticker or exchange-qualified symbol"
-          className="flex-1 min-w-0 bg-ink-deep border border-ink-line rounded px-2 py-1 text-xs font-mono text-white text-cyan-400 bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold placeholder:text-gray-700 focus:bg-yellow-400 focus:text-gray-900"
+          className="flex-1 min-w-0 rounded px-2.5 py-1 text-xs font-mono text-white text-cyan-400 bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold focus:bg-yellow-400 focus:text-gray-900 outline-none"
           style={{ color: "#111827" }}
           data-testid="input-add-ticker"
           aria-label="Add ticker"
