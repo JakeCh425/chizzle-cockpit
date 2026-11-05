@@ -12,6 +12,7 @@ export interface MarketTick {
   prevClose?: number;
   volume?: number;
   source?: string;
+  forceAuthoritative?: boolean;
 }
 
 export interface LastValidTick {
@@ -21,6 +22,9 @@ export interface LastValidTick {
 }
 
 export interface MarketDataState {
+  activeTicker: string;
+  currentPrice: number | null;
+  isLoadingTicker: boolean;
   prices: Record<string, number>;
   quotes: Record<string, LiveQuote>;
   lastValidTicks: Record<string, LastValidTick>;
@@ -29,19 +33,23 @@ export interface MarketDataState {
   isDelayed: boolean;
   isReconnecting: boolean;
   lastEventAt: number;
+  lastTickTimestamp: number;
   lastError: string | null;
 }
 
 type Listener = () => void;
+
+export const STALE_TICK_THRESHOLD_MS = 15_000; // 15 seconds max silence while market is OPEN
 
 /**
  * Singleton Market Data Store (Single Source of Truth)
  *
  * Centralizes all real-time market data ticks and REST fallbacks.
  * Subscribed to simultaneously by:
- *   1. Wealth Studio Chart
+ *   1. Wealth Studio Chart & Multi-Timeframe Learning Chart
  *   2. Top Header & Nav Pills
- *   3. Action Center & Trading Setup Cards
+ *   3. Watchlist
+ *   4. Action Center & Trading Setup Cards
  */
 class MarketDataStore {
   private state: MarketDataState;
@@ -52,6 +60,7 @@ class MarketDataStore {
     const initialPrices: Record<string, number> = {};
     const initialTicks: Record<string, LastValidTick> = {};
     const initialPrevClose: Record<string, number> = {};
+    const now = Date.now();
 
     for (const item of DEFAULT_WATCHLIST || []) {
       if (item?.symbol && item?.price != null && item.price > 0) {
@@ -60,13 +69,17 @@ class MarketDataStore {
         initialPrevClose[item.symbol] = prev > 0 ? prev : item.price;
         initialTicks[item.symbol] = {
           price: item.price,
-          timestamp: Date.now(),
+          timestamp: now,
           prevClose: initialPrevClose[item.symbol],
         };
       }
     }
 
+    const defaultActive = "NVDA";
     this.state = {
+      activeTicker: defaultActive,
+      currentPrice: initialPrices[defaultActive] ?? null,
+      isLoadingTicker: false,
       prices: initialPrices,
       quotes: {},
       lastValidTicks: initialTicks,
@@ -74,13 +87,42 @@ class MarketDataStore {
       status: "LIVE",
       isDelayed: false,
       isReconnecting: false,
-      lastEventAt: Date.now(),
+      lastEventAt: now,
+      lastTickTimestamp: now,
       lastError: null,
     };
   }
 
   public getState(): MarketDataState {
     return this.state;
+  }
+
+  /**
+   * Direct accessor for the Single Source of Truth currentPrice
+   * (`globalStore.currentPrice`)
+   */
+  public get currentPrice(): number | null {
+    return this.state.currentPrice;
+  }
+
+  public set currentPrice(price: number | null) {
+    if (price == null) {
+      this.state = {
+        ...this.state,
+        currentPrice: null,
+      };
+      this.notify();
+      return;
+    }
+    this.setCurrentPrice(price, this.state.activeTicker);
+  }
+
+  public get activeTicker(): string {
+    return this.state.activeTicker;
+  }
+
+  public get lastTickTimestamp(): number {
+    return this.state.lastTickTimestamp;
   }
 
   public subscribe = (listener: Listener): (() => void) => {
@@ -92,6 +134,94 @@ class MarketDataStore {
     for (const listener of this.listeners) {
       listener();
     }
+  }
+
+  /**
+   * 1. Cross-Component Data Bleed Prevention:
+   * Explicitly clears the active ticker's transient chart/header display state BEFORE fetching new data.
+   * Forces the chart and header to show a momentary loading state / blank slate (`isLoadingTicker = true`, `currentPrice = null`),
+   * preventing the previous ticker's numbers (e.g., XLV at $190) or stale cached prices ($232.15) from masquerading as the new ticker's data.
+   */
+  public clearData(nextTicker?: string): void {
+    const cleanNext = nextTicker ? nextTicker.toUpperCase().trim().split(":").pop()! : this.state.activeTicker;
+    const nextLastValid = { ...this.state.lastValidTicks };
+    const nextPrevClose = { ...this.state.previousClose };
+    const nextPrices = { ...this.state.prices };
+    if (cleanNext) {
+      // Clear stale cached tick/seed references for the newly focused ticker so fresh authoritative REST/WS data is never blocked by old seed values ($232.15)
+      delete nextLastValid[cleanNext];
+      delete nextPrevClose[cleanNext];
+      delete nextPrices[cleanNext];
+    }
+
+    this.state = {
+      ...this.state,
+      activeTicker: cleanNext || this.state.activeTicker,
+      currentPrice: null,
+      isLoadingTicker: true,
+      prices: nextPrices,
+      lastValidTicks: nextLastValid,
+      previousClose: nextPrevClose,
+    };
+    this.notify();
+  }
+
+  /**
+   * Strictly enforces `activeTicker` globally:
+   * Fires `clearData(ticker)` BEFORE resolving and fetching the new ticker's authoritative price.
+   */
+  public setActiveTicker(ticker: string): void {
+    const sym = ticker ? ticker.toUpperCase().trim().split(":").pop()! : "";
+    if (!sym) return;
+
+    // Step 1: Explicitly clear previous ticker display state BEFORE loading new ticker data
+    this.clearData(sym);
+
+    // Step 2: Hydrate with known price for `sym` (if available) and mark ready while background fetch refreshes
+    const knownPrice = this.state.prices[sym] ?? null;
+    this.state = {
+      ...this.state,
+      activeTicker: sym,
+      currentPrice: knownPrice,
+      isLoadingTicker: false,
+    };
+    this.notify();
+  }
+
+  /**
+   * 2. Enforce 'Single Source of Truth' for Current Price:
+   * Directly updates `globalStore.currentPrice` and `prices[sym]` simultaneously so Header, Watchlist, Setup Cards, and Chart update in lockstep.
+   */
+  public setCurrentPrice(price: number, symbol?: string): void {
+    if (!Number.isFinite(price) || price <= 0) return;
+    const sym = (symbol || this.state.activeTicker || "NVDA").toUpperCase().trim().split(":").pop()!;
+    const now = Date.now();
+    const prevClose = this.state.previousClose[sym] ?? price;
+
+    this.state = {
+      ...this.state,
+      activeTicker: symbol ? sym : this.state.activeTicker,
+      currentPrice: price,
+      isLoadingTicker: false,
+      prices: {
+        ...this.state.prices,
+        [sym]: price,
+      },
+      lastValidTicks: {
+        ...this.state.lastValidTicks,
+        [sym]: {
+          price,
+          timestamp: now,
+          prevClose,
+        },
+      },
+      lastEventAt: now,
+      lastTickTimestamp: now,
+      isDelayed: false,
+      isReconnecting: false,
+      status: "LIVE",
+    };
+    this.notify();
   }
 
   /**
@@ -138,7 +268,7 @@ class MarketDataStore {
       this.state.prices[sym];
 
     // Outlier check: Math.abs((liveTick.price - lastValidTick.price) / lastValidTick.price)
-    if (lastValid && lastValid > 0) {
+    if (!tick.forceAuthoritative && lastValid && lastValid > 0) {
       const pctDiff = Math.abs((tick.price - lastValid) / lastValid);
       if (pctDiff > this.BAD_TICK_THRESHOLD) {
         console.warn(
@@ -152,9 +282,12 @@ class MarketDataStore {
 
     const now = tick.timestamp || Date.now();
     const prevClose = tick.prevClose ?? this.state.previousClose[sym] ?? lastValid ?? tick.price;
+    const isActiveSym = sym === this.state.activeTicker;
 
     this.state = {
       ...this.state,
+      currentPrice: isActiveSym ? tick.price : (this.state.currentPrice ?? this.state.prices[this.state.activeTicker] ?? null),
+      isLoadingTicker: isActiveSym ? false : this.state.isLoadingTicker,
       prices: {
         ...this.state.prices,
         [sym]: tick.price,
@@ -172,9 +305,10 @@ class MarketDataStore {
         [sym]: prevClose,
       },
       lastEventAt: now,
+      lastTickTimestamp: now,
       isDelayed: false,
       isReconnecting: false,
-      status: this.state.status === "CONNECTING" || this.state.status === "RECONNECTING" ? "LIVE" : this.state.status,
+      status: this.state.status === "CONNECTING" || this.state.status === "RECONNECTING" || this.state.status === "DELAYED" || this.state.status === "STALE" ? "LIVE" : this.state.status,
     };
 
     this.notify();
@@ -215,13 +349,18 @@ class MarketDataStore {
     }
 
     if (changed) {
+      const now = Date.now();
+      const activeSym = this.state.activeTicker;
       this.state = {
         ...this.state,
+        currentPrice: nextPrices[activeSym] ?? this.state.currentPrice,
+        isLoadingTicker: false,
         prices: nextPrices,
         quotes: nextQuotes,
         lastValidTicks: nextLastValid,
         previousClose: nextPrevClose,
-        lastEventAt: Date.now(),
+        lastEventAt: now,
+        lastTickTimestamp: now,
         isDelayed: false,
         isReconnecting: false,
       };
@@ -254,8 +393,42 @@ class MarketDataStore {
   }
 
   /**
+   * 3. Implement "Stale State" Auto-Recovery:
+   * Checks the last tick timestamp (`lastTickTimestamp`).
+   * If the market is OPEN and no new data has been received for > 15 seconds,
+   * automatically triggers a background REST API call to fetch a fresh quote and
+   * marks `isDelayed = true` so the UI displays `[ ⚠️ DELAYED DATA ]`.
+   */
+  public async checkStaleState(isMarketOpenNow = true): Promise<boolean> {
+    if (!isMarketOpenNow) return false;
+    const elapsedMs = Date.now() - this.state.lastTickTimestamp;
+    if (elapsedMs > STALE_TICK_THRESHOLD_MS) {
+      this.setStatus("DELAYED");
+      await this.fetchLastClose(this.state.activeTicker);
+      // If no fresh tick updated lastTickTimestamp within the threshold, keep DELAYED warning active
+      if (Date.now() - this.state.lastTickTimestamp > STALE_TICK_THRESHOLD_MS) {
+        this.setStatus("DELAYED");
+      }
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Helper to set `lastTickTimestamp` (useful for testing or external heartbeat tracking)
+   */
+  public setLastTickTimestamp(ts: number) {
+    this.state = {
+      ...this.state,
+      lastEventAt: ts,
+      lastTickTimestamp: ts,
+    };
+    this.notify();
+  }
+
+  /**
    * Graceful 'Stale Data' Fallback & Auto-Refresh:
-   * REST API call to fetch the definitive "Last Close" price to synchronize the entire application.
+   * REST API call to fetch the definitive "Last Close" / fresh quote price to synchronize the entire application.
    */
   public async fetchLastClose(symbol?: string): Promise<Record<string, number>> {
     try {
@@ -302,6 +475,7 @@ class MarketDataStore {
 }
 
 export const marketDataStore = new MarketDataStore();
+export const globalStore = marketDataStore;
 
 /**
  * Primary React Hook: useMarketDataStore
@@ -327,7 +501,11 @@ export function useMarketDataStore<T = MarketDataState>(
  */
 export function useMarketPrice(symbol?: string | null): number | null {
   const clean = symbol ? symbol.toUpperCase().split(":").pop()! : "";
-  return useMarketDataStore((s) => (clean ? s.prices[clean] ?? null : null));
+  return useMarketDataStore((s) =>
+    clean
+      ? (clean === s.activeTicker && s.currentPrice != null ? s.currentPrice : s.prices[clean] ?? null)
+      : s.currentPrice
+  );
 }
 
 /**
@@ -339,6 +517,6 @@ export function useMarketStatus() {
     isDelayed: s.isDelayed,
     isReconnecting: s.isReconnecting,
     lastEventAt: s.lastEventAt,
+    lastTickTimestamp: s.lastTickTimestamp,
   }));
 }
-

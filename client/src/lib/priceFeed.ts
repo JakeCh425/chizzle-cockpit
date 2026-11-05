@@ -7,9 +7,9 @@
 import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo } from "./marketHours";
-import { marketDataStore, useMarketDataStore } from "./useMarketDataStore";
+import { marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS } from "./useMarketDataStore";
 
-export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo, marketDataStore, useMarketDataStore };
+export { isMarketOpen, getMarketStatus, getEtTimeParts, isUSMarketHoliday, type MarketStatusInfo, marketDataStore, globalStore, useMarketDataStore, STALE_TICK_THRESHOLD_MS };
 
 // Match server snapshot shape
 export interface LiveQuote {
@@ -494,22 +494,36 @@ export function ensurePriceFeed() {
 
   checkMarketHoursFeedMode();
 
-  // Stale-monitor: re-evaluate every 1s based on WebSocket status and lastEventAt
+  // Stale-monitor ("last tick timestamp" checker):
+  // Re-evaluate every 1s based on WebSocket status and lastTickTimestamp / lastEventAt.
+  // If the market is OPEN and no new data has been received for > 15 seconds,
+  // automatically trigger a background REST API call to fetch a fresh quote and mark DELAYED.
   setInterval(() => {
-    if (!isMarketOpen()) {
+    const marketOpenNow = isMarketOpen();
+    if (!marketOpenNow) {
       if (connState !== "STATIC" && connState !== "DISCONNECTED") {
         setConn("STATIC");
       }
       return;
     }
-    // If primary WebSocket is healthy and open, state is always LIVE (no stale lock)
+    const lastTickTimestamp = marketDataStore.getState().lastTickTimestamp || lastEventAt;
+    if (lastTickTimestamp) {
+      const age = Date.now() - lastTickTimestamp;
+      if (age > 15000) {
+        setConn("STALE");
+        marketDataStore.setStatus("DELAYED");
+        void marketDataStore.checkStaleState(true);
+        void marketDataStore.fetchLastClose();
+        return;
+      }
+    }
     if (ws && ws.readyState === WebSocket.OPEN) {
       setConn("LIVE");
       return;
     }
     if (!lastEventAt) return;
     const age = Date.now() - lastEventAt;
-    if (age < 30000) setConn("LIVE");
+    if (age <= 15000) setConn("LIVE");
     else if (age < 5 * 60 * 1000) setConn("STALE");
     else setConn("DISCONNECTED");
   }, 1000);

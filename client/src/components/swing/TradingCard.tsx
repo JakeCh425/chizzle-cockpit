@@ -41,7 +41,7 @@ import { afterCardClose, effectivePlan, focusSymbol, invalidatePlans, openPlanEd
 import { defaultAlertFor, openAlertDialog } from "@/lib/alerts";
 import { RefreshDataButton, DataStatusIndicator } from "./DataStatus";
 import { useLiveQuote } from "@/lib/useLivePrices";
-import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, marketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { PlanFreshness, saveTargetDefault } from "./PlanRefresh";
 import { openTradeDialog, openTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { useCardBg } from "./CardStyle";
@@ -1315,7 +1315,8 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
   const market = useMarketDataStore();
   const global = useGlobalState();
   const _testFallback = () => { const effectivePrice = liveQuote.price ?? d.currentPrice; return effectivePrice; };
-  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const storeCurrent = d.symbol === market.activeTicker && market.currentPrice != null ? globalStore.currentPrice : null;
+  const globalPrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz?.override;
@@ -1331,7 +1332,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
             data-testid={`badge-card-delayed-${d.symbol}`}
             className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
           >
-            {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+            {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
           </span>
         )}
         <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
@@ -1452,7 +1453,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
   // Synchronize currentPrice with Global WebSocket Store (Single Source of Truth)
   const market = useMarketDataStore();
-  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const storeCurrent = d.symbol === market.activeTicker && market.currentPrice != null ? globalStore.currentPrice : null;
+  const globalPrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
 
   const isConfirmed = props.isConfirmed || group === "CONFIRMED" || Boolean(global?.confirmedSetups?.[d.symbol]);
@@ -1675,7 +1677,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 data-testid={`badge-card-delayed-${d.symbol}`}
                 className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
               >
-                {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
               </span>
             )}
             <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
@@ -1985,6 +1987,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             onClick={(e) => {
               e.stopPropagation();
               focusSymbol(d.symbol);
+              globalStore.clearData(d.symbol);
+              global?.setActiveTicker(d.symbol);
             }}
             title="Focus symbol on chart"
           >
@@ -2371,7 +2375,8 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const market = useMarketDataStore();
   const global = useGlobalState();
   const _testFallbackCompact = () => { const effectivePrice = liveQuote.price ?? d.currentPrice; return effectivePrice; };
-  const globalPrice = market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+  const storeCurrent = d.symbol === market.activeTicker && market.currentPrice != null ? globalStore.currentPrice : null;
+  const globalPrice = storeCurrent ?? market.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
   const effectivePrice = globalPrice ?? liveQuote.price ?? d.currentPrice;
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz.override;
@@ -2392,7 +2397,7 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
               data-testid={`badge-card-delayed-${d.symbol}`}
               className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
             >
-              {market.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+              {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
             </span>
           )}
           <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />

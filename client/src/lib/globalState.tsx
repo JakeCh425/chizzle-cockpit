@@ -5,13 +5,14 @@ import type { SwingTradesSummary } from "@shared/swingTrades";
 import { ensurePriceFeed, subscribe, subscribeTick, isBadTick as checkBadTick, subscribeSymbol, unsubscribeSymbol, isMarketOpen } from "@/lib/priceFeed";
 import {
   marketDataStore,
+  globalStore,
   useMarketDataStore,
   type MarketDataState,
   type MarketTick,
   type LastValidTick,
 } from "./useMarketDataStore";
 
-export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, useMarketDataStore };
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore };
 export type { MarketDataState, MarketTick, LastValidTick };
 
 export interface ActiveTickerData {
@@ -65,8 +66,10 @@ export interface GlobalStateContextType {
   // Active Ticker across Cockpit & Wealth Studio
   activeTicker: string;
   setActiveTicker: (ticker: string) => void;
+  clearData: (nextTicker?: string) => void;
 
   // Single Source of Truth for Live Prices & Active Ticker Data
+  currentPrice: number;
   activeTickerData: ActiveTickerData;
   activePrice: number;
   livePrices: Record<string, number>;
@@ -74,6 +77,8 @@ export interface GlobalStateContextType {
   isMarketOpen: boolean;
   isDelayed: boolean;
   isReconnecting: boolean;
+  isLoadingTicker: boolean;
+  lastTickTimestamp: number;
   marketData: MarketDataState;
 
   // Watchlist
@@ -229,9 +234,17 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     return "NVDA";
   });
 
+  const clearData = useCallback((nextTicker?: string) => {
+    marketDataStore.clearData(nextTicker);
+  }, []);
+
   const setActiveTicker = useCallback((ticker: string) => {
     const sym = ticker.trim().toUpperCase();
+    // Explicitly fire clearData() in global store BEFORE fetching new ticker data
+    marketDataStore.clearData(sym);
     setActiveTickerState(sym);
+    marketDataStore.setActiveTicker(sym);
+    void marketDataStore.fetchLastClose(sym);
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(STORAGE_KEY_TICKER, sym);
@@ -543,7 +556,11 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   // Active Ticker Data — Single Source of Truth subscribed to simultaneously by Header, Watchlist, and Chart
   const activeTickerData = useMemo<ActiveTickerData>(() => {
-    const live = livePrices[activeTicker] ?? activeItem?.price ?? 100;
+    const storeCurrentPrice =
+      marketData.activeTicker === activeTicker && marketData.currentPrice != null
+        ? marketData.currentPrice
+        : marketData.prices[activeTicker];
+    const live = storeCurrentPrice ?? livePrices[activeTicker] ?? activeItem?.price ?? 100;
     const base = activeItem || DEFAULT_WATCHLIST[0];
     const prev = base.price - (base.change ?? 0) || live;
     const change = +(live - prev).toFixed(2);
@@ -585,9 +602,12 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       t3: target3,
       receivedAt: Date.now(),
     };
-  }, [activeTicker, activeItem, livePrices]);
+  }, [activeTicker, activeItem, livePrices, marketData.activeTicker, marketData.currentPrice, marketData.prices]);
 
   const activePrice = activeTickerData.price;
+  const currentPrice = (marketData.activeTicker === activeTicker && marketData.currentPrice != null)
+    ? marketData.currentPrice
+    : activePrice;
 
   // Market hours state tracker: simulated micro-ticks are disabled when market is closed to prevent artificial price drift
   const [marketOpen, setMarketOpen] = useState(() => isMarketOpen());
@@ -812,6 +832,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     () => ({
       activeTicker,
       setActiveTicker,
+      clearData,
+      currentPrice,
       activeTickerData,
       activePrice,
       livePrices,
@@ -819,6 +841,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       isMarketOpen: marketOpen,
       isDelayed: marketData.isDelayed,
       isReconnecting: marketData.isReconnecting,
+      isLoadingTicker: marketData.isLoadingTicker,
+      lastTickTimestamp: marketData.lastTickTimestamp,
       marketData,
       watchlist: syncedWatchlist,
       activeWatchlist: syncedWatchlist,
@@ -853,11 +877,14 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     [
       activeTicker,
       setActiveTicker,
+      clearData,
+      currentPrice,
       activeTickerData,
       activePrice,
       livePrices,
       isBadTick,
       marketOpen,
+      marketData,
       syncedWatchlist,
       addTicker,
       removeTicker,

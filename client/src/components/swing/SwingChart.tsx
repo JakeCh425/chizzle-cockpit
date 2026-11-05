@@ -24,7 +24,7 @@ import { ctParts } from "@shared/marketContext";
 import LiveTickerCornerBadge from "./LiveTickerCornerBadge";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { useGlobalState } from "@/lib/globalState";
-import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, marketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { useExecutionTriggers } from "@/hooks/useExecutionTriggers";
 import FidelityExecutionGuide from "@/components/FidelityExecutionGuide";
 import type { ChartDrawing, DrawingPoint } from "@shared/chartDrawings";
@@ -842,9 +842,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     return () => window.removeEventListener("keydown", key);
   }, [setFocus]);
 
-  const b = bars.data;
+  const b = bars.data && (!symbol || !bars.data.symbol || bars.data.symbol === symbol) ? bars.data : undefined;
   const visualOnly = (tf === "15m" || tf === "30m") && !intradayLearningMode;
-  const d = decision;
+  const d = decision && (!symbol || decision.symbol === symbol) ? decision : undefined;
   const chips = d ? [
     { k: "Weekly regime", v: d.weeklyRegime + (d.weeklyReclaimForming ? " (reclaim forming)" : "") },
     { k: "Daily regime", v: d.dailyRegime },
@@ -855,9 +855,13 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   // Derived price and trade states for massive header & Fidelity cheat sheet
   const global = useGlobalState();
   const market = useMarketDataStore();
-  const ticker = symbol ?? decision?.symbol ?? "—";
-  const globalPrice = (symbol ? (market.prices[symbol] ?? global.livePrices[symbol]) : null) ?? (symbol === global.activeTicker ? (market.prices[global.activeTicker] ?? global.activePrice) : null);
-  const rawPrice = globalPrice ?? liveQuoteStatus.price ?? decision?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
+  const ticker = symbol ?? d?.symbol ?? "—";
+  const isTickerMatchedStore = ticker !== "—" && market.activeTicker === ticker && market.currentPrice != null;
+  const globalPrice =
+    (isTickerMatchedStore ? globalStore.currentPrice : null) ??
+    (symbol ? (market.prices[symbol] ?? global.livePrices[symbol]) : null) ??
+    (symbol === global.activeTicker ? (market.currentPrice ?? market.prices[global.activeTicker] ?? global.activePrice) : null);
+  const rawPrice = globalPrice ?? liveQuoteStatus.price ?? d?.currentPrice ?? b?.bars?.[b.bars.length - 1]?.c ?? 0;
   const currentPrice = rawPrice.toFixed(2);
 
   // Stream live ticks into unclosed candlestick in real time without redrawing entire historical dataset
@@ -973,6 +977,22 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
           <span className="text-xl text-gray-400" data-testid="swing-chart-pct">
             {priceChangePercent}%
           </span>
+          {(market.isDelayed || liveQuoteStatus.isDelayed) && (
+            <span
+              data-testid="badge-delayed-data-warning"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-amber-400 bg-amber-500/20 text-amber-300 font-mono text-xs font-extrabold tracking-wider uppercase shadow-[0_0_12px_rgba(245,158,11,0.35)]"
+            >
+              [ ⚠️ DELAYED DATA ]
+            </span>
+          )}
+          {market.isLoadingTicker && (
+            <span
+              data-testid="chart-loading-state"
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded border border-cyan-500/40 bg-cyan-950/60 text-cyan-300 font-mono text-[11px] font-bold uppercase animate-pulse"
+            >
+              Loading {ticker}…
+            </span>
+          )}
           {executionTrigger.activeSignalText && (
             <div
               data-testid="chart-execution-alert"

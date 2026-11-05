@@ -1,7 +1,7 @@
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
-import { useMarketDataStore, marketDataStore } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, marketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { useLiveQuote } from "@/lib/useLivePrices";
 import { Link } from "wouter";
 import { useGlobalState } from "@/lib/globalState";
@@ -261,9 +261,10 @@ export function LiveTradingChart({
   const isDelayed = marketStore.isDelayed || feedState === "STALE";
   const isReconnecting = marketStore.isReconnecting || feedState === "CONNECTING";
 
-  // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist)
+  // 1. Single Source of Truth for Live Price (Synchronized directly with Header & Watchlist via globalStore.currentPrice)
   const tickerData = activeTickerData?.symbol === symbol ? activeTickerData : null;
-  const globalPrice = (symbol ? (marketStore.prices[symbol] ?? livePrices?.[symbol]) : null) ?? (symbol === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice) : null);
+  const storeCurrent = symbol && marketStore.activeTicker === symbol && marketStore.currentPrice != null ? globalStore.currentPrice : null;
+  const globalPrice = storeCurrent ?? (symbol ? (marketStore.prices[symbol] ?? livePrices?.[symbol]) : null) ?? (symbol === activeTickerData?.symbol ? (activeTickerData?.price ?? storePrice) : null);
   const livePrice = globalPrice ?? quote?.price ?? item?.price ?? 100;
 
   // Direction for dynamic price coloring (green when up on the day, red when down)
@@ -1025,7 +1026,15 @@ export function LiveTradingChart({
                 data-testid="badge-chart-delayed"
                 className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] md:text-xs font-bold px-2 py-0.5 rounded shadow-sm flex items-center gap-1"
               >
-                {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                {isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
+              </span>
+            )}
+            {isDelayed && (
+              <span
+                data-testid="badge-delayed-data-warning"
+                className="border border-amber-400 bg-amber-500/20 text-amber-300 font-mono text-[10px] md:text-xs font-extrabold px-2.5 py-0.5 rounded shadow-[0_0_12px_rgba(245,158,11,0.35)] flex items-center gap-1"
+              >
+                [ ⚠️ DELAYED DATA ]
               </span>
             )}
 
@@ -2525,7 +2534,13 @@ export default function WealthEngineDashboard() {
 
   // Active ticker selection (linked directly to Chart symbol)
   const activeTicker = activeTickerData?.symbol ?? global?.activeTicker ?? "NVDA";
-  const setActiveTicker = global?.setActiveTicker ?? (() => {});
+  const setActiveTicker = useCallback((nextSym: string) => {
+    const clean = nextSym.trim().toUpperCase();
+    // Explicitly fire clearData() in global store BEFORE fetching the new data
+    globalStore.clearData(clean);
+    global?.clearData?.(clean);
+    global?.setActiveTicker?.(clean);
+  }, [global]);
   const activeSymbol = activeTicker;
   const setActiveSymbol = setActiveTicker;
   const watchlist = global?.watchlist ?? DEFAULT_WATCHLIST;
@@ -2537,8 +2552,13 @@ export default function WealthEngineDashboard() {
 
   const safeEquity = Number(global?.accountEquity ?? (global as any)?.equity) || 25000;
 
-  // Dynamic trade levels derivation strictly for active ticker
+  // Dynamic trade levels derivation strictly for active ticker (Single Source of Truth: globalStore.currentPrice)
+  const storeCurrentPrice =
+    activeTicker && marketStore.activeTicker === activeTicker && marketStore.currentPrice != null
+      ? globalStore.currentPrice
+      : null;
   const currentPrice =
+    storeCurrentPrice ??
     (activeTicker ? (marketStore.prices[activeTicker] ?? livePrices?.[activeTicker]) : null) ??
     (activeTickerData?.symbol === activeTicker ? activeTickerData?.price : null) ??
     activePrice ??
@@ -2955,7 +2975,7 @@ export default function WealthEngineDashboard() {
                 data-testid="badge-header-delayed"
                 className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] md:text-xs font-bold px-2 py-0.5 rounded shadow-sm flex items-center gap-1"
               >
-                {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                {isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
               </span>
             )}
             <span className={`text-[10px] font-bold ${(activeTickerData?.change ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
@@ -4192,7 +4212,7 @@ export default function WealthEngineDashboard() {
                             data-testid="badge-setup-card-delayed"
                             className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
                           >
-                            {isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                            {isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
                           </span>
                         )}
                       </div>

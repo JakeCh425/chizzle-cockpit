@@ -25,7 +25,7 @@ import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
-import { useMarketDataStore } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, globalStore } from "@/lib/useMarketDataStore";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useToast } from "@/hooks/use-toast";
 import { COLLAPSE_STORAGE_KEY as COLLAPSE_KEY, splitOlder, STATE_LABEL, STATE_TONE, type CollapsePref } from "@shared/cardFreshness";
@@ -382,6 +382,7 @@ function ActionCenterInner() {
     const onOpen = (e: Event) => {
       const sym = String((e as CustomEvent).detail?.symbol ?? "").toUpperCase();
       if (!sym) return;
+      globalStore.clearData(sym);
       setBoxOpen(true); setDlg({ symbol: sym, mode: "view" });
     };
     const onClose = () => setDlg(null);
@@ -816,7 +817,8 @@ function ActionCenterInner() {
                   const isArming = armingSymbol === d.symbol;
 
                   const liveQuote = prices?.[d.symbol];
-                  const globalPrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
+                  const storeCurrent = d.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
+                  const globalPrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
                   const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
 
                   const entryPrice = plan.entry ?? d.entryPrice;
@@ -858,7 +860,7 @@ function ActionCenterInner() {
                               data-testid={`badge-card-delayed-${d.symbol}`}
                               className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
                             >
-                              {marketStore.isReconnecting ? "[ RECONNECTING... ]" : "[ DELAYED ]"}
+                              {marketStore.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
                             </span>
                           )}
                           <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block ${

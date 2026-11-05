@@ -28,7 +28,7 @@ import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
-import { useOptionalGlobalState } from "@/lib/globalState";
+import { useOptionalGlobalState, marketDataStore, globalStore } from "@/lib/globalState";
 import { subscribeSymbol } from "@/lib/priceFeed";
 
 const CAT_LABEL: Record<WatchCategory, string> = {
@@ -550,8 +550,10 @@ export default function SwingWorkspace() {
   const alertsQ = useAlerts();
   const lockedTrades = useSwingTrades();
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
-  const d = dec.data?.decision;
-  const v = dec.data?.verdict;
+  const global = useOptionalGlobalState();
+  const rawD = dec.data?.decision;
+  const d = rawD && rawD.symbol === active ? rawD : undefined;
+  const v = rawD && rawD.symbol === active ? dec.data?.verdict : undefined;
 
   const { dataStatus, statusBy } = useMemo(() => {
     const ds: Record<string, string> = {}, st: Record<string, SwingDecision["setupStatus"]> = {};
@@ -561,12 +563,22 @@ export default function SwingWorkspace() {
 
   const firing = useMemo(() => (scan.data?.rows ?? []).map((r) => r.decision).filter((x) => x.setupStatus === "READY_TO_TRADE"), [scan.data]);
 
-  const focus = (s: string) => { setActive(s); setMarker(null); };
+  const focus = (s: string) => {
+    const sym = s.trim().toUpperCase();
+    // Explicitly fire clearData() in global store BEFORE fetching new ticker data
+    globalStore.clearData(sym);
+    global?.setActiveTicker(sym);
+    setActive(sym);
+    setMarker(null);
+  };
   // Top "What should I do today?" card → focus this ticker's chart.
   useEffect(() => {
     const go = (sym: string, target: "chart" | "why") => {
       takePendingFocus(); // handled now
-      setActive(sym); setMarker(null);
+      const cleanSym = sym.trim().toUpperCase();
+      globalStore.clearData(cleanSym);
+      global?.setActiveTicker(cleanSym);
+      setActive(cleanSym); setMarker(null);
       const sel = target === "why" ? '[data-testid="swing-why-anchor"]' : '[data-testid="swing-chart-anchor"]';
       const smooth = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
       // The anchor may not exist yet (section just expanded / data loading): retry briefly.
