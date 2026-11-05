@@ -150,9 +150,18 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
       )}
       <div className="flex items-center justify-between gap-2 text-[10.5px] text-slate-gray font-mono">
         <span>{customCount}/{wl.data?.maxCustomTickers ?? 12} custom</span>
-        <select value={cat} onChange={(e) => setCat(e.target.value as any)} className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid="select-category" aria-label="Category filter">
-          <option value="ALL">All active</option>
-          {(wl.data?.categories ?? []).map((c) => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
+        <select
+          value={cat}
+          onChange={(e) => setCat(e.target.value as any)}
+          className="bg-gray-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-white hover:bg-gray-800 focus:outline-none focus:border-cyan-500 cursor-pointer"
+          data-testid="select-category"
+          aria-label="Category filter"
+          style={{ colorScheme: "dark" }}
+        >
+          <option value="ALL" className="bg-gray-900 text-white">All active</option>
+          {(wl.data?.categories ?? []).map((c) => (
+            <option key={c} value={c} className="bg-gray-900 text-white">{CAT_LABEL[c]}</option>
+          ))}
         </select>
         <button className={btn} onClick={() => restore.mutate()} disabled={restore.isPending} data-testid="button-restore-defaults"><RotateCcw className="h-3 w-3" /> Restore Defaults</button>
       </div>
@@ -466,8 +475,14 @@ function SettingsPanel() {
   if (!v) return <div className="text-xs text-slate-gray">Loading settings…</div>;
   const sel = (k: keyof SwingSettings, opts: (string | number)[], label: string, num = false) => (
     <label className="flex flex-col gap-0.5 text-[10.5px] text-slate-gray">{label}
-      <select value={String(v[k])} onChange={(e) => put.mutate({ [k]: num ? Number(e.target.value) : e.target.value } as any)} className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid={`select-${String(k)}`}>
-        {opts.map((o) => <option key={o} value={String(o)}>{String(o)}</option>)}
+      <select
+        value={String(v[k])}
+        onChange={(e) => put.mutate({ [k]: num ? Number(e.target.value) : e.target.value } as any)}
+        className="bg-gray-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-white hover:bg-gray-800 focus:outline-none focus:border-cyan-500 cursor-pointer"
+        data-testid={`select-${String(k)}`}
+        style={{ colorScheme: "dark" }}
+      >
+        {opts.map((o) => <option key={o} value={String(o)} className="bg-gray-900 text-white">{String(o)}</option>)}
       </select>
     </label>
   );
@@ -502,10 +517,16 @@ function SettingsPanel() {
         {sel("signalMode", ["STRICT", "STANDARD", "FLEXIBLE"], "Signal mode")}
         {linked ? lockedField("Min R:R to T1", String(v.minRrT1), "input-minRrT1-linked") : numIn("minRrT1", "Min R:R to T1", 0.1, 0.5, 10)}
         <label className="flex flex-col gap-0.5 text-[10.5px] text-slate-gray">Confirmation window (4H bars)
-          <select value={String(v.expiryBars4h)} onChange={(e) => put.mutate({ expiryBars4h: Number(e.target.value) } as any)} className="bg-ink-deep border border-ink-line rounded px-1 py-0.5 text-[11px] text-soft-white" data-testid="select-expiryBars4h">
-            <option value="1">1 bar — tight (≈ half day)</option>
-            <option value="2">2 bars — default (≈ 1 day)</option>
-            <option value="3">3 bars — wider (≈ 1.5 days)</option>
+          <select
+            value={String(v.expiryBars4h)}
+            onChange={(e) => put.mutate({ expiryBars4h: Number(e.target.value) } as any)}
+            className="bg-gray-900 border border-slate-700 rounded px-1.5 py-0.5 text-[11px] text-white hover:bg-gray-800 focus:outline-none focus:border-cyan-500 cursor-pointer"
+            data-testid="select-expiryBars4h"
+            style={{ colorScheme: "dark" }}
+          >
+            <option value="1" className="bg-gray-900 text-white">1 bar — tight (≈ half day)</option>
+            <option value="2" className="bg-gray-900 text-white">2 bars — default (≈ 1 day)</option>
+            <option value="3" className="bg-gray-900 text-white">3 bars — wider (≈ 1.5 days)</option>
           </select>
           {v.expiryBars4h !== 2 && <button type="button" className="text-left text-[10px] text-neon-blue underline" onClick={() => put.mutate({ expiryBars4h: 2 } as any)} data-testid="button-reset-expiry">Back to default (2 bars)</button>}
         </label>

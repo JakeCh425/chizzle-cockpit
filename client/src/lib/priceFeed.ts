@@ -145,7 +145,26 @@ export async function forceRefreshPrice(symbol?: string): Promise<boolean> {
 let pollTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let wsReconnectInterval: ReturnType<typeof setInterval> | null = null;
+let wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
+let wsPingSentAt = 0;
+let wsRetryCount = 0;
 let started = false;
+
+export function getWsRetryCount(): number {
+  return wsRetryCount;
+}
+
+export function resetWsRetryCount(): void {
+  wsRetryCount = 0;
+}
+
+export function isHeartbeatActive(): boolean {
+  return wsHeartbeatTimer !== null;
+}
+
+export function isFallbackPollingActive(): boolean {
+  return pollTimer !== null;
+}
 
 /**
  * Outlier Rejection / Bad Tick Filter:
@@ -283,9 +302,9 @@ function ensureBackgroundWsReconnect() {
       }
       return;
     }
-    // If primary WebSocket is not open, continuously attempt reconnection every 5 seconds
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-      console.info("[priceFeed] Background 5s check: attempting primary WebSocket reconnection...");
+    // If primary WebSocket is not open and no exponential backoff timer is pending, attempt reconnection
+    if ((!ws || ws.readyState !== WebSocket.OPEN) && !reconnectTimer) {
+      console.info("[priceFeed] Background check: attempting primary WebSocket reconnection...");
       connectWS();
     }
   }, 5000);
@@ -316,16 +335,33 @@ function fallbackPollOnce() {
     fetchLastOfficialClose();
     return;
   }
+  const activeTicker = marketDataStore.getState().activeTicker;
+  const sym = activeTicker ? activeTicker.toUpperCase().trim().split(":").pop()! : undefined;
+
   fetch(`${API_BASE}/api/prices`)
     .then(r => r.ok ? r.json() : null)
     .then(j => {
-      if (!j) return;
-      const next: Record<string, LiveQuote> = {};
-      for (const k of Object.keys(j)) next[k] = j[k];
+      if (!j || typeof j !== "object") return;
+      const next: Record<string, LiveQuote> = { ...snapshotState };
+      for (const k of Object.keys(j)) {
+        if (j[k]) next[k] = j[k];
+      }
       lastEventAt = Date.now();
       setSnapshot(next);
+      if (sym && next[sym]) {
+        applyQuote(next[sym]);
+      }
     })
     .catch(() => { /* ignore */ });
+
+  if (sym) {
+    fetch(`${API_BASE}/api/quote/${encodeURIComponent(sym)}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(q => {
+        if (q) applyQuote(q);
+      })
+      .catch(() => {});
+  }
 }
 
 function startFallbackPolling() {
@@ -337,10 +373,76 @@ function startFallbackPolling() {
   fallbackPollOnce();
   pollTimer = setInterval(fallbackPollOnce, isMarketHours() ? 5000 : 10000);
 }
+
 function stopFallbackPolling() {
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
 }
 
+function startWsHeartbeat() {
+  stopWsHeartbeat();
+  wsHeartbeatTimer = setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      wsPingSentAt = Date.now();
+      try {
+        ws.send(JSON.stringify({ type: "ping", ts: wsPingSentAt }));
+      } catch (err) {
+        console.warn("[priceFeed:heartbeat] Error sending ping:", err);
+      }
+    } else {
+      stopWsHeartbeat();
+      handleWsDisconnect();
+    }
+  }, 30_000);
+}
+
+function stopWsHeartbeat() {
+  if (wsHeartbeatTimer) {
+    clearInterval(wsHeartbeatTimer);
+    wsHeartbeatTimer = null;
+  }
+}
+
+function handleWsDisconnect() {
+  stopWsHeartbeat();
+  if (ws) {
+    try {
+      ws.onopen = null;
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+    } catch {}
+    ws = null;
+  }
+
+  if (!isMarketOpen()) {
+    setConn("STATIC");
+    return;
+  }
+
+  wsRetryCount++;
+  // Exponential backoff: 1s, 2s, 4s, 8s max
+  const delay = Math.min(1000 * Math.pow(2, wsRetryCount - 1), 8000);
+  console.info(`[priceFeed] WebSocket disconnected. Attempting reconnect in ${delay}ms (retry #${wsRetryCount})`);
+
+  marketDataStore.setStatus("RECONNECTING");
+
+  // If primary data socket fails after 3 consecutive retries, seamlessly fall back to 5-second REST API quote polling
+  if (wsRetryCount >= 3) {
+    console.warn(`[priceFeed] Primary WebSocket failed ${wsRetryCount} consecutive retries. Seamlessly activating 5s REST quote polling.`);
+    startFallbackPolling();
+  }
+
+  if (!reconnectTimer) {
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      connectWS();
+    }, delay);
+  }
+}
 
 function connectWS() {
   if (!isMarketOpen()) {
@@ -367,9 +469,15 @@ function connectWS() {
 
     ws.onopen = () => {
       console.info("[Boot:PriceFeed] Primary WebSocket reconnected! Clearing STALE state.");
+      wsRetryCount = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
       lastEventAt = Date.now();
       setConn("LIVE");
       stopFallbackPolling();
+      startWsHeartbeat();
       if (es) {
         try { es.close(); } catch {}
         es = null;
@@ -387,6 +495,12 @@ function connectWS() {
     ws.onmessage = (ev) => {
       try {
         const j = JSON.parse(ev.data);
+        if (j?.type === "pong") {
+          const roundTrip = wsPingSentAt > 0 ? Date.now() - wsPingSentAt : (j.ts ? Date.now() - j.ts : 15);
+          marketDataStore.setLatency(roundTrip > 0 ? roundTrip : 15);
+          lastEventAt = Date.now();
+          return;
+        }
         if (j?.type === "hello" && Array.isArray(j?.quotes)) {
           const next: Record<string, LiveQuote> = { ...snapshotState };
           for (const q of j.quotes as LiveQuote[]) {
@@ -423,28 +537,14 @@ function connectWS() {
     };
 
     ws.onerror = () => {
-      ws = null;
-      marketDataStore.setStatus("RECONNECTING");
-      void marketDataStore.fetchLastClose();
-      if (!es) connectSSE();
-      startFallbackPolling();
-      ensureBackgroundWsReconnect();
+      handleWsDisconnect();
     };
 
     ws.onclose = () => {
-      ws = null;
-      marketDataStore.setStatus("RECONNECTING");
-      void marketDataStore.fetchLastClose();
-      if (!es) connectSSE();
-      startFallbackPolling();
-      ensureBackgroundWsReconnect();
+      handleWsDisconnect();
     };
   } catch {
-    marketDataStore.setStatus("RECONNECTING");
-    void marketDataStore.fetchLastClose();
-    connectSSE();
-    startFallbackPolling();
-    ensureBackgroundWsReconnect();
+    handleWsDisconnect();
   }
 }
 
@@ -458,6 +558,7 @@ export function reconnectPriceFeed() {
     clearTimeout(reconnectTimer);
     reconnectTimer = null;
   }
+  stopWsHeartbeat();
   if (ws) {
     try {
       ws.onclose = null;
@@ -472,6 +573,7 @@ export function reconnectPriceFeed() {
     } catch {}
     es = null;
   }
+  wsRetryCount = 0;
   if (!isMarketOpen()) {
     console.info("[Boot:PriceFeed] reconnectPriceFeed(): Market is CLOSED. Disabling WebSocket connection and fetching last official close.");
     fetchLastOfficialClose();

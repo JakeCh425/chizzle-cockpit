@@ -53,6 +53,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ============================================================
+ * HIGH-CONTRAST DROPDOWN & SELECT MENU STYLING
+ * Enforces dark-theme styling with high-contrast text and
+ * prevents Chromium / Windows OS-level option inversion
+ * ============================================================ */
+select {
+  color-scheme: dark !important;
+  background-color: #111827 !important;
+  color: #ffffff !important;
+}
+
+select option,
+select optgroup {
+  background-color: #111827 !important;
+  color: #ffffff !important;
+}
+
+select option:hover,
+select option:focus,
+select option:checked {
+  background-color: #1f2937 !important;
+  color: #ffffff !important;
+}
+
 /*
  * CHIZZLE WEALTH ENGINE — LIGHT NEON BLOOMBERG PALETTE
  *
@@ -263,9 +287,9 @@
   --sidebar-accent-foreground: 218 33% 12%;
   --sidebar-ring: 195 100% 42%;
 
-  --popover: 0 0% 100%;
-  --popover-foreground: 218 33% 12%;
-  --popover-border: 216 16% 82%;
+  --popover: 222 47% 11%;
+  --popover-foreground: 210 40% 98%;
+  --popover-border: 217 33% 17%;
 
   --primary: 195 100% 42%;
   --primary-foreground: 0 0% 100%;

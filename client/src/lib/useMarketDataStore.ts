@@ -827,6 +827,20 @@ class MarketDataStore {
   }
 
   /**
+   * Updates round-trip network latency measurement (ms) from WebSocket heartbeat
+   */
+  public setLatency(latencyMs: number): void {
+    if (typeof latencyMs !== "number" || latencyMs < 0) return;
+    const rounded = Math.round(latencyMs);
+    if (this.state.latencyMs === rounded) return;
+    this.state = {
+      ...this.state,
+      latencyMs: rounded,
+    };
+    this.notify();
+  }
+
+  /**
    * Update connection / feed status
    */
   public setStatus(status: ConnState | "DELAYED" | "RECONNECTING") {
