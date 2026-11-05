@@ -59,6 +59,7 @@ export interface BarsResp {
   visualOnly: boolean; visualOnlyNote: string | null; quoteTimestamp: string | null; dataStatus: string; lastCompletedBar: string | null;
   bars: { t: number; o: number; h: number; l: number; c: number; v: number; closed: boolean }[];
   smas?: {
+    sma10?: (number | null)[];
     sma20: (number | null)[];
     sma50: (number | null)[];
     sma200: (number | null)[];

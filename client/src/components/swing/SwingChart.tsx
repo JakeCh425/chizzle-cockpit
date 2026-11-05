@@ -466,14 +466,16 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       if (!ov[m.key]) continue;
       // Calculate / retrieve full continuous SMA using at least 200 previous periods
       let vals: (number | null)[] = [];
-      if (bars.data?.smas?.[m.key] && bars.data.smas[m.key]!.length === data.length) {
+      if (bars.data?.smas?.[m.key] && bars.data.smas[m.key]!.length === data.length && bars.data.smas[m.key]!.every((v) => v != null)) {
         vals = bars.data.smas[m.key]!;
-      } else if (bars.data?.warmupBars?.length) {
-        const fullCloses = [...bars.data.warmupBars.map((b) => b.c), ...closes];
-        const fullSma = sma(fullCloses, m.n);
-        vals = fullSma.slice(bars.data.warmupBars.length);
       } else {
-        vals = fromCtx(sma(closes, m.n), m.key);
+        const rawWarmup = (bars.data?.warmupBars ?? []).map((b) => b.c);
+        const anchor = rawWarmup[0] ?? closes[0] ?? 100;
+        const padCount = Math.max(0, 200 - rawWarmup.length);
+        const paddedWarmup = padCount > 0 ? [...Array(padCount).fill(anchor), ...rawWarmup] : rawWarmup;
+        const fullCloses = [...paddedWarmup, ...closes];
+        const fullSma = sma(fullCloses, m.n);
+        vals = fullSma.slice(paddedWarmup.length);
       }
 
       const color = smaColors[m.key] || DEFAULT_SMA_COLORS[m.key] || m.color;

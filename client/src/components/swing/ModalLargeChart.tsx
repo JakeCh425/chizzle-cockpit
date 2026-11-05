@@ -71,21 +71,23 @@ export function ModalLargeChart({
   const chartRef = useRef<IChartApi | null>(null);
   const candleSeriesRef = useRef<any>(null);
   const liveQuote = useLiveQuote(symbol);
+  const marketStore = useMarketDataStore();
+  const effectiveLivePrice = (symbol ? marketStore.prices[symbol.toUpperCase()] : undefined) ?? liveQuote?.price;
 
   // Live Tick Pulse State
   const [isTickPulsing, setIsTickPulsing] = useState(false);
   const prevPriceRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (liveQuote?.price != null) {
-      if (prevPriceRef.current != null && prevPriceRef.current !== liveQuote.price) {
+    if (effectiveLivePrice != null) {
+      if (prevPriceRef.current != null && prevPriceRef.current !== effectiveLivePrice) {
         setIsTickPulsing(true);
         const timer = setTimeout(() => setIsTickPulsing(false), 450);
         return () => clearTimeout(timer);
       }
-      prevPriceRef.current = liveQuote.price;
+      prevPriceRef.current = effectiveLivePrice;
     }
-  }, [liveQuote?.price]);
+  }, [effectiveLivePrice]);
 
   // Fidelity Guide Modal State
   const [isFidelityGuideOpen, setIsFidelityGuideOpen] = useState(false);
@@ -135,6 +137,17 @@ export function ModalLargeChart({
     return [...warmup, ...bars];
   }, [warmup, bars, tf]);
 
+  const sma10Data = useMemo(() => {
+    if ((barsData?.smas as any)?.sma10 && bars.length > 0) {
+      const pts = bars
+        .map((b, i) => ({ time: b.t as UTCTimestamp, value: (barsData.smas as any)!.sma10[i] }))
+        .filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value));
+      if (pts.length > 0) return pts;
+    }
+    const computed = computeSMA(combined, 10);
+    return computed.filter((pt) => bars.some((b) => b.t === pt.time));
+  }, [barsData, combined, bars]);
+
   const sma20Data = useMemo(() => {
     if (barsData?.smas?.sma20 && bars.length > 0) {
       const pts = bars
@@ -168,6 +181,7 @@ export function ModalLargeChart({
     return computed.filter((pt) => bars.some((b) => b.t === pt.time));
   }, [barsData, combined, bars]);
 
+  const lastSma10 = sma10Data.length > 0 ? sma10Data[sma10Data.length - 1].value : null;
   const lastSma20 = sma20Data.length > 0 ? sma20Data[sma20Data.length - 1].value : null;
   const lastSma50 = sma50Data.length > 0 ? sma50Data[sma50Data.length - 1].value : null;
   const lastSma200 = sma200Data.length > 0 ? sma200Data[sma200Data.length - 1].value : null;
@@ -288,6 +302,18 @@ export function ModalLargeChart({
         typeof (chart as any).addLineSeries === "function"
           ? (chart as any).addLineSeries(opts)
           : chart.addSeries(LineSeries, opts);
+
+      // 2b. SMA 10 (Bright White #FFFFFF / Silver #C0C0C0 Momentum Line)
+      if (sma10Data.length > 0 && (smaSettings.sma10?.visible ?? true)) {
+        const sma10Series = addLineSeries({
+          color: smaSettings.sma10?.color || "#FFFFFF",
+          lineWidth: smaSettings.sma10?.lineWidth ?? 1,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
+        sma10Series.setData(sma10Data);
+      }
 
       // 3. SMA 20 (Customizable Color & Thickness)
       if (sma20Data.length > 0 && smaSettings.sma20.visible) {
@@ -457,7 +483,7 @@ export function ModalLargeChart({
       chart.remove();
       chartRef.current = null;
     };
-  }, [barsData, entry, stop, target1, sma20Data, sma50Data, sma200Data, smaSettings]);
+  }, [barsData, entry, stop, target1, sma10Data, sma20Data, sma50Data, sma200Data, smaSettings]);
 
   // Stream live ticks into unclosed candlestick in real time
   const lastBar = bars[bars.length - 1];
@@ -500,7 +526,7 @@ export function ModalLargeChart({
           <div className="flex items-baseline gap-2.5 md:gap-3">
             <span className="text-3xl md:text-5xl font-black text-white tracking-tight drop-shadow-md">{symbol}</span>
             <span
-              className={`text-3xl md:text-5xl font-black tabular-nums tracking-tight transition-all duration-200 ${
+              className={`text-3xl md:text-5xl font-black font-mono tabular-nums tracking-tight transition-all duration-200 ${
                 (liveQuote?.change ?? 0) >= 0
                   ? "text-emerald-400 drop-shadow-[0_0_15px_rgba(52,211,153,0.5)]"
                   : "text-rose-400 drop-shadow-[0_0_15px_rgba(244,63,94,0.5)]"
@@ -511,7 +537,7 @@ export function ModalLargeChart({
               }`}
               data-testid="modal-chart-live-price"
             >
-              ${liveQuote?.price != null ? liveQuote.price.toFixed(2) : (bars[bars.length - 1]?.c ? bars[bars.length - 1].c.toFixed(2) : "—")}
+              ${effectiveLivePrice != null ? effectiveLivePrice.toFixed(2) : (bars[bars.length - 1]?.c ? bars[bars.length - 1].c.toFixed(2) : "—")}
             </span>
             {liveQuote?.changePercent != null && (
               <span
@@ -559,6 +585,39 @@ export function ModalLargeChart({
             <ClipboardList className="h-3.5 w-3.5 text-emerald-400" />
             <span className="hidden sm:inline">Fidelity Guide</span>
           </button>
+          {/* [ - SMA 10 ] Toggle & 10-SMA Badge */}
+          <button
+            type="button"
+            onClick={() => {
+              const nextVis = !(smaSettings.sma10?.visible ?? true);
+              const nextSettings = {
+                ...smaSettings,
+                sma10: { ...(smaSettings.sma10 || { color: "#FFFFFF", lineWidth: 1, visible: true }), visible: nextVis },
+              };
+              setSmaSettings(nextSettings);
+              saveSmaSettings(nextSettings);
+            }}
+            data-testid="button-toggle-modal-sma10"
+            className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border cursor-pointer transition-opacity ${
+              (smaSettings.sma10?.visible ?? true) ? "opacity-100" : "opacity-45"
+            }`}
+            style={{
+              borderColor: `${smaSettings.sma10?.color || "#FFFFFF"}50`,
+              backgroundColor: `${smaSettings.sma10?.color || "#FFFFFF"}15`,
+              color: smaSettings.sma10?.color || "#FFFFFF",
+            }}
+            title="Toggle 10-SMA Momentum Support Line"
+          >
+            <span
+              className="h-2 w-2 rounded-full shadow-sm"
+              style={{ backgroundColor: smaSettings.sma10?.color || "#FFFFFF" }}
+            />
+            <span className="font-bold">[ - SMA 10 ]</span>
+            <span className="tabular-nums text-slate-200">
+              ${lastSma10 != null ? lastSma10.toFixed(2) : "—"}
+            </span>
+          </button>
+
           {/* 20-SMA Badge */}
           {smaSettings.sma20.visible && (
             <div

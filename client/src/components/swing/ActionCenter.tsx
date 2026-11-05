@@ -18,6 +18,7 @@ import { PlanRefreshBar, TargetDefaultControl } from "./PlanRefresh";
 import { CardStyleSection } from "./CardStyle";
 import { AppearanceControls, DisclosureProvider, LiveCtx, InlineTradingCard, Section, TradingCardDialog, acAttrs, isPopulated, useAcPrefs, useDisclosure, useDisclosureAll } from "./TradingCard";
 import { AIExecutionEngine, formatCurrency } from "./AIExecutionEngine";
+import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { useAccountSnapshot } from "./FundingPanel";
@@ -916,6 +917,17 @@ function ActionCenterInner() {
                           </button>
                         </div>
                       </div>
+                      {/* Beginner-Friendly Step-by-Step Action Checklist */}
+                      <StepByStepActionChecklist
+                        symbol={d.symbol}
+                        triggerPrice={d.currentTrigger ?? d.originalTrigger ?? entryPrice}
+                        entryPrice={entryPrice}
+                        stopLoss={stopLoss}
+                        target1={target1}
+                        is1hClosed={true}
+                        isArmed={isArming}
+                        isFilled={false}
+                      />
                       <div data-testid={`ai-context-sidebar-${d.symbol}`} className="hidden" aria-hidden="true" />
                     </div>
                   );

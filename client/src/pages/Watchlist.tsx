@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import { useMarketDataStore } from "@/lib/useMarketDataStore";
+import { subscribeSymbol } from "@/lib/priceFeed";
 import { errMsg } from "@/lib/errors";
 import { useQuery } from "@tanstack/react-query";
 import { Panel, Chip } from "@/components/Panel";
@@ -46,6 +48,7 @@ export default function Watchlist() {
   });
   const livePrices = useLivePrices(tickers);
   const liveQuotes = useLiveQuotes();
+  const marketStore = useMarketDataStore();
 
   const global = useOptionalGlobalState();
   const [newTicker, setNewTicker] = useState("");
@@ -80,6 +83,7 @@ export default function Watchlist() {
     if (global?.addTicker) {
       global.addTicker(sym);
     }
+    subscribeSymbol(sym);
     try {
       const px = Number(newPrice) > 0 ? Number(newPrice) : 100;
       await apiRequest("POST", "/api/tickers", { symbol: sym, price: px, tier: 2 });
@@ -110,8 +114,8 @@ export default function Watchlist() {
   let hiddenCount = 0;
   for (const t of tickers || []) {
     const wlItem = watchlist?.find(w => w.tickerId === t.id);
-    const lp = livePrices[t.symbol] ?? t.currentPrice;
-    const livePx = liveQuotes[t.symbol]?.price ?? null;
+    const lp = marketStore.prices[t.symbol] ?? livePrices[t.symbol] ?? t.currentPrice;
+    const livePx = marketStore.prices[t.symbol] ?? liveQuotes[t.symbol]?.price ?? null;
     const cands = setupsByTicker?.[t.symbol] || [];
     if (cands.length === 0) {
       // No setup detected — always visible (the row is the ticker itself).
@@ -243,12 +247,15 @@ export default function Watchlist() {
                 setNewSymbol(e.target.value.toUpperCase());
               }}
               onKeyDown={e => {
+                e.stopPropagation();
                 if (e.key === "Enter") {
                   e.preventDefault();
                   addTicker();
                 }
               }}
-              className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num text-[13px] focus:border-neon-blue/60 outline-none"
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono font-mono-num text-[13px] text-white text-cyan-400 focus:border-neon-blue/60 outline-none"
               placeholder="NVDA"
             />
           </div>
@@ -260,7 +267,9 @@ export default function Watchlist() {
               data-testid="input-add-price"
               value={newPrice}
               onChange={e => setNewPrice(e.target.value)}
-              className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono-num text-[13px] focus:border-neon-blue/60 outline-none"
+              onClick={e => e.stopPropagation()}
+              onMouseDown={e => e.stopPropagation()}
+              className="w-full mt-1 px-3 py-1.5 bg-ink-black border border-ink-line rounded-sm font-mono font-mono-num text-[13px] text-white focus:border-neon-blue/60 outline-none"
               placeholder="0.00"
             />
           </div>

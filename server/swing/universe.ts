@@ -69,18 +69,36 @@ export async function resolveSymbol(input: string, search: SearchFn): Promise<Re
   return { ok: true, item: usable[0] };
 }
 
+const FALLBACK_ETFS = new Set(["SMH", "QQQ", "SPY", "XLE", "XLV", "XLF", "XLI", "XLK", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC", "SOXX", "SOXL", "IWM", "DIA", "VOO", "VTI", "ARKK"]);
+const FALLBACK_AMEX = new Set(["SPY", "XLE", "XLV", "XLF", "XLI", "XLK", "XLY", "XLP", "XLU", "XLB", "XLRE", "XLC", "IWM", "DIA", "VOO", "VTI", "ARKK", "SOXL"]);
+const FALLBACK_NYSE = new Set(["JPM", "CAT", "BAC", "WMT", "HD", "UNH", "JNJ", "V", "MA", "PG", "DIS", "KO", "PEP", "NKE", "CVX", "XOM", "BA", "GE", "GS", "MS", "BRK.B", "LLY", "ABBV", "MRK", "PFE"]);
+
 export const yahooSearch: SearchFn = async (q) => {
+  const sym = String(q ?? "").trim().toUpperCase();
+  const fallbackQuote = (): SearchQuote[] | null => {
+    if (!/^[A-Z][A-Z0-9.\-]{0,4}$/.test(sym)) return null;
+    const isEtf = FALLBACK_ETFS.has(sym);
+    const exchange = FALLBACK_AMEX.has(sym) ? "PCX" : FALLBACK_NYSE.has(sym) ? "NYQ" : "NMS";
+    return [{
+      symbol: sym,
+      exchange,
+      quoteType: isEtf ? "ETF" : "EQUITY",
+      shortname: sym,
+      longname: sym,
+    }];
+  };
   try {
     const r = await fetch(`https://query2.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(q)}&quotesCount=10&newsCount=0`, {
       headers: { "User-Agent": "Mozilla/5.0", Accept: "application/json" }, signal: AbortSignal.timeout(8000),
     });
-    if (!r.ok) return null;
+    if (!r.ok) return fallbackQuote();
     const j: any = await r.json();
-    return (j?.quotes ?? []).filter((x: any) => x?.symbol).map((x: any) => ({
+    const quotes = (j?.quotes ?? []).filter((x: any) => x?.symbol).map((x: any) => ({
       symbol: String(x.symbol), exchange: String(x.exchange ?? ""), quoteType: String(x.quoteType ?? ""),
       shortname: x.shortname, longname: x.longname, sector: x.sector, industry: x.industry,
     }));
-  } catch { return null; }
+    return quotes.length > 0 ? quotes : fallbackQuote();
+  } catch { return fallbackQuote(); }
 };
 
 // ─── Pure list operations ────────────────────────────────────────────────────

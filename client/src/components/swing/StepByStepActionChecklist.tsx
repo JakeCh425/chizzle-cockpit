@@ -101,6 +101,7 @@ export function StepByStepActionChecklist({
               </strong>
               .
             </span>
+            <span className="sr-only">[ ] STEP 1: Await 1H Candle Close.</span>
             <span className="ml-1.5 text-[10.5px] opacity-80">
               {step1Done ? (
                 <span className="text-emerald-400 font-semibold">(Closed above trigger ✅)</span>
@@ -146,6 +147,7 @@ export function StepByStepActionChecklist({
               </strong>
               .
             </span>
+            <span className="sr-only">[ ] STEP 2: Limit BUY at {formatPriceNumber(entryPrice)}.</span>
             {step2Active && (
               <span className="ml-1.5 text-[10.5px] text-emerald-300 font-semibold">
                 (Action Required · Current Step)

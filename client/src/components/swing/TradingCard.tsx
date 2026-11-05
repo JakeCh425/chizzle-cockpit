@@ -435,10 +435,22 @@ export function SparklineChart({
           ? (chart as any).addLineSeries(opts)
           : chart.addSeries(LineSeries, opts);
 
+      // Ensure at least 50 warmup bars for full continuous 10/20/50 SMA & 10 EMA across the sparkline
+      const rawWarmup = barsData?.warmupBars || [];
+      const padNeeded = Math.max(0, 50 - rawWarmup.length);
+      const anchorBar = rawWarmup[0] ?? bars[0];
+      const synthWarmup = padNeeded > 0 && anchorBar
+        ? Array.from({ length: padNeeded }, (_, idx) => ({
+            t: anchorBar.t - (padNeeded - idx) * 3600,
+            c: anchorBar.c,
+          }))
+        : [];
+      const fullBars = [...synthWarmup, ...rawWarmup, ...bars];
+
       // ─── SMA 20 OVERLAY ───
-      const sma20Data = barsData?.smas?.sma20
+      const sma20Data = barsData?.smas?.sma20 && barsData.smas.sma20.every((v) => v != null)
         ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma20[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
-        : computeSMA([...(barsData?.warmupBars || []), ...bars], 20).filter((pt) => bars.some((b) => b.t === pt.time));
+        : computeSMA(fullBars, 20).filter((pt) => bars.some((b) => b.t === pt.time));
       if (sma20Data.length > 0) {
         const sma20Series = addLineSeries({
           color: sma20Color,
@@ -451,9 +463,9 @@ export function SparklineChart({
       }
 
       // ─── SMA 50 OVERLAY ───
-      const sma50Data = barsData?.smas?.sma50
+      const sma50Data = barsData?.smas?.sma50 && barsData.smas.sma50.every((v) => v != null)
         ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: barsData.smas!.sma50[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
-        : computeSMA([...(barsData?.warmupBars || []), ...bars], 50).filter((pt) => bars.some((b) => b.t === pt.time));
+        : computeSMA(fullBars, 50).filter((pt) => bars.some((b) => b.t === pt.time));
       if (sma50Data.length > 0) {
         const sma50Series = addLineSeries({
           color: sma50Color,
@@ -466,9 +478,10 @@ export function SparklineChart({
       }
 
       // ─── 10-SMA OVERLAY (Bright White / Silver #FFFFFF / #C0C0C0) ───
-      const sma10Data = barsData?.smas?.sma10
+      const rawSma10 = computeSMA([...(barsData?.warmupBars || []), ...bars], 10);
+      const sma10Data = (barsData?.smas as any)?.sma10 && (barsData?.smas as any).sma10.every((v: any) => v != null)
         ? bars.map((b, i) => ({ time: b.t as UTCTimestamp, value: (barsData.smas as any)!.sma10[i] })).filter((pt): pt is { time: UTCTimestamp; value: number } => pt.value != null && Number.isFinite(pt.value))
-        : computeSMA([...(barsData?.warmupBars || []), ...bars], 10).filter((pt) => bars.some((b) => b.t === pt.time));
+        : (rawSma10.length >= bars.length ? rawSma10 : computeSMA(fullBars, 10)).filter((pt) => bars.some((b) => b.t === pt.time));
       if (sma10Data.length > 0) {
         const sma10Series = addLineSeries({
           color: smaColors?.sma10 || "#FFFFFF",
@@ -481,7 +494,7 @@ export function SparklineChart({
       }
 
       // ─── 10-EMA OVERLAY (Thin, bright white/silver line #E2E8F0 / #FFFFFF) ───
-      const ema10Data = computeEMA([...(barsData?.warmupBars || []), ...bars], 10).filter((pt) => bars.some((b) => b.t === pt.time));
+      const ema10Data = computeEMA(fullBars, 10).filter((pt) => bars.some((b) => b.t === pt.time));
       if (ema10Data.length > 0) {
         const ema10Series = addLineSeries({
           color: "#E2E8F0",

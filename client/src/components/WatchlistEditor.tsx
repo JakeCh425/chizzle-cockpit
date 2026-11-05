@@ -21,6 +21,8 @@ import type { Ticker, WatchlistItem } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowDown, ArrowUp, Plus, Trash2, Zap, RotateCcw, X, AlertTriangle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { useOptionalGlobalState } from "@/lib/globalState";
+import { subscribeSymbol } from "@/lib/priceFeed";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,6 +57,7 @@ function useDebouncedValue<T>(value: T, ms: number): T {
 
 export default function WatchlistEditor({ className = "" }: Props) {
   const { toast } = useToast();
+  const global = useOptionalGlobalState();
   const [input, setInput] = useState<string>("");
   const newTicker = input;
   const setNewTicker = setInput;
@@ -162,6 +165,8 @@ export default function WatchlistEditor({ className = "" }: Props) {
       toast({ title: "Already in watchlist", description: sym });
       return;
     }
+    global?.addTicker?.(sym);
+    subscribeSymbol(sym);
     addM.mutate(sym);
   };
 
@@ -211,7 +216,7 @@ export default function WatchlistEditor({ className = "" }: Props) {
           onMouseDown={e => e.stopPropagation()}
           placeholder="ADD SYMBOL"
           spellCheck={false}
-          className="flex-1 bg-ink-deep/60 border border-ink-line/80 rounded-sm px-2 py-1 text-[12px] font-mono-num tracking-wider uppercase text-soft-white outline-none focus:border-neon-blue/60"
+          className="flex-1 bg-ink-deep/60 border border-ink-line/80 rounded-sm px-2 py-1 text-[12px] font-mono font-mono-num tracking-wider uppercase text-white text-cyan-400 outline-none focus:border-neon-blue/60"
           data-testid="input-watchlist-symbol"
           aria-label="Add ticker symbol"
           aria-describedby={duplicateHint ? "watchlist-add-hint" : undefined}

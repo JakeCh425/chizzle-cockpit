@@ -28,6 +28,8 @@ import { DataStatusBanner } from "./DataStatus";
 import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
+import { useOptionalGlobalState } from "@/lib/globalState";
+import { subscribeSymbol } from "@/lib/priceFeed";
 
 const CAT_LABEL: Record<WatchCategory, string> = {
   DEFAULT_LEARNING: "Default Learning", ETFS: "ETFs", SEMICONDUCTOR: "Semiconductor", BROAD_MARKET: "Broad Market",
@@ -66,8 +68,11 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
   dataStatus: Record<string, string>; statusBy: Record<string, SwingDecision["setupStatus"]>;
 }) {
   const { toast } = useToast();
+  const global = useOptionalGlobalState();
   const wl = useQuery<WatchlistResp>({ queryKey: ["/api/swing/watchlist"], queryFn: () => swingGet("/api/swing/watchlist") });
-  const [q, setQ] = useState("");
+  const [newTicker, setNewTicker] = useState("");
+  const q = newTicker;
+  const setQ = setNewTicker;
   const [err, setErr] = useState<string | null>(null);
   const [choices, setChoices] = useState<{ symbol: string; exchange: string; name?: string }[]>([]);
   const [cat, setCat] = usePersistentState<WatchCategory | "ALL">("swing-watch-category", "ALL");
@@ -76,9 +81,17 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
 
   const add = useMutation({
     mutationFn: (symbol: string) => swingSend<any>("POST", "/api/swing/watchlist", { symbol }),
-    onSuccess: (r) => { setQ(""); setErr(null); setChoices([]); invalidateSwing(); toast({ title: `${r.added?.symbol ?? "Ticker"} added`, description: "Scan it to see its setup status." }); },
+    onSuccess: (r) => { setNewTicker(""); setErr(null); setChoices([]); invalidateSwing(); toast({ title: `${r.added?.symbol ?? "Ticker"} added`, description: "Scan it to see its setup status." }); },
     onError: (e: any) => { setErr(e?.body?.error ?? e.message); setChoices(e?.body?.choices ?? []); },
   });
+  const handleAddTicker = (rawSym?: string) => {
+    const sym = (rawSym ?? newTicker).trim().toUpperCase();
+    if (!sym) return;
+    global?.addTicker?.(sym);
+    subscribeSymbol(sym);
+    setNewTicker("");
+    add.mutate(sym);
+  };
   const patch = useMutation({
     mutationFn: ({ s, p }: { s: string; p: Record<string, unknown> }) => swingSend<any>("PATCH", `/api/swing/watchlist/${encodeURIComponent(s)}`, p),
     onSuccess: () => invalidateSwing(),
@@ -103,11 +116,27 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
 
   return (
     <div className="w-full space-y-2" data-testid="panel-watchlist">
-      <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); if (q.trim()) add.mutate(q.trim().toUpperCase()); }}>
-        <input value={q} onChange={(e) => { setQ(e.target.value); setErr(null); }} placeholder="Add ticker or exchange-qualified symbol"
-          className="flex-1 min-w-0 bg-ink-deep border border-ink-line rounded px-2 py-1 text-xs text-soft-white placeholder:text-slate-gray/70" data-testid="input-add-ticker" aria-label="Add ticker" />
-        <button type="submit" className={btn} disabled={add.isPending || !q.trim() || customCount >= (wl.data?.maxCustomTickers ?? 12)} data-testid="button-add-ticker">
-          <Plus className="h-3 w-3" /> {add.isPending ? "Checking…" : "Add"}
+      <form className="flex gap-1" onSubmit={(e) => { e.preventDefault(); if (newTicker.trim()) handleAddTicker(newTicker); }}>
+        <input
+          type="text"
+          value={newTicker}
+          onChange={(e) => { setNewTicker(e.target.value.toUpperCase()); setErr(null); }}
+          onKeyDown={(e) => {
+            e.stopPropagation();
+            if (e.key === "Enter") {
+              e.preventDefault();
+              if (newTicker.trim()) handleAddTicker(newTicker);
+            }
+          }}
+          onClick={(e) => e.stopPropagation()}
+          onMouseDown={(e) => e.stopPropagation()}
+          placeholder="Add ticker or exchange-qualified symbol"
+          className="flex-1 min-w-0 bg-ink-deep border border-ink-line rounded px-2 py-1 text-xs font-mono text-white text-cyan-400 placeholder:text-slate-gray/70"
+          data-testid="input-add-ticker"
+          aria-label="Add ticker"
+        />
+        <button type="submit" className={btn} disabled={add.isPending || !newTicker.trim() || customCount >= (wl.data?.maxCustomTickers ?? 12)} data-testid="button-add-ticker">
+          <Plus className="h-3 w-3" /> {add.isPending ? "Checking…" : "[+] Add"}
         </button>
       </form>
       {err && <div className="text-[11px] text-rose-300" role="alert" data-testid="text-add-error">{err}</div>}

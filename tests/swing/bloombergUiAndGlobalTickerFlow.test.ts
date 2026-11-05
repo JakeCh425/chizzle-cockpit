@@ -31,11 +31,34 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
   const indexCssPath = path.resolve(__dirname, "../../client/src/index.css");
   const indexCssSrc = fs.readFileSync(indexCssPath, "utf-8").replace(/\r\n/g, "\n");
 
+  const swingWorkspacePath = path.resolve(__dirname, "../../client/src/components/swing/SwingWorkspace.tsx");
+  const swingWorkspaceSrc = fs.readFileSync(swingWorkspacePath, "utf-8").replace(/\r\n/g, "\n");
+
+  const modalChartPath = path.resolve(__dirname, "../../client/src/components/swing/ModalLargeChart.tsx");
+  const modalChartSrc = fs.readFileSync(modalChartPath, "utf-8").replace(/\r\n/g, "\n");
+
+  const actionCenterPath = path.resolve(__dirname, "../../client/src/components/swing/ActionCenter.tsx");
+  const actionCenterSrc = fs.readFileSync(actionCenterPath, "utf-8").replace(/\r\n/g, "\n");
+
+  const universePath = path.resolve(__dirname, "../../server/swing/universe.ts");
+  const universeSrc = fs.readFileSync(universePath, "utf-8").replace(/\r\n/g, "\n");
+
   describe("1. Fix Frozen Watchlist Input (React State Bug)", () => {
-    it("binds local state [newTicker, setNewTicker] with uppercase onChange handler", () => {
+    it("binds local state [newTicker, setNewTicker] with uppercase onChange handler across Dashboard, Watchlist, and SwingWorkspace", () => {
       expect(dashSrc).toContain("const [newTicker, setNewTicker] = useState(");
       expect(dashSrc).toContain("setNewTicker(e.target.value.toUpperCase())");
       expect(dashSrc).toContain('data-testid="input-quick-add-ticker"');
+
+      expect(swingWorkspaceSrc).toContain("const [newTicker, setNewTicker] = useState(");
+      expect(swingWorkspaceSrc).toContain("setNewTicker(e.target.value.toUpperCase())");
+      expect(swingWorkspaceSrc).toContain("text-white text-cyan-400");
+      expect(swingWorkspaceSrc).toContain("subscribeSymbol(sym)");
+      expect(swingWorkspaceSrc).toContain("global?.addTicker?.(sym)");
+    });
+
+    it("provides resilient Yahoo search fallback so valid US tickers do not fail with red error text on rate limits", () => {
+      expect(universeSrc).toContain("fallbackQuote");
+      expect(universeSrc).toContain("FALLBACK_ETFS");
     });
 
     it("handles Enter keydown and [ + ] submit button click, stopping event bubbling", () => {
@@ -51,12 +74,29 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
       expect(globalStateSrc).toContain("subscribeSymbol(sym)");
     });
 
-    it("Watchlist component has properly bound newTicker state, Enter key handler, and [ + Add ] button", () => {
+    it("Watchlist component has properly bound newTicker state, visible text-white/text-cyan-400, Enter key handler, and [ + Add ] button", () => {
       expect(watchlistPageSrc).toContain("const [newTicker, setNewTicker] = useState(");
       expect(watchlistPageSrc).toContain("setNewTicker(e.target.value.toUpperCase())");
+      expect(watchlistPageSrc).toContain("text-white text-cyan-400");
       expect(watchlistPageSrc).toContain('if (e.key === "Enter")');
       expect(watchlistPageSrc).toContain("[ + Add ]");
       expect(watchlistPageSrc).toContain("global?.addTicker");
+      expect(watchlistPageSrc).toContain("subscribeSymbol(sym)");
+    });
+  });
+
+  describe("1b. 10-SMA Momentum Integration & Chart Rendering", () => {
+    it("scans for 10-SMA runaway momentum setups when trading > 3% above 20-SMA and pulling back to 10-SMA", () => {
+      expect(scannerSrc).toContain("price > sma20 * 1.03");
+      expect(scannerSrc).toContain("is10SmaMomentum");
+    });
+
+    it("plots SMA 10 on all charts (SwingChart, ModalLargeChart, SparklineChart, LiveTradingChart) with bright white #FFFFFF", () => {
+      expect(modalChartSrc).toContain("sma10Data");
+      expect(modalChartSrc).toContain("[ - SMA 10 ]");
+      expect(modalChartSrc).toContain("#FFFFFF");
+      expect(tradingCardSrc).toContain("sma10Data");
+      expect(dashSrc).toContain("sma10Path");
     });
   });
 
@@ -149,9 +189,10 @@ describe("Fix Watchlist Input Bug, Unify Global Ticker Flow, and Apply Bloomberg
       expect(actionEngineSrc).toContain("step4Active");
     });
 
-    it("embeds StepByStepActionChecklist into expanded Setup Cards and Studio right sidebar", () => {
+    it("embeds StepByStepActionChecklist into expanded Setup Cards, ActionCenter, and Studio right sidebar", () => {
       expect(dashSrc).toContain("<StepByStepActionChecklist");
       expect(tradingCardSrc).toContain("<StepByStepActionChecklist");
+      expect(actionCenterSrc).toContain("<StepByStepActionChecklist");
     });
   });
 });
