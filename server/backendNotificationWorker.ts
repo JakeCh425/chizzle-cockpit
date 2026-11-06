@@ -56,6 +56,7 @@ export interface ServerSetupEvaluation {
   order1Shares: number;
   order2Shares: number;
   sma20: number | null;
+  sma50?: number | null;
   sma10: number | null;
   barTimestamp: number | null;
   reason: string;
@@ -75,6 +76,7 @@ export interface ExecutionZoneGateResult {
   shouldFire: boolean;
   conditionMet: "CONDITION_A_TRIGGER_CONFIRMED" | "CONDITION_B_PROXIMITY_05_PCT" | null;
   distanceToSma20Pct: number | null;
+  distanceToSma50Pct?: number | null;
   distanceToEma10Pct: number | null;
   minDistancePct: number | null;
   reason: string;
@@ -260,16 +262,69 @@ export function evaluateSetupAlertResetConditions(params: {
 }
 
 /**
+ * Prop-Desk Terminal Style Message Formatter:
+ * Strict format:
+ * - Headline: 🚨 CHIZZLE EXECUTION READY: [TICKER]
+ * - Status: [ CONFIRMED 1H CLOSE ] or [ PROXIMITY ALERT < 0.5% ]
+ * - Core Math: Entry $X.XX | Stop $X.XX | Target 1 (1.5R) $X.XX | Target 2 (2.0R) $X.XX
+ * - Actionable Note: Review Fidelity Guide and prepare limit order.
+ */
+export function formatExecutionReadyAlertMessage(params: {
+  ticker: string;
+  status: "CONFIRMED_1H_CLOSE" | "PROXIMITY_ALERT_05_PCT" | string;
+  entryPrice: number;
+  stopLoss: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  instruction?: string;
+}): string {
+  const ticker = (params.ticker || "NVDA").trim().toUpperCase();
+  const entry = Number(params.entryPrice || 0);
+  const stop = Number(params.stopLoss || 0);
+  const risk = Math.max(0.01, Math.abs(entry - stop));
+  const isShort = stop > entry;
+  const t1 = Number((params.target1 ?? (isShort ? entry - 1.5 * risk : entry + 1.5 * risk)).toFixed(2));
+  const t2 = Number((params.target2 ?? (isShort ? entry - 2.0 * risk : entry + 2.0 * risk)).toFixed(2));
+
+  const statusUpper = (params.status || "").toUpperCase();
+  const statusLabel =
+    statusUpper.includes("PROXIMITY") || statusUpper === "PROXIMITY_ALERT_05_PCT"
+      ? "[ PROXIMITY ALERT < 0.5% ]"
+      : "[ CONFIRMED 1H CLOSE ]";
+
+  const note =
+    params.instruction ||
+    "Review Fidelity Guide and prepare limit order.";
+
+  const shares =
+    params.calculatedShares && params.calculatedShares > 0
+      ? params.calculatedShares
+      : Math.max(1, Math.floor(250 / risk));
+  const order1Shares = Math.floor(shares / 2);
+  const order2Shares = shares - order1Shares;
+
+  return [
+    `🚨 CHIZZLE EXECUTION READY: [${ticker}]`,
+    `Status: ${statusLabel}`,
+    `Core Math: Entry $${entry.toFixed(2)} | Stop $${stop.toFixed(2)} | Target 1 (1.5R) $${t1.toFixed(2)} | Target 2 (2.0R) $${t2.toFixed(2)}`,
+    `Actionable Note: ${note}`,
+    `Fidelity Ticket: BUY ${shares} Shares Limit at $${entry.toFixed(2)}. Order 1 SELL ${order1Shares} Shares @ $${t1.toFixed(2)} (1.5R) | Order 2 STOP ${order2Shares} Shares @ $${stop.toFixed(2)}.`,
+  ].join("\n");
+}
+
+/**
  * 2. Strict "Execution Zone" Proximity Filter:
  * An alert MUST ONLY fire when a setup transitions into the "Active Execution Zone" or is extremely close:
- *   - Condition A (Trigger Confirmed): 1-hour candle closes green off the SMA/EMA and `isTradeConfirmed === true`.
- *   - Condition B (Proximity Warning): Live price pulls back and is strictly within 0.5% (`<= 0.005`) of the target moving average (SMA 20 or EMA 10 / SMA 10).
- *   - Never fires for setups that are simply "Forming" or sitting on the Watchlist out of range (> 0.5% away and not confirmed).
+ *   - Condition A (Trade Confirmed): 1-hour candle has officially closed and validated the setup (`isTradeConfirmed === true`).
+ *   - Condition B (Close Proximity / Almost Ready): Live price pulls back and is strictly within 0.5% (`<= 0.005`) of the target moving average (SMA 20, SMA 50, or 10-EMA).
+ *   - Suppress and drop all alerts for general "Watch", "No Trade", "Forming", or background scanning logs.
  */
 export function evaluateExecutionZoneAlertGate(params: {
   symbol: string;
   currentPrice: number;
   sma20?: number | null;
+  sma50?: number | null;
   ema10?: number | null;
   sma10?: number | null;
   entryPrice?: number | null;
@@ -299,6 +354,7 @@ export function evaluateExecutionZoneAlertGate(params: {
       shouldFire: false,
       conditionMet: null,
       distanceToSma20Pct: null,
+      distanceToSma50Pct: null,
       distanceToEma10Pct: null,
       minDistancePct: null,
       reason: `${symbol} invalidated below Stop Loss ($${stopLoss.toFixed(2)}). Alert state reset.`,
@@ -306,6 +362,7 @@ export function evaluateExecutionZoneAlertGate(params: {
   }
 
   const sma20Target = params.sma20 != null && params.sma20 > 0 ? Number(params.sma20) : null;
+  const sma50Target = params.sma50 != null && params.sma50 > 0 ? Number(params.sma50) : null;
   const ema10Target =
     params.ema10 != null && params.ema10 > 0
       ? Number(params.ema10)
@@ -313,7 +370,7 @@ export function evaluateExecutionZoneAlertGate(params: {
       ? Number(params.sma10)
       : null;
   const fallbackEntryTarget =
-    sma20Target == null && ema10Target == null && params.entryPrice != null && params.entryPrice > 0
+    sma20Target == null && sma50Target == null && ema10Target == null && params.entryPrice != null && params.entryPrice > 0
       ? Number(params.entryPrice)
       : null;
 
@@ -324,20 +381,25 @@ export function evaluateExecutionZoneAlertGate(params: {
       ? Math.abs(livePrice - fallbackEntryTarget) / fallbackEntryTarget
       : null;
 
+  const distanceToSma50Pct =
+    livePrice > 0 && sma50Target != null
+      ? Math.abs(livePrice - sma50Target) / sma50Target
+      : null;
+
   const distanceToEma10Pct =
     livePrice > 0 && ema10Target != null
       ? Math.abs(livePrice - ema10Target) / ema10Target
       : null;
 
-  const distances = [distanceToSma20Pct, distanceToEma10Pct].filter(
+  const distances = [distanceToSma20Pct, distanceToSma50Pct, distanceToEma10Pct].filter(
     (d): d is number => d != null && Number.isFinite(d)
   );
   const minDistancePct = distances.length > 0 ? Math.min(...distances) : null;
 
-  // Condition A (Trigger Confirmed): 1-hour candle closes green off the SMA/EMA and setup state is isTradeConfirmed === true
+  // Condition A (Trade Confirmed): 1-hour candle has officially closed and validated the setup (`isTradeConfirmed === true`)
   const conditionAConfirmed = Boolean(params.isTradeConfirmed === true || params.is1hCandleClosedGreenOffMa === true);
 
-  // Condition B (Proximity Warning): Live price pulls back and is strictly within 0.5% (<= 0.005) of target MA (SMA 20 or EMA 10)
+  // Condition B (Close Proximity / Almost Ready): Live price is strictly within 0.5% (<= 0.005) of target MA (SMA 20, SMA 50, or 10-EMA)
   const conditionBProximity =
     minDistancePct != null && minDistancePct <= EXECUTION_ZONE_PROXIMITY_THRESHOLD;
 
@@ -348,12 +410,42 @@ export function evaluateExecutionZoneAlertGate(params: {
     ? "CONDITION_B_PROXIMITY_05_PCT"
     : null;
 
+  // Suppress and drop all alerts for general "Watch", "No Trade", "Forming", or background scanning logs
+  const statusUpper = (params.status || "").trim().toUpperCase();
+  const isFormingOrWatchOrNoTrade =
+    statusUpper === "WATCH" ||
+    statusUpper === "WATCH_LIST" ||
+    statusUpper === "WATCHLIST" ||
+    statusUpper === "WATCH_RETEST" ||
+    statusUpper === "WATCH_EXTENDED" ||
+    statusUpper === "NO_TRADE" ||
+    statusUpper === "NO TRADE" ||
+    statusUpper === "FORMING" ||
+    statusUpper === "SETUP_FORMING" ||
+    statusUpper === "SCANNING" ||
+    statusUpper === "BACKGROUND_SCAN" ||
+    statusUpper === "BACKGROUND_LOG";
+
+  if (isFormingOrWatchOrNoTrade && !conditionAConfirmed && !conditionBProximity) {
+    return {
+      setupIsReady: false,
+      shouldFire: false,
+      conditionMet: null,
+      distanceToSma20Pct,
+      distanceToSma50Pct,
+      distanceToEma10Pct,
+      minDistancePct,
+      reason: `${symbol} is in non-actionable status '${params.status}' (not confirmed and out of 0.5% proximity). Alert suppressed.`,
+    };
+  }
+
   if (!setupIsReady) {
     return {
       setupIsReady: false,
       shouldFire: false,
       conditionMet: null,
       distanceToSma20Pct,
+      distanceToSma50Pct,
       distanceToEma10Pct,
       minDistancePct,
       reason: `${symbol} is out of Execution Zone range (${
@@ -369,6 +461,7 @@ export function evaluateExecutionZoneAlertGate(params: {
       shouldFire: false,
       conditionMet,
       distanceToSma20Pct,
+      distanceToSma50Pct,
       distanceToEma10Pct,
       minDistancePct,
       reason: `${symbol} alert already sent for this setup at ${setup.lastAlertTimestamp}. Duplicate suppressed.`,
@@ -380,6 +473,7 @@ export function evaluateExecutionZoneAlertGate(params: {
     shouldFire: true,
     conditionMet,
     distanceToSma20Pct,
+    distanceToSma50Pct,
     distanceToEma10Pct,
     minDistancePct,
     reason:
@@ -431,6 +525,7 @@ export function evaluateServer1HCandleConfirmation(params: {
   const closes = workingBars.map((b) => b.c);
 
   const sma20 = computeSimpleMovingAverage(closes, 20);
+  const sma50 = computeSimpleMovingAverage(closes, 50);
   const sma10 = computeSimpleMovingAverage(closes, 10);
   const livePrice =
     params.currentPrice != null && params.currentPrice > 0
@@ -488,11 +583,12 @@ export function evaluateServer1HCandleConfirmation(params: {
   const order1Shares = Math.floor(calculatedShares / 2);
   const order2Shares = calculatedShares - order1Shares;
 
-  // Strict Execution Zone Proximity check (within 0.5% of SMA 20 or EMA 10 / SMA 10 and above stopLoss)
+  // Strict Execution Zone Proximity check (within 0.5% of SMA 20, SMA 50, or EMA 10 / SMA 10 and above stopLoss)
   const gateEval = evaluateExecutionZoneAlertGate({
     symbol,
     currentPrice: livePrice,
     sma20,
+    sma50,
     sma10,
     entryPrice,
     stopLoss,
@@ -548,6 +644,7 @@ export function evaluateServer1HCandleConfirmation(params: {
     order1Shares,
     order2Shares,
     sma20,
+    sma50,
     sma10,
     barTimestamp: lastBar?.t ?? null,
     reason,
@@ -638,6 +735,7 @@ export async function dispatchServerSetupAlert(params: {
   target1: number;
   currentPrice?: number;
   sma20?: number | null;
+  sma50?: number | null;
   ema10?: number | null;
   sma10?: number | null;
   isTradeConfirmed?: boolean;
@@ -681,6 +779,7 @@ export async function dispatchServerSetupAlert(params: {
     symbol,
     currentPrice: params.currentPrice ?? params.entryPrice,
     sma20: params.sma20,
+    sma50: params.sma50,
     ema10: params.ema10,
     sma10: params.sma10,
     entryPrice: params.entryPrice,
@@ -737,6 +836,28 @@ export async function dispatchServerSetupAlert(params: {
   const order1Shares = Math.floor(calculatedShares / 2);
   const order2Shares = calculatedShares - order1Shares;
 
+  const target1 = Number(
+    (params.target1 ?? (params.entryPrice + 1.5 * riskPerShare)).toFixed(2)
+  );
+  const target2 = Number((params.entryPrice + 2.0 * riskPerShare).toFixed(2));
+
+  const statusLabel =
+    gate.conditionMet === "CONDITION_B_PROXIMITY_05_PCT" ||
+    alertType === "PROXIMITY_EARLY_WARNING"
+      ? "PROXIMITY_ALERT_05_PCT"
+      : "CONFIRMED_1H_CLOSE";
+
+  const message = formatExecutionReadyAlertMessage({
+    ticker: symbol,
+    status: statusLabel,
+    entryPrice: params.entryPrice,
+    stopLoss: params.stopLoss,
+    target1,
+    target2,
+    calculatedShares,
+    instruction: "Review Fidelity Guide and prepare limit order.",
+  });
+
   const contextText =
     params.context ||
     (alertType === "CONFIRMED_1H_10SMA"
@@ -744,19 +865,6 @@ export async function dispatchServerSetupAlert(params: {
       : alertType === "PROXIMITY_EARLY_WARNING"
       ? "Price within 0.5% of Target Moving Average"
       : "1H Candle Closed Green Holding 20-SMA Support");
-
-  const message =
-    alertType === "PROXIMITY_EARLY_WARNING"
-      ? formatProximityEarlyWarningMessage({
-          ticker: symbol,
-          entryPrice: params.entryPrice,
-        })
-      : [
-          `🚨 CHIZZLE CONFIRMED ENTRY: ${symbol} at $${params.entryPrice.toFixed(2)}`,
-          `Context: ${contextText}.`,
-          `Fidelity Ticket: BUY ${calculatedShares} Shares Limit at $${params.entryPrice.toFixed(2)}.`,
-          `OCO Bracket: Order 1 SELL ${order1Shares} Shares @ $${params.target1.toFixed(2)} (1.5R) | Order 2 STOP ${order2Shares} Shares @ $${params.stopLoss.toFixed(2)}.`,
-        ].join("\n");
 
   const targetChatId = params.chatId || process.env.TELEGRAM_CHAT_ID || "7864955612";
   const targetEmail = params.email || process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com";
@@ -773,14 +881,15 @@ export async function dispatchServerSetupAlert(params: {
         userEmail: targetEmail,
         ticker: symbol,
         entryPrice: params.entryPrice,
-        target1: params.target1,
+        target1: target1,
         context: contextText,
         setupId: `${symbol}-${barKey}`,
         alertType,
+        message,
         plan: {
           entryPrice: params.entryPrice,
           stopLoss: params.stopLoss,
-          target1: params.target1,
+          target1: target1,
           shares: calculatedShares,
         } as any,
       }),
@@ -912,6 +1021,7 @@ export async function runBackendWatchlistAlertScan(options?: {
         symbol: sym,
         currentPrice: evaluation.currentPrice,
         sma20: evaluation.sma20,
+        sma50: evaluation.sma50,
         sma10: evaluation.sma10,
         entryPrice: evaluation.entryPrice,
         stopLoss: evaluation.stopLoss,
@@ -927,6 +1037,7 @@ export async function runBackendWatchlistAlertScan(options?: {
           target1: evaluation.target1,
           currentPrice: evaluation.currentPrice,
           sma20: evaluation.sma20,
+          sma50: evaluation.sma50,
           sma10: evaluation.sma10,
           isTradeConfirmed: evaluation.confirmed,
           calculatedShares: evaluation.calculatedShares,

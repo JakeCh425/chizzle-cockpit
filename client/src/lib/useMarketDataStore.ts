@@ -844,7 +844,8 @@ class MarketDataStore {
    * Update connection / feed status
    */
   public setStatus(status: ConnState | "DELAYED" | "RECONNECTING") {
-    const isReconnecting = status === "CONNECTING" || status === "RECONNECTING";
+    const isReconnecting =
+      status === "CONNECTING" || status === "RECONNECTING" || Boolean(this.state.staleQuoteRejected);
     const isDelayed = status === "STALE" || status === "DELAYED" || status === "DISCONNECTED";
 
     if (

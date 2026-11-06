@@ -82,6 +82,7 @@ export interface PreEntryTriggerInput {
   target1: number;
   stopLoss?: number;
   sma20?: number;
+  sma50?: number;
   ema10?: number;
   sma10?: number;
   isTradeConfirmed?: boolean;
@@ -153,6 +154,7 @@ export function evaluatePreEntryAlertTriggers(
     target1,
     stopLoss,
     sma20,
+    sma50,
     ema10,
     sma10,
     isTradeConfirmed,
@@ -178,11 +180,12 @@ export function evaluatePreEntryAlertTriggers(
   // Condition A (Trigger Confirmed): isTradeConfirmed === true
   // Condition B (Proximity Warning): live price within <= 0.5% (0.005) of SMA 20 or EMA 10
   // Never fires for setups that are simply "Forming" or sitting on the Watchlist out of range (> 0.5%).
-  if (strictExecutionZoneOnly || sma20 != null || ema10 != null || sma10 != null || typeof isTradeConfirmed === "boolean") {
+  if (strictExecutionZoneOnly || sma20 != null || sma50 != null || ema10 != null || sma10 != null || typeof isTradeConfirmed === "boolean") {
     const gate = evaluateExecutionZoneProximityFilter({
       ticker: cleanTicker,
       currentPrice,
       sma20,
+      sma50,
       ema10,
       sma10,
       entryPrice,
@@ -475,6 +478,7 @@ export interface UseOffScreenPreEntryAlertsInput {
   target1: number;
   stopLoss?: number;
   sma20?: number;
+  sma50?: number;
   ema10?: number;
   sma10?: number;
   isTradeConfirmed?: boolean;
@@ -490,6 +494,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     target1,
     stopLoss,
     sma20,
+    sma50,
     ema10,
     sma10,
     isTradeConfirmed,
@@ -649,6 +654,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     target1,
     stopLoss,
     sma20,
+    sma50,
     ema10,
     sma10,
     isTradeConfirmed,

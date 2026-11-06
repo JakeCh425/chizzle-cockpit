@@ -8,6 +8,7 @@ import {
   resetSetupAlertState,
   evaluateSetupAlertResetConditions,
   evaluateExecutionZoneAlertGate,
+  formatExecutionReadyAlertMessage,
   dispatchServerSetupAlert,
   clearNotificationAuditLog,
 } from "../../server/backendNotificationWorker";
@@ -182,9 +183,40 @@ describe("Notification Engine Refactor — Alert Deduplication & Strict Proximit
       expect(ema10Gate.setupIsReady).toBe(true);
       expect(ema10Gate.shouldFire).toBe(true);
       expect(ema10Gate.conditionMet).toBe("CONDITION_B_PROXIMITY_05_PCT");
+
+      // Price $100.40 vs SMA 50 $100.00 -> 0.40% away (<= 0.5%) while SMA 20 is $95.00
+      const sma50Gate = evaluateExecutionZoneAlertGate({
+        symbol: "MSFT",
+        currentPrice: 100.4,
+        sma20: 95.0,
+        sma50: 100.0,
+        ema10: 98.0,
+        stopLoss: 97.0,
+        isTradeConfirmed: false,
+      });
+      expect(sma50Gate.setupIsReady).toBe(true);
+      expect(sma50Gate.shouldFire).toBe(true);
+      expect(sma50Gate.conditionMet).toBe("CONDITION_B_PROXIMITY_05_PCT");
     });
 
-    it("blocks alerts for setups that are simply 'Forming' or sitting on Watchlist out of range (> 0.5% away and not confirmed)", async () => {
+    it("suppresses and drops all alerts for general 'Watch', 'No Trade', 'Forming', or background scanning logs", async () => {
+      // Out of range (price $203 vs SMA 20 $200 -> 1.5% away)
+      for (const nonActionableStatus of ["Watch", "No Trade", "Forming", "BACKGROUND_SCAN", "SCANNING"]) {
+        const suppressed = evaluateExecutionZoneAlertGate({
+          symbol: "AAPL",
+          currentPrice: 203.0,
+          sma20: 200.0,
+          sma50: 195.0,
+          ema10: 201.5,
+          stopLoss: 196.0,
+          isTradeConfirmed: false,
+          status: nonActionableStatus,
+        });
+        expect(suppressed.setupIsReady).toBe(false);
+        expect(suppressed.shouldFire).toBe(false);
+        expect(suppressed.conditionMet).toBeNull();
+      }
+
       // Price $203.00 vs SMA 20 $200.00 -> 1.50% away (> 0.5%), status = "Forming", isTradeConfirmed = false
       const gate = evaluateExecutionZoneAlertGate({
         symbol: "XLV",
@@ -341,6 +373,60 @@ describe("Notification Engine Refactor — Alert Deduplication & Strict Proximit
       expect(dashboardSrc).toContain("bg-yellow-400");
       expect(dashboardSrc).toContain("text-gray-900");
       expect(dashboardSrc).toContain("placeholder-gray-700");
+    });
+  });
+
+  describe("5. Clear, Actionable Message Formatting (Prop-Desk Terminal Style)", () => {
+    it("formats Condition A (Trade Confirmed) message strictly adhering to prop-desk terminal standard", () => {
+      const msg = formatExecutionReadyAlertMessage({
+        ticker: "NVDA",
+        status: "CONFIRMED_1H_CLOSE",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        target2: 140.0,
+      });
+
+      expect(msg).toContain("🚨 CHIZZLE EXECUTION READY: [NVDA]");
+      expect(msg).toContain("Status: [ CONFIRMED 1H CLOSE ]");
+      expect(msg).toContain("Core Math: Entry $135.00 | Stop $132.50 | Target 1 (1.5R) $138.75 | Target 2 (2.0R) $140.00");
+      expect(msg).toContain("Actionable Note: Review Fidelity Guide and prepare limit order.");
+    });
+
+    it("formats Condition B (Close Proximity / Almost Ready) message strictly adhering to prop-desk terminal standard", () => {
+      const msg = formatExecutionReadyAlertMessage({
+        ticker: "QQQ",
+        status: "PROXIMITY_ALERT_05_PCT",
+        entryPrice: 200.0,
+        stopLoss: 196.0,
+        target1: 206.0,
+        target2: 208.0,
+      });
+
+      expect(msg).toContain("🚨 CHIZZLE EXECUTION READY: [QQQ]");
+      expect(msg).toContain("Status: [ PROXIMITY ALERT < 0.5% ]");
+      expect(msg).toContain("Core Math: Entry $200.00 | Stop $196.00 | Target 1 (1.5R) $206.00 | Target 2 (2.0R) $208.00");
+      expect(msg).toContain("Actionable Note: Review Fidelity Guide and prepare limit order.");
+    });
+
+    it("dispatches server setup alerts with prop-desk formatted message in audit entry", async () => {
+      const res = await dispatchServerSetupAlert({
+        symbol: "NVDA",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        currentPrice: 135.1,
+        sma20: 135.0,
+        isTradeConfirmed: true,
+        force: true,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.suppressed).toBe(false);
+      expect(res.auditEntry.message).toContain("🚨 CHIZZLE EXECUTION READY: [NVDA]");
+      expect(res.auditEntry.message).toContain("Status: [ CONFIRMED 1H CLOSE ]");
+      expect(res.auditEntry.message).toContain("Core Math: Entry $135.00 | Stop $132.50 | Target 1 (1.5R) $138.75 | Target 2 (2.0R) $140.00");
+      expect(res.auditEntry.message).toContain("Actionable Note: Review Fidelity Guide and prepare limit order.");
     });
   });
 });

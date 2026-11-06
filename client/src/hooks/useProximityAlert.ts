@@ -11,6 +11,7 @@ export interface ProximityAlertInput {
   entryPrice: number;
   stopLoss?: number;
   sma20?: number;
+  sma50?: number;
   ema10?: number;
   sma10?: number;
   isTradeConfirmed?: boolean;
@@ -75,6 +76,7 @@ export function evaluateExecutionZoneProximityFilter(params: {
   ticker: string;
   currentPrice: number;
   sma20?: number | null;
+  sma50?: number | null;
   ema10?: number | null;
   sma10?: number | null;
   entryPrice?: number | null;
@@ -96,6 +98,7 @@ export function evaluateExecutionZoneProximityFilter(params: {
   }
 
   const sma20Target = params.sma20 != null && params.sma20 > 0 ? Number(params.sma20) : null;
+  const sma50Target = params.sma50 != null && params.sma50 > 0 ? Number(params.sma50) : null;
   const ema10Target =
     params.ema10 != null && params.ema10 > 0
       ? Number(params.ema10)
@@ -103,7 +106,7 @@ export function evaluateExecutionZoneProximityFilter(params: {
       ? Number(params.sma10)
       : null;
   const entryTarget =
-    sma20Target == null && ema10Target == null && params.entryPrice != null && params.entryPrice > 0
+    sma20Target == null && sma50Target == null && ema10Target == null && params.entryPrice != null && params.entryPrice > 0
       ? Number(params.entryPrice)
       : null;
 
@@ -113,9 +116,10 @@ export function evaluateExecutionZoneProximityFilter(params: {
       : entryTarget != null
       ? Math.abs(livePrice - entryTarget) / entryTarget
       : null;
+  const distSma50 = sma50Target != null ? Math.abs(livePrice - sma50Target) / sma50Target : null;
   const distEma10 = ema10Target != null ? Math.abs(livePrice - ema10Target) / ema10Target : null;
 
-  const validDists = [distSma20, distEma10].filter((d): d is number => d != null && Number.isFinite(d));
+  const validDists = [distSma20, distSma50, distEma10].filter((d): d is number => d != null && Number.isFinite(d));
   const minDistanceRatio = validDists.length > 0 ? Math.min(...validDists) : null;
   const minDistancePct = minDistanceRatio != null ? +(minDistanceRatio * 100).toFixed(4) : null;
 
@@ -146,6 +150,7 @@ export function evaluateProximityAlertTrigger(params: {
   currentPrice: number;
   entryPrice: number;
   sma20?: number;
+  sma50?: number;
   ema10?: number;
   sma10?: number;
   stopLoss?: number;
@@ -181,6 +186,7 @@ export function evaluateProximityAlertTrigger(params: {
   // If moving averages or confirmation state are explicitly passed, evaluate strict Execution Zone filter
   const hasMaParams =
     params.sma20 != null ||
+    params.sma50 != null ||
     params.ema10 != null ||
     params.sma10 != null ||
     typeof params.isTradeConfirmed === "boolean";
@@ -195,6 +201,7 @@ export function evaluateProximityAlertTrigger(params: {
       ticker: cleanTicker,
       currentPrice,
       sma20: params.sma20,
+      sma50: params.sma50,
       ema10: params.ema10,
       sma10: params.sma10,
       entryPrice,
@@ -238,6 +245,7 @@ export function useProximityAlert(input: ProximityAlertInput) {
     entryPrice,
     stopLoss,
     sma20,
+    sma50,
     ema10,
     sma10,
     isTradeConfirmed,
@@ -351,6 +359,7 @@ export function useProximityAlert(input: ProximityAlertInput) {
     entryPrice,
     stopLoss,
     sma20,
+    sma50,
     ema10,
     sma10,
     isTradeConfirmed,
