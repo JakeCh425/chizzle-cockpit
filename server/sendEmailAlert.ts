@@ -1,5 +1,29 @@
 // ─── Transactional Email Utility (Resend / SendGrid / SMTP Compatible) ───
 
+import {
+  isApprovedSetupForEmail,
+  canSendExecutionEmail,
+  recordExecutionEmailSent,
+  canSendProximityEmail,
+  recordProximityEmailSent,
+  formatApprovedSetupEmail,
+  formatApprovedSetupEmailSubject,
+  clearEmailDeduplicationLedger,
+  ApprovedSetupEmailPayload,
+} from "./emailDispatcher";
+
+export {
+  isApprovedSetupForEmail,
+  canSendExecutionEmail,
+  recordExecutionEmailSent,
+  canSendProximityEmail,
+  recordProximityEmailSent,
+  formatApprovedSetupEmail,
+  formatApprovedSetupEmailSubject,
+  clearEmailDeduplicationLedger,
+  type ApprovedSetupEmailPayload,
+};
+
 export interface PreEntryEmailPayload {
   userEmail?: string;
   email?: string;
@@ -12,11 +36,23 @@ export interface PreEntryEmailPayload {
   target2?: number | string;
   shares?: number;
   calculatedShares?: number;
+  t1Shares?: number;
+  t2Shares?: number;
   context?: string;
   plan?: string | any;
   message?: string;
   setupId?: string;
   alertType?: string;
+  status?: string;
+  is1HCandleClosedGreen?: boolean;
+  isTradeConfirmed?: boolean;
+  riskRewardRatio?: number;
+  notifyOnProximity?: boolean;
+  isProximityAlert?: boolean;
+  force?: boolean;
+  candleTimestamp?: string | number;
+  tradingDay?: string;
+  regime?: string;
 }
 
 export function formatPriceString(val: number | string | undefined): string {
@@ -124,12 +160,14 @@ const serverFiredAlerts = new Set<string>();
  */
 export function clearEmailAlertDeduplicationCache(): void {
   serverFiredAlerts.clear();
+  clearEmailDeduplicationLedger();
 }
 
 /**
  * Server-side email utility:
  * async function sendPreEntryEmail(userEmail, ticker, price, context, plan)
  * Supports both positional arguments and single object payload.
+ * Enforces strict approved execution setup filtering and suppresses pre-entry spam by default.
  */
 export async function sendPreEntryEmail(
   userEmailOrPayload: string | PreEntryEmailPayload,
@@ -139,7 +177,7 @@ export async function sendPreEntryEmail(
   planArg?: string
 ): Promise<{
   ok: boolean;
-  status: "sent" | "stubbed" | "failed";
+  status: "sent" | "stubbed" | "failed" | "suppressed";
   error?: string;
   subject: string;
   html: string;
@@ -151,9 +189,17 @@ export async function sendPreEntryEmail(
   let context = "Price within 0.25% of SMA";
   let plan: string | any = "";
   let target1: number | string | undefined = undefined;
+  let target2: number | string | undefined = undefined;
   let stopLoss: number | string | undefined = undefined;
   let shares: number | undefined = undefined;
   let customMessage: string | undefined = undefined;
+  let isProximityAlert = false;
+  let notifyOnProximity = false;
+  let isConfirmedExecution = false;
+  let candleTimestamp: string | number | undefined = undefined;
+  let tradingDay: string | undefined = undefined;
+  let regime: string | undefined = undefined;
+  let force = false;
 
   if (typeof userEmailOrPayload === "object" && userEmailOrPayload !== null) {
     userEmail = (userEmailOrPayload.userEmail || userEmailOrPayload.emailAddress || userEmailOrPayload.email || "").trim();
@@ -161,10 +207,36 @@ export async function sendPreEntryEmail(
     price = userEmailOrPayload.price ?? userEmailOrPayload.entryPrice ?? 0;
     context = userEmailOrPayload.context || "Price within 0.25% of SMA";
     target1 = userEmailOrPayload.target1 ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.target1 : undefined);
+    target2 = userEmailOrPayload.target2;
     stopLoss = userEmailOrPayload.stopLoss ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.stopLoss : undefined);
     shares = userEmailOrPayload.calculatedShares ?? userEmailOrPayload.shares ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.shares ?? userEmailOrPayload.plan?.calculatedShares : undefined);
     plan = userEmailOrPayload.plan || "";
     customMessage = userEmailOrPayload.message;
+    notifyOnProximity = Boolean(userEmailOrPayload.notifyOnProximity);
+    force = Boolean(userEmailOrPayload.force);
+    candleTimestamp = userEmailOrPayload.candleTimestamp;
+    tradingDay = userEmailOrPayload.tradingDay;
+    regime = userEmailOrPayload.regime;
+
+    const alertType = userEmailOrPayload.alertType || "";
+    isProximityAlert = Boolean(
+      userEmailOrPayload.isProximityAlert ||
+      alertType === "PROXIMITY_ALERT" ||
+      alertType === "PROXIMITY_EARLY_WARNING"
+    );
+
+    isConfirmedExecution =
+      !isProximityAlert &&
+      isApprovedSetupForEmail({
+        status: userEmailOrPayload.status,
+        is1HCandleClosedGreen: userEmailOrPayload.is1HCandleClosedGreen,
+        isTradeConfirmed: userEmailOrPayload.isTradeConfirmed,
+        riskRewardRatio: userEmailOrPayload.riskRewardRatio,
+        entryPrice: Number(price),
+        stopLoss: stopLoss != null ? Number(stopLoss) : undefined,
+        target1: target1 != null ? Number(target1) : undefined,
+        target2: target2 != null ? Number(target2) : undefined,
+      });
   } else {
     userEmail = String(userEmailOrPayload || "").trim();
     ticker = tickerArg || "NVDA";
@@ -173,45 +245,102 @@ export async function sendPreEntryEmail(
     plan = planArg || "";
   }
 
-  const { html, text, subject } = formatPreEntryEmailHtml({
-    ticker,
-    price,
-    context,
-    plan,
-    entryPrice: price,
-    target1,
-    stopLoss,
-    shares,
-    calculatedShares: shares,
-    message: customMessage,
-  });
+  const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
+
+  // If this is an approved confirmed setup, use institutional execution formatting & gate
+  let emailHtml: string;
+  let emailText: string;
+  let emailSubject: string;
+
+  if (isConfirmedExecution) {
+    const formatted = formatApprovedSetupEmail({
+      ticker: cleanTicker,
+      entryPrice: Number(price),
+      stopLoss: Number(stopLoss ?? Number(price) * 0.985),
+      target1: target1 != null ? Number(target1) : undefined,
+      target2: target2 != null ? Number(target2) : undefined,
+      shares,
+      regime,
+      candleTimestamp,
+      tradingDay,
+    });
+    emailHtml = formatted.html;
+    emailText = formatted.text;
+    emailSubject = formatted.subject;
+  } else {
+    const formatted = formatPreEntryEmailHtml({
+      ticker: cleanTicker,
+      price,
+      context,
+      plan,
+      entryPrice: price,
+      target1,
+      stopLoss,
+      shares,
+      calculatedShares: shares,
+      message: customMessage,
+    });
+    emailHtml = formatted.html;
+    emailText = formatted.text;
+    emailSubject = formatted.subject;
+  }
 
   if (!userEmail) {
     return {
       ok: false,
       status: "failed",
       error: "User email address is required",
-      subject,
-      html,
-      message: text,
+      subject: emailSubject,
+      html: emailHtml,
+      message: emailText,
     };
   }
 
+  // Gate 1: Check proximity filter (Deprecate pre-entry proximity spam by default)
+  if (isProximityAlert && !force) {
+    const proxCheck = canSendProximityEmail(cleanTicker, notifyOnProximity);
+    if (!proxCheck.allowed) {
+      return {
+        ok: true,
+        status: "suppressed",
+        error: proxCheck.reason,
+        subject: emailSubject,
+        html: emailHtml,
+        message: proxCheck.reason || "Proximity email suppressed",
+      };
+    }
+  }
+
+  // Gate 2: For execution setups, check candle-bound & session deduplication (max 1 per day)
+  if (isConfirmedExecution && !force) {
+    const candleTs = candleTimestamp ?? Math.floor(Date.now() / 3_600_000);
+    const dayCheck = canSendExecutionEmail(cleanTicker, candleTs, tradingDay);
+    if (!dayCheck.allowed) {
+      return {
+        ok: true,
+        status: "suppressed",
+        error: dayCheck.reason,
+        subject: emailSubject,
+        html: emailHtml,
+        message: dayCheck.reason || "Duplicate execution email suppressed",
+      };
+    }
+  }
+
   // Strict execution lock (debounce/cache) per active setup
-  const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
   const formattedPrice = formatPriceString(price);
-  const alertType = (userEmailOrPayload as any)?.alertType || "PRE_ENTRY";
+  const alertType = (userEmailOrPayload as any)?.alertType || (isConfirmedExecution ? "CONFIRMED" : "PRE_ENTRY");
   const setupId = (userEmailOrPayload as any)?.setupId || formattedPrice;
   const alertKey = `${cleanTicker}-${setupId}-${alertType}`;
 
-  if (serverFiredAlerts.has(alertKey)) {
+  if (!force && serverFiredAlerts.has(alertKey)) {
     return {
       ok: true,
       status: "stubbed",
       error: `Duplicate alert suppressed by deduplication lock for key ${alertKey}`,
-      subject,
-      html,
-      message: text,
+      subject: emailSubject,
+      html: emailHtml,
+      message: emailText,
     };
   }
   serverFiredAlerts.add(alertKey);
@@ -232,9 +361,9 @@ export async function sendPreEntryEmail(
         body: JSON.stringify({
           from,
           to: [userEmail],
-          subject,
-          text,
-          html,
+          subject: emailSubject,
+          text: emailText,
+          html: emailHtml,
         }),
       });
 
@@ -244,27 +373,33 @@ export async function sendPreEntryEmail(
           ok: false,
           status: "failed",
           error: `Resend ${res.status}: ${errText.slice(0, 200)}`,
-          subject,
-          html,
-          message: text,
+          subject: emailSubject,
+          html: emailHtml,
+          message: emailText,
         };
+      }
+
+      if (isConfirmedExecution) {
+        recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+      } else if (isProximityAlert) {
+        recordProximityEmailSent(cleanTicker);
       }
 
       return {
         ok: true,
         status: "sent",
-        subject,
-        html,
-        message: text,
+        subject: emailSubject,
+        html: emailHtml,
+        message: emailText,
       };
     } catch (e: any) {
       return {
         ok: false,
         status: "failed",
         error: e?.message || String(e),
-        subject,
-        html,
-        message: text,
+        subject: emailSubject,
+        html: emailHtml,
+        message: emailText,
       };
     }
   }
@@ -281,10 +416,10 @@ export async function sendPreEntryEmail(
         body: JSON.stringify({
           personalizations: [{ to: [{ email: userEmail }] }],
           from: { email: from },
-          subject,
+          subject: emailSubject,
           content: [
-            { type: "text/plain", value: text },
-            { type: "text/html", value: html },
+            { type: "text/plain", value: emailText },
+            { type: "text/html", value: emailHtml },
           ],
         }),
       });
@@ -295,29 +430,41 @@ export async function sendPreEntryEmail(
           ok: false,
           status: "failed",
           error: `SendGrid ${res.status}: ${errText.slice(0, 200)}`,
-          subject,
-          html,
-          message: text,
+          subject: emailSubject,
+          html: emailHtml,
+          message: emailText,
         };
+      }
+
+      if (isConfirmedExecution) {
+        recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+      } else if (isProximityAlert) {
+        recordProximityEmailSent(cleanTicker);
       }
 
       return {
         ok: true,
         status: "sent",
-        subject,
-        html,
-        message: text,
+        subject: emailSubject,
+        html: emailHtml,
+        message: emailText,
       };
     } catch (e: any) {
       return {
         ok: false,
         status: "failed",
         error: e?.message || String(e),
-        subject,
-        html,
-        message: text,
+        subject: emailSubject,
+        html: emailHtml,
+        message: emailText,
       };
     }
+  }
+
+  if (isConfirmedExecution) {
+    recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+  } else if (isProximityAlert) {
+    recordProximityEmailSent(cleanTicker);
   }
 
   // Gracefully stubbed when provider key is not yet added to .env
@@ -325,9 +472,9 @@ export async function sendPreEntryEmail(
     ok: true,
     status: "stubbed",
     error: "RESEND_API_KEY / SENDGRID_API_KEY not configured (stubbed)",
-    subject,
-    html,
-    message: text,
+    subject: emailSubject,
+    html: emailHtml,
+    message: emailText,
   };
 }
 

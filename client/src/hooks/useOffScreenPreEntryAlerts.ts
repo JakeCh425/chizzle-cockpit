@@ -51,6 +51,7 @@ export interface OffScreenAlertSettings {
   smsEnabled: boolean;
   telegramEnabled: boolean;
   emailEnabled: boolean;
+  notifyOnProximity?: boolean;
 }
 
 export const DEFAULT_OFFSCREEN_ALERT_SETTINGS: OffScreenAlertSettings = {
@@ -61,6 +62,7 @@ export const DEFAULT_OFFSCREEN_ALERT_SETTINGS: OffScreenAlertSettings = {
   smsEnabled: false,
   telegramEnabled: true,
   emailEnabled: true,
+  notifyOnProximity: false,
 };
 
 export type PreEntryTriggerContext =
@@ -335,6 +337,7 @@ export function loadOffScreenAlertSettings(
       smsEnabled: Boolean(parsed.smsEnabled),
       telegramEnabled: Boolean(parsed.telegramEnabled),
       emailEnabled: Boolean(parsed.emailEnabled),
+      notifyOnProximity: Boolean(parsed.notifyOnProximity),
     };
   } catch {
     return DEFAULT_OFFSCREEN_ALERT_SETTINGS;

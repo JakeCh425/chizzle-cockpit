@@ -2448,6 +2448,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     smsEnabled: false,
     telegramEnabled: true,
     emailEnabled: true,
+    notifyOnProximity: false,
   };
 
   app.get("/api/alerts/offscreen-settings", (_req, res) => {
@@ -2471,6 +2472,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       smsEnabled: typeof body.smsEnabled === "boolean" ? body.smsEnabled : savedOffScreenAlertSettings.smsEnabled,
       telegramEnabled: typeof body.telegramEnabled === "boolean" ? body.telegramEnabled : savedOffScreenAlertSettings.telegramEnabled,
       emailEnabled: typeof body.emailEnabled === "boolean" ? body.emailEnabled : savedOffScreenAlertSettings.emailEnabled,
+      notifyOnProximity: typeof body.notifyOnProximity === "boolean" ? body.notifyOnProximity : savedOffScreenAlertSettings.notifyOnProximity,
     };
     res.json({ ok: true, settings: savedOffScreenAlertSettings });
   });
@@ -2619,9 +2621,20 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         userEmail,
         ticker: symbol,
         price: req.body?.price ?? req.body?.entryPrice ?? 0,
+        entryPrice: req.body?.price ?? req.body?.entryPrice ?? 0,
+        stopLoss: req.body?.stopLoss,
         context: req.body?.context || "Price within 0.25% of SMA",
         plan: req.body?.plan,
         target1: req.body?.target1,
+        target2: req.body?.target2,
+        shares: req.body?.shares ?? req.body?.calculatedShares,
+        status: req.body?.status,
+        is1HCandleClosedGreen: req.body?.is1HCandleClosedGreen,
+        isTradeConfirmed: req.body?.isTradeConfirmed,
+        riskRewardRatio: req.body?.riskRewardRatio,
+        notifyOnProximity: typeof req.body?.notifyOnProximity === "boolean" ? req.body.notifyOnProximity : savedOffScreenAlertSettings.notifyOnProximity,
+        isProximityAlert: req.body?.isProximityAlert,
+        force: isTest,
       });
       const updatedState = updateSetup(symbol, {
         alertSent: true,
@@ -2711,6 +2724,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
         email: req.body?.email || process.env.USER_ALERT_EMAIL,
         force: isTest,
+        notifyOnProximity: typeof req.body?.notifyOnProximity === "boolean" ? req.body.notifyOnProximity : savedOffScreenAlertSettings.notifyOnProximity,
       });
       if (result.suppressed) {
         return res.json({

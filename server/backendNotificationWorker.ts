@@ -746,12 +746,16 @@ export async function dispatchServerSetupAlert(params: {
   entryPrice: number;
   stopLoss: number;
   target1: number;
+  target2?: number;
   currentPrice?: number;
   sma20?: number | null;
   sma50?: number | null;
   ema10?: number | null;
   sma10?: number | null;
   isTradeConfirmed?: boolean;
+  is1hCandleClosedGreen?: boolean;
+  riskRewardRatio?: number;
+  notifyOnProximity?: boolean;
   status?: string;
   calculatedShares?: number;
   alertType?: NotificationAuditEntry["alertType"];
@@ -1013,11 +1017,24 @@ export async function dispatchServerSetupAlert(params: {
         userEmail: targetEmail,
         ticker: symbol,
         entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
         target1: target1,
+        target2: target2,
         context: contextText,
         setupId: `${symbol}-${barKey}`,
         alertType,
         message,
+        shares: calculatedShares,
+        calculatedShares,
+        status: isConfirmedAlertType ? "CONFIRMED" : (params.status || (isProximityAlertType ? "PROXIMITY" : "CONFIRMED")),
+        isTradeConfirmed: isConfirmedAlertType || Boolean(params.isTradeConfirmed),
+        is1HCandleClosedGreen: params.is1hCandleClosedGreen ?? (gate.conditionMet === "CONDITION_A_TRIGGER_CONFIRMED" || isConfirmedAlertType),
+        riskRewardRatio: params.riskRewardRatio ?? (riskPerShare > 0 ? (target2 - params.entryPrice) / riskPerShare : 2.0),
+        notifyOnProximity: Boolean(params.notifyOnProximity),
+        isProximityAlert: isProximityAlertType,
+        candleTimestamp: barKey,
+        regime: params.setupType ?? (alertType === "CONFIRMED_1H_10SMA" ? "10-SMA Momentum Bullish" : "4H 20-SMA Pullback Valid"),
+        force: params.force,
         plan: {
           entryPrice: params.entryPrice,
           stopLoss: params.stopLoss,

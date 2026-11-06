@@ -338,6 +338,42 @@ export function NotificationsAndAlertsPanel({
                 {config?.resendConfigured ? "✓ Resend Connected" : "⚠️ Needs RESEND_API_KEY in .env"}
               </span>
             </div>
+
+            {/* Optional Pre-Entry Proximity Toggle (Default: OFF) */}
+            <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between">
+              <div>
+                <div className="text-[11px] font-bold text-slate-200">
+                  Pre-Entry Proximity Emails
+                </div>
+                <div className="text-[10px] text-slate-400">
+                  Default OFF. When disabled, emails only fire for fully confirmed 1H setups (max 1/session).
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] font-mono text-slate-400">
+                  {settings.notifyOnProximity ? "PROX ON" : "PROX OFF"}
+                </span>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={Boolean(settings.notifyOnProximity)}
+                  aria-label="Toggle Pre-Entry Proximity Emails"
+                  data-testid="toggle-notify-on-proximity"
+                  onClick={() =>
+                    onUpdateSettings({ notifyOnProximity: !settings.notifyOnProximity })
+                  }
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${
+                    settings.notifyOnProximity ? "bg-amber-500" : "bg-slate-700"
+                  }`}
+                >
+                  <span
+                    className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-slate-950 shadow transition duration-200 ease-in-out ${
+                      settings.notifyOnProximity ? "translate-x-4" : "translate-x-0"
+                    }`}
+                  />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 

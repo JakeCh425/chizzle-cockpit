@@ -259,6 +259,7 @@ export async function sendProximityEarlyWarningAlert(params: {
   currentPrice?: number;
   message?: string;
   force?: boolean;
+  notifyOnProximity?: boolean;
 }): Promise<{ ok: boolean; suppressed?: boolean; telegram?: any; email?: any; message: string }> {
   const sym = (params.ticker || "NVDA").trim().toUpperCase();
 
@@ -336,10 +337,15 @@ export async function sendProximityEarlyWarningAlert(params: {
       price: params.entryPrice,
       stopLoss: params.stopLoss,
       target1: params.target1,
+      target2: params.target2,
       calculatedShares: shares,
       shares,
       context: "Price within 0.5% of Target Moving Average",
       message,
+      isProximityAlert: true,
+      alertType: "PROXIMITY_EARLY_WARNING",
+      notifyOnProximity: Boolean(params.notifyOnProximity),
+      force: params.force,
     });
     emailRes = { ok: emailResult.ok, status: emailResult.status, error: emailResult.error };
   } else {
