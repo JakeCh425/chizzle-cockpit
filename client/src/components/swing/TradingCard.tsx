@@ -87,14 +87,15 @@ export function statusText(d: SwingDecision, group: ActionGroup, live: LivePermi
   return readyStatusLabel(d.setupStatus, live) || STATUS_LABEL[d.setupStatus] || ACTION_GROUP_LABEL[group];
 }
 
+import { useCardTheme } from "@/lib/cardTheme";
 export const overridesStatus = replacesEngineStatus;
 
 const TONE_CLASSES = {
-  good: "text-signal-green border-signal-green/40 bg-signal-green/10",
-  warn: "text-signal-amber border-signal-amber/40 bg-signal-amber/10",
-  bad: "text-signal-red border-signal-red/40 bg-signal-red/10",
-  accent: "text-neon-blue border-neon-blue/40 bg-neon-blue/10",
-  muted: "text-slate-gray border-ink-line bg-ink-deep/40",
+  good: "text-emerald-300 border-emerald-500/70 bg-emerald-950/80 font-semibold",
+  warn: "text-amber-300 border-amber-500/70 bg-amber-950/80 font-semibold",
+  bad: "text-rose-300 border-rose-500/70 bg-rose-950/80 font-semibold",
+  accent: "text-cyan-300 border-cyan-500/70 bg-cyan-950/80 font-semibold",
+  muted: "text-slate-300 border-slate-700 bg-slate-900/80 font-medium",
 };
 
 export const freshTone = (d: SwingDecision, group: ActionGroup, f?: FreshnessResult | null): keyof typeof TONE_CLASSES => {
@@ -835,7 +836,7 @@ export function AppearanceControls({ prefs, set }: { prefs: AcPrefs; set: (p: Pa
 function StatusPill({ d, f, tone, Icon, text }: { d: SwingDecision; f: FreshnessResult; tone: keyof typeof TONE_CLASSES; Icon?: typeof CheckCircle2; text: string }) {
   const cls = TONE_CLASSES[tone];
   return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-wider ${cls}`}>
+    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-[11px] font-mono font-semibold uppercase tracking-wider ${cls}`}>
       {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden />}{text}
     </span>
   );
@@ -1602,13 +1603,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const isReadyToBuy = group === "READY" && f.isTradeable;
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
 
+  const { config: cardThemeCfg } = useCardTheme();
+
   const cardBorderClass = isPracticeMode && isReadyToBuy
     ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-500/40"
     : isReadyToBuy
     ? "border-emerald-500/50 shadow-[0_0_20px_rgba(52,211,153,0.18)] ring-1 ring-emerald-500/30"
     : isInvalidated
     ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
-    : "border-[var(--card-border)] hover:border-slate-700";
+    : cardThemeCfg.cardBorder;
 
   // Dynamic Historical Win Rate (reflects 75%+ when Scale-Out Mode is ON)
   const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
@@ -1642,7 +1645,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   if (props.collapsed || (cardSize === "sm" && !isSmallExpanded)) {
     return (
       <article
-        className={`w-full flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:border-cyan-400/60`}
+        className={`w-full flex items-center justify-between rounded-xl px-4 py-3 transition-all duration-200 ${cardThemeCfg.cardBg} ${cardThemeCfg.fontClass} text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:border-cyan-400/60`}
         onClick={() => {
           if (props.onOpen) {
             props.onSeen?.();
@@ -1653,7 +1656,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         data-card-size="sm"
       >
         <div className="flex items-center gap-3">
-          <span className="font-mono text-xl font-black text-white">{d.symbol}</span>
+          <span className={`font-mono text-xl font-black ${cardThemeCfg.headerText}`}>{d.symbol}</span>
           <span className="font-mono text-sm font-bold text-slate-300 tabular-nums">{$(effectivePrice)}</span>
           <span className="text-xs font-mono text-slate-400 hidden sm:inline">{setupName(d.setupType)}</span>
         </div>
@@ -1661,7 +1664,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
           <button
             type="button"
-            className="flex items-center gap-1 rounded-md border border-slate-700 bg-slate-800/80 px-2.5 py-1 text-[11px] font-mono font-bold text-cyan-300 hover:bg-slate-700 transition-colors cursor-pointer relative z-20 pointer-events-auto"
+            className="flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 hover:bg-white px-2.5 py-1 text-[11px] font-mono font-bold uppercase tracking-wider text-slate-900 transition-colors cursor-pointer relative z-20 pointer-events-auto shadow-sm"
             onClick={(e) => {
               e.stopPropagation();
               props.onSeen?.();
@@ -1670,7 +1673,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             data-testid={`button-expand-card-${d.symbol}`}
             title="Expand card details"
           >
-            <ChevronsUpDown className="h-3 w-3" />
+            <ChevronsUpDown className="h-3 w-3 text-slate-900" />
             <span>[ Expand ]</span>
           </button>
         </div>
@@ -1680,7 +1683,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
   return (
     <article
-      className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 bg-[var(--card-bg)] text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:bg-gray-800/50 hover:border-cyan-700 transition-all`}
+      className={`w-full flex flex-col rounded-xl overflow-hidden transition-all duration-200 ${cardThemeCfg.cardBg} ${cardThemeCfg.fontClass} text-[var(--card-text-primary)] border shadow-md ${cardBorderClass} cursor-pointer hover:bg-gray-800/50 hover:border-cyan-700 transition-all`}
       role="button"
       tabIndex={0}
       data-card-size={cardSize}
@@ -1706,7 +1709,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       {/* ─── TOP ROW: Ticker symbol, Live Price, Status Badge & [Fidelity Ticket] Mini-Guide ─── */}
       <div className="flex flex-wrap items-center justify-between gap-2 overflow-hidden p-4 border-b border-[var(--card-border)]" data-testid={`compact-card-header-${d.symbol}`}>
         <div className="flex flex-wrap items-center gap-2.5 min-w-0">
-          <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-tight text-white shrink-0">
+          <span className={`font-mono text-3xl sm:text-4xl font-extrabold tracking-tight ${cardThemeCfg.headerText} shrink-0`}>
             {d.symbol}
           </span>
           <div className="flex items-center gap-2 shrink-0">
@@ -1844,7 +1847,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="p-1 px-2.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 text-cyan-300 transition-colors cursor-pointer flex items-center gap-1.5 relative z-20 pointer-events-auto font-mono text-[11px] font-bold shadow-sm shrink-0 whitespace-nowrap"
+            className="p-1 px-2.5 rounded-md border border-slate-300 bg-slate-100 hover:bg-white text-slate-900 transition-colors cursor-pointer flex items-center gap-1.5 relative z-20 pointer-events-auto font-mono text-[11px] font-bold uppercase tracking-wider shadow-sm shrink-0 whitespace-nowrap"
             data-testid={`button-toggle-card-collapse-${d.symbol}`}
             title={isExpanded ? "Collapse card details" : "Expand chart & details"}
             aria-label={isExpanded ? "Collapse card details" : "Expand chart & details"}
@@ -1853,9 +1856,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               {isExpanded ? "[ Collapse Chart & Details ⌃ ]" : "[ Expand Chart & Details ⌄ ]"}
             </span>
             {isExpanded ? (
-              <ChevronUp className="h-4 w-4 text-cyan-400 shrink-0" />
+              <ChevronUp className="h-4 w-4 text-slate-900 shrink-0" />
             ) : (
-              <ChevronDown className="h-4 w-4 text-cyan-400 shrink-0" />
+              <ChevronDown className="h-4 w-4 text-slate-900 shrink-0" />
             )}
           </button>
         </div>
@@ -2013,9 +2016,11 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               <button
                 type="button"
                 className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto ${
-                  isMissedEntryRetest
+                  isPracticeMode
                     ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
-                    : "bg-signal-green/10 text-signal-green border border-signal-green/40 hover:bg-signal-green/20"
+                    : isMissedEntryRetest
+                    ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
+                    : cardThemeCfg.primaryButton
                 }`}
                 onClick={(e) => {
                   if (isPracticeMode) {
@@ -2065,7 +2070,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     : "Arm practice trade plan")
                 }
               >
-                <Crosshair className={`h-3.5 w-3.5 ${isPracticeMode ? "text-amber-400" : (isMissedEntryRetest ? "text-amber-300" : "text-signal-green")}`} />
+                <Crosshair className={`h-3.5 w-3.5 ${isPracticeMode || isMissedEntryRetest ? "text-amber-400" : "text-black"}`} />
                 <span>{isPracticeMode ? "[ LOG PRACTICE TRADE ]" : (isMissedEntryRetest ? "[ SET PULLBACK LIMIT ]" : "Arm Trade")}</span>
               </button>
             );
@@ -2074,7 +2079,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           {/* Adjust Plan action button */}
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-md bg-neon-blue/10 text-neon-blue border border-neon-blue/40 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider hover:bg-neon-blue/20 transition-colors cursor-pointer shadow-sm pointer-events-auto"
+            className="flex items-center gap-1.5 rounded-md bg-gray-100 text-gray-950 hover:bg-white border border-gray-300 px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto"
             onClick={(e) => {
               e.stopPropagation();
               handleAdjustPlan();
@@ -2082,14 +2087,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             data-testid={`button-adjust-plan-${d.symbol}`}
             title="Adjust plan entries and overrides"
           >
-            <Pencil className="h-3.5 w-3.5 text-neon-blue" />
+            <Pencil className="h-3.5 w-3.5 text-gray-900" />
             <span>Adjust Plan</span>
           </button>
 
           {isCustom && (
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-slate-600 bg-slate-800 hover:bg-slate-700 px-2.5 py-1.5 text-xs font-medium text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 hover:bg-white px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-900 transition-colors cursor-pointer shadow-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 sz.reset();
@@ -2097,14 +2102,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               data-testid={`button-levels-reset-${d.symbol}`}
               title="Reset to Original Engine Plan"
             >
-              <RotateCcw className="h-3 w-3 text-cyan-400" />
+              <RotateCcw className="h-3 w-3 text-slate-900" />
               <span>Reset</span>
             </button>
           )}
 
           <button
             type="button"
-            className="inline-flex items-center gap-1 rounded-md border border-white/10 bg-slate-900/60 hover:bg-slate-800 px-2.5 py-1.5 text-xs font-medium text-slate-400 hover:text-white transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 hover:bg-white px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-900 transition-colors cursor-pointer shadow-sm"
             onClick={(e) => {
               e.stopPropagation();
               focusSymbol(d.symbol);
@@ -2113,7 +2118,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             }}
             title="Focus symbol on chart"
           >
-            <LineChart className="h-3 w-3" />
+            <LineChart className="h-3 w-3 text-slate-900" />
             <span>Chart</span>
           </button>
         </div>
@@ -2122,7 +2127,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           {props.onOpen && (
             <button
               type="button"
-              className="inline-flex items-center gap-1 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-2.5 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-slate-100 hover:bg-white px-2.5 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-900 transition-colors cursor-pointer shadow-sm"
               onClick={(e) => {
                 e.stopPropagation();
                 onSeen();
@@ -2130,7 +2135,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               }}
               title="Open full dialog view"
             >
-              <Maximize2 className="h-3 w-3" />
+              <Maximize2 className="h-3 w-3 text-slate-900" />
               <span>Open Card</span>
             </button>
           )}
@@ -2142,12 +2147,12 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               e.stopPropagation();
               setIsExpanded((prev) => !prev);
             }}
-            className="relative z-20 pointer-events-auto inline-flex items-center gap-1.5 rounded-md border border-cyan-500/40 bg-cyan-950/40 hover:bg-cyan-900/50 px-3 py-1.5 text-xs font-bold text-cyan-300 transition-colors cursor-pointer shadow-sm"
+            className="relative z-20 pointer-events-auto inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-slate-100 hover:bg-white px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-900 transition-colors cursor-pointer shadow-sm"
             data-testid={`button-toggle-expand-details-${d.symbol}`}
             title={isExpanded ? "Collapse deep diagnostics" : "Expand chart & details"}
             aria-expanded={isExpanded}
           >
-            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-cyan-400" /> : <ChevronDown className="h-3.5 w-3.5 text-cyan-400" />}
+            {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-slate-900" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-900" />}
             <span>{isExpanded ? "Collapse Details" : "Expand Details"}</span>
             <span className="hidden sm:inline font-bold ml-1">{isExpanded ? "[ Collapse Chart & Details ⌃ ]" : "[ Expand Chart & Details ⌄ ]"}</span>
           </button>

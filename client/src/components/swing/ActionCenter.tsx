@@ -22,6 +22,7 @@ import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
+import { CardThemeSwitcher } from "./CardThemeSwitcher";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
@@ -1168,24 +1169,28 @@ function ActionCenterInner() {
               </span>
             </div>
 
-            {/* Grid Size Toggle: Small, Medium, Large */}
-            <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-black/40 p-1 font-mono text-xs" data-testid="grid-size-toggle">
-              <span className="text-[10px] text-slate-400 uppercase tracking-wider px-2 font-bold">Grid Size:</span>
-              {(["sm", "md", "lg"] as const).map((sz) => (
-                <button
-                  key={sz}
-                  type="button"
-                  onClick={() => setGridSize(sz)}
-                  className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
-                    gridSize === sz
-                      ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
-                      : "text-slate-400 hover:text-white"
-                  }`}
-                  data-testid={`grid-size-${sz}`}
-                >
-                  {sz === "sm" ? "Small" : sz === "md" ? "Medium" : "Large"}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2.5">
+              <CardThemeSwitcher />
+
+              {/* Grid Size Toggle: Small, Medium, Large */}
+              <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-black/40 p-1 font-mono text-xs" data-testid="grid-size-toggle">
+                <span className="text-[10px] text-slate-400 uppercase tracking-wider px-2 font-bold">Grid Size:</span>
+                {(["sm", "md", "lg"] as const).map((sz) => (
+                  <button
+                    key={sz}
+                    type="button"
+                    onClick={() => setGridSize(sz)}
+                    className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                      gridSize === sz
+                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
+                        : "text-slate-400 hover:text-white"
+                    }`}
+                    data-testid={`grid-size-${sz}`}
+                  >
+                    {sz === "sm" ? "Small" : sz === "md" ? "Medium" : "Large"}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
           

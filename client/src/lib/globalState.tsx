@@ -14,8 +14,14 @@ import {
   type LastValidTick,
   type SetupAlertState,
 } from "./useMarketDataStore";
+import {
+  type CardThemePreset,
+  CARD_THEME_STORAGE_KEY,
+  DEFAULT_CARD_THEME,
+  cardThemeStore,
+} from "./cardTheme";
 
-export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore, purgeStaleLocalStorageOnBoot, clearStaleCachedPrices };
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore, purgeStaleLocalStorageOnBoot, clearStaleCachedPrices, type CardThemePreset };
 export type { MarketDataState, MarketTick, LastValidTick, SetupAlertState };
 
 export interface ActiveTickerData {
@@ -104,6 +110,8 @@ export interface GlobalStateContextType {
   theme: DashboardTheme;
   setTheme: (t: DashboardTheme) => void;
   cycleTheme: () => void;
+  cardTheme: CardThemePreset;
+  setCardTheme: (t: CardThemePreset) => void;
 
   // Global Account Risk & Position Sizing Settings
   accountEquity: number;
@@ -191,6 +199,24 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   useEffect(() => {
     setTheme(theme);
   }, [theme, setTheme]);
+
+  // Card Theme Preset Slice ('emerald-edge' | 'high-contrast-slate' | 'cyber-amber' | 'classic-bloomberg')
+  const [cardTheme, setCardThemeState] = useState<CardThemePreset>(() => {
+    return cardThemeStore.getTheme();
+  });
+
+  const setCardTheme = useCallback((nextTheme: CardThemePreset) => {
+    setCardThemeState(nextTheme);
+    cardThemeStore.setTheme(nextTheme);
+    globalStore.setCardTheme(nextTheme);
+  }, []);
+
+  useEffect(() => {
+    const unsub = cardThemeStore.subscribe(() => {
+      setCardThemeState(cardThemeStore.getTheme());
+    });
+    return unsub;
+  }, []);
 
   // Global Account Risk & Position Sizing Settings
   const [accountEquity, setAccountEquityState] = useState<number>(() => {
@@ -924,6 +950,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       theme,
       setTheme,
       cycleTheme,
+      cardTheme,
+      setCardTheme,
       accountEquity,
       setAccountEquity,
       riskPercentage,
@@ -967,6 +995,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       theme,
       setTheme,
       cycleTheme,
+      cardTheme,
+      setCardTheme,
       accountEquity,
       setAccountEquity,
       riskPercentage,

@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useCardTheme } from "@/lib/cardTheme";
 import {
   TrendingUp,
   ShieldAlert,
@@ -56,6 +57,7 @@ interface MechanicalSMAPanelProps {
 export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMAPanelProps) {
   const [isOpen, setIsOpen] = useState(true);
   const queryClient = useQueryClient();
+  const { config: cardThemeCfg } = useCardTheme();
 
   const { data, isLoading, isFetching, refetch } = useQuery<MechanicalScanResponse>({
     queryKey: ["/api/swing/mechanical-scan"],
@@ -208,8 +210,8 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                         : isTesting
                         ? "border-yellow-500/50 bg-gradient-to-b from-[#1E190A] to-[#0A1015]"
                         : isStandby
-                        ? "border-red-900/50 bg-gradient-to-b from-[#18090C] to-[#0A1015] opacity-85"
-                        : "border-gray-800 bg-[#0E131F]/90"
+                        ? "border-rose-900/50 bg-gradient-to-b from-[#18090C] to-[#0A1015] opacity-90"
+                        : `${cardThemeCfg.cardBorder} ${cardThemeCfg.cardBg}`
                     }`}
                     data-testid={`card-mechanical-${item.ticker}`}
                   >
@@ -217,7 +219,7 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                       {/* Top Symbol & Price */}
                       <div className="flex items-center justify-between pb-2 border-b border-gray-800/80">
                         <div className="flex items-center gap-2">
-                          <span className="text-lg font-black tracking-tight text-white font-mono">
+                          <span className={`text-lg font-black tracking-tight font-mono ${cardThemeCfg.headerText}`}>
                             {item.ticker}
                           </span>
                           <span className="text-sm font-mono font-bold text-gray-200">
@@ -225,10 +227,10 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                           </span>
                         </div>
                         <span
-                          className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded border uppercase ${
+                          className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border tracking-wider uppercase ${
                             item.is4hBullish
-                              ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                              : "bg-red-500/10 text-red-400 border-red-500/30"
+                              ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/70"
+                              : "bg-rose-950/80 text-rose-300 border-rose-500/70"
                           }`}
                         >
                           4H {item.is4hBullish ? "Floor" : "Ceiling"}
@@ -238,25 +240,25 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                       {/* Status Badge */}
                       <div className="mt-2.5">
                         {isConfirmed && (
-                          <div className="inline-flex items-center gap-1.5 rounded-md bg-emerald-500/20 border border-emerald-500/50 px-2 py-0.5 text-xs font-black text-emerald-300 uppercase tracking-wide">
+                          <div className="inline-flex items-center gap-1.5 rounded bg-emerald-950/80 border border-emerald-500/70 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-300 tracking-wider uppercase">
                             <CheckCircle2 className="h-3.5 w-3.5" />
                             CONFIRMED BOUNCE ({item.testedLine?.replace("_", " ")})
                           </div>
                         )}
                         {isTesting && (
-                          <div className="inline-flex items-center gap-1.5 rounded-md bg-yellow-500/20 border border-yellow-500/50 px-2 py-0.5 text-xs font-black text-yellow-300 uppercase tracking-wide">
+                          <div className="inline-flex items-center gap-1.5 rounded bg-amber-950/80 border border-amber-500/70 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 tracking-wider uppercase">
                             <Hourglass className="h-3.5 w-3.5" />
                             TESTING SMA ({item.testedLine?.replace("_", " ")})
                           </div>
                         )}
                         {isWaitRetest && (
-                          <div className="inline-flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 text-xs font-bold text-amber-300 uppercase tracking-wide">
+                          <div className="inline-flex items-center gap-1.5 rounded bg-amber-950/60 border border-amber-400/50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-300 tracking-wider uppercase">
                             <Hourglass className="h-3.5 w-3.5 opacity-70" />
                             WAIT FOR RETEST (No Chasing)
                           </div>
                         )}
                         {isStandby && (
-                          <div className="inline-flex items-center gap-1.5 rounded-md bg-red-500/20 border border-red-500/40 px-2 py-0.5 text-xs font-black text-red-300 uppercase tracking-wide">
+                          <div className="inline-flex items-center gap-1.5 rounded bg-rose-950/80 border border-rose-500/70 px-2.5 py-0.5 text-[11px] font-semibold text-rose-300 tracking-wider uppercase">
                             <ShieldAlert className="h-3.5 w-3.5" />
                             STANDBY DAY (Hard Block)
                           </div>
@@ -341,3 +343,4 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
     </div>
   );
 }
+

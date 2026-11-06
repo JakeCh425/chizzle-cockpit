@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from "react";
 import { isMarketOpen, reconnectPriceFeed, type LiveQuote, type ConnState } from "./priceFeed";
+import { type CardThemePreset, CARD_THEME_STORAGE_KEY, DEFAULT_CARD_THEME } from "./cardTheme";
 
 /**
  * Valid tick payload structure for incoming market events.
@@ -63,6 +64,7 @@ export interface MarketDataState {
   lastError: string | null;
   dataFeedError: string | null;
   staleQuoteRejected: boolean;
+  cardTheme: CardThemePreset;
 }
 
 type Listener = () => void;
@@ -212,6 +214,7 @@ export const initialState: MarketDataState = {
   lastError: null,
   dataFeedError: null,
   staleQuoteRejected: false,
+  cardTheme: (typeof window !== "undefined" && window.localStorage ? (window.localStorage.getItem(CARD_THEME_STORAGE_KEY) as CardThemePreset) : null) || DEFAULT_CARD_THEME,
 };
 
 /**
@@ -239,6 +242,24 @@ class MarketDataStore {
       previousClose: {},
       setupAlerts: {},
     };
+  }
+
+  public getCardTheme(): CardThemePreset {
+    return this.state.cardTheme || DEFAULT_CARD_THEME;
+  }
+
+  public setCardTheme(theme: CardThemePreset): void {
+    if (this.state.cardTheme === theme) return;
+    try {
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.setItem(CARD_THEME_STORAGE_KEY, theme);
+      }
+    } catch {}
+    this.state = {
+      ...this.state,
+      cardTheme: theme,
+    };
+    this.notify();
   }
 
   public getTradingDayKey(now: Date | number = Date.now()): string {
