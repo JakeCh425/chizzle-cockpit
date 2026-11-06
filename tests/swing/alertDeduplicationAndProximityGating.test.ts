@@ -12,13 +12,21 @@ import {
   dispatchServerSetupAlert,
   clearNotificationAuditLog,
 } from "../../server/backendNotificationWorker";
-import { clearEmailAlertDeduplicationCache } from "../../server/sendEmailAlert";
+import { clearEmailAlertDeduplicationCache, formatPreEntryEmailHtml } from "../../server/sendEmailAlert";
 import {
   STRICT_EXECUTION_ZONE_PROXIMITY_PCT,
   evaluateExecutionZoneProximityFilter,
   evaluateProximityAlertTrigger,
+  formatExecutionReadyAlertMessage as formatClientExecutionReadyMessage,
 } from "../../client/src/hooks/useProximityAlert";
-import { evaluatePreEntryAlertTriggers } from "../../client/src/hooks/useOffScreenPreEntryAlerts";
+import {
+  evaluatePreEntryAlertTriggers,
+  formatPreEntryAlertMessage,
+} from "../../client/src/hooks/useOffScreenPreEntryAlerts";
+import {
+  serverlessPreEntryAlertHandler,
+  sendProximityEarlyWarningAlert,
+} from "../../server/pre-entry-alerts";
 import { marketDataStore } from "../../client/src/lib/useMarketDataStore";
 
 const rootDir = path.resolve(__dirname, "../..");
@@ -427,6 +435,133 @@ describe("Notification Engine Refactor — Alert Deduplication & Strict Proximit
       expect(res.auditEntry.message).toContain("Status: [ CONFIRMED 1H CLOSE ]");
       expect(res.auditEntry.message).toContain("Core Math: Entry $135.00 | Stop $132.50 | Target 1 (1.5R) $138.75 | Target 2 (2.0R) $140.00");
       expect(res.auditEntry.message).toContain("Actionable Note: Review Fidelity Guide and prepare limit order.");
+    });
+  });
+
+  describe("6. Accurate Share Sizing & Fidelity Ticket Formatting Across Telegram and Email Alerts", () => {
+    it("formats Fidelity Ticket in Telegram message with exact calculatedShares from live risk math", () => {
+      // 11 shares calculation (e.g. $25k equity, 0.11% risk, or custom user risk sizing)
+      const msg = formatExecutionReadyAlertMessage({
+        ticker: "NVDA",
+        status: "CONFIRMED_1H_CLOSE",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        calculatedShares: 11,
+      });
+
+      expect(msg).toContain("Fidelity Ticket: BUY 11 Shares Limit at $135.00. Order 1 SELL 5 Shares @ $138.75 (1.5R) | Order 2 STOP 6 Shares @ $132.50.");
+
+      // Also verify client-side helper produces the exact same ticket
+      const clientMsg = formatClientExecutionReadyMessage({
+        ticker: "NVDA",
+        status: "CONFIRMED_1H_CLOSE",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        calculatedShares: 11,
+      });
+      expect(clientMsg).toContain("Fidelity Ticket: BUY 11 Shares Limit at $135.00. Order 1 SELL 5 Shares @ $138.75 (1.5R) | Order 2 STOP 6 Shares @ $132.50.");
+
+      // 77 shares calculation
+      const msg77 = formatExecutionReadyAlertMessage({
+        ticker: "AAPL",
+        status: "PROXIMITY_ALERT_05_PCT",
+        entryPrice: 220.0,
+        stopLoss: 215.0,
+        target1: 227.5,
+        calculatedShares: 77,
+      });
+      expect(msg77).toContain("Fidelity Ticket: BUY 77 Shares Limit at $220.00. Order 1 SELL 38 Shares @ $227.50 (1.5R) | Order 2 STOP 39 Shares @ $215.00.");
+    });
+
+    it("formats Pre-Entry lock-screen / Telegram message with exact shares when provided", () => {
+      const msgWithShares = formatPreEntryAlertMessage({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        target1: 138.75,
+        stopLoss: 132.5,
+        calculatedShares: 15,
+        context: "Price within 0.25% of SMA",
+      });
+      expect(msgWithShares).toContain("Fidelity Plan: BUY 15 Shares Limit at $135.00. Order 1 SELL 7 Shares @ $138.75 (1.5R) | Order 2 STOP 8 Shares @ $132.50");
+
+      const msgWithoutShares = formatPreEntryAlertMessage({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        target1: 138.75,
+        context: "Price within 0.25% of SMA",
+      });
+      expect(msgWithoutShares).toContain("Fidelity Plan: Limit BUY at $135.00. Scale 50% at $138.75.");
+    });
+
+    it("formats Pre-Entry Email HTML with exact live share count and prevents [object Object] artifacts", () => {
+      const emailResult = formatPreEntryEmailHtml({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        target1: 138.75,
+        stopLoss: 132.5,
+        calculatedShares: 11,
+        context: "3 mins to 1H Close",
+      });
+
+      expect(emailResult.html).not.toContain("[object Object]");
+      expect(emailResult.text).not.toContain("[object Object]");
+      expect(emailResult.html).toContain("BUY 11 Shares Limit at $135.00. Order 1 SELL 5 Shares @ $138.75 (1.5R) | Order 2 STOP 6 Shares @ $132.50");
+      expect(emailResult.html).toContain("🎯 Order Size: 11 Shares");
+
+      // Verify it handles plan passed as an object gracefully without rendering [object Object]
+      const objectPlanEmail = formatPreEntryEmailHtml({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        target1: 138.75,
+        stopLoss: 132.5,
+        plan: { shares: 20, entryPrice: 135.0, stopLoss: 132.5, target1: 138.75 },
+        context: "Price within 0.25% of SMA",
+      });
+
+      expect(objectPlanEmail.html).not.toContain("[object Object]");
+      expect(objectPlanEmail.html).toContain("BUY 20 Shares Limit at $135.00. Order 1 SELL 10 Shares @ $138.75 (1.5R) | Order 2 STOP 10 Shares @ $132.50");
+      expect(objectPlanEmail.html).toContain("🎯 Order Size: 20 Shares");
+    });
+
+    it("sendProximityEarlyWarningAlert builds ticket with exact calculatedShares", async () => {
+      const res = await sendProximityEarlyWarningAlert({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        calculatedShares: 18,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.message).toContain("BUY 18 Shares Limit at $135.00. Order 1 SELL 9 Shares @ $138.75 (1.5R) | Order 2 STOP 9 Shares @ $132.50.");
+    });
+
+    it("serverlessPreEntryAlertHandler formats alert with exact calculatedShares from payload", async () => {
+      const res = await serverlessPreEntryAlertHandler({
+        ticker: "NVDA",
+        entryPrice: 135.0,
+        stopLoss: 132.5,
+        target1: 138.75,
+        calculatedShares: 25,
+      });
+
+      expect(res.ok).toBe(true);
+      expect(res.message).toContain("BUY 25 Shares Limit at $135.00. Order 1 SELL 12 Shares @ $138.75 (1.5R) | Order 2 STOP 13 Shares @ $132.50.");
+    });
+
+    it("verifies WealthEngineDashboard synchronizes cardSizing.calculatedShares into both alert hooks", () => {
+      const dashboardSrc = fs.readFileSync(
+        path.resolve(rootDir, "client/src/pages/WealthEngineDashboard.tsx"),
+        "utf-8"
+      );
+
+      // Verify useOffScreenPreEntryAlerts receives cardSizing.calculatedShares
+      expect(dashboardSrc).toMatch(/useOffScreenPreEntryAlerts\(\{[\s\S]*?calculatedShares:\s*cardSizing\.calculatedShares/);
+
+      // Verify useProximityAlert receives cardSizing.calculatedShares
+      expect(dashboardSrc).toMatch(/useProximityAlert\(\{[\s\S]*?calculatedShares:\s*cardSizing\.calculatedShares/);
     });
   });
 });

@@ -10,6 +10,10 @@ export interface ProximityAlertInput {
   currentPrice: number;
   entryPrice: number;
   stopLoss?: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  shares?: number;
   sma20?: number;
   sma50?: number;
   ema10?: number;
@@ -26,6 +30,11 @@ export interface ProximityAlertPayload {
   ticker: string;
   currentPrice: number;
   entryPrice: number;
+  stopLoss?: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  shares?: number;
   alertThreshold: number;
   distancePct: number;
   message: string;
@@ -51,6 +60,54 @@ export interface ProximityTriggerEvaluation {
 export function calculateProximityAlertThreshold(entryPrice: number): number {
   if (!Number.isFinite(entryPrice) || entryPrice <= 0) return 0;
   return +(entryPrice * 1.003).toFixed(4);
+}
+
+/**
+ * Standard prop-desk formatted execution ready message with exact live calculated shares
+ */
+export function formatExecutionReadyAlertMessage(params: {
+  ticker: string;
+  status: "CONFIRMED_1H_CLOSE" | "PROXIMITY_ALERT_05_PCT" | string;
+  entryPrice: number;
+  stopLoss: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  shares?: number;
+  instruction?: string;
+}): string {
+  const ticker = (params.ticker || "NVDA").trim().toUpperCase();
+  const entry = Number(params.entryPrice || 0);
+  const stop = Number(params.stopLoss || 0);
+  const risk = Math.max(0.01, Math.abs(entry - stop));
+  const isShort = stop > entry;
+  const t1 = Number((params.target1 ?? (isShort ? entry - 1.5 * risk : entry + 1.5 * risk)).toFixed(2));
+  const t2 = Number((params.target2 ?? (isShort ? entry - 2.0 * risk : entry + 2.0 * risk)).toFixed(2));
+
+  const statusUpper = (params.status || "").toUpperCase();
+  const statusLabel =
+    statusUpper.includes("PROXIMITY") || statusUpper === "PROXIMITY_ALERT_05_PCT"
+      ? "[ PROXIMITY ALERT < 0.5% ]"
+      : "[ CONFIRMED 1H CLOSE ]";
+
+  const note =
+    params.instruction ||
+    "Review Fidelity Guide and prepare limit order.";
+
+  const shares =
+    Number(params.calculatedShares || params.shares || 0) > 0
+      ? Number(params.calculatedShares || params.shares)
+      : Math.max(1, Math.floor(250 / risk));
+  const order1Shares = Math.floor(shares / 2);
+  const order2Shares = shares - order1Shares;
+
+  return [
+    `🚨 CHIZZLE EXECUTION READY: [${ticker}]`,
+    `Status: ${statusLabel}`,
+    `Core Math: Entry $${entry.toFixed(2)} | Stop $${stop.toFixed(2)} | Target 1 (1.5R) $${t1.toFixed(2)} | Target 2 (2.0R) $${t2.toFixed(2)}`,
+    `Actionable Note: ${note}`,
+    `Fidelity Ticket: BUY ${shares} Shares Limit at $${entry.toFixed(2)}. Order 1 SELL ${order1Shares} Shares @ $${t1.toFixed(2)} (1.5R) | Order 2 STOP ${order2Shares} Shares @ $${stop.toFixed(2)}.`,
+  ].join("\n");
 }
 
 /**
@@ -154,6 +211,10 @@ export function evaluateProximityAlertTrigger(params: {
   ema10?: number;
   sma10?: number;
   stopLoss?: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  shares?: number;
   isTradeConfirmed?: boolean;
   alertSent?: boolean;
   alreadyFiredKeys?: Set<string>;
@@ -161,6 +222,7 @@ export function evaluateProximityAlertTrigger(params: {
   const { ticker, currentPrice, entryPrice, alreadyFiredKeys } = params;
   const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
   const alertThreshold = calculateProximityAlertThreshold(entryPrice);
+  const shares = Number(params.calculatedShares || params.shares || 0) || undefined;
 
   const isValid =
     Number.isFinite(currentPrice) &&
@@ -169,12 +231,23 @@ export function evaluateProximityAlertTrigger(params: {
     entryPrice > 0;
 
   if (!isValid) {
+    const invalidMsg = shares && shares > 0
+      ? formatExecutionReadyAlertMessage({
+          ticker: cleanTicker,
+          status: params.isTradeConfirmed ? "CONFIRMED_1H_CLOSE" : "APPROACHING",
+          entryPrice,
+          stopLoss: params.stopLoss ?? entryPrice * 0.985,
+          target1: params.target1,
+          calculatedShares: shares,
+        })
+      : formatProximityEarlyWarningMessage({ ticker: cleanTicker, entryPrice });
+
     return {
       shouldFire: false,
       alertThreshold,
       distancePct: Infinity,
       isWithinThreshold: false,
-      message: formatProximityEarlyWarningMessage({ ticker: cleanTicker, entryPrice }),
+      message: invalidMsg,
       dedupeKey: `${cleanTicker}::PROXIMITY_03`,
       conditionMet: null,
     };
@@ -217,10 +290,19 @@ export function evaluateProximityAlertTrigger(params: {
   const alreadyFired =
     Boolean(params.alertSent) || (alreadyFiredKeys ? alreadyFiredKeys.has(dedupeKey) : false);
 
-  const message = formatProximityEarlyWarningMessage({
-    ticker: cleanTicker,
-    entryPrice,
-  });
+  const message = shares && shares > 0
+    ? formatExecutionReadyAlertMessage({
+        ticker: cleanTicker,
+        status: params.isTradeConfirmed ? "CONFIRMED_1H_CLOSE" : "APPROACHING",
+        entryPrice,
+        stopLoss: params.stopLoss ?? entryPrice * 0.985,
+        target1: params.target1,
+        calculatedShares: shares,
+      })
+    : formatProximityEarlyWarningMessage({
+        ticker: cleanTicker,
+        entryPrice,
+      });
 
   return {
     shouldFire: isWithinThreshold && !alreadyFired,
@@ -244,6 +326,10 @@ export function useProximityAlert(input: ProximityAlertInput) {
     currentPrice,
     entryPrice,
     stopLoss,
+    target1,
+    target2,
+    calculatedShares,
+    shares: inputShares,
     sma20,
     sma50,
     ema10,
@@ -255,6 +341,8 @@ export function useProximityAlert(input: ProximityAlertInput) {
     enabled = true,
     onAlertTriggered,
   } = input;
+
+  const effectiveShares = Number(calculatedShares || inputShares || 0) || undefined;
 
   const { toast } = useToast();
   const firedAlertsRef = useRef<Set<string>>(new Set());
@@ -313,9 +401,14 @@ export function useProximityAlert(input: ProximityAlertInput) {
       currentPrice,
       entryPrice,
       sma20,
+      sma50,
       ema10,
       sma10,
       stopLoss,
+      target1,
+      target2,
+      calculatedShares: effectiveShares,
+      shares: effectiveShares,
       isTradeConfirmed,
       alertSent: setup.alertSent,
       alreadyFiredKeys: firedAlertsRef.current,
@@ -337,6 +430,11 @@ export function useProximityAlert(input: ProximityAlertInput) {
         ticker: cleanTicker,
         currentPrice,
         entryPrice,
+        stopLoss,
+        target1,
+        target2,
+        calculatedShares: effectiveShares,
+        shares: effectiveShares,
         alertThreshold: evaluation.alertThreshold,
         distancePct: evaluation.distancePct,
         message: evaluation.message,
@@ -358,6 +456,9 @@ export function useProximityAlert(input: ProximityAlertInput) {
     currentPrice,
     entryPrice,
     stopLoss,
+    target1,
+    target2,
+    effectiveShares,
     sma20,
     sma50,
     ema10,

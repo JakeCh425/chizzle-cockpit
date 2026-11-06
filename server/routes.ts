@@ -2694,21 +2694,35 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
           });
         }
       }
+      const shares = Number(req.body?.calculatedShares || req.body?.shares || 0) || undefined;
+      const stopLoss = req.body?.stopLoss != null ? Number(req.body.stopLoss) : undefined;
+      const target1 = req.body?.target1 != null ? Number(req.body.target1) : undefined;
+      const target2 = req.body?.target2 != null ? Number(req.body.target2) : undefined;
       const result = await sendProximityEarlyWarningAlert({
         ticker: symbol,
         entryPrice: Number(req.body?.entryPrice || 0),
         currentPrice: Number(req.body?.currentPrice || 0),
+        stopLoss,
+        target1,
+        target2,
+        calculatedShares: shares,
+        shares,
+        message: req.body?.message,
         chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
         email: req.body?.email || process.env.USER_ALERT_EMAIL,
       });
       const updatedState = updateSetup(symbol, {
         alertSent: true,
         lastAlertTimestamp: Date.now(),
+        stopLoss,
       });
       const audit = recordNotificationAudit({
         symbol,
         alertType: "PROXIMITY_EARLY_WARNING",
         entryPrice: Number(req.body?.entryPrice || 0),
+        stopLoss,
+        target1,
+        calculatedShares: shares,
         channels: ["telegram", "email"],
         status: "SENT",
         message: result.message,

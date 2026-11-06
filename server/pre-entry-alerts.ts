@@ -14,7 +14,8 @@ export {
   type PreEntryEmailPayload,
 };
 
-export { formatExecutionReadyAlertMessage } from "./backendNotificationWorker";
+import { formatExecutionReadyAlertMessage } from "./backendNotificationWorker";
+export { formatExecutionReadyAlertMessage };
 
 export interface ServerPreEntryAlertInput {
   ticker: string;
@@ -136,7 +137,12 @@ export async function serverlessPreEntryAlertHandler(req: {
     message?: string;
     ticker?: string;
     entryPrice?: number;
+    stopLoss?: number;
     target1?: number;
+    target2?: number;
+    shares?: number;
+    calculatedShares?: number;
+    plan?: any;
     context?: string;
     smsEnabled?: boolean;
     telegramEnabled?: boolean;
@@ -150,21 +156,41 @@ export async function serverlessPreEntryAlertHandler(req: {
   message?: string;
   ticker?: string;
   entryPrice?: number;
+  stopLoss?: number;
   target1?: number;
+  target2?: number;
+  shares?: number;
+  calculatedShares?: number;
+  plan?: any;
   context?: string;
   smsEnabled?: boolean;
   telegramEnabled?: boolean;
   emailEnabled?: boolean;
 }): Promise<{ ok: boolean; sms?: any; telegram?: any; email?: any; message: string }> {
   const body = req?.body || req || {};
+  const shares = Number(body.calculatedShares || body.shares || (typeof body.plan === "object" ? body.plan?.shares : 0) || 0) || undefined;
+  const stopLoss = Number(body.stopLoss || (typeof body.plan === "object" ? body.plan?.stopLoss : 0) || 0) || undefined;
+  const entryPrice = Number(body.entryPrice || 0);
+  const target1 = Number(body.target1 || (typeof body.plan === "object" ? body.plan?.target1 : 0) || 0) || undefined;
+  const ticker = (body.ticker || "NVDA").trim().toUpperCase();
+
   const formattedMessage =
     body.message ||
-    formatServerPreEntryAlertMessage({
-      ticker: body.ticker || "NVDA",
-      entryPrice: Number(body.entryPrice || 0),
-      target1: Number(body.target1 || 0),
-      context: body.context || "Price within 0.25% of SMA",
-    });
+    (shares && shares > 0
+      ? formatExecutionReadyAlertMessage({
+          ticker,
+          status: "CONFIRMED_1H_CLOSE",
+          entryPrice,
+          stopLoss: stopLoss ?? entryPrice * 0.985,
+          target1,
+          calculatedShares: shares,
+        })
+      : formatServerPreEntryAlertMessage({
+          ticker,
+          entryPrice,
+          target1: target1 || entryPrice * 1.03,
+          context: body.context || "Price within 0.25% of SMA",
+        }));
 
   const channel = body.channel || (body.emailEnabled ? "all" : "both");
   let smsResult: any = null;
@@ -183,10 +209,16 @@ export async function serverlessPreEntryAlertHandler(req: {
     if (userEmail) {
       emailResult = await sendPreEntryEmail({
         userEmail,
-        ticker: body.ticker || "NVDA",
-        entryPrice: Number(body.entryPrice || 0),
-        target1: Number(body.target1 || 0),
+        ticker,
+        entryPrice,
+        price: entryPrice,
+        target1,
+        stopLoss,
+        calculatedShares: shares,
+        shares,
         context: body.context || "Price within 0.25% of SMA",
+        plan: body.plan,
+        message: formattedMessage,
       });
     }
   }
@@ -220,14 +252,33 @@ export function formatProximityEarlyWarningMessage(params: {
 export async function sendProximityEarlyWarningAlert(params: {
   ticker: string;
   entryPrice: number;
+  stopLoss?: number;
+  target1?: number;
+  target2?: number;
+  calculatedShares?: number;
+  shares?: number;
   chatId?: string;
   email?: string;
   currentPrice?: number;
+  message?: string;
 }): Promise<{ ok: boolean; telegram?: any; email?: any; message: string }> {
-  const message = formatProximityEarlyWarningMessage({
-    ticker: params.ticker,
-    entryPrice: params.entryPrice,
-  });
+  const shares = params.calculatedShares ?? params.shares;
+  const message =
+    params.message ||
+    (shares && shares > 0
+      ? formatExecutionReadyAlertMessage({
+          ticker: params.ticker,
+          status: "PROXIMITY_ALERT_05_PCT",
+          entryPrice: params.entryPrice,
+          stopLoss: params.stopLoss ?? params.entryPrice * 0.985,
+          target1: params.target1,
+          target2: params.target2,
+          calculatedShares: shares,
+        })
+      : formatProximityEarlyWarningMessage({
+          ticker: params.ticker,
+          entryPrice: params.entryPrice,
+        }));
 
   const targetChatId = params.chatId || process.env.TELEGRAM_CHAT_ID;
   const targetEmail = params.email || process.env.USER_ALERT_EMAIL;
@@ -242,37 +293,21 @@ export async function sendProximityEarlyWarningAlert(params: {
     telegramRes = { ok: true, status: "stubbed", error: "TELEGRAM_CHAT_ID not provided" };
   }
 
-  // 2. Email Service (Resend or SendGrid)
+  // 2. Email Service (Resend or SendGrid via shared sendPreEntryEmail)
   if (targetEmail) {
-    const apiKey = process.env.RESEND_API_KEY || process.env.SENDGRID_API_KEY;
-    if (apiKey) {
-      const from = process.env.RESEND_FROM_EMAIL || "Chizzle Early Warning <onboarding@resend.dev>";
-      try {
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            from,
-            to: [targetEmail],
-            subject: `🚨 CHIZZLE EARLY WARNING: ${params.ticker.toUpperCase()} within 0.3% of Entry`,
-            text: message,
-            html: `<div style="font-family: sans-serif; background:#0B0E14; color:#fff; padding:20px; border-radius:8px;">
-              <h2 style="color:#00E676;">CHIZZLE EARLY WARNING</h2>
-              <p style="font-size:16px;"><strong>${params.ticker.toUpperCase()}</strong> is within 0.3% of your Entry Price ($${Number(params.entryPrice).toFixed(2)}).</p>
-              <p style="color:#94A3B8;">Open your Fidelity app now and prepare for 1H candle close.</p>
-            </div>`,
-          }),
-        });
-        emailRes = { ok: res.ok, status: res.status };
-      } catch (err: any) {
-        emailRes = { ok: false, error: err?.message || String(err) };
-      }
-    } else {
-      emailRes = { ok: true, status: "stubbed", error: "RESEND_API_KEY not configured (stubbed)" };
-    }
+    const emailResult = await sendPreEntryEmail({
+      userEmail: targetEmail,
+      ticker: params.ticker,
+      entryPrice: params.entryPrice,
+      price: params.entryPrice,
+      stopLoss: params.stopLoss,
+      target1: params.target1,
+      calculatedShares: shares,
+      shares,
+      context: "Price within 0.5% of Target Moving Average",
+      message,
+    });
+    emailRes = { ok: emailResult.ok, status: emailResult.status, error: emailResult.error };
   } else {
     emailRes = { ok: true, status: "stubbed", error: "Email address not configured" };
   }

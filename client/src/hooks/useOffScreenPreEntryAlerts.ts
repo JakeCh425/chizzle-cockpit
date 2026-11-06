@@ -71,6 +71,10 @@ export interface PreEntryAlertPayload {
   ticker: string;
   entryPrice: number | string;
   target1: number | string;
+  target2?: number | string;
+  stopLoss?: number | string;
+  shares?: number;
+  calculatedShares?: number;
   currentPrice?: number;
   context: PreEntryTriggerContext | string;
 }
@@ -80,7 +84,10 @@ export interface PreEntryTriggerInput {
   currentPrice: number;
   entryPrice: number;
   target1: number;
+  target2?: number;
   stopLoss?: number;
+  shares?: number;
+  calculatedShares?: number;
   sma20?: number;
   sma50?: number;
   ema10?: number;
@@ -129,11 +136,21 @@ export function formatPreEntryAlertMessage(payload: PreEntryAlertPayload): strin
   const entryStr = `$${parsePriceValue(payload.entryPrice).toFixed(2)}`;
   const target1Str = `$${parsePriceValue(payload.target1).toFixed(2)}`;
   const context = payload.context || "Price within 0.25% of SMA";
+  const shares = Number(payload.calculatedShares || payload.shares || 0) || 0;
+
+  let fidelityPlan = `Limit BUY at ${entryStr}. Scale 50% at ${target1Str}.`;
+  if (shares > 0) {
+    const order1Shares = Math.floor(shares / 2);
+    const order2Shares = shares - order1Shares;
+    const stopLossNum = parsePriceValue(payload.stopLoss);
+    const stopStr = stopLossNum > 0 ? `$${stopLossNum.toFixed(2)}` : "";
+    fidelityPlan = `BUY ${shares} Shares Limit at ${entryStr}. Order 1 SELL ${order1Shares} Shares @ ${target1Str} (1.5R)${stopStr ? ` | Order 2 STOP ${order2Shares} Shares @ ${stopStr}` : ""}`;
+  }
 
   return [
     `🚨 CHIZZLE ALERT: ${ticker} is approaching ${entryStr}.`,
     `Context: ${context}.`,
-    `Fidelity Plan: Limit BUY at ${entryStr}. Scale 50% at ${target1Str}.`,
+    `Fidelity Plan: ${fidelityPlan}`,
   ].join("\n");
 }
 
@@ -202,6 +219,10 @@ export function evaluatePreEntryAlertTriggers(
           ticker: cleanTicker,
           entryPrice,
           target1,
+          target2: input.target2,
+          stopLoss,
+          shares: input.shares,
+          calculatedShares: input.calculatedShares,
           currentPrice,
           context,
         })
@@ -266,6 +287,10 @@ export function evaluatePreEntryAlertTriggers(
           ticker: cleanTicker,
           entryPrice,
           target1,
+          target2: input.target2,
+          stopLoss,
+          shares: input.shares,
+          calculatedShares: input.calculatedShares,
           currentPrice,
           context,
         })
@@ -437,6 +462,10 @@ export async function sendEmailAlert(
     ticker?: string;
     entryPrice?: number | string;
     target1?: number | string;
+    target2?: number | string;
+    stopLoss?: number | string;
+    shares?: number;
+    calculatedShares?: number;
     context?: string;
     plan?: string;
   },
@@ -454,6 +483,10 @@ export async function sendEmailAlert(
         ticker: options?.ticker,
         entryPrice: options?.entryPrice,
         target1: options?.target1,
+        target2: options?.target2,
+        stopLoss: options?.stopLoss,
+        shares: options?.shares ?? options?.calculatedShares,
+        calculatedShares: options?.calculatedShares ?? options?.shares,
         context: options?.context,
         plan: options?.plan,
       }),
@@ -476,7 +509,10 @@ export interface UseOffScreenPreEntryAlertsInput {
   currentPrice: number;
   entryPrice: number;
   target1: number;
+  target2?: number;
   stopLoss?: number;
+  calculatedShares?: number;
+  shares?: number;
   sma20?: number;
   sma50?: number;
   ema10?: number;
@@ -492,7 +528,10 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     currentPrice,
     entryPrice,
     target1,
+    target2,
     stopLoss,
+    calculatedShares,
+    shares: inputShares,
     sma20,
     sma50,
     ema10,
@@ -501,6 +540,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     setupId,
     status,
   } = input;
+  const effectiveShares = Number(calculatedShares || inputShares || 0) || undefined;
   const { toast } = useToast();
 
   const [settings, setSettings] = useState<OffScreenAlertSettings>(() =>
@@ -559,12 +599,27 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       }
       const userEmail = (currentSettings.emailAddress || currentSettings.email || "").trim();
       if (currentSettings.emailEnabled && userEmail) {
+        const order1 = effectiveShares ? Math.floor(effectiveShares / 2) : 0;
+        const order2 = effectiveShares ? effectiveShares - order1 : 0;
+        const stopLossNum = parsePriceValue(stopLoss);
+        const stopStr = stopLossNum > 0 ? `$${stopLossNum.toFixed(2)}` : "";
+        const entryStr = `$${Number(entryPrice).toFixed(2)}`;
+        const t1Str = `$${Number(target1).toFixed(2)}`;
+        const planText =
+          effectiveShares && effectiveShares > 0
+            ? `BUY ${effectiveShares} Shares Limit at ${entryStr}. Order 1 SELL ${order1} Shares @ ${t1Str} (1.5R)${stopStr ? ` | Order 2 STOP ${order2} Shares @ ${stopStr}` : ""}`
+            : `Limit BUY at ${entryStr}. Scale 50% at ${t1Str}.`;
+
         tasks.push(
           sendEmailAlert(message, userEmail, {
             ticker: cleanTicker,
             entryPrice,
             target1,
-            plan: `Limit BUY at $${Number(entryPrice).toFixed(2)}. Scale 50% at $${Number(target1).toFixed(2)}.`,
+            target2,
+            stopLoss,
+            shares: effectiveShares,
+            calculatedShares: effectiveShares,
+            plan: planText,
           })
         );
       }
@@ -578,7 +633,7 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
         description: message,
       });
     },
-    [ticker, entryPrice, target1, stopLoss, setupId, toast]
+    [ticker, entryPrice, target1, target2, stopLoss, effectiveShares, setupId, toast]
   );
 
   // Evaluate triggers on live price updates & 1H clock ticks with strict Execution Zone Proximity Filter
@@ -610,7 +665,10 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
         currentPrice,
         entryPrice,
         target1,
+        target2,
         stopLoss,
+        shares: effectiveShares,
+        calculatedShares: effectiveShares,
         sma20: sma20 ?? entryPrice,
         ema10,
         sma10,
@@ -652,7 +710,9 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
     currentPrice,
     entryPrice,
     target1,
+    target2,
     stopLoss,
+    effectiveShares,
     sma20,
     sma50,
     ema10,
@@ -669,12 +729,16 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       ticker,
       entryPrice,
       target1,
+      target2,
+      stopLoss,
+      shares: effectiveShares,
+      calculatedShares: effectiveShares,
       currentPrice,
       context: "Price within 0.25% of SMA",
     });
     await dispatchFormattedAlert(msg, settings, "TEST", true);
     return msg;
-  }, [ticker, entryPrice, target1, currentPrice, settings, dispatchFormattedAlert]);
+  }, [ticker, entryPrice, target1, target2, stopLoss, effectiveShares, currentPrice, settings, dispatchFormattedAlert]);
 
   const setupState = ticker ? globalStore.getSetupAlertState(ticker) : null;
 
@@ -689,6 +753,10 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
       ticker,
       entryPrice,
       target1,
+      target2,
+      stopLoss,
+      shares: effectiveShares,
+      calculatedShares: effectiveShares,
       currentPrice,
       context: "Price within 0.25% of SMA",
     }),

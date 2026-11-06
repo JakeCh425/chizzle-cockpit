@@ -7,9 +7,16 @@ export interface PreEntryEmailPayload {
   ticker: string;
   price?: number | string;
   entryPrice?: number | string;
-  context?: string;
-  plan?: string;
+  stopLoss?: number | string;
   target1?: number | string;
+  target2?: number | string;
+  shares?: number;
+  calculatedShares?: number;
+  context?: string;
+  plan?: string | any;
+  message?: string;
+  setupId?: string;
+  alertType?: string;
 }
 
 export function formatPriceString(val: number | string | undefined): string {
@@ -40,9 +47,13 @@ export function formatPreEntryEmailHtml(params: {
   ticker: string;
   price: number | string;
   context?: string;
-  plan?: string;
+  plan?: string | any;
   entryPrice?: number | string;
   target1?: number | string;
+  stopLoss?: number | string;
+  shares?: number;
+  calculatedShares?: number;
+  message?: string;
 }): { html: string; text: string; subject: string } {
   const cleanTicker = (params.ticker || "NVDA").trim().toUpperCase();
   const formattedPrice = formatPriceString(params.price ?? params.entryPrice);
@@ -51,13 +62,29 @@ export function formatPreEntryEmailHtml(params: {
 
   const entryStr = formatPriceString(params.entryPrice ?? params.price);
   const t1Str = formatPriceString(params.target1 ?? (Number(params.entryPrice ?? params.price) * 1.03));
-  const plan = params.plan || `Limit BUY at ${entryStr}. Scale 50% at ${t1Str}.`;
+  const shares =
+    params.shares ??
+    params.calculatedShares ??
+    (typeof params.plan === "object" ? params.plan?.shares ?? params.plan?.calculatedShares : undefined);
+
+  let planText = "";
+  if (typeof params.plan === "string" && params.plan.trim() && !params.plan.includes("[object Object]")) {
+    planText = params.plan;
+  } else if (shares && shares > 0) {
+    const order1 = Math.floor(shares / 2);
+    const order2 = shares - order1;
+    const stopStr = params.stopLoss ? formatPriceString(params.stopLoss) : "";
+    planText = `BUY ${shares} Shares Limit at ${entryStr}. Order 1 SELL ${order1} Shares @ ${t1Str} (1.5R)${stopStr ? ` | Order 2 STOP ${order2} Shares @ ${stopStr}` : ""}.`;
+  } else {
+    planText = `Limit BUY at ${entryStr}. Scale 50% at ${t1Str}.`;
+  }
 
   const text = [
     subject,
     `Context: ${context}`,
-    `Fidelity Plan: ${plan}`,
-  ].join("\n");
+    `Fidelity Plan: ${planText}`,
+    params.message && params.message !== planText ? `\n--- Execution Details ---\n${params.message}` : "",
+  ].filter(Boolean).join("\n");
 
   const html = `<!DOCTYPE html>
 <html>
@@ -76,8 +103,10 @@ export function formatPreEntryEmailHtml(params: {
     </h1>
     <div style="background-color: #030712; border: 1px solid #374151; border-radius: 8px; padding: 16px; margin-bottom: 18px; font-size: 13.5px; line-height: 1.6; color: #E5E7EB; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;">
       <p style="margin: 0 0 8px 0;"><strong>Context:</strong> ${context}</p>
-      <p style="margin: 0;"><strong>Fidelity Plan:</strong> ${plan}</p>
+      <p style="margin: 0 0 8px 0;"><strong>Fidelity Plan:</strong> ${planText}</p>
+      ${shares && shares > 0 ? `<p style="margin: 0; color: #10B981; font-weight: bold;">🎯 Order Size: ${shares} Shares</p>` : ""}
     </div>
+    ${params.message ? `<div style="background-color: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; margin-bottom: 16px; font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; color: #c9d1d9; white-space: pre-wrap;">${params.message}</div>` : ""}
     <div style="font-size: 11px; color: #9CA3AF; text-align: left; line-height: 1.4;">
       ⚡ <em>Open your Fidelity app now to prepare for execution. Deduplicated: fires 1x per setup.</em>
     </div>
@@ -120,16 +149,22 @@ export async function sendPreEntryEmail(
   let ticker = "NVDA";
   let price: number | string = 0;
   let context = "Price within 0.25% of SMA";
-  let plan = "";
+  let plan: string | any = "";
   let target1: number | string | undefined = undefined;
+  let stopLoss: number | string | undefined = undefined;
+  let shares: number | undefined = undefined;
+  let customMessage: string | undefined = undefined;
 
   if (typeof userEmailOrPayload === "object" && userEmailOrPayload !== null) {
     userEmail = (userEmailOrPayload.userEmail || userEmailOrPayload.emailAddress || userEmailOrPayload.email || "").trim();
     ticker = userEmailOrPayload.ticker || "NVDA";
     price = userEmailOrPayload.price ?? userEmailOrPayload.entryPrice ?? 0;
     context = userEmailOrPayload.context || "Price within 0.25% of SMA";
-    target1 = userEmailOrPayload.target1;
+    target1 = userEmailOrPayload.target1 ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.target1 : undefined);
+    stopLoss = userEmailOrPayload.stopLoss ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.stopLoss : undefined);
+    shares = userEmailOrPayload.calculatedShares ?? userEmailOrPayload.shares ?? (typeof userEmailOrPayload.plan === "object" ? userEmailOrPayload.plan?.shares ?? userEmailOrPayload.plan?.calculatedShares : undefined);
     plan = userEmailOrPayload.plan || "";
+    customMessage = userEmailOrPayload.message;
   } else {
     userEmail = String(userEmailOrPayload || "").trim();
     ticker = tickerArg || "NVDA";
@@ -145,6 +180,10 @@ export async function sendPreEntryEmail(
     plan,
     entryPrice: price,
     target1,
+    stopLoss,
+    shares,
+    calculatedShares: shares,
+    message: customMessage,
   });
 
   if (!userEmail) {
