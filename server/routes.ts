@@ -3497,6 +3497,53 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     registerSwingRoutes(app);
   }
 
+  // ─── Mechanical SMA Strategy Scanner (/api/swing/mechanical-scan & /api/swing/scanner-sync) ───
+  {
+    const {
+      runMechanicalScan,
+      getMechanicalScanResults,
+      syncExternalScanResults,
+      MECHANICAL_WATCHLIST,
+    } = await import("./mechanicalSmaScanner");
+
+    app.get("/api/swing/mechanical-scan", async (req, res) => {
+      try {
+        const force = req.query.force === "true" || req.query.force === "1";
+        const watchlistParam = typeof req.query.watchlist === "string"
+          ? req.query.watchlist.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
+          : undefined;
+        const targetList = watchlistParam && watchlistParam.length > 0 ? watchlistParam : MECHANICAL_WATCHLIST;
+
+        let results = getMechanicalScanResults(targetList);
+        const hasUnscanned = results.some((r) => r.price === 0 || r.subtext === "Awaiting initial scan.");
+
+        if (force || hasUnscanned) {
+          results = await runMechanicalScan(targetList);
+        }
+
+        res.json({
+          ok: true,
+          timestamp: new Date().toISOString(),
+          watchlist: targetList,
+          results,
+        });
+      } catch (err: any) {
+        console.error("[mechanical-scan] error:", err);
+        res.status(500).json({ ok: false, error: err?.message || String(err) });
+      }
+    });
+
+    app.post("/api/swing/scanner-sync", async (req, res) => {
+      try {
+        const setups = req.body?.setups || req.body || [];
+        const count = syncExternalScanResults(setups);
+        res.json({ ok: true, synced: count, timestamp: new Date().toISOString() });
+      } catch (err: any) {
+        res.status(500).json({ ok: false, error: err?.message || String(err) });
+      }
+    });
+  }
+
   // ─── MTF Engine v2 settings (PR 2a) ───
   // Reads always allowed; writes require ENABLE_MTF_ENGINE_V2 = true.
   // Row 1 is the single settings row (see mtf_settings_single_row constraint).

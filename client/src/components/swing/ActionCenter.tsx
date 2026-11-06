@@ -21,6 +21,7 @@ import { AIExecutionEngine, formatCurrency } from "./AIExecutionEngine";
 import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
+import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
@@ -1102,6 +1103,11 @@ function ActionCenterInner() {
             regimeCode={regimeCode}
             readyCount={readyCount}
             extendedCount={counts.EXTENDED ?? 0}
+          />
+          <MechanicalSMAPanel
+            onArmTrade={(item) => {
+              setDlg({ symbol: item.ticker, mode: "view" });
+            }}
           />
           <PlanRefreshBar settings={settings.data} />
           <CyberThemeSwitcher currentTheme={cyberTheme} onThemeChange={setCyberTheme} />
