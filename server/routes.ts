@@ -2442,7 +2442,7 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
   // ── Off-Screen Pre-Entry Alerts (Email, Telegram & Twilio SMS Settings + Dispatch) ──
   let savedOffScreenAlertSettings = {
     phoneNumber: "",
-    telegramChatId: process.env.TELEGRAM_CHAT_ID || "7864955612",
+    telegramChatId: process.env.TELEGRAM_TARGET_CHAT_ID || process.env.TELEGRAM_CHAT_ID || "7864955612",
     emailAddress: process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com",
     email: process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com",
     smsEnabled: false,
@@ -2710,7 +2710,18 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         message: req.body?.message,
         chatId: req.body?.chatId || savedOffScreenAlertSettings.telegramChatId,
         email: req.body?.email || process.env.USER_ALERT_EMAIL,
+        force: isTest,
       });
+      if (result.suppressed) {
+        return res.json({
+          ok: true,
+          suppressed: true,
+          alertSent: existingSetup.alertSent,
+          lastAlertTimestamp: existingSetup.lastAlertTimestamp,
+          setupState: existingSetup,
+          reason: result.message,
+        });
+      }
       const updatedState = updateSetup(symbol, {
         alertSent: true,
         lastAlertTimestamp: Date.now(),

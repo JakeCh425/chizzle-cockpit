@@ -17,6 +17,28 @@
  *   - resolveTelegramChatIds()       // helper to look up chat IDs via getUpdates
  */
 import { storage } from "./storage";
+import {
+  getVerifiedTelegramChatId,
+  sendTelegramMessage,
+  formatTelegramTradeDeskAlert,
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  clearAlertLedger,
+  getAlertLedger,
+} from "./telegramDispatcher";
+
+export {
+  getVerifiedTelegramChatId,
+  sendTelegramMessage,
+  formatTelegramTradeDeskAlert,
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  clearAlertLedger,
+  getAlertLedger,
+};
+
 export {
   formatExecutionReadyAlertMessage,
   formatProximityEarlyWarningMessage,
@@ -157,29 +179,8 @@ function buildTelegramText(p: HammerAlertPayload): string {
 }
 
 export async function sendTelegram(chatId: string, text: string): Promise<{ ok: boolean; error?: string }> {
-  const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token) return { ok: false, error: "TELEGRAM_BOT_TOKEN not set" };
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: chatId,
-        text,
-        parse_mode: "Markdown",
-        disable_web_page_preview: false,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false, error: `Telegram ${res.status}: ${txt.slice(0, 200)}` };
-    }
-    const data: any = await res.json().catch(() => ({}));
-    if (!data.ok) return { ok: false, error: `Telegram API: ${data.description || "unknown"}` };
-    return { ok: true };
-  } catch (e: any) {
-    return { ok: false, error: `Telegram fetch error: ${e?.message || String(e)}` };
-  }
+  const r = await sendTelegramMessage(text, chatId);
+  return { ok: r.ok, error: r.error };
 }
 
 /**
@@ -417,33 +418,12 @@ export async function sendTelegramAlert(
   chatId?: string,
   botToken?: string
 ): Promise<{ ok: boolean; error?: string; status: "sent" | "stubbed" | "failed" }> {
-  const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
-  const targetChatId = chatId || process.env.TELEGRAM_CHAT_ID;
-  if (!token || !targetChatId) {
-    return {
-      ok: true,
-      error: "TELEGRAM_BOT_TOKEN or chatId not configured (stubbed)",
-      status: "stubbed",
-    };
-  }
-
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: targetChatId,
-        text: message,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false, error: `Telegram ${res.status}: ${txt.slice(0, 200)}`, status: "failed" };
-    }
-    return { ok: true, status: "sent" };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), status: "failed" };
-  }
+  const result = await sendTelegramMessage(message, chatId, { botToken });
+  return {
+    ok: result.ok,
+    error: result.error,
+    status: result.status,
+  };
 }
 
 /**

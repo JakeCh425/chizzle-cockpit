@@ -17,6 +17,30 @@ export {
 import { formatExecutionReadyAlertMessage } from "./backendNotificationWorker";
 export { formatExecutionReadyAlertMessage };
 
+import {
+  getVerifiedTelegramChatId,
+  sendTelegramMessage,
+  formatTelegramTradeDeskAlert,
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  clearAlertLedger,
+  getAlertLedger,
+  type TelegramTradeAlertPayload,
+} from "./telegramDispatcher";
+
+export {
+  getVerifiedTelegramChatId,
+  sendTelegramMessage,
+  formatTelegramTradeDeskAlert,
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  clearAlertLedger,
+  getAlertLedger,
+  type TelegramTradeAlertPayload,
+};
+
 export interface ServerPreEntryAlertInput {
   ticker: string;
   entryPrice: number;
@@ -40,46 +64,19 @@ export function formatServerPreEntryAlertMessage(input: ServerPreEntryAlertInput
 /**
  * Utility function `sendTelegramAlert(message)` using the standard Telegram Bot API
  * (`https://api.telegram.org/bot<token>/sendMessage`).
+ * Enforces verified numeric TELEGRAM_TARGET_CHAT_ID and blocks @username strings.
  */
 export async function sendTelegramAlert(
   message: string,
   chatId?: string,
   botToken?: string
 ): Promise<{ ok: boolean; error?: string; status: "sent" | "stubbed" | "failed" }> {
-  const token = botToken || process.env.TELEGRAM_BOT_TOKEN;
-  const targetChatId = (chatId || process.env.TELEGRAM_CHAT_ID || "").trim();
-  if (!token || !targetChatId) {
-    return {
-      ok: true,
-      error: "TELEGRAM_BOT_TOKEN or chatId not configured (stubbed)",
-      status: "stubbed",
-    };
-  }
-  if (!/^-?\d+$/.test(targetChatId)) {
-    return {
-      ok: false,
-      error: "Invalid ID. Must be a numeric Chat ID (e.g., 123456789). Use @userinfobot on Telegram to find it.",
-      status: "failed",
-    };
-  }
-
-  try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: targetChatId,
-        text: message,
-      }),
-    });
-    if (!res.ok) {
-      const txt = await res.text().catch(() => "");
-      return { ok: false, error: `Telegram ${res.status}: ${txt.slice(0, 200)}`, status: "failed" };
-    }
-    return { ok: true, status: "sent" };
-  } catch (e: any) {
-    return { ok: false, error: e?.message || String(e), status: "failed" };
-  }
+  const result = await sendTelegramMessage(message, chatId, { botToken });
+  return {
+    ok: result.ok,
+    error: result.error,
+    status: result.status,
+  };
 }
 
 /**
@@ -261,7 +258,37 @@ export async function sendProximityEarlyWarningAlert(params: {
   email?: string;
   currentPrice?: number;
   message?: string;
-}): Promise<{ ok: boolean; telegram?: any; email?: any; message: string }> {
+  force?: boolean;
+}): Promise<{ ok: boolean; suppressed?: boolean; telegram?: any; email?: any; message: string }> {
+  const sym = (params.ticker || "NVDA").trim().toUpperCase();
+
+  // Strict Two-Layer Gatekeeper:
+  // 1. Minimum 60-min Cooldown & Max Once-per-day per ticker
+  if (!params.force) {
+    const proxGate = canDispatchProximityAlert(sym);
+    if (!proxGate.allowed) {
+      return {
+        ok: true,
+        suppressed: true,
+        telegram: { ok: true, status: "suppressed", error: proxGate.reason },
+        email: { ok: true, status: "suppressed", error: proxGate.reason },
+        message: proxGate.reason || "Proximity alert suppressed (cooldown/daily limit)",
+      };
+    }
+
+    // 2. Candle-bound hash tracking ledger
+    const candleKey = Math.floor(Date.now() / 3_600_000);
+    if (!shouldDispatchAlert(sym, candleKey, "PROXIMITY_ALERT_05_PCT", "1h")) {
+      return {
+        ok: true,
+        suppressed: true,
+        telegram: { ok: true, status: "suppressed", error: "Already dispatched for this 1H candle" },
+        email: { ok: true, status: "suppressed", error: "Already dispatched for this 1H candle" },
+        message: `${sym} Proximity Alert already dispatched for current 1H candle.`,
+      };
+    }
+  }
+
   const shares = params.calculatedShares ?? params.shares;
   const message =
     params.message ||
@@ -280,18 +307,25 @@ export async function sendProximityEarlyWarningAlert(params: {
           entryPrice: params.entryPrice,
         }));
 
-  const targetChatId = params.chatId || process.env.TELEGRAM_CHAT_ID;
+  const telegramPayloadText = formatTelegramTradeDeskAlert({
+    ticker: params.ticker,
+    event: "PROXIMITY < 0.5%",
+    regime: "Pullback Valid (4H 20-SMA)",
+    entryPrice: params.entryPrice,
+    stopLoss: params.stopLoss ?? params.entryPrice * 0.985,
+    target1: params.target1,
+    target2: params.target2,
+    shares,
+    status: "ACTIONABLE",
+  });
+
   const targetEmail = params.email || process.env.USER_ALERT_EMAIL;
 
   let telegramRes: any = null;
   let emailRes: any = null;
 
-  // 1. Telegram Bot API
-  if (targetChatId) {
-    telegramRes = await sendTelegramAlert(message, targetChatId);
-  } else {
-    telegramRes = { ok: true, status: "stubbed", error: "TELEGRAM_CHAT_ID not provided" };
-  }
+  // 1. Telegram Bot API: Validates numeric ID & uses clean trade desk formatting
+  telegramRes = await sendTelegramAlert(telegramPayloadText, params.chatId);
 
   // 2. Email Service (Resend or SendGrid via shared sendPreEntryEmail)
   if (targetEmail) {

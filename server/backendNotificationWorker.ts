@@ -8,7 +8,20 @@ import {
   sendTwilioSmsAlert,
   sendPreEntryEmail,
   formatProximityEarlyWarningMessage,
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  formatTelegramTradeDeskAlert,
+  getVerifiedTelegramChatId,
 } from "./pre-entry-alerts";
+
+export {
+  shouldDispatchAlert,
+  canDispatchProximityAlert,
+  recordPriceBoundaryExit,
+  formatTelegramTradeDeskAlert,
+  getVerifiedTelegramChatId,
+};
 
 export const DEFAULT_MONITORED_WATCHLIST: string[] = [
   "QQQ",
@@ -774,7 +787,9 @@ export async function dispatchServerSetupAlert(params: {
   const isConfirmedAlertType =
     alertType === "CONFIRMED_1H_20SMA" ||
     alertType === "CONFIRMED_1H_10SMA" ||
-    alertType === "READY_TO_TRADE";
+    alertType === "READY_TO_TRADE" ||
+    Boolean(params.isTradeConfirmed);
+
   const gate = evaluateExecutionZoneAlertGate({
     symbol,
     currentPrice: params.currentPrice ?? params.entryPrice,
@@ -788,7 +803,110 @@ export async function dispatchServerSetupAlert(params: {
     status: params.status,
   });
 
+  const isProximityAlertType =
+    alertType === "PROXIMITY_EARLY_WARNING" ||
+    gate.conditionMet === "CONDITION_B_PROXIMITY_05_PCT";
+
   const setupIsReady = gate.setupIsReady;
+
+  // Strict Two-Layer Gatekeeper (Candle-Bound Hash Ledger & Cooldown Gate)
+  if (!params.force) {
+    if (isProximityAlertType) {
+      const proxGate = canDispatchProximityAlert(symbol);
+      if (!proxGate.allowed) {
+        return {
+          ok: true,
+          suppressed: true,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp,
+          setupState: setup,
+          auditEntry: {
+            id: `suppressed-${symbol}-${Date.now()}`,
+            symbol,
+            alertSent: setup.alertSent,
+            lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+            alertType,
+            setupType: params.setupType ?? "Suppressed",
+            entryPrice: params.entryPrice,
+            stopLoss: params.stopLoss,
+            target1: params.target1,
+            calculatedShares: params.calculatedShares ?? 0,
+            channels: [],
+            delivery: {},
+            status: "STUBBED",
+            firedAt: setup.lastAlertTimestamp ?? Date.now(),
+            isoTimestamp: new Date().toISOString(),
+            formattedTime: formatAlertTimestampCT(),
+            badgeText: "[ Suppressed · Cooldown ]",
+            message: proxGate.reason || "Proximity cooldown active",
+            dedupeKey,
+          },
+        };
+      }
+
+      if (!shouldDispatchAlert(symbol, barKey, "PROXIMITY_ALERT_05_PCT", "1h")) {
+        return {
+          ok: true,
+          suppressed: true,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp,
+          setupState: setup,
+          auditEntry: {
+            id: `suppressed-${symbol}-${Date.now()}`,
+            symbol,
+            alertSent: setup.alertSent,
+            lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+            alertType,
+            setupType: params.setupType ?? "Suppressed",
+            entryPrice: params.entryPrice,
+            stopLoss: params.stopLoss,
+            target1: params.target1,
+            calculatedShares: params.calculatedShares ?? 0,
+            channels: [],
+            delivery: {},
+            status: "STUBBED",
+            firedAt: setup.lastAlertTimestamp ?? Date.now(),
+            isoTimestamp: new Date().toISOString(),
+            formattedTime: formatAlertTimestampCT(),
+            badgeText: "[ Suppressed · Candle Dedupe ]",
+            message: "Proximity alert already dispatched for current 1H bar",
+            dedupeKey,
+          },
+        };
+      }
+    } else if (isConfirmedAlertType) {
+      if (!shouldDispatchAlert(symbol, barKey, "CONFIRMED_1H_CLOSE", "1h")) {
+        return {
+          ok: true,
+          suppressed: true,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp,
+          setupState: setup,
+          auditEntry: {
+            id: `suppressed-${symbol}-${Date.now()}`,
+            symbol,
+            alertSent: setup.alertSent,
+            lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+            alertType,
+            setupType: params.setupType ?? "Suppressed",
+            entryPrice: params.entryPrice,
+            stopLoss: params.stopLoss,
+            target1: params.target1,
+            calculatedShares: params.calculatedShares ?? 0,
+            channels: [],
+            delivery: {},
+            status: "STUBBED",
+            firedAt: setup.lastAlertTimestamp ?? Date.now(),
+            isoTimestamp: new Date().toISOString(),
+            formattedTime: formatAlertTimestampCT(),
+            badgeText: "[ Suppressed · Confirmed Dedupe ]",
+            message: "Confirmed 1H close alert already dispatched for current 1H bar",
+            dedupeKey,
+          },
+        };
+      }
+    }
+  }
 
   // Strict deduplication & proximity logic gate:
   // if (setupIsReady && !setup.alertSent) { sendAlert(); updateSetup({ alertSent: true }); }
@@ -875,8 +993,22 @@ export async function dispatchServerSetupAlert(params: {
   let updatedState = setup;
 
   if (setupIsReady && (!setup.alertSent || params.force)) {
+    const telegramMessage = formatTelegramTradeDeskAlert({
+      ticker: symbol,
+      event: isProximityAlertType ? "PROXIMITY < 0.5%" : "CONFIRMED 1H CLOSE",
+      regime: "Pullback Valid (4H 20-SMA)",
+      entryPrice: params.entryPrice,
+      stopLoss: params.stopLoss,
+      target1,
+      target2,
+      shares: calculatedShares,
+      status: "ACTIONABLE",
+    });
+
+    const verifiedChatId = getVerifiedTelegramChatId(params.chatId) || targetChatId;
+
     const [telegramRes, emailRes, smsRes] = await Promise.all([
-      sendTelegramAlert(message, targetChatId),
+      sendTelegramAlert(telegramMessage, verifiedChatId),
       sendPreEntryEmail({
         userEmail: targetEmail,
         ticker: symbol,

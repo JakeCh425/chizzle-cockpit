@@ -17,7 +17,8 @@
     "test": "node scripts/smoke-test.mjs",
     "db:push": "drizzle-kit push",
     "test:swing": "vitest run tests/swing",
-    "test:regression": "node scripts/flag-off-regression.mjs"
+    "test:regression": "node scripts/flag-off-regression.mjs",
+    "test:telegram": "tsx scripts/test-telegram.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

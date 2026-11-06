@@ -15,6 +15,7 @@ import { SETUP_NAME } from "./lifecycle";
 import { livePermission, onEarlyLook, onReadyDecision } from "./service";
 import { alertsEnabled, contactForChannel, loadPrefs } from "./alerts";
 import { selectedVersions } from "./plans";
+import { getVerifiedTelegramChatId } from "../telegramDispatcher";
 
 const LIVE_URL = "https://chizzle-cockpit-duyn.onrender.com";
 
@@ -22,12 +23,17 @@ const LIVE_URL = "https://chizzle-cockpit-duyn.onrender.com";
 export interface TelegramResult { ok: boolean; kind: TelegramKind; httpStatus: number | null; error: string | null; retryAfter: number | null }
 export async function telegramSend(chatId: string | null | undefined, text: string): Promise<TelegramResult> {
   const token = process.env.TELEGRAM_BOT_TOKEN;
-  if (!token || !chatId) return { ok: false, kind: "CONFIG_MISSING", httpStatus: null, error: !token ? "TELEGRAM_BOT_TOKEN is not set on the server" : "No Telegram chat is configured", retryAfter: null };
+  if (!token) return { ok: false, kind: "CONFIG_MISSING", httpStatus: null, error: "TELEGRAM_BOT_TOKEN is not set on the server", retryAfter: null };
+  const verifiedChatId = getVerifiedTelegramChatId(chatId);
+  if (!verifiedChatId) {
+    console.error("CRITICAL: Invalid or missing numeric TELEGRAM_TARGET_CHAT_ID.");
+    return { ok: false, kind: "CONFIG_MISSING", httpStatus: null, error: "CRITICAL: Invalid or missing numeric TELEGRAM_TARGET_CHAT_ID.", retryAfter: null };
+  }
   const scrub = (s: string) => s.split(token).join("[token]").slice(0, 200);
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: chatId, text, disable_web_page_preview: true }),
+      body: JSON.stringify({ chat_id: verifiedChatId, text, disable_web_page_preview: true }),
       signal: AbortSignal.timeout(10_000),
     });
     const data: any = await res.json().catch(() => ({}));

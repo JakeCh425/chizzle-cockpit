@@ -41,3 +41,4 @@ export function CardThemeSwitcher({ className = "" }: { className?: string }) {
     </div>
   );
 }
+
