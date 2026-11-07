@@ -14,6 +14,7 @@ import {
   formatTelegramTradeDeskAlert,
   getVerifiedTelegramChatId,
 } from "./pre-entry-alerts";
+import { isRegularMarketHours } from "./marketHours";
 
 export {
   shouldDispatchAlert,
@@ -21,6 +22,7 @@ export {
   recordPriceBoundaryExit,
   formatTelegramTradeDeskAlert,
   getVerifiedTelegramChatId,
+  isRegularMarketHours,
 };
 
 export const DEFAULT_MONITORED_WATCHLIST: string[] = [
@@ -813,6 +815,78 @@ export async function dispatchServerSetupAlert(params: {
 
   const setupIsReady = gate.setupIsReady;
 
+  // Gate 0: Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
+  if (!params.force) {
+    const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
+    const hasExplicitBarTime = typeof params.barTimestamp === "number" && params.barTimestamp > 10_000_000_000;
+    const evalTime = hasExplicitBarTime ? (params.barTimestamp as number) : Date.now();
+    const shouldCheckMarketHours = !isTestEnv || hasExplicitBarTime;
+
+    if (shouldCheckMarketHours && !isRegularMarketHours(evalTime)) {
+      return {
+        ok: true,
+        suppressed: true,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp,
+        setupState: setup,
+        auditEntry: {
+          id: `suppressed-market-hours-${symbol}-${Date.now()}`,
+          symbol,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+          alertType,
+          setupType: params.setupType ?? "Suppressed",
+          entryPrice: params.entryPrice,
+          stopLoss: params.stopLoss,
+          target1: params.target1,
+          calculatedShares: params.calculatedShares ?? 0,
+          channels: [],
+          delivery: {},
+          status: "STUBBED",
+          firedAt: setup.lastAlertTimestamp ?? Date.now(),
+          isoTimestamp: new Date().toISOString(),
+          formattedTime: formatAlertTimestampCT(),
+          badgeText: "[ Suppressed · Market Closed ]",
+          message:
+            "Hard Market-Hours Gate: Outbound alerts strictly blocked outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
+          dedupeKey,
+        },
+      };
+    }
+  }
+
+  // Gate 1: Kill "Approaching / Pre-Entry" Spam Entirely
+  if (isProximityAlertType && !params.force) {
+    return {
+      ok: true,
+      suppressed: true,
+      alertSent: setup.alertSent,
+      lastAlertTimestamp: setup.lastAlertTimestamp,
+      setupState: setup,
+      auditEntry: {
+        id: `suppressed-proximity-${symbol}-${Date.now()}`,
+        symbol,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+        alertType,
+        setupType: params.setupType ?? "Suppressed",
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        target1: params.target1,
+        calculatedShares: params.calculatedShares ?? 0,
+        channels: [],
+        delivery: {},
+        status: "STUBBED",
+        firedAt: setup.lastAlertTimestamp ?? Date.now(),
+        isoTimestamp: new Date().toISOString(),
+        formattedTime: formatAlertTimestampCT(),
+        badgeText: "[ Suppressed · Proximity Deactivated ]",
+        message: "Approaching / Pre-Entry alerts deprecated. Execution alerts only.",
+        dedupeKey,
+      },
+    };
+  }
+
   // Strict Two-Layer Gatekeeper (Candle-Bound Hash Ledger & Cooldown Gate)
   if (!params.force) {
     if (isProximityAlertType) {
@@ -1123,10 +1197,28 @@ export async function runBackendWatchlistAlertScan(options?: {
   symbols?: string[];
   fetchBarsForSymbol?: (symbol: string) => Promise<ServerBar1H[]>;
   getQuoteForSymbol?: (symbol: string) => { price?: number } | null | undefined;
+  force?: boolean;
+  now?: Date | number;
 }): Promise<{
   scannedSymbols: string[];
   firedAlerts: NotificationAuditEntry[];
+  marketClosed?: boolean;
+  reason?: string;
 }> {
+  // Hard Market-Hours Gate: pause scanner outside Regular Trading Hours (Mon-Fri 9:30 AM - 4:00 PM EST)
+  const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
+  const hasExplicitNow = options?.now != null;
+  const shouldCheckMarketHours = !isTestEnv || hasExplicitNow;
+  if (!options?.force && shouldCheckMarketHours && !isRegularMarketHours(options?.now ?? Date.now())) {
+    return {
+      scannedSymbols: [],
+      firedAlerts: [],
+      marketClosed: true,
+      reason:
+        "Hard Market-Hours Gate: Outbound scans strictly paused outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
+    };
+  }
+
   const symbols = Array.from(
     new Set(
       (options?.symbols && options.symbols.length > 0
@@ -1177,7 +1269,8 @@ export async function runBackendWatchlistAlertScan(options?: {
         isTradeConfirmed: evaluation.confirmed,
       });
 
-      const setupIsReady = gate.setupIsReady && Boolean(evaluation.alertType);
+      // Kill Approaching / Pre-Entry Proximity Alerts Entirely: Only dispatch for confirmed execution setups
+      const setupIsReady = evaluation.confirmed === true && gate.setupIsReady;
       if (setupIsReady && !setup.alertSent) {
         const dispatched = await dispatchServerSetupAlert({
           symbol: sym,
@@ -1194,6 +1287,7 @@ export async function runBackendWatchlistAlertScan(options?: {
           setupType: evaluation.setupType,
           context: evaluation.reason,
           barTimestamp: evaluation.barTimestamp,
+          force: options?.force,
         });
         if (!dispatched.suppressed) {
           firedAlerts.push(dispatched.auditEntry);

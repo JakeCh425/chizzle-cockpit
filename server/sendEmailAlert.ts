@@ -1,6 +1,7 @@
 // ─── Transactional Email Utility (Resend / SendGrid / SMTP Compatible) ───
 
 import {
+  isActionableExecution,
   isApprovedSetupForEmail,
   canSendExecutionEmail,
   recordExecutionEmailSent,
@@ -11,8 +12,10 @@ import {
   clearEmailDeduplicationLedger,
   ApprovedSetupEmailPayload,
 } from "./emailDispatcher";
+import { isRegularMarketHours } from "./marketHours";
 
 export {
+  isActionableExecution,
   isApprovedSetupForEmail,
   canSendExecutionEmail,
   recordExecutionEmailSent,
@@ -21,6 +24,7 @@ export {
   formatApprovedSetupEmail,
   formatApprovedSetupEmailSubject,
   clearEmailDeduplicationLedger,
+  isRegularMarketHours,
   type ApprovedSetupEmailPayload,
 };
 
@@ -34,6 +38,8 @@ export interface PreEntryEmailPayload {
   stopLoss?: number | string;
   target1?: number | string;
   target2?: number | string;
+  supportLevel?: string;
+  validatedSma?: string;
   shares?: number;
   calculatedShares?: number;
   t1Shares?: number;
@@ -49,10 +55,14 @@ export interface PreEntryEmailPayload {
   riskRewardRatio?: number;
   notifyOnProximity?: boolean;
   isProximityAlert?: boolean;
+  isApproaching?: boolean;
+  withinProximity?: boolean;
   force?: boolean;
   candleTimestamp?: string | number;
   tradingDay?: string;
+  tradeAction?: string;
   regime?: string;
+  now?: Date | number;
 }
 
 export function formatPriceString(val: number | string | undefined): string {
@@ -243,6 +253,7 @@ export async function sendPreEntryEmail(
     price = priceArg ?? 0;
     context = contextArg || "Price within 0.25% of SMA";
     plan = planArg || "";
+    force = true; // direct manual test call
   }
 
   const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
@@ -296,25 +307,53 @@ export async function sendPreEntryEmail(
     };
   }
 
-  // Gate 1: Check proximity filter (Deprecate pre-entry proximity spam by default)
-  if (isProximityAlert && !force) {
-    const proxCheck = canSendProximityEmail(cleanTicker, notifyOnProximity);
-    if (!proxCheck.allowed) {
+  // Gate 0: Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
+  if (!force) {
+    const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
+    const hasExplicitNow = (userEmailOrPayload as any)?.now != null;
+    const evalTime = (userEmailOrPayload as any)?.now ?? Date.now();
+    const shouldCheckMarketHours = !isTestEnv || hasExplicitNow;
+
+    if (shouldCheckMarketHours && !isRegularMarketHours(evalTime)) {
       return {
         ok: true,
         status: "suppressed",
-        error: proxCheck.reason,
+        error:
+          "Hard Market-Hours Gate: Outbound alerts strictly blocked outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
         subject: emailSubject,
         html: emailHtml,
-        message: proxCheck.reason || "Proximity email suppressed",
+        message:
+          "Hard Market-Hours Gate: Outbound alerts strictly blocked outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
       };
     }
   }
 
-  // Gate 2: For execution setups, check candle-bound & session deduplication (max 1 per day)
+  // Gate 1: Kill "Approaching / Pre-Entry" Spam Entirely
+  const isApproachingOrProx =
+    isProximityAlert ||
+    Boolean(
+      (userEmailOrPayload as any)?.isApproaching ||
+      (userEmailOrPayload as any)?.withinProximity ||
+      (userEmailOrPayload as any)?.alertType === "PROXIMITY_ALERT" ||
+      (userEmailOrPayload as any)?.alertType === "PROXIMITY_EARLY_WARNING"
+    );
+
+  if (isApproachingOrProx && !force) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: "Approaching / Pre-Entry alerts deprecated. Execution alerts only.",
+      subject: emailSubject,
+      html: emailHtml,
+      message: "Approaching / Pre-Entry alerts deprecated. Execution alerts only.",
+    };
+  }
+
+  // Gate 2: For execution setups, check candle-bound composite & session deduplication (max 1 per day)
+  const tradeAction = (userEmailOrPayload as any)?.tradeAction || "CONFIRMED_BUY";
   if (isConfirmedExecution && !force) {
     const candleTs = candleTimestamp ?? Math.floor(Date.now() / 3_600_000);
-    const dayCheck = canSendExecutionEmail(cleanTicker, candleTs, tradingDay);
+    const dayCheck = canSendExecutionEmail(cleanTicker, candleTs, tradingDay, tradeAction);
     if (!dayCheck.allowed) {
       return {
         ok: true,
@@ -380,7 +419,12 @@ export async function sendPreEntryEmail(
       }
 
       if (isConfirmedExecution) {
-        recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+        recordExecutionEmailSent(
+          cleanTicker,
+          candleTimestamp ?? Math.floor(Date.now() / 3_600_000),
+          tradingDay,
+          tradeAction
+        );
       } else if (isProximityAlert) {
         recordProximityEmailSent(cleanTicker);
       }
@@ -437,7 +481,12 @@ export async function sendPreEntryEmail(
       }
 
       if (isConfirmedExecution) {
-        recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+        recordExecutionEmailSent(
+          cleanTicker,
+          candleTimestamp ?? Math.floor(Date.now() / 3_600_000),
+          tradingDay,
+          tradeAction
+        );
       } else if (isProximityAlert) {
         recordProximityEmailSent(cleanTicker);
       }
@@ -462,7 +511,12 @@ export async function sendPreEntryEmail(
   }
 
   if (isConfirmedExecution) {
-    recordExecutionEmailSent(cleanTicker, candleTimestamp ?? Math.floor(Date.now() / 3_600_000), tradingDay);
+    recordExecutionEmailSent(
+      cleanTicker,
+      candleTimestamp ?? Math.floor(Date.now() / 3_600_000),
+      tradingDay,
+      tradeAction
+    );
   } else if (isProximityAlert) {
     recordProximityEmailSent(cleanTicker);
   }

@@ -2636,6 +2636,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         isProximityAlert: req.body?.isProximityAlert,
         force: isTest,
       });
+      if (result.status === "suppressed") {
+        return res.json({
+          ...result,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp,
+          setupState: setup,
+          reason: result.error,
+        });
+      }
       const updatedState = updateSetup(symbol, {
         alertSent: true,
         lastAlertTimestamp: Date.now(),

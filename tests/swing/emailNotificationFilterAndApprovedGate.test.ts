@@ -97,12 +97,12 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
       ).toBe(false);
     });
 
-    it("blocks setup when risk/reward ratio is strictly below 2.0", () => {
+    it("blocks setup when risk/reward ratio is strictly below 1.5", () => {
       const result = isApprovedSetupForEmail({
         status: "CONFIRMED",
         isTradeConfirmed: true,
         is1HCandleClosedGreen: true,
-        riskRewardRatio: 1.6,
+        riskRewardRatio: 1.2,
       });
       expect(result).toBe(false);
     });
@@ -196,12 +196,12 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
   });
 
   describe("4. Professional Institutional Execution Card Formatting", () => {
-    it("formats subject line matching: 🚨 CHIZZLE APPROVED SETUP: [TICKER] - 1H Closed Confirmed", () => {
+    it("formats subject line matching: 🚨 CHIZZLE EXECUTION READY: [TICKER] - 1H Closed Confirmed", () => {
       const subject = formatApprovedSetupEmailSubject("XLV");
-      expect(subject).toBe("🚨 CHIZZLE APPROVED SETUP: [XLV] - 1H Closed Confirmed");
+      expect(subject).toBe("🚨 CHIZZLE EXECUTION READY: [XLV] - 1H Closed Confirmed");
 
       const subjectTrimmed = formatApprovedSetupEmailSubject(" nvda  ");
-      expect(subjectTrimmed).toBe("🚨 CHIZZLE APPROVED SETUP: [NVDA] - 1H Closed Confirmed");
+      expect(subjectTrimmed).toBe("🚨 CHIZZLE EXECUTION READY: [NVDA] - 1H Closed Confirmed");
     });
 
     it("generates institutional card body with all mandatory metrics and Fidelity copy-paste block", () => {
@@ -221,10 +221,10 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
       const { subject, text, html } = formatApprovedSetupEmail(payload);
 
       // Subject
-      expect(subject).toBe("🚨 CHIZZLE APPROVED SETUP: [XLV] - 1H Closed Confirmed");
+      expect(subject).toBe("🚨 CHIZZLE EXECUTION READY: [XLV] - 1H Closed Confirmed");
 
       // Plaintext checks
-      expect(text).toContain("TICKER & REGIME: XLV | 4H 20-SMA Pullback Valid");
+      expect(text).toContain("TICKER: XLV");
       expect(text).toContain("Limit Entry Price:     $145.20");
       expect(text).toContain("Protective Stop (1.0R): $143.50 (Stop Market)");
       expect(text).toContain("Target 1 (1.5R):        $147.75 (Scale out 50%)");
@@ -235,7 +235,7 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
       expect(text).toContain("OCO SELL [70] Shares @ $147.75 (T1) | STOP [70] Shares @ $143.50");
 
       // HTML checks
-      expect(html).toContain("🚨 CHIZZLE TRADE DESK · APPROVED SETUP");
+      expect(html).toContain("🚨 CHIZZLE TRADE DESK · EXECUTION READY");
       expect(html).toContain("[XLV] · 1H Closed Confirmed");
       expect(html).toContain("Regime:</strong> 4H 20-SMA Pullback Valid");
       expect(html).toContain("$145.20");
@@ -256,11 +256,12 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
         stopLoss: 575,
         status: "FORMING",
         isTradeConfirmed: false,
+        now: new Date("2026-11-11T15:30:00Z"),
       });
 
       expect(res.ok).toBe(true);
       expect(res.status).toBe("suppressed");
-      expect(res.error).toContain("not an approved confirmed setup");
+      expect(res.error).toContain("not an actionable execution setup");
     });
 
     it("dispatchApprovedExecutionEmail suppresses pre-entry proximity alerts when notifyOnProximity is false", async () => {
@@ -271,14 +272,17 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
         stopLoss: 485,
         isProximityAlert: true,
         notifyOnProximity: false,
+        now: new Date("2026-11-11T15:30:00Z"),
       });
 
       expect(res.ok).toBe(true);
       expect(res.status).toBe("suppressed");
-      expect(res.error).toContain("disabled by default");
+      expect(res.error).toContain("deprecated");
     });
 
     it("sendPreEntryEmail seamlessly routes approved confirmed setups to institutional template and enforces session dedupe", async () => {
+      const marketHoursTime = new Date("2026-11-11T15:30:00Z");
+
       // First send of approved setup
       const res1 = await sendPreEntryEmail({
         userEmail: "trader@example.com",
@@ -294,10 +298,11 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
         riskRewardRatio: 2.0,
         candleTimestamp: "candle-100",
         tradingDay: "2026-11-06",
+        now: marketHoursTime,
       });
 
       expect(res1.ok).toBe(true);
-      expect(res1.subject).toBe("🚨 CHIZZLE APPROVED SETUP: [NVDA] - 1H Closed Confirmed");
+      expect(res1.subject).toBe("🚨 CHIZZLE EXECUTION READY: [NVDA] - 1H Closed Confirmed");
 
       // Second send in same trading session should be suppressed by deduplication gate
       const res2 = await sendPreEntryEmail({
@@ -314,6 +319,7 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
         riskRewardRatio: 2.0,
         candleTimestamp: "candle-101",
         tradingDay: "2026-11-06",
+        now: marketHoursTime,
       });
 
       expect(res2.ok).toBe(true);
@@ -329,11 +335,13 @@ describe("Email Notification Filter & Approved Setup Execution Gate", () => {
         alertType: "PROXIMITY_ALERT",
         isProximityAlert: true,
         notifyOnProximity: false,
+        now: new Date("2026-11-11T15:30:00Z"),
       });
 
       expect(res.ok).toBe(true);
       expect(res.status).toBe("suppressed");
-      expect(res.error).toContain("disabled by default");
+      expect(res.error).toContain("deprecated");
     });
   });
 });
+

@@ -1,17 +1,23 @@
 // ─── Email Notification Dispatcher & Approved Setup Execution Gate ─────────────
 // Enforces:
-// 1. Strict Gate: Deprecate pre-entry spam. Emails ONLY fire for approved confirmed setups:
+// 1. Hard Market-Hours Gatekeeper (RTH Only): Strictly Mon-Fri 9:30 AM - 4:00 PM EST.
+// 2. Kill "Approaching / Pre-Entry" Spam Entirely: Drop all proximity / pre-entry alerts.
+// 3. Execution-Only Filtering:
 //    - status === 'CONFIRMED' / 'CONFIRMED_1H_CLOSE' / 'READY_TO_TRADE'
 //    - is1HCandleClosedGreen === true
 //    - isTradeConfirmed === true
-//    - riskRewardRatio >= 2.0
-// 2. Session & Candle-Bound Deduplication:
-//    - Max 1 execution email per ticker per trading session (day)
-//    - Candle-bound tracking: {ticker}_{candleTimestamp}_CONFIRMED
-// 3. Professional Institutional Email Payload (HTML + Text)
-// 4. Optional Pre-Entry Proximity Toggle (Default: OFF), with 120-minute cooldown
+//    - riskRewardRatio >= 1.5
+// 4. Session & Candle-Based Deduplication:
+//    - Composite key: ${ticker}_${candleTimestamp}_${tradeAction}
+//    - Max 1 execution alert per ticker per trading day
+// 5. Focused Actionable Payload:
+//    - Subject: 🚨 CHIZZLE EXECUTION READY: [TICKER] - 1H Closed Confirmed
+//    - Payload: Ticker, Validated SMA Support Level, Entry Limit, Stop Loss (1.0R), Target 1 (1.5R), Target 2 (2.0R), Fidelity order ticket
 
 import { getTradingDayKey } from "./telegramDispatcher";
+import { isRegularMarketHours } from "./marketHours";
+
+export { isRegularMarketHours };
 
 export interface ApprovedSetupEmailPayload {
   userEmail?: string;
@@ -19,6 +25,8 @@ export interface ApprovedSetupEmailPayload {
   emailAddress?: string;
   ticker: string;
   regime?: string;
+  supportLevel?: string;
+  validatedSma?: string;
   entryPrice: number;
   stopLoss: number;
   target1?: number;
@@ -29,33 +37,35 @@ export interface ApprovedSetupEmailPayload {
   riskRewardRatio?: number;
   candleTimestamp?: string | number;
   tradingDay?: string;
+  tradeAction?: string;
   status?: string;
   is1HCandleClosedGreen?: boolean;
   isTradeConfirmed?: boolean;
   notifyOnProximity?: boolean;
   isProximityAlert?: boolean;
   force?: boolean;
+  now?: Date | number;
 }
 
 export const EMAIL_PROXIMITY_COOLDOWN_MS = 120 * 60 * 1000; // 120 minutes
 
-// 1. In-memory execution email ledger tracking {ticker}_{candleTimestamp}_CONFIRMED
+// 1. In-memory execution email ledger tracking ${ticker}_${candleTimestamp}_${tradeAction}
 const sentEmailAlerts = new Map<string, number>();
 
 // 2. In-memory session tracking for max 1 execution email per ticker per trading day
 const sentEmailDailyMap = new Map<string, number>();
 
-// 3. In-memory cooldown tracking for optional proximity emails (120-min cooldown)
+// 3. In-memory cooldown tracking for optional proximity emails (deprecated/deactivated)
 const proximityEmailCooldownMap = new Map<string, number>();
 
 /**
- * Validates whether a setup meets all institutional execution criteria for email delivery:
+ * Validates whether a setup meets all institutional execution criteria for outbound dispatch:
  * - status === 'CONFIRMED' / 'CONFIRMED_1H_CLOSE' / 'READY_TO_TRADE'
- * - is1HCandleClosedGreen === true (or not explicitly false)
+ * - is1HCandleClosedGreen === true
  * - isTradeConfirmed === true
- * - riskRewardRatio >= 2.0
+ * - riskRewardRatio >= 1.5
  */
-export function isApprovedSetupForEmail(setup: {
+export function isActionableExecution(setup: {
   status?: string;
   is1HCandleClosedGreen?: boolean;
   isTradeConfirmed?: boolean;
@@ -66,7 +76,7 @@ export function isApprovedSetupForEmail(setup: {
   target2?: number;
 }): boolean {
   // Trade confirmation is mandatory
-  if (!setup.isTradeConfirmed) {
+  if (setup.isTradeConfirmed !== true) {
     return false;
   }
 
@@ -87,7 +97,7 @@ export function isApprovedSetupForEmail(setup: {
     return false;
   }
 
-  // Risk / Reward Ratio must be >= 2.0
+  // Risk / Reward Ratio must be >= 1.5 (with float tolerance >= 1.45)
   let rr = setup.riskRewardRatio;
   if (rr == null || Number.isNaN(rr)) {
     const entry = Number(setup.entryPrice || 0);
@@ -97,38 +107,42 @@ export function isApprovedSetupForEmail(setup: {
     if (risk > 0 && t2 > entry) {
       rr = (t2 - entry) / risk;
     } else {
-      rr = 2.0; // Default conservative standard
+      rr = 1.5;
     }
   }
 
-  return rr >= 1.95; // Allows 2.0R with float tolerance
+  return rr >= 1.45; // 1.5R with float tolerance
 }
 
+export const isApprovedSetupForEmail = isActionableExecution;
+
 /**
- * Checks candle-bound deduplication and the 1-per-session limit.
+ * Checks candle-bound deduplication and the 1-per-session limit using composite key:
+ * ${ticker}_${candleTimestamp}_${tradeAction}
  */
 export function canSendExecutionEmail(
   ticker: string,
   candleTimestamp: string | number,
-  tradingDay: string = getTradingDayKey()
+  tradingDay: string = getTradingDayKey(),
+  tradeAction = "CONFIRMED"
 ): { allowed: boolean; reason?: string } {
   const sym = (ticker || "").trim().toUpperCase();
-  const candleKey = `${sym}_${candleTimestamp}_CONFIRMED`;
-  const dayKey = `${sym}_${tradingDay}_CONFIRMED`;
+  const compositeKey = `${sym}_${candleTimestamp}_${tradeAction}`;
+  const dayKey = `${sym}_${tradingDay}_${tradeAction}`;
 
-  // Rule 1: Max 1 execution email per ticker per trading session (day)
-  if (sentEmailDailyMap.has(dayKey)) {
+  // Rule 1: Candle-bound deduplication via composite key
+  if (sentEmailAlerts.has(compositeKey)) {
     return {
       allowed: false,
-      reason: `${sym} execution email already sent for trading session ${tradingDay} (max 1 per session).`,
+      reason: `${sym} execution alert already sent for candle ${candleTimestamp} (${tradeAction}).`,
     };
   }
 
-  // Rule 2: Candle-bound deduplication
-  if (sentEmailAlerts.has(candleKey)) {
+  // Rule 2: Max 1 execution email per ticker per trading session (day)
+  if (sentEmailDailyMap.has(dayKey)) {
     return {
       allowed: false,
-      reason: `${sym} execution email already sent for candle ${candleTimestamp}.`,
+      reason: `${sym} execution alert already sent for trading session ${tradingDay} (max 1 per session).`,
     };
   }
 
@@ -139,12 +153,13 @@ export function recordExecutionEmailSent(
   ticker: string,
   candleTimestamp: string | number,
   tradingDay: string = getTradingDayKey(),
+  tradeAction = "CONFIRMED",
   nowMs = Date.now()
 ): void {
   const sym = (ticker || "").trim().toUpperCase();
-  const candleKey = `${sym}_${candleTimestamp}_CONFIRMED`;
-  const dayKey = `${sym}_${tradingDay}_CONFIRMED`;
-  sentEmailAlerts.set(candleKey, nowMs);
+  const compositeKey = `${sym}_${candleTimestamp}_${tradeAction}`;
+  const dayKey = `${sym}_${tradingDay}_${tradeAction}`;
+  sentEmailAlerts.set(compositeKey, nowMs);
   sentEmailDailyMap.set(dayKey, nowMs);
 }
 
@@ -192,21 +207,17 @@ export function clearEmailDeduplicationLedger(): void {
 }
 
 /**
- * Subject Line: 🚨 CHIZZLE APPROVED SETUP: [TICKER] - 1H Closed Confirmed
+ * Subject Line: 🚨 CHIZZLE EXECUTION READY: [TICKER] - 1H Closed Confirmed
  */
 export function formatApprovedSetupEmailSubject(ticker: string): string {
   const cleanTicker = (ticker || "NVDA").trim().toUpperCase();
-  return `🚨 CHIZZLE APPROVED SETUP: [${cleanTicker}] - 1H Closed Confirmed`;
+  return `🚨 CHIZZLE EXECUTION READY: [${cleanTicker}] - 1H Closed Confirmed`;
 }
 
 /**
- * Professional institutional execution card payload formatter for inbox:
- * - Ticker & Regime: e.g. XLV | 4H 20-SMA Pullback Valid
- * - Limit Entry Price: $XXX.XX
- * - Protective Stop (1.0R): $XXX.XX (Stop Market)
- * - Target 1 (1.5R): $XXX.XX (Scale out 50%)
- * - Target 2 (2.0R): $XXX.XX (Core target)
- * - Fidelity Ticket Preset copy-paste block
+ * Focused Actionable Institutional Execution Card:
+ * - Subject: 🚨 CHIZZLE EXECUTION READY: [TICKER] - 1H Closed Confirmed
+ * - Payload: Ticker, Validated SMA Support Level, Entry Limit, Stop Loss (1.0R), Target 1 (1.5R), Target 2 (2.0R), Fidelity order ticket
  */
 export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   subject: string;
@@ -228,6 +239,7 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   const t1Shares = p.t1Shares ?? Math.floor(shares / 2);
   const t2Shares = p.t2Shares ?? shares - t1Shares;
 
+  const supportLevel = p.supportLevel || p.validatedSma || "20-SMA Support";
   const regime = p.regime || "4H 20-SMA Pullback Valid";
   const subject = formatApprovedSetupEmailSubject(ticker);
 
@@ -237,7 +249,8 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   const text = [
     subject,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `📈 TICKER & REGIME: ${ticker} | ${regime}`,
+    `📈 TICKER: ${ticker}`,
+    `🛡️ VALIDATED SUPPORT: ${supportLevel} | ${regime}`,
     ``,
     `• Limit Entry Price:     $${entry.toFixed(2)}`,
     `• Protective Stop (1.0R): $${stop.toFixed(2)} (Stop Market)`,
@@ -249,7 +262,7 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
     ticketLine1,
     ticketLine2,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `⚡ Execution Notice: All rules validated. 1H candle closed green on SMA support. Deduplicated: max 1 email per day.`,
+    `⚡ Execution Notice: All rules validated. 1H candle closed green on SMA support. Deduplicated: max 1 alert per day.`,
   ].join("\n");
 
   const html = `<!DOCTYPE html>
@@ -263,13 +276,13 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   <div style="max-width: 560px; margin: 0 auto; background-color: #111827; border: 1px solid #10B981; border-radius: 12px; padding: 24px; box-shadow: 0 12px 30px rgba(0,0,0,0.6);">
     <!-- Header Banner -->
     <div style="font-size: 11px; font-weight: 800; color: #10B981; text-transform: uppercase; letter-spacing: 0.14em; margin-bottom: 6px;">
-      🚨 CHIZZLE TRADE DESK · APPROVED SETUP
+      🚨 CHIZZLE TRADE DESK · EXECUTION READY
     </div>
     <h1 style="font-size: 22px; font-weight: 900; color: #FFFFFF; margin: 0 0 4px 0; letter-spacing: -0.02em;">
       [${ticker}] · 1H Closed Confirmed
     </h1>
     <div style="font-size: 13px; color: #9CA3AF; margin-bottom: 18px; border-bottom: 1px solid #1F2937; padding-bottom: 12px;">
-      <strong style="color: #6EE7B7;">Regime:</strong> ${regime}
+      <strong style="color: #6EE7B7;">Validated Support:</strong> ${supportLevel} | <strong style="color: #9CA3AF;">Regime:</strong> ${regime}
     </div>
 
     <!-- Core Metrics Table -->
@@ -322,7 +335,7 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
 
 /**
  * Dispatches an approved execution email via Resend or SendGrid.
- * Enforces the strict gate, deduplication, and once-per-session limit.
+ * Enforces the strict market hours gate, deduplication, and execution-only criteria.
  */
 export async function dispatchApprovedExecutionEmail(
   payload: ApprovedSetupEmailPayload
@@ -356,23 +369,50 @@ export async function dispatchApprovedExecutionEmail(
     };
   }
 
-  // Gate 1: Check if this is a proximity alert or unapproved setup
-  const isProx = Boolean(payload.isProximityAlert);
-  if (isProx) {
-    const proxCheck = canSendProximityEmail(ticker, payload.notifyOnProximity);
-    if (!proxCheck.allowed) {
+  // Gate 0: Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
+  if (!payload.force) {
+    const evalTime =
+      payload.now ??
+      (payload.candleTimestamp &&
+      typeof payload.candleTimestamp === "number" &&
+      payload.candleTimestamp > 1_000_000_000_000
+        ? payload.candleTimestamp
+        : Date.now());
+    if (!isRegularMarketHours(evalTime)) {
       return {
         ok: true,
         status: "suppressed",
-        error: proxCheck.reason,
+        error: "Hard Market-Hours Gate: Outbound alerts strictly blocked outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
         subject,
         text,
         html,
       };
     }
-  } else if (!payload.force) {
-    // Execution email: MUST satisfy isApprovedSetup
-    const isApproved = isApprovedSetupForEmail({
+  }
+
+  // Gate 1: Kill "Approaching / Pre-Entry" Spam Entirely
+  const isProx = Boolean(
+    payload.isProximityAlert ||
+    payload.status === "PROXIMITY" ||
+    payload.status === "PROXIMITY_ALERT" ||
+    payload.status === "PRE_ENTRY" ||
+    (payload as any).isApproaching ||
+    (payload as any).withinProximity
+  );
+  if (isProx && !payload.force) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: "Approaching / Pre-Entry alerts deprecated. Execution alerts only.",
+      subject,
+      text,
+      html,
+    };
+  }
+
+  if (!payload.force) {
+    // Execution email: MUST satisfy isActionableExecution
+    const isApproved = isActionableExecution({
       status: payload.status ?? "CONFIRMED",
       is1HCandleClosedGreen: payload.is1HCandleClosedGreen,
       isTradeConfirmed: payload.isTradeConfirmed,
@@ -387,17 +427,18 @@ export async function dispatchApprovedExecutionEmail(
       return {
         ok: true,
         status: "suppressed",
-        error: `Setup for ${ticker} is not an approved confirmed setup. Email suppressed.`,
+        error: `Setup for ${ticker} is not an actionable execution setup. Email suppressed.`,
         subject,
         text,
         html,
       };
     }
 
-    // Gate 2: Session & Candle-Bound Deduplication
+    // Gate 2: Session & Candle-Based Deduplication via composite key
     const candleTs = payload.candleTimestamp ?? Math.floor(Date.now() / 3_600_000);
     const dayKey = payload.tradingDay ?? getTradingDayKey();
-    const dedupeCheck = canSendExecutionEmail(ticker, candleTs, dayKey);
+    const tradeAction = payload.tradeAction || "CONFIRMED_BUY";
+    const dedupeCheck = canSendExecutionEmail(ticker, candleTs, dayKey, tradeAction);
 
     if (!dedupeCheck.allowed) {
       return {
@@ -410,7 +451,7 @@ export async function dispatchApprovedExecutionEmail(
       };
     }
 
-    recordExecutionEmailSent(ticker, candleTs, dayKey);
+    recordExecutionEmailSent(ticker, candleTs, dayKey, tradeAction);
   }
 
   if (isProx) {
@@ -518,3 +559,4 @@ export async function dispatchApprovedExecutionEmail(
     html,
   };
 }
+

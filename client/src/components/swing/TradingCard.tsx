@@ -1327,7 +1327,7 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
   return (
     <div className="flex flex-wrap items-center gap-3">
       {toggle && <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}>{open ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}</button>}
-      <span className="text-2xl font-bold tracking-tight text-soft-white">{d.symbol}</span>
+      <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-tight text-white">{d.symbol}</span>
       <div className="flex items-center gap-2">
         <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
         {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (

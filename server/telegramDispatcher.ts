@@ -1,15 +1,27 @@
 // ─── Telegram Bot Dispatcher: Strict Numeric ID, Session Deduplication & 1H Candle Gate ───
 // Enforces:
-// 1. Strict numeric TELEGRAM_TARGET_CHAT_ID (deprecates @username strings)
-// 2. Candle-bound hash tracking ledger: {ticker}_{interval}_{candleTimestamp}_{alertType}
-// 3. 60-minute minimum cooldown for proximity alerts & max once per day per ticker
-// 4. Single confirmed entry alert per 1H closed bar (isTradeConfirmed === true)
-// 5. Clean, compact prop-desk Telegram message formatting
+// 1. Hard Market-Hours Gatekeeper (RTH Only): Strictly Mon-Fri 9:30 AM - 4:00 PM EST.
+// 2. Kill "Approaching / Pre-Entry" Spam Entirely: Drop all proximity / pre-entry alerts.
+// 3. Execution-Only Filtering:
+//    - status === 'CONFIRMED' / 'CONFIRMED_1H_CLOSE' / 'READY_TO_TRADE'
+//    - is1HCandleClosedGreen === true
+//    - isTradeConfirmed === true
+//    - riskRewardRatio >= 1.5
+// 4. Session & Candle-Based Deduplication:
+//    - Composite key: ${ticker}_${candleTimestamp}_${tradeAction}
+//    - Max 1 execution alert per ticker per trading day
+// 5. Clean, compact prop-desk Telegram message formatting with Validated Support Level & Fidelity order ticket
+
+import { isRegularMarketHours } from "./marketHours";
+
+export { isRegularMarketHours };
 
 export interface TelegramTradeAlertPayload {
   ticker: string;
   event: "CONFIRMED 1H CLOSE" | "PROXIMITY < 0.5%" | string;
   regime?: string;
+  supportLevel?: string;
+  validatedSma?: string;
   entryPrice: number;
   stopLoss: number;
   target1?: number;
@@ -32,8 +44,11 @@ export const PROXIMITY_COOLDOWN_MS = 60 * 60 * 1000; // 60 minutes
 // 1. In-memory ledger tracking {ticker}_{interval}_{candleTimestamp}_{alertType}
 const alertLedger = new Set<string>();
 
-// Tracking for proximity alert daily limit & 60-minute cooldown
+// 2. Tracking for proximity alert daily limit & 60-minute cooldown
 const proximityHistory = new Map<string, ProximityHistoryEntry>();
+
+// 3. In-memory session tracking for max 1 Telegram execution alert per ticker per trading day
+const executionTelegramDailyMap = new Map<string, number>();
 
 export function getTradingDayKey(now: Date | number = Date.now()): string {
   const d = typeof now === "number" ? new Date(now) : now;
@@ -60,6 +75,53 @@ export function getVerifiedTelegramChatId(chatId?: string | number | null): stri
   }
 
   return raw;
+}
+
+/**
+ * Checks candle-bound deduplication and the 1-per-session limit for Telegram execution alerts.
+ * Uses composite key: ${ticker}_${candleTimestamp}_${tradeAction}
+ */
+export function canDispatchExecutionTelegram(
+  ticker: string,
+  candleTimestamp: string | number,
+  tradingDay = getTradingDayKey(),
+  tradeAction = "CONFIRMED_BUY"
+): { allowed: boolean; reason?: string } {
+  const sym = (ticker || "").trim().toUpperCase();
+  const compositeKey = `${sym}_${candleTimestamp}_${tradeAction}`;
+  const dayKey = `${sym}_${tradingDay}_${tradeAction}`;
+
+  // Rule 1: Candle-bound deduplication via composite key
+  if (alertLedger.has(compositeKey)) {
+    return {
+      allowed: false,
+      reason: `${sym} Telegram execution alert already sent for candle ${candleTimestamp} (${tradeAction}).`,
+    };
+  }
+
+  // Rule 2: Max 1 execution alert per ticker per trading session (day)
+  if (executionTelegramDailyMap.has(dayKey)) {
+    return {
+      allowed: false,
+      reason: `${sym} Telegram execution alert already sent for session ${tradingDay} (max 1 per session).`,
+    };
+  }
+
+  return { allowed: true };
+}
+
+export function recordExecutionTelegramSent(
+  ticker: string,
+  candleTimestamp: string | number,
+  tradingDay = getTradingDayKey(),
+  tradeAction = "CONFIRMED_BUY",
+  nowMs = Date.now()
+): void {
+  const sym = (ticker || "").trim().toUpperCase();
+  const compositeKey = `${sym}_${candleTimestamp}_${tradeAction}`;
+  const dayKey = `${sym}_${tradingDay}_${tradeAction}`;
+  alertLedger.add(compositeKey);
+  executionTelegramDailyMap.set(dayKey, nowMs);
 }
 
 /**
@@ -90,10 +152,7 @@ export function shouldDispatchAlert(
 
 /**
  * Proximity Alert Gatekeeper:
- * Enforces:
- * 1. Maximum of ONCE PER DAY per ticker.
- * 2. Minimum 60-minute dispatch cooldown.
- * 3. Requires price to leave the 0.5% boundary and re-enter before another alert.
+ * Approaching / Pre-Entry proximity alerts are deactivated.
  */
 export function canDispatchProximityAlert(
   ticker: string,
@@ -162,6 +221,7 @@ export function recordPriceBoundaryExit(ticker: string): void {
 export function clearAlertLedger(): void {
   alertLedger.clear();
   proximityHistory.clear();
+  executionTelegramDailyMap.clear();
 }
 
 export function getAlertLedger(): Set<string> {
@@ -174,7 +234,7 @@ export function getAlertLedger(): Set<string> {
  * 🎯 CHIZZLE TRADE DESK | [TICKER]
  * ━━━━━━━━━━━━━━━━━━━━━━━━━━
  * ⚡ EVENT: [ CONFIRMED 1H CLOSE | PROXIMITY < 0.5% ]
- * 📈 REGIME: Pullback Valid (4H 20-SMA)
+ * 🛡️ SUPPORT: 20-SMA Support | 📈 REGIME: Pullback Valid (4H 20-SMA)
  *
  * • Entry Limit:  $XXX.XX
  * • Stop Loss:    $XXX.XX (-1.0R)
@@ -211,6 +271,7 @@ export function formatTelegramTradeDeskAlert(p: TelegramTradeAlertPayload): stri
       : `[ ${p.event} ]`;
 
   const regime = p.regime || "Pullback Valid (4H 20-SMA)";
+  const supportLevel = p.supportLevel || p.validatedSma;
 
   const dateObj =
     p.timestamp instanceof Date
@@ -227,11 +288,19 @@ export function formatTelegramTradeDeskAlert(p: TelegramTradeAlertPayload): stri
 
   const status = p.status || "ACTIONABLE";
 
-  return [
+  const lines = [
     `🎯 CHIZZLE TRADE DESK | [${ticker}]`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `⚡ EVENT: ${eventLabel}`,
-    `📈 REGIME: ${regime}`,
+  ];
+
+  if (supportLevel) {
+    lines.push(`🛡️ SUPPORT: ${supportLevel} | REGIME: ${regime}`);
+  } else {
+    lines.push(`📈 REGIME: ${regime}`);
+  }
+
+  lines.push(
     ``,
     `• Entry Limit:  $${entry.toFixed(2)}`,
     `• Stop Loss:    $${stop.toFixed(2)} (-1.0R)`,
@@ -242,8 +311,151 @@ export function formatTelegramTradeDeskAlert(p: TelegramTradeAlertPayload): stri
     `BUY [${shares}] Shares Limit @ $${entry.toFixed(2)}`,
     `OCO SELL [${t1Shares}] Shares @ $${t1.toFixed(2)} (T1) | STOP [${t2Shares}] Shares @ $${stop.toFixed(2)}`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
-    `⏰ Time: ${timeStr} | Status: ${status}`,
-  ].join("\n");
+    `⏰ Time: ${timeStr} | Status: ${status}`
+  );
+
+  return lines.join("\n");
+}
+
+/**
+ * Top-Level Actionable Execution Telegram Dispatcher:
+ * Enforces:
+ * 1. Hard Market-Hours Gatekeeper (RTH Only)
+ * 2. Kill "Approaching / Pre-Entry" Spam Entirely (Strict isActionableExecution check)
+ * 3. Session & Candle-Based Deduplication: composite key ${ticker}_${candleTimestamp}_${tradeAction}
+ *    and max 1 alert per ticker per trading day
+ * 4. Focused Actionable Payload
+ */
+export async function dispatchActionableTelegramAlert(params: {
+  ticker: string;
+  entryPrice: number;
+  stopLoss: number;
+  target1?: number;
+  target2?: number;
+  shares?: number;
+  t1Shares?: number;
+  t2Shares?: number;
+  supportLevel?: string;
+  regime?: string;
+  status?: string;
+  isTradeConfirmed?: boolean;
+  is1HCandleClosedGreen?: boolean;
+  riskRewardRatio?: number;
+  candleTimestamp?: string | number;
+  tradingDay?: string;
+  tradeAction?: string;
+  chatId?: string | number | null;
+  force?: boolean;
+  now?: Date | number;
+}): Promise<{
+  ok: boolean;
+  status: "sent" | "stubbed" | "failed" | "suppressed";
+  error?: string;
+  message?: string;
+  targetChatId?: string;
+}> {
+  const ticker = (params.ticker || "NVDA").trim().toUpperCase();
+  const evalTime =
+    params.now ??
+    (typeof params.candleTimestamp === "number" && params.candleTimestamp > 1_000_000_000_000
+      ? params.candleTimestamp
+      : Date.now());
+
+  // 1. Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
+  if (!params.force && !isRegularMarketHours(evalTime)) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error:
+        "Hard Market-Hours Gate: Outbound alerts strictly blocked outside Regular Trading Hours (9:30 AM - 4:00 PM EST Mon-Fri).",
+    };
+  }
+
+  // 2. Kill Approaching / Pre-Entry Spam Entirely
+  const st = (params.status || "").toUpperCase();
+  const isProximity =
+    st.includes("PROX") ||
+    st === "PRE_ENTRY" ||
+    (params as any).isApproaching ||
+    (params as any).withinProximity;
+
+  if (isProximity && !params.force) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: "Approaching / Pre-Entry alerts deprecated. Execution alerts only.",
+    };
+  }
+
+  // Execution condition check
+  const isConfirmed =
+    st.includes("CONFIRM") ||
+    st === "READY_TO_TRADE" ||
+    st === "CONFIRMED_1H_CLOSE" ||
+    st === "CONFIRMED";
+
+  let rr = params.riskRewardRatio;
+  if (rr == null || Number.isNaN(rr)) {
+    const risk = Math.max(0.01, Math.abs(params.entryPrice - params.stopLoss));
+    const t2 = params.target2 ?? (params.entryPrice + 2.0 * risk);
+    rr = (t2 - params.entryPrice) / risk;
+  }
+
+  const isActionable =
+    isConfirmed &&
+    params.isTradeConfirmed === true &&
+    params.is1HCandleClosedGreen !== false &&
+    rr >= 1.45;
+
+  if (!params.force && !isActionable) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: `${ticker} setup is not an actionable execution (unconfirmed, red candle, or R:R < 1.5). Alert suppressed.`,
+    };
+  }
+
+  // 3. Session & Candle-Based Deduplication (Max 1 Alert per Setup)
+  const candleTs = params.candleTimestamp ?? Math.floor(Date.now() / 3_600_000);
+  const dayKey = params.tradingDay ?? getTradingDayKey(evalTime);
+  const tradeAction = params.tradeAction ?? "CONFIRMED_BUY";
+
+  if (!params.force) {
+    const check = canDispatchExecutionTelegram(ticker, candleTs, dayKey, tradeAction);
+    if (!check.allowed) {
+      return {
+        ok: true,
+        status: "suppressed",
+        error: check.reason,
+      };
+    }
+  }
+
+  const message = formatTelegramTradeDeskAlert({
+    ticker,
+    event: "CONFIRMED 1H CLOSE",
+    supportLevel: params.supportLevel,
+    regime: params.regime ?? "Pullback Valid (4H 20-SMA)",
+    entryPrice: params.entryPrice,
+    stopLoss: params.stopLoss,
+    target1: params.target1,
+    target2: params.target2,
+    shares: params.shares,
+    t1Shares: params.t1Shares,
+    t2Shares: params.t2Shares,
+    status: "ACTIONABLE",
+    timestamp: evalTime,
+  });
+
+  const sendResult = await sendTelegramMessage(message, params.chatId);
+  if (sendResult.ok || sendResult.status === "sent" || sendResult.status === "stubbed") {
+    recordExecutionTelegramSent(ticker, candleTs, dayKey, tradeAction);
+  }
+
+  return {
+    ...sendResult,
+    message,
+  };
 }
 
 /**
