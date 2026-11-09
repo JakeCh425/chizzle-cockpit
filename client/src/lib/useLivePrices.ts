@@ -114,14 +114,8 @@ export function useLiveQuote(symbol?: string | null): LiveQuoteStatus {
     }
   }, [sym, isSyncing]);
 
-  // If data is older than 1 minute during market hours, force an auto-refresh
-  useEffect(() => {
-    if (!sym || !inMkt || !isDelayed || isSyncing) return;
-    const timeSinceLast = Date.now() - lastAutoRefreshRef.current;
-    if (timeSinceLast < 15_000) return; // 15s cooldown to prevent redundant requests
-    lastAutoRefreshRef.current = Date.now();
-    refresh();
-  }, [sym, inMkt, isDelayed, isSyncing, refresh]);
+  // Note: Individual cards must strictly read from useMarketDataStore and must NEVER
+  // auto-trigger individual network polling or connector cycling independently.
 
   return { quote, price, ageSec, isLive, isDelayed, isSyncing, refresh };
 }

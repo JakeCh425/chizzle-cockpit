@@ -56,9 +56,10 @@ export interface MarketDataState {
   lastValidTicks: Record<string, LastValidTick>;
   previousClose: Record<string, number>;
   setupAlerts: Record<string, SetupAlertState>;
-  status: ConnState | "DELAYED" | "RECONNECTING";
+  status: ConnState | "DELAYED" | "RECONNECTING" | "POLLING_BACKUP";
   isDelayed: boolean;
   isReconnecting: boolean;
+  isPollingBackup: boolean;
   lastEventAt: number;
   lastTickTimestamp: number;
   lastError: string | null;
@@ -80,6 +81,7 @@ export const STALE_QUOTE_ERROR_MESSAGE = "[ ⚠️ DATA FEED ERROR: STALE QUOTE 
 export const SYNCING_LIVE_DATA_BADGE = "[ 🔄 SYNCING LIVE DATA... ]";
 export const CONNECTING_TO_EXCHANGE_BADGE = "[ 🔄 CONNECTING TO EXCHANGE... ]";
 export const STATIC_LAST_CLOSE_BADGE = "[ ⏸️ STATIC: LAST CLOSE ]";
+export const POLLING_BACKUP_BADGE = "[ ⚠️ POLLING BACKUP ]";
 
 /**
  * Normalizes incoming quote payloads across Finnhub (`data.c`), Yahoo (`data.regularMarketPrice`),
@@ -209,6 +211,7 @@ export const initialState: MarketDataState = {
   status: "CONNECTING",
   isDelayed: false,
   isReconnecting: false,
+  isPollingBackup: false,
   lastEventAt: 0,
   lastTickTimestamp: 0,
   lastError: null,
@@ -864,15 +867,17 @@ class MarketDataStore {
   /**
    * Update connection / feed status
    */
-  public setStatus(status: ConnState | "DELAYED" | "RECONNECTING") {
+  public setStatus(status: ConnState | "DELAYED" | "RECONNECTING" | "POLLING_BACKUP") {
     const isReconnecting =
       status === "CONNECTING" || status === "RECONNECTING" || Boolean(this.state.staleQuoteRejected);
     const isDelayed = status === "STALE" || status === "DELAYED" || status === "DISCONNECTED";
+    const isPollingBackup = status === "POLLING_BACKUP" ? true : status === "LIVE" ? false : this.state.isPollingBackup;
 
     if (
       this.state.status === status &&
       this.state.isReconnecting === isReconnecting &&
-      this.state.isDelayed === isDelayed
+      this.state.isDelayed === isDelayed &&
+      this.state.isPollingBackup === isPollingBackup
     ) {
       return;
     }
@@ -882,6 +887,18 @@ class MarketDataStore {
       status,
       isReconnecting,
       isDelayed,
+      isPollingBackup,
+    };
+    this.notify();
+  }
+
+  public setPollingBackup(active: boolean): void {
+    const isPollingBackup = Boolean(active);
+    if (this.state.isPollingBackup === isPollingBackup) return;
+    this.state = {
+      ...this.state,
+      isPollingBackup,
+      status: isPollingBackup ? "POLLING_BACKUP" : this.state.status === "POLLING_BACKUP" ? "LIVE" : this.state.status,
     };
     this.notify();
   }

@@ -227,11 +227,12 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                           </span>
                         </div>
                         <span
-                          className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border tracking-wider uppercase ${
+                          className={`text-[11px] font-mono font-semibold px-2 py-0.5 rounded border tracking-wider uppercase shadow-sm ${
                             item.is4hBullish
                               ? "bg-emerald-950/80 text-emerald-300 border-emerald-500/70"
                               : "bg-rose-950/80 text-rose-300 border-rose-500/70"
                           }`}
+                          data-testid={`badge-4h-regime-${item.ticker}`}
                         >
                           4H {item.is4hBullish ? "Floor" : "Ceiling"}
                         </span>
@@ -270,21 +271,27 @@ export function MechanicalSMAPanel({ onArmTrade, className = "" }: MechanicalSMA
                         {item.subtext}
                       </p>
 
-                      {/* 1H SMA Levels Reference */}
-                      <div className="mt-3 grid grid-cols-3 gap-1 rounded bg-black/40 p-2 font-mono text-[10px] text-center border border-gray-800">
-                        <div>
-                          <span className="text-gray-400 block font-semibold">10 SMA</span>
-                          <span className="font-bold text-gray-200">${item.sma10_1h.toFixed(2)}</span>
+                      {/* 1H SMA Levels Reference (Muted/Hidden on STANDBY DAY to avoid visual noise) */}
+                      {!isStandby ? (
+                        <div className="mt-3 grid grid-cols-3 gap-1 rounded bg-black/40 p-2 font-mono text-[10px] text-center border border-gray-800">
+                          <div>
+                            <span className="text-gray-400 block font-semibold">10 SMA</span>
+                            <span className="font-bold text-gray-200">${item.sma10_1h.toFixed(2)}</span>
+                          </div>
+                          <div>
+                            <span className="text-cyan-400 block font-semibold">20 SMA</span>
+                            <span className="font-bold text-cyan-200">${item.sma20_1h.toFixed(2)}</span>
+                          </div>
+                          <div>
+                            <span className="text-purple-400 block font-semibold">50 SMA</span>
+                            <span className="font-bold text-purple-200">${item.sma50_1h.toFixed(2)}</span>
+                          </div>
                         </div>
-                        <div>
-                          <span className="text-cyan-400 block font-semibold">20 SMA</span>
-                          <span className="font-bold text-cyan-200">${item.sma20_1h.toFixed(2)}</span>
+                      ) : (
+                        <div className="mt-2.5 py-1.5 px-2 rounded border border-rose-900/40 bg-rose-950/30 text-center font-mono text-[10px] text-rose-300/80">
+                          [ Detailed lower SMA targets muted · 4H Downtrend Resistance ]
                         </div>
-                        <div>
-                          <span className="text-purple-400 block font-semibold">50 SMA</span>
-                          <span className="font-bold text-purple-200">${item.sma50_1h.toFixed(2)}</span>
-                        </div>
-                      </div>
+                      )}
 
                       {/* Confirmed 2:1 R:R Trade Ticket Details */}
                       {isConfirmed && item.entryPrice && item.stopLoss && item.takeProfit2R && (

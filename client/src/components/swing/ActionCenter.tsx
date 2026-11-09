@@ -23,12 +23,14 @@ import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
 import { CardThemeSwitcher } from "./CardThemeSwitcher";
+import { ActiveExecutionHeroCard } from "./ActiveExecutionHeroCard";
+import { useStrategyEngine, type ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
-import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE } from "@/lib/useMarketDataStore";
-import { useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
+import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE, POLLING_BACKUP_BADGE } from "@/lib/useMarketDataStore";
+import { useFeedConnection, isMarketOpen, isFallbackPollingActive } from "@/lib/priceFeed";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { useToast } from "@/hooks/use-toast";
@@ -355,6 +357,7 @@ export function SystemStatusConsole() {
           hour12: false,
         });
   const isStaticClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feed.state === "STATIC");
+  const isPollingBackup = Boolean(marketStore.isPollingBackup || marketStore.status === "POLLING_BACKUP" || isFallbackPollingActive());
 
   return (
     <div
@@ -369,16 +372,18 @@ export function SystemStatusConsole() {
         <span className="flex items-center gap-1.5" data-testid="status-console-websocket">
           <span
             className={`h-2 w-2 rounded-full ${
-              isConnected
+              isConnected && !isPollingBackup
                 ? "bg-emerald-400 shadow-[0_0_6px_#34d399]"
+                : isPollingBackup
+                ? "bg-amber-400 shadow-[0_0_6px_#f59e0b] animate-ping"
                 : isStaticClose
                 ? "bg-amber-400"
                 : "bg-rose-400"
             }`}
           />
           <span className="text-slate-400">WebSocket:</span>
-          <strong className={isConnected ? "text-emerald-400 font-bold" : "text-amber-300 font-bold"}>
-            {isConnected ? "CONNECTED" : "DISCONNECTED"}
+          <strong className={isConnected && !isPollingBackup ? "text-emerald-400 font-bold" : isPollingBackup ? "text-amber-300 font-bold" : "text-amber-300 font-bold"}>
+            {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : "DISCONNECTED"}
           </strong>
         </span>
         <span className="text-slate-700">|</span>
@@ -400,14 +405,25 @@ export function SystemStatusConsole() {
         </span>
       </div>
 
-      {isStaticClose && (
-        <span
-          className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
-          data-testid="status-console-static-last-close"
-        >
-          {STATIC_LAST_CLOSE_BADGE}
-        </span>
-      )}
+      <div className="flex items-center gap-2">
+        {isPollingBackup && (
+          <span
+            className="rounded border border-amber-400/80 bg-amber-950/90 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)] ring-1 ring-amber-400/50 animate-pulse"
+            data-testid="status-console-polling-backup"
+          >
+            {POLLING_BACKUP_BADGE}
+          </span>
+        )}
+
+        {isStaticClose && (
+          <span
+            className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
+            data-testid="status-console-static-last-close"
+          >
+            {STATIC_LAST_CLOSE_BADGE}
+          </span>
+        )}
+      </div>
     </div>
   );
 }
@@ -514,6 +530,9 @@ function ActionCenterInner() {
   const marketStore = useMarketDataStore();
   const auditLog = useNotificationAuditLog();
   const { toast } = useToast();
+  const strategyEngine = useStrategyEngine();
+  const heroTrades = strategyEngine.confirmedHeroTrades;
+  const heroSymSet = new Set(heroTrades.map((t) => t.symbol));
 
   // Strict State-Routing Gatekeeper for the "Active Execution Zone":
   // A card may ONLY mount in the top row if isSetupReady === true AND levelsValid === true AND 1hCandleConfirmed === true.
@@ -598,9 +617,79 @@ function ActionCenterInner() {
   };
 
   const confirmedRows = rows.filter(isConfirmedSetup);
-  const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
+  const confirmedSymSet = new Set([...confirmedRows.map((d) => d.symbol), ...heroSymSet]);
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
   const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
+
+  const remainingConfirmedRows = confirmedRows.filter((d) => !heroSymSet.has(d.symbol));
+  const totalActiveConfirmed = heroTrades.length + remainingConfirmedRows.length;
+
+  const handleHeroArmOrExecute = async (trade: ConfirmedHeroTrade) => {
+    try {
+      if (global?.isPracticeMode) {
+        if (global.logPracticeTrade) {
+          global.logPracticeTrade({
+            symbol: trade.symbol.toUpperCase(),
+            entryPrice: trade.entryPrice,
+            stopLoss: trade.stopLoss,
+            target1: trade.target1,
+            target2: trade.target2,
+            riskReward: 2.0,
+            shares: trade.shares,
+            dollarRisk: +(trade.shares * trade.riskPerShare).toFixed(2),
+            setupType: "MECHANICAL_1H_BOUNCE",
+            timeframe: "1H",
+          });
+        }
+        if (global?.setConfirmedSetup) {
+          global.setConfirmedSetup(trade.symbol, false);
+        }
+        strategyEngine.dismissHeroTrade(trade.symbol);
+        toast({
+          title: `🧪 Practice Trade Logged · ${trade.symbol}`,
+          description: `${trade.symbol} logged to Practice Sandbox at ${formatCurrency(trade.entryPrice)}. Routed to Active Trades.`,
+        });
+        return;
+      }
+
+      const armedTrade = await tradeApi.arm({
+        symbol: trade.symbol.toUpperCase(),
+        entry: trade.entryPrice,
+        stop: trade.stopLoss,
+        shares: trade.shares,
+        riskDollars: +(trade.shares * trade.riskPerShare).toFixed(2),
+        t1: trade.target1,
+        t2: trade.target2,
+        setupType: "MECHANICAL_1H_BOUNCE",
+        timeframe: "1H",
+        notes: `Automated Execution from Active Execution Zone: ${trade.symbol}`,
+      } as any);
+
+      if (armedTrade?.id) {
+        await tradeApi.fill(armedTrade.id, {
+          fillPrice: trade.entryPrice,
+          note: "Auto-fill confirmed mechanical 1H bounce",
+        });
+      }
+
+      if (global?.setConfirmedSetup) {
+        global.setConfirmedSetup(trade.symbol, false);
+      }
+
+      strategyEngine.dismissHeroTrade(trade.symbol);
+      await invalidateTrades();
+      toast({
+        title: "Trade Executed & Active",
+        description: `${trade.symbol} armed and filled at ${formatCurrency(trade.entryPrice)}. Routed to Active Trades.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Execution Error",
+        description: err?.message || "Failed to execute trade.",
+        variant: "destructive",
+      });
+    }
+  };
 
   const handleDirectArmExecute = async (d: SwingDecision, ver: any) => {
     try {
@@ -753,37 +842,42 @@ function ActionCenterInner() {
         )}
 
         {/* High-Contrast Glowing Status Pill: Confirmed Trades */}
-        <span
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono uppercase tracking-wider transition-all ${
-            confirmedCount > 0
-              ? "border-emerald-400 bg-emerald-500 font-extrabold text-gray-950 shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300 animate-pulse"
-              : "border-white/10 bg-transparent text-slate-400 font-medium"
-          }`}
-          data-testid="pill-confirmed-trades"
-          data-active={confirmedCount > 0 ? "true" : "false"}
-          title={
-            confirmedCount > 0
-              ? `${confirmedCount} setup(s) confirmed — ready to execute`
-              : "Setups where price has confirmed above trigger"
-          }
-        >
-          <span
-            className={`h-2 w-2 rounded-full transition-colors ${
-              confirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
-            }`}
-          />
-          <span>
-            [ CONFIRMED TRADES:{" "}
-            <strong
-              className={`font-mono tabular-nums font-black ${
-                confirmedCount > 0 ? "text-gray-950" : "text-slate-400"
+        {(() => {
+          const effectiveConfirmedCount = Math.max(confirmedCount, totalActiveConfirmed);
+          return (
+            <span
+              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono uppercase tracking-wider transition-all ${
+                effectiveConfirmedCount > 0
+                  ? "border-emerald-400 bg-emerald-500 font-extrabold text-gray-950 shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300 animate-pulse"
+                  : "border-white/10 bg-transparent text-slate-400 font-medium"
               }`}
+              data-testid="pill-confirmed-trades"
+              data-active={effectiveConfirmedCount > 0 ? "true" : "false"}
+              title={
+                effectiveConfirmedCount > 0
+                  ? `${effectiveConfirmedCount} setup(s) confirmed — ready to execute`
+                  : "Setups where price has confirmed above trigger"
+              }
             >
-              {confirmedCount}
-            </strong>{" "}
-            ]
-          </span>
-        </span>
+              <span
+                className={`h-2 w-2 rounded-full transition-colors ${
+                  effectiveConfirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
+                }`}
+              />
+              <span>
+                [ CONFIRMED TRADES:{" "}
+                <strong
+                  className={`font-mono tabular-nums font-black ${
+                    effectiveConfirmedCount > 0 ? "text-gray-950" : "text-slate-400"
+                  }`}
+                >
+                  {effectiveConfirmedCount}
+                </strong>{" "}
+                ]
+              </span>
+            </span>
+          );
+        })()}
 
         {/* Practice Mode Toggle */}
         <button
@@ -871,14 +965,14 @@ function ActionCenterInner() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-3 w-3">
-                  <span className={`${confirmedRows.length > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
-                  <span className={`relative inline-flex rounded-full h-3 w-3 ${confirmedRows.length > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
+                  <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
+                  <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
                 <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300">
                   [ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]
                 </h3>
                 <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
-                  {confirmedRows.length} ACTIVE
+                  {totalActiveConfirmed} ACTIVE
                 </span>
               </div>
               <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
@@ -886,13 +980,24 @@ function ActionCenterInner() {
               </span>
             </div>
 
-            {confirmedRows.length === 0 ? (
+            {totalActiveConfirmed === 0 ? (
               <div className="py-2.5 px-3 rounded-lg border border-dashed border-emerald-500/30 bg-emerald-950/10 text-center font-mono text-xs text-emerald-400/70" data-testid="active-execution-zone-empty">
                 No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
               </div>
             ) : (
               <div className="flex flex-col gap-3">
-                {confirmedRows.map((d) => {
+                {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
+                {heroTrades.map((trade) => (
+                  <ActiveExecutionHeroCard
+                    key={`hero-${trade.symbol}`}
+                    trade={trade}
+                    onDismiss={strategyEngine.dismissHeroTrade}
+                    onArmOrExecute={handleHeroArmOrExecute}
+                  />
+                ))}
+
+                {/* Confirmed Setup Cards from Swing Scanner */}
+                {remainingConfirmedRows.map((d) => {
                   const ver = activeVersion(d, sel);
                   const plan = effectivePlan(d, ver);
                   const isArming = armingSymbol === d.symbol;

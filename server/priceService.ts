@@ -830,13 +830,113 @@ export function subscribeUpstreamSymbols(syms: string[]) {
 }
 
 export function startUpstreamWebSocket() {
+  const polygonKey = process.env.POLYGON_API_KEY || process.env.POLYGON_TOKEN;
+  const alpacaKey = process.env.ALPACA_API_KEY || process.env.APCA_API_KEY_ID;
+  const alpacaSecret = process.env.ALPACA_SECRET_KEY || process.env.APCA_API_SECRET_KEY;
   const finnhubToken = FINNHUB_TOKEN;
-  const polygonKey = process.env.POLYGON_API_KEY;
-
 
   if (upstreamWs || upstreamReconnectTimer) return;
 
-  if (finnhubToken) {
+  // 1. Primary Live Feed: Polygon.io (standardized as sole primary live stream)
+  if (polygonKey) {
+    try {
+      const ws = new WebSocket("wss://socket.polygon.io/stocks");
+      upstreamWs = ws;
+      ws.on("open", () => {
+        console.log(`[priceService] Polygon.io standardized primary WebSocket connected.`);
+        ws.send(JSON.stringify({ action: "auth", params: polygonKey }));
+      });
+      ws.on("message", (raw: string | Buffer) => {
+        try {
+          const arr = JSON.parse(raw.toString());
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.ev === "status" && item.status === "auth_success") {
+                subscribeUpstreamSymbols(SYMBOLS);
+              } else if (item.ev === "T") {
+                const sym = String(item.sym).toUpperCase();
+                const price = Number(item.p);
+                if (sym && Number.isFinite(price) && price > 0) {
+                  const prev = quotes.get(sym)?.prevClose ?? price;
+                  commitQuote({
+                    symbol: sym,
+                    price,
+                    prevClose: prev,
+                    change: price - prev,
+                    changePct: prev > 0 ? ((price - prev) / prev) * 100 : 0,
+                    high: Math.max(price, quotes.get(sym)?.high ?? price),
+                    low: Math.min(price, quotes.get(sym)?.low ?? price),
+                    open: quotes.get(sym)?.open ?? price,
+                    ts: item.t ? Math.floor(item.t / 1000) : Math.floor(Date.now() / 1000),
+                    receivedAt: Date.now(),
+                    source: "POLYGON" as any,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+      });
+      ws.on("close", () => {
+        upstreamWs = null;
+        upstreamReconnectTimer = setTimeout(() => {
+          upstreamReconnectTimer = null;
+          startUpstreamWebSocket();
+        }, 10_000);
+      });
+      ws.on("error", () => { try { ws.close(); } catch {} });
+    } catch {}
+  } else if (alpacaKey && alpacaSecret) {
+    // 2. Alpaca Data v2 Stream
+    try {
+      const ws = new WebSocket("wss://stream.data.alpaca.markets/v2/iex");
+      upstreamWs = ws;
+      ws.on("open", () => {
+        console.log(`[priceService] Alpaca Data v2 WebSocket connected.`);
+        ws.send(JSON.stringify({ action: "auth", key: alpacaKey, secret: alpacaSecret }));
+      });
+      ws.on("message", (raw: string | Buffer) => {
+        try {
+          const arr = JSON.parse(raw.toString());
+          if (Array.isArray(arr)) {
+            for (const item of arr) {
+              if (item.T === "success" && item.msg === "authenticated") {
+                ws.send(JSON.stringify({ action: "subscribe", trades: SYMBOLS.filter(s => s !== "VIXY") }));
+              } else if (item.T === "t") {
+                const sym = String(item.S).toUpperCase();
+                const price = Number(item.p);
+                if (sym && Number.isFinite(price) && price > 0) {
+                  const prev = quotes.get(sym)?.prevClose ?? price;
+                  commitQuote({
+                    symbol: sym,
+                    price,
+                    prevClose: prev,
+                    change: price - prev,
+                    changePct: prev > 0 ? ((price - prev) / prev) * 100 : 0,
+                    high: Math.max(price, quotes.get(sym)?.high ?? price),
+                    low: Math.min(price, quotes.get(sym)?.low ?? price),
+                    open: quotes.get(sym)?.open ?? price,
+                    ts: item.t ? Math.floor(new Date(item.t).getTime() / 1000) : Math.floor(Date.now() / 1000),
+                    receivedAt: Date.now(),
+                    source: "OVERRIDE" as any,
+                  });
+                }
+              }
+            }
+          }
+        } catch {}
+      });
+      ws.on("close", () => {
+        upstreamWs = null;
+        upstreamReconnectTimer = setTimeout(() => {
+          upstreamReconnectTimer = null;
+          startUpstreamWebSocket();
+        }, 10_000);
+      });
+      ws.on("error", () => { try { ws.close(); } catch {} });
+    } catch {}
+  } else if (finnhubToken) {
+    // 3. Fallback: Finnhub WebSocket
     try {
       const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubToken}`);
       upstreamWs = ws;
@@ -889,53 +989,6 @@ export function startUpstreamWebSocket() {
     } catch (e: any) {
       console.warn("[priceService] Failed to initialize Finnhub WebSocket:", e?.message || e);
     }
-  } else if (polygonKey) {
-    try {
-      const ws = new WebSocket("wss://socket.polygon.io/stocks");
-      upstreamWs = ws;
-      ws.on("open", () => {
-        ws.send(JSON.stringify({ action: "auth", params: polygonKey }));
-      });
-      ws.on("message", (raw: string | Buffer) => {
-        try {
-          const arr = JSON.parse(raw.toString());
-          if (Array.isArray(arr)) {
-            for (const item of arr) {
-              if (item.ev === "status" && item.status === "auth_success") {
-                subscribeUpstreamSymbols(SYMBOLS);
-              } else if (item.ev === "T") {
-                const sym = String(item.sym).toUpperCase();
-                const price = Number(item.p);
-                if (sym && Number.isFinite(price) && price > 0) {
-                  const prev = quotes.get(sym)?.prevClose ?? price;
-                  commitQuote({
-                    symbol: sym,
-                    price,
-                    prevClose: prev,
-                    change: price - prev,
-                    changePct: prev > 0 ? ((price - prev) / prev) * 100 : 0,
-                    high: Math.max(price, quotes.get(sym)?.high ?? price),
-                    low: Math.min(price, quotes.get(sym)?.low ?? price),
-                    open: quotes.get(sym)?.open ?? price,
-                    ts: item.t ? Math.floor(item.t / 1000) : Math.floor(Date.now() / 1000),
-                    receivedAt: Date.now(),
-                    source: "POLYGON" as any,
-                  });
-                }
-              }
-            }
-          }
-        } catch {}
-      });
-      ws.on("close", () => {
-        upstreamWs = null;
-        upstreamReconnectTimer = setTimeout(() => {
-          upstreamReconnectTimer = null;
-          startUpstreamWebSocket();
-        }, 10_000);
-      });
-      ws.on("error", () => { try { ws.close(); } catch {} });
-    } catch {}
   }
 }
 

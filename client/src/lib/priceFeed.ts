@@ -148,6 +148,7 @@ let wsReconnectInterval: ReturnType<typeof setInterval> | null = null;
 let wsHeartbeatTimer: ReturnType<typeof setInterval> | null = null;
 let wsPingSentAt = 0;
 let wsRetryCount = 0;
+let wsMissedHeartbeats = 0;
 let started = false;
 
 export function getWsRetryCount(): number {
@@ -156,6 +157,14 @@ export function getWsRetryCount(): number {
 
 export function resetWsRetryCount(): void {
   wsRetryCount = 0;
+}
+
+export function getWsMissedHeartbeats(): number {
+  return wsMissedHeartbeats;
+}
+
+export function resetWsMissedHeartbeats(): void {
+  wsMissedHeartbeats = 0;
 }
 
 export function isHeartbeatActive(): boolean {
@@ -379,6 +388,7 @@ function stopFallbackPolling() {
     clearInterval(pollTimer);
     pollTimer = null;
   }
+  marketDataStore.setPollingBackup(false);
 }
 
 function startWsHeartbeat() {
@@ -386,6 +396,14 @@ function startWsHeartbeat() {
   wsHeartbeatTimer = setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN) {
       wsPingSentAt = Date.now();
+      wsMissedHeartbeats++;
+      if (wsMissedHeartbeats >= 3) {
+        console.warn(
+          `[priceFeed:heartbeat] Primary socket failed ${wsMissedHeartbeats} heartbeats (30s). Activating single global REST fallback polling loop.`
+        );
+        marketDataStore.setPollingBackup(true);
+        startFallbackPolling();
+      }
       try {
         ws.send(JSON.stringify({ type: "ping", ts: wsPingSentAt }));
       } catch (err) {
@@ -395,7 +413,7 @@ function startWsHeartbeat() {
       stopWsHeartbeat();
       handleWsDisconnect();
     }
-  }, 30_000);
+  }, 10_000);
 }
 
 function stopWsHeartbeat() {
@@ -407,6 +425,7 @@ function stopWsHeartbeat() {
 
 function handleWsDisconnect() {
   stopWsHeartbeat();
+  wsMissedHeartbeats = 0;
   if (ws) {
     try {
       ws.onopen = null;
@@ -430,9 +449,10 @@ function handleWsDisconnect() {
 
   marketDataStore.setStatus("RECONNECTING");
 
-  // If primary data socket fails after 3 consecutive retries, seamlessly fall back to 5-second REST API quote polling
-  if (wsRetryCount >= 3) {
-    console.warn(`[priceFeed] Primary WebSocket failed ${wsRetryCount} consecutive retries. Seamlessly activating 5s REST quote polling.`);
+  // If primary data socket fails after 3 consecutive retries or 3 heartbeats (30s), seamlessly fall back to 5-second REST API quote polling
+  if (wsRetryCount >= 3 || wsMissedHeartbeats >= 3) {
+    console.warn(`[priceFeed] Primary WebSocket failed consecutive heartbeats/retries. Seamlessly activating 5s REST quote polling.`);
+    marketDataStore.setPollingBackup(true);
     startFallbackPolling();
   }
 
@@ -470,6 +490,7 @@ function connectWS() {
     ws.onopen = () => {
       console.info("[Boot:PriceFeed] Primary WebSocket reconnected! Clearing STALE state.");
       wsRetryCount = 0;
+      wsMissedHeartbeats = 0;
       if (reconnectTimer) {
         clearTimeout(reconnectTimer);
         reconnectTimer = null;
@@ -494,6 +515,10 @@ function connectWS() {
 
     ws.onmessage = (ev) => {
       try {
+        wsMissedHeartbeats = 0;
+        if (marketDataStore.getState().isPollingBackup) {
+          stopFallbackPolling();
+        }
         const j = JSON.parse(ev.data);
         if (j?.type === "pong") {
           const roundTrip = wsPingSentAt > 0 ? Date.now() - wsPingSentAt : (j.ts ? Date.now() - j.ts : 15);
