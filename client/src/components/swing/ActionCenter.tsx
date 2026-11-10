@@ -3,6 +3,7 @@
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import { motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
@@ -660,6 +661,19 @@ function ActionCenterInner() {
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
   const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 
+  // Top-Rated Priority Routing: sort grid data so any confirmed or ready setups sort strictly to the top
+  const sortedGeneralLoud = useMemo(() => {
+    return [...generalLoud].sort((a, b) => {
+      const aConfirmed = (a as any).isTradeConfirmed || isConfirmedSetup(a) ? 1 : 0;
+      const bConfirmed = (b as any).isTradeConfirmed || isConfirmedSetup(b) ? 1 : 0;
+      if (bConfirmed !== aConfirmed) return bConfirmed - aConfirmed;
+      const aReady = a.setupStatus === "READY_TO_TRADE" ? 1 : 0;
+      const bReady = b.setupStatus === "READY_TO_TRADE" ? 1 : 0;
+      if (bReady !== aReady) return bReady - aReady;
+      return (b.score ?? 0) - (a.score ?? 0);
+    });
+  }, [generalLoud]);
+
   const remainingConfirmedRows = confirmedRows.filter((d) => !heroSymSet.has(d.symbol));
   const totalActiveConfirmed = heroTrades.length + remainingConfirmedRows.length;
 
@@ -834,8 +848,8 @@ function ActionCenterInner() {
   const [isCollapsedAll, setIsCollapsedAll] = usePersistentState<boolean>("ac-cards-collapsed-all", false);
   const gridColsClass =
     gridSize === "lg" ? "grid-cols-1 md:grid-cols-2"
-    : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+    : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
+    : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
 
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
@@ -1053,7 +1067,7 @@ function ActionCenterInner() {
         <div id="ac-body" className="flex flex-col gap-3.5">
           {/* ─── DEDICATED PERSISTENT ACTIVE EXECUTION ZONE ─── */}
           <div
-            className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300"
+            className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full"
             data-testid="active-execution-zone"
           >
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
@@ -1082,13 +1096,20 @@ function ActionCenterInner() {
               <div className="flex flex-col gap-3">
                 {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
                 {heroTrades.map((trade) => (
-                  <ActiveExecutionHeroCard
+                  <motion.div
                     key={`hero-${trade.symbol}`}
-                    trade={trade}
-                    onDismiss={handleHeroDismiss}
-                    onArmOrExecute={handleHeroArmOrExecute}
-                    bulkExpanded={bulkExpanded}
-                  />
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.25, ease: "easeOut" }}
+                    className="w-full"
+                  >
+                    <ActiveExecutionHeroCard
+                      trade={trade}
+                      onDismiss={handleHeroDismiss}
+                      onArmOrExecute={handleHeroArmOrExecute}
+                      bulkExpanded={bulkExpanded}
+                    />
+                  </motion.div>
                 ))}
 
                 {/* Confirmed Setup Cards from Swing Scanner */}
@@ -1399,14 +1420,20 @@ function ActionCenterInner() {
             </div>
           </div>
           
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 items-start gap-3.5 sm:gap-4 w-full" data-testid="ac-cards-grid">
-            {generalLoud.map((d) => {
+          <div className={`grid ${gridColsClass} gap-4 items-start w-full`} data-testid="ac-cards-grid">
+            {sortedGeneralLoud.map((d) => {
               const ver = activeVersion(d, sel);
               const stale = staleVersion(d, sel);
               const key = setupIdOf(d);
               const populated = isPopulated(d, ver);
               return (
-                <div key={d.symbol} className="flex flex-col gap-1.5 self-start w-full">
+                <motion.div
+                  key={d.symbol}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                  className="flex flex-col gap-1.5 self-start w-full"
+                >
                   <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} bulkExpanded={bulkExpanded} />
                   {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
                   {fOf(d).shouldCollapse && (
@@ -1414,7 +1441,7 @@ function ActionCenterInner() {
                       <ChevronsDownUp className="h-3 w-3" aria-hidden /> Move to Older / not tradeable
                     </button>
                   )}
-                </div>
+                </motion.div>
               );
             })}
           </div>

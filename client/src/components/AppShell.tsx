@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "wouter";
 import { ThemeSwitcher } from "./ThemeSwitcher";
+import { MegaMenu } from "./MegaMenu";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
@@ -229,6 +230,51 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
           <BrandMark settings={settings} />
 
+          {/* Header (Essential Tools): Dashboard, Wealth Studio, Live Scanner & Mega-Menu */}
+          <nav className="hidden xl:flex items-center gap-1.5 ml-2" data-testid="header-essential-nav">
+            <Link
+              href="/"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                location === "/" || location === "/cockpit" || location === "/pipeline"
+                  ? "bg-cyan-500/15 text-cyan-400 border border-cyan-400/40 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
+              }`}
+              data-testid="nav-header-dashboard"
+            >
+              <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+              <span>Dashboard</span>
+            </Link>
+
+            <Link
+              href="/engine"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                location === "/engine" || location === "/dashboard"
+                  ? "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-400/40 shadow-[0_0_10px_rgba(217,70,239,0.2)]"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
+              }`}
+              data-testid="nav-header-wealth-studio"
+            >
+              <LayoutDashboard className="w-3.5 h-3.5 text-fuchsia-400" />
+              <span>Wealth Studio</span>
+            </Link>
+
+            <Link
+              href="/watchlist"
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+                location === "/watchlist"
+                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-400/40 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
+                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
+              }`}
+              data-testid="nav-header-live-scanner"
+            >
+              <ListChecks className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Live Scanner</span>
+            </Link>
+
+            {/* Mega-Menu Integration for complex trading layouts */}
+            <MegaMenu />
+          </nav>
+
           <div
             data-testid="text-regime-effective"
             className={`hidden md:flex items-center gap-2 px-2.5 py-1 border ${regimeColor} text-[11px] font-display tracking-wider uppercase rounded-sm`}
@@ -423,6 +469,82 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {children}
         </main>
       </div>
+
+      {/* Sleek Dark-Themed Global Footer for Secondary Tools */}
+      <footer
+        className="w-full border-t border-slate-800/80 bg-slate-950/95 py-3 px-4 md:px-6 flex flex-wrap items-center justify-between text-xs text-slate-400 gap-3 mt-auto backdrop-blur-md select-none transition-colors duration-200"
+        data-testid="global-footer"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+            <span className="font-mono text-[11px] font-bold text-slate-300 uppercase tracking-wider">
+              Chizzle Terminal
+            </span>
+          </div>
+          <span className="text-slate-600 hidden sm:inline">|</span>
+          <span className="font-mono text-[10px] text-slate-500 hidden sm:inline">
+            Execution Engine v2.4
+          </span>
+        </div>
+
+        {/* Secondary Navigation Tools */}
+        <div className="flex items-center gap-1 sm:gap-2 flex-wrap font-mono text-xs">
+          <Link
+            href="/settings"
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all duration-200 cursor-pointer"
+            data-testid="footer-link-api-connections"
+          >
+            <span>API Connections</span>
+          </Link>
+
+          <span className="text-slate-700">·</span>
+
+          <Link
+            href="/settings"
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-400 hover:text-cyan-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all duration-200 cursor-pointer"
+            data-testid="footer-link-broker-settings"
+          >
+            <span>Broker Settings</span>
+          </Link>
+
+          <span className="text-slate-700">·</span>
+
+          <Link
+            href="/journal"
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-400 hover:text-amber-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all duration-200 cursor-pointer"
+            data-testid="footer-link-trade-journal"
+          >
+            <span>Trade Journal/History</span>
+          </Link>
+
+          <span className="text-slate-700">·</span>
+
+          <Link
+            href="/settings"
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-400 hover:text-fuchsia-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all duration-200 cursor-pointer"
+            data-testid="footer-link-account-management"
+          >
+            <span>Account Management</span>
+          </Link>
+
+          <span className="text-slate-700">·</span>
+
+          <Link
+            href="/signals"
+            className="flex items-center gap-1 px-2.5 py-1 rounded text-slate-400 hover:text-emerald-400 hover:bg-slate-900 border border-transparent hover:border-slate-800 transition-all duration-200 cursor-pointer"
+            data-testid="footer-link-system-logs"
+          >
+            <span>System Logs</span>
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
+          <span>Simulation Mode</span>
+          <span className="text-slate-700">·</span>
+          <span>Zero Live Capital at Risk</span>
+        </div>
+      </footer>
     </div>
   );
 }

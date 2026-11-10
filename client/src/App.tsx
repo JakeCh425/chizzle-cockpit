@@ -1,7 +1,8 @@
 import WealthEngineDashboard from "@/pages/WealthEngineDashboard";
 import { useWakeRefresh, WakeSyncLoader } from "@/lib/wakeRefresh";
-import { Switch, Route, Router } from "wouter";
+import { Switch, Route, Router, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
+import { AnimatePresence, motion } from "framer-motion";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -33,32 +34,46 @@ function WealthStudioRoute() {
 }
 
 function AppRouter() {
+  const [location] = useLocation();
+
   if (typeof window !== "undefined") {
     console.log("[Boot:AppRouter] Initializing route navigation, current hash:", window.location.hash || "#/");
   }
   return (
     <AppShell>
-      <Switch>
-        <Route path="/" component={PipelineCockpit} />
-        <Route path="/cockpit" component={PipelineCockpit} />
-        <Route path="/pipeline" component={PipelineCockpit} />
-        <Route path="/engine" component={WealthStudioRoute} />
-        <Route path="/dashboard" component={WealthStudioRoute} />
-        <Route path="/advanced" component={Cockpit} />
-        <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
-        <Route path="/watchlist" component={Watchlist} />
-        <Route path="/trades" component={Trades} />
-        <Route path="/trade-planner" component={TradePlanner} />
-        <Route path="/trade/:id" component={TradeDetail} />
-        <Route path="/tags" component={TagsPage} />
-        <Route path="/journal" component={Journal} />
-        <Route path="/leap" component={LeapLadder} />
-        <Route path="/analytics" component={Analytics} />
-        <Route path="/signals" component={SignalHistoryPage} />
-        <Route path="/settings" component={SettingsPage} />
-        <Route path="/spec" component={SpecReview} />
-        <Route component={NotFound} />
-      </Switch>
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={location}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -10 }}
+          transition={{ duration: 0.2, ease: "easeOut" }}
+          className="w-full h-full"
+          data-testid="route-transition-container"
+        >
+          <Switch>
+            <Route path="/" component={PipelineCockpit} />
+            <Route path="/cockpit" component={PipelineCockpit} />
+            <Route path="/pipeline" component={PipelineCockpit} />
+            <Route path="/engine" component={WealthStudioRoute} />
+            <Route path="/dashboard" component={WealthStudioRoute} />
+            <Route path="/advanced" component={Cockpit} />
+            <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
+            <Route path="/watchlist" component={Watchlist} />
+            <Route path="/trades" component={Trades} />
+            <Route path="/trade-planner" component={TradePlanner} />
+            <Route path="/trade/:id" component={TradeDetail} />
+            <Route path="/tags" component={TagsPage} />
+            <Route path="/journal" component={Journal} />
+            <Route path="/leap" component={LeapLadder} />
+            <Route path="/analytics" component={Analytics} />
+            <Route path="/signals" component={SignalHistoryPage} />
+            <Route path="/settings" component={SettingsPage} />
+            <Route path="/spec" component={SpecReview} />
+            <Route component={NotFound} />
+          </Switch>
+        </motion.div>
+      </AnimatePresence>
     </AppShell>
   );
 }
