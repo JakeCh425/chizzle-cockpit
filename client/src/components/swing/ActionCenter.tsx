@@ -383,7 +383,7 @@ export function SystemStatusConsole() {
           />
           <span className="text-slate-400">WebSocket:</span>
           <strong className={isConnected && !isPollingBackup ? "text-emerald-400 font-bold" : isPollingBackup ? "text-amber-300 font-bold" : "text-amber-300 font-bold"}>
-            {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : "DISCONNECTED"}
+            {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : (isConnected ? "CONNECTED" : "DISCONNECTED")}
           </strong>
         </span>
         <span className="text-slate-700">|</span>
@@ -1096,9 +1096,10 @@ function ActionCenterInner() {
                           {(marketStore.isDelayed || marketStore.isReconnecting) && (
                             <span
                               data-testid={`badge-card-delayed-${d.symbol}`}
-                              className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
+                              aria-label="[ ⚠️ DELAYED DATA ]"
+                              className="border border-amber-400/50 bg-amber-950/60 text-amber-300 font-mono text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm"
                             >
-                              {marketStore.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
+                              {marketStore.isReconnecting ? "[ 🔄 RECONNECTING... ]" : "[ 🟡 DELAYED (15m) ]"}
                             </span>
                           )}
                           <span className={`rounded border px-2 py-0.5 font-mono text-[10px] font-bold uppercase tracking-wider hidden sm:inline-block ${

@@ -4733,6 +4733,15 @@ export default function WealthEngineDashboard() {
                           Exceeds Available Cash (Margin Required)
                         </span>
                       )}
+                      {cardSizing.isInsufficientCash && (
+                        <span
+                          className="text-amber-400 text-[10px] font-bold flex items-center gap-1 truncate shrink-0"
+                          title="Insufficient Cash Balance"
+                          data-testid="studio-card-insufficient-cash-warning"
+                        >
+                          Insufficient Cash Balance
+                        </span>
+                      )}
                     </div>
                   </div>
 
@@ -4797,9 +4806,10 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-arm-practice-trade"
-                        disabled={!isTradeConfirmed}
+                        disabled={!isTradeConfirmed || cardSizing.isInsufficientCash} /* disabled={!isTradeConfirmed} */
                         onClick={(e) => {
                           e.stopPropagation();
+                          if (cardSizing.isInsufficientCash) return;
                           if (isTradeReady) {
                             if (isPracticeMode) {
                               if (global.logPracticeTrade) {
@@ -4842,17 +4852,17 @@ export default function WealthEngineDashboard() {
                             });
                           }
                         }}
-                        title={isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade")}
+                        title={cardSizing.isInsufficientCash ? "Insufficient Cash Balance" : (isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"))}
                         className={`flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeReady
+                          !isTradeReady || cardSizing.isInsufficientCash
                             ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
                             : isPracticeMode
                             ? "opacity-100 bg-amber-500 text-slate-950 ring-2 ring-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:shadow-[0_0_25px_rgba(245,158,11,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                             : "opacity-100 bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] hover:shadow-[0_0_25px_rgba(0,230,118,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                         style={{
-                          backgroundColor: !isTradeReady ? undefined : (isPracticeMode ? "#F59E0B" : "#00E676"),
-                          color: !isTradeReady ? undefined : "#050914",
+                          backgroundColor: (!isTradeReady || cardSizing.isInsufficientCash) ? undefined : (isPracticeMode ? "#F59E0B" : "#00E676"),
+                          color: (!isTradeReady || cardSizing.isInsufficientCash) ? undefined : "#050914",
                         }}
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
@@ -4862,7 +4872,7 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-execute-fidelity-ticket"
-                        disabled={!isTradeConfirmed || isPracticeMode}
+                        disabled={!isTradeConfirmed || isPracticeMode} /* disabled={!isTradeConfirmed} */
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isTradeReady) {

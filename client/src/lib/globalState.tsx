@@ -116,6 +116,8 @@ export interface GlobalStateContextType {
   // Global Account Risk & Position Sizing Settings
   accountEquity: number;
   setAccountEquity: (equity: number) => void;
+  availableCash: number;
+  setAvailableCash: (cash: number) => void;
   riskPercentage: number;
   setRiskPercentage: (pct: number) => void;
 
@@ -158,6 +160,7 @@ const STORAGE_KEY_PRACTICE_MODE = "chizzle-practice-mode";
 const STORAGE_KEY_PRACTICE_TRADES = "chizzle-practice-trades";
 const STORAGE_KEY_THEME = "chizzle-wealth-theme";
 const STORAGE_KEY_ACCOUNT_EQUITY = "chizzle-account-equity";
+const STORAGE_KEY_AVAILABLE_CASH = "chizzle-available-cash";
 const STORAGE_KEY_DEFAULT_RISK_PCT = "chizzle-default-risk-pct";
 
 const THEME_ORDER: DashboardTheme[] = ["cyber-neon", "stealth", "arctic", "sunset-orange", "neon-grape", "mint-matrix"];
@@ -238,6 +241,29 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
     if (typeof window !== "undefined") {
       try {
         localStorage.setItem(STORAGE_KEY_ACCOUNT_EQUITY, String(valid));
+      } catch {}
+    }
+  }, []);
+
+  const [availableCash, setAvailableCashState] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY_AVAILABLE_CASH);
+        if (saved) {
+          const num = parseFloat(saved);
+          if (!isNaN(num) && num >= 0) return num;
+        }
+      } catch {}
+    }
+    return 25000;
+  });
+
+  const setAvailableCash = useCallback((cash: number) => {
+    const valid = typeof cash === "number" && !isNaN(cash) && cash >= 0 ? cash : 25000;
+    setAvailableCashState(valid);
+    if (typeof window !== "undefined") {
+      try {
+        localStorage.setItem(STORAGE_KEY_AVAILABLE_CASH, String(valid));
       } catch {}
     }
   }, []);
@@ -954,6 +980,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       setCardTheme,
       accountEquity,
       setAccountEquity,
+      availableCash,
+      setAvailableCash,
       riskPercentage,
       setRiskPercentage,
       summary,
@@ -999,6 +1027,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       setCardTheme,
       accountEquity,
       setAccountEquity,
+      availableCash,
+      setAvailableCash,
       riskPercentage,
       setRiskPercentage,
       summary,

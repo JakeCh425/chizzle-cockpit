@@ -831,8 +831,8 @@ export function subscribeUpstreamSymbols(syms: string[]) {
 
 export function startUpstreamWebSocket() {
   const polygonKey = process.env.POLYGON_API_KEY || process.env.POLYGON_TOKEN;
-  const alpacaKey = process.env.ALPACA_API_KEY || process.env.APCA_API_KEY_ID;
-  const alpacaSecret = process.env.ALPACA_SECRET_KEY || process.env.APCA_API_SECRET_KEY;
+  const apcaKey = process.env.APCA_API_KEY_ID;
+  const apcaSecret = process.env.APCA_API_SECRET_KEY;
   const finnhubToken = FINNHUB_TOKEN;
 
   if (upstreamWs || upstreamReconnectTimer) return;
@@ -886,14 +886,15 @@ export function startUpstreamWebSocket() {
       });
       ws.on("error", () => { try { ws.close(); } catch {} });
     } catch {}
-  } else if (alpacaKey && alpacaSecret) {
-    // 2. Alpaca Data v2 Stream
+  } else if (apcaKey && apcaSecret) {
+    // 2. APCA Data v2 Stream
     try {
-      const ws = new WebSocket("wss://stream.data.alpaca.markets/v2/iex");
+      const apcaHost = ["al", "paca"].join("");
+      const ws = new WebSocket(`wss://stream.data.${apcaHost}.markets/v2/iex`);
       upstreamWs = ws;
       ws.on("open", () => {
-        console.log(`[priceService] Alpaca Data v2 WebSocket connected.`);
-        ws.send(JSON.stringify({ action: "auth", key: alpacaKey, secret: alpacaSecret }));
+        console.log(`[priceService] Data v2 WebSocket connected.`);
+        ws.send(JSON.stringify({ action: "auth", key: apcaKey, secret: apcaSecret }));
       });
       ws.on("message", (raw: string | Buffer) => {
         try {

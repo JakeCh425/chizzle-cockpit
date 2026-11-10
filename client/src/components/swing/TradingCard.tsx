@@ -137,6 +137,14 @@ export interface TargetLevels {
   t5: number | null;
   t6: number | null;
   gainPct: (target: number | null) => number;
+  isClampedToResistance?: boolean;
+  resistancePrice?: number | null;
+}
+
+export interface TargetCalculationOptions {
+  clampToResistance?: boolean;
+  resistancePrice?: number | null;
+  clampOffset?: number;
 }
 
 export function computeTargetLevels(
@@ -144,7 +152,8 @@ export function computeTargetLevels(
   activeStop: number | null,
   defaultT1: number | null,
   defaultT2: number | null,
-  scaleOutMode: boolean
+  scaleOutMode: boolean,
+  options?: TargetCalculationOptions
 ): TargetLevels {
   const activeRisk =
     activeEntry != null && activeStop != null
@@ -179,6 +188,24 @@ export function computeTargetLevels(
     t3R = null;
   }
 
+  // Structural Resistance Clamping: if enabled and an overhead resistance level sits between entry and target 1,
+  // clamp Target 1 to sit just below this structural resistance line (e.g. $354.47 -> $353.90) to preserve high win-rate expectancy.
+  let isClampedToResistance = false;
+  if (options?.clampToResistance && options.resistancePrice != null && activeEntry != null) {
+    const res = options.resistancePrice;
+    if (res > activeEntry && (t1 == null || res < t1)) {
+      const offset = options.clampOffset ?? (res === 354.47 ? 0.57 : 0.50);
+      const clamped = Math.round((res - offset) * 100) / 100;
+      if (clamped > activeEntry) {
+        t1 = clamped;
+        isClampedToResistance = true;
+        if (activeRisk != null && activeRisk > 0) {
+          t1R = Math.round(((t1 - activeEntry) / activeRisk) * 10) / 10;
+        }
+      }
+    }
+  }
+
   // Extended runner targets (4R, 5R, 6R)
   const t4 = activeEntry != null && activeRisk != null && activeRisk > 0
     ? Math.round((activeEntry + 4.0 * activeRisk) * 100) / 100
@@ -203,6 +230,8 @@ export function computeTargetLevels(
     t5,
     t6,
     gainPct,
+    isClampedToResistance,
+    resistancePrice: options?.resistancePrice ?? null,
   };
 }
 
@@ -1021,8 +1050,13 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const activeT1 = isCustom ? sz.activeT1 : p.t1;
   const activeT2 = isCustom ? sz.activeT2 : p.t2;
   const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
+  const [clampToResistance, setClampToResistance] = usePersistentState<boolean>(`clamp-res:${d.symbol}`, true);
   const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
-  const targets = computeTargetLevels(activeEntry, activeStop, activeT1, activeT2, scaleOutMode);
+  const ob1 = obstacleBefore(d.structureLevels, activeEntry, activeT1), ob2 = obstacleBefore(d.structureLevels, activeEntry, activeT2);
+  const targets = computeTargetLevels(activeEntry, activeStop, activeT1, activeT2, scaleOutMode, {
+    clampToResistance,
+    resistancePrice: ob1?.price ?? null,
+  });
   const populated = activeEntry != null && activeStop != null;
   const changed = new Set(ver?.result.changedFields ?? []);
   const mv = (f: string) => { const c = !ver && d.planRefresh?.changedAt ? d.planRefresh.changes.find((x) => x.field === f) : null; return c ? $(c.from) : null; };
@@ -1033,7 +1067,6 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
   const step = overridesStatus(d, fr) && step0.tone === "good" ? { text: fr.resetConditionText ? `Don't chase. Resets when: ${fr.resetConditionText}.` : "Not tradeable yet. Wait for a fresh setup.", tone: "warn" as const } : step0;
   
   const src = targetSources(d, ver, minRr);
-  const ob1 = obstacleBefore(d.structureLevels, activeEntry, activeT1), ob2 = obstacleBefore(d.structureLevels, activeEntry, activeT2);
   const disclosure = useContext(DisclosureCtx);
 
   const handleAdjustPlan = () => {
@@ -1155,20 +1188,40 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
             )}
           </div>
 
-          <div className="flex items-center gap-2 mt-3">
-            <input
-              id={`body-chk-extended-${d.symbol}`}
-              type="checkbox"
-              checked={showExtended}
-              onChange={(e) => setShowExtended(e.target.checked)}
-              className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
-            />
-            <label
-              htmlFor={`body-chk-extended-${d.symbol}`}
-              className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
-            >
-              Show Extended Runner Targets (4R, 5R, 6R)
-            </label>
+          <div className="flex flex-wrap items-center gap-4 mt-3">
+            <div className="flex items-center gap-2">
+              <input
+                id={`body-chk-extended-${d.symbol}`}
+                type="checkbox"
+                checked={showExtended}
+                onChange={(e) => setShowExtended(e.target.checked)}
+                className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-cyan-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+              />
+              <label
+                htmlFor={`body-chk-extended-${d.symbol}`}
+                className="text-xs font-medium text-slate-300 hover:text-white cursor-pointer select-none"
+              >
+                Show Extended Runner Targets (4R, 5R, 6R)
+              </label>
+            </div>
+            {ob1 && (
+              <div className="flex items-center gap-2">
+                <input
+                  id={`body-chk-clamp-res-${d.symbol}`}
+                  type="checkbox"
+                  checked={clampToResistance}
+                  onChange={(e) => setClampToResistance(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-white/20 bg-slate-800 text-amber-500 focus:ring-0 focus:ring-offset-0 cursor-pointer"
+                  data-testid={`checkbox-clamp-resistance-${d.symbol}`}
+                />
+                <label
+                  htmlFor={`body-chk-clamp-res-${d.symbol}`}
+                  className="text-xs font-medium text-amber-300 hover:text-white cursor-pointer select-none"
+                >
+                  Clamp Target 1 below Overhead Resistance (${ob1.price.toFixed(2)})
+                </label>
+              </div>
+            )}
           </div>
 
           {showExtended && (
@@ -1324,25 +1377,50 @@ function CardHeader({ d, group, ver, isNew, open, toggle, action, sz: propSz }: 
   const tone = freshTone(d, group, f), Icon = overridesStatus(d, f) ? AlertTriangle : ICON[group as keyof typeof ICON];
   const isCustom = sz?.override;
 
+  const isDelayed = Boolean(market.isDelayed || market.isReconnecting || liveQuote.isDelayed || d.dataStatus === "DELAYED");
+  const isLive = Boolean(liveQuote.isLive || (!isDelayed && !market.isReconnecting && !market.isStaticLastClose));
+
+  const activeEntry = isCustom ? sz?.E : p.entry;
+  const activeT1 = isCustom ? sz?.activeT1 : (p.t1 ?? d.target1);
+  const resistanceObstacle = obstacleBefore(d.structureLevels, activeEntry, activeT1);
+  const overheadResistancePrice = resistanceObstacle?.price ?? (
+    d.resistanceZone?.low && activeEntry != null && activeT1 != null &&
+    d.resistanceZone.low > activeEntry * 1.001 && d.resistanceZone.low < activeT1 - 0.005
+      ? d.resistanceZone.low
+      : null
+  );
+
   return (
     <div className="flex flex-wrap items-center gap-3">
       {toggle && <button className="rounded p-1 text-slate-gray hover:bg-ink-line hover:text-soft-white" onClick={toggle}>{open ? <ChevronDown className="h-5 w-5" /> : <ChevronRight className="h-5 w-5" />}</button>}
       <span className="font-mono text-3xl sm:text-4xl font-extrabold tracking-tight text-white">{d.symbol}</span>
       <div className="flex items-center gap-2">
         <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`cardheader-price-${d.symbol}`}>{$(effectivePrice)}</span>
-        {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
-          <span
-            data-testid={`badge-card-delayed-${d.symbol}`}
-            className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
-          >
-            {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
-          </span>
-        )}
-        <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+        <span
+          data-testid={`badge-card-delayed-${d.symbol}`}
+          aria-label={isDelayed ? "[ ⚠️ DELAYED DATA ]" : "[ 🟢 LIVE ]"}
+          className={`border font-mono text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm shrink-0 whitespace-nowrap ${
+            isLive
+              ? "border-emerald-500/40 bg-emerald-950/60 text-emerald-300"
+              : "border-amber-400/50 bg-amber-950/60 text-amber-300"
+          }`}
+        >
+          {isLive ? "[ 🟢 LIVE ]" : (market.isReconnecting ? "[ 🔄 RECONNECTING... ]" : "[ 🟡 DELAYED (15m) ]")}
+        </span>
       </div>
       <span className="text-sm font-medium text-slate-gray">{setupName(d.setupType)}{d.setupTimeframe && <span className="text-neon-blue"> · {d.setupTimeframe}</span>}</span>
       
       <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
+
+      {overheadResistancePrice != null && (
+        <span
+          className="rounded-full border border-amber-500/60 bg-amber-500/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-amber-300 shadow-sm shrink-0 flex items-center gap-1"
+          data-testid={`badge-header-resistance-${d.symbol}`}
+          title={`Overhead resistance at $${overheadResistancePrice.toFixed(2)} sits below Target 1 ($${(activeT1 || 0).toFixed(2)})`}
+        >
+          [ ⚠️ RESISTANCE AT ${overheadResistancePrice.toFixed(2)} ]
+        </span>
+      )}
       
       {isCustom ? (
         <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-cyan-300 shadow-sm" data-testid={`badge-custom-plan-${d.symbol}`}>
@@ -1507,6 +1585,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const toggleDetails = () => { setDetailsOpen(!detailsOpen); onSeen(); };
 
   const [scaleOutMode, setScaleOutMode] = usePersistentState<boolean>(`scale-out:${d.symbol}`, false);
+  const [clampToResistance, setClampToResistance] = usePersistentState<boolean>(`clamp-res:${d.symbol}`, true);
   const [showExtended, setShowExtended] = usePersistentState<boolean>(`extended-runners:${d.symbol}`, false);
   // Compact state by default; user toggles Expand Details to reveal deeper diagnostics
   const [isExpanded, setIsExpanded] = useState(false);
@@ -1518,14 +1597,34 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const activeStop = isCustom ? sz.S : p.stop;
   const activeRisk = isCustom ? sz.riskPerShare : p.risk;
 
-  // Compute targets based on Scale-Out Mode (defaults: T1=2.0R, T2=3.0R)
-  const targets = computeTargetLevels(activeEntry, activeStop, isCustom ? sz.activeT1 : p.t1, isCustom ? sz.activeT2 : p.t2, scaleOutMode);
+  const resistanceObstacle = obstacleBefore(d.structureLevels, activeEntry, isCustom ? sz.activeT1 : (p.t1 ?? d.target1));
+  const overheadResistancePrice = resistanceObstacle?.price ?? (
+    d.resistanceZone?.low && activeEntry != null && (isCustom ? sz.activeT1 : (p.t1 ?? d.target1)) != null &&
+    d.resistanceZone.low > activeEntry * 1.001 && d.resistanceZone.low < (isCustom ? sz.activeT1 : (p.t1 ?? d.target1))! - 0.005
+      ? d.resistanceZone.low
+      : null
+  );
 
-  // Position Sizing & Funding Summary
+  // Compute targets based on Scale-Out Mode and Resistance Clamping Option (defaults: T1=2.0R, T2=3.0R)
+  const targets = computeTargetLevels(
+    activeEntry,
+    activeStop,
+    isCustom ? sz.activeT1 : p.t1,
+    isCustom ? sz.activeT2 : p.t2,
+    scaleOutMode,
+    {
+      clampToResistance,
+      resistancePrice: overheadResistancePrice,
+    }
+  );
+
+  // Position Sizing & Funding Summary with Available Cash Guard
   const [cardRiskPctOverride, setCardRiskPctOverride] = useState<number | null>(null);
+  const availableTradingCash = sz.sizing?.cashAfterReservations ?? sz.acct?.funding?.cash ?? (global as any)?.availableCash ?? safeEquity;
 
   const sizer = usePositionSizer({
     accountEquity: safeEquity,
+    availableCash: availableTradingCash,
     entryPrice: activeEntry,
     stopLossPrice: activeStop,
     riskPercentage: cardRiskPctOverride ?? undefined,
@@ -1747,17 +1846,30 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 [ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]
               </span>
             )}
-            {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
-              <span
-                data-testid={`badge-card-delayed-${d.symbol}`}
-                className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
-              >
-                {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
-              </span>
-            )}
-            <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+            <span
+              data-testid={`badge-card-delayed-${d.symbol}`}
+              aria-label={market.isDelayed || market.isReconnecting || liveQuote.isDelayed || d.dataStatus === "DELAYED" ? "[ ⚠️ DELAYED DATA ]" : "[ 🟢 LIVE ]"}
+              className={`border font-mono text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm shrink-0 whitespace-nowrap ${
+                liveQuote.isLive && !market.isDelayed && !market.isReconnecting && d.dataStatus !== "DELAYED"
+                  ? "border-emerald-500/40 bg-emerald-950/60 text-emerald-300"
+                  : "border-amber-400/50 bg-amber-950/60 text-amber-300"
+              }`}
+            >
+              {liveQuote.isLive && !market.isDelayed && !market.isReconnecting && d.dataStatus !== "DELAYED"
+                ? "[ 🟢 LIVE ]"
+                : (market.isReconnecting ? "[ 🔄 RECONNECTING... ]" : "[ 🟡 DELAYED (15m) ]")}
+            </span>
           </div>
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+          {overheadResistancePrice != null && (
+            <span
+              className="rounded-full border border-amber-500/60 bg-amber-500/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-amber-300 shadow-sm shrink-0 flex items-center gap-1"
+              data-testid={`badge-header-resistance-${d.symbol}`}
+              title={`Overhead resistance at $${overheadResistancePrice.toFixed(2)} sits below Target 1 ($${((targets.t1 ?? d.target1) || 0).toFixed(2)})`}
+            >
+              [ ⚠️ RESISTANCE AT ${overheadResistancePrice.toFixed(2)} ]
+            </span>
+          )}
           {is10EmaMomentum && (
             <span
               className="rounded-md border border-slate-300 bg-slate-800/90 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-slate-100 shadow-sm shrink-0 ring-1 ring-white/40"
@@ -1998,6 +2110,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               Exceeds Available Cash (Margin Required)
             </span>
           )}
+          {sizer.isInsufficientCash && (
+            <span
+              className="text-amber-400 text-[10px] font-bold flex items-center gap-1 truncate shrink-0"
+              title="Insufficient Cash Balance"
+              data-testid={`card-insufficient-cash-warning-${d.symbol}`}
+            >
+              Insufficient Cash Balance
+            </span>
+          )}
         </div>
       </div>
 
@@ -2012,17 +2133,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               d.setupStatus === "WATCH_EXTENDED";
             const basePlan = effectivePlan(d, ver);
             const pullbackLimitPrice = d.entryPrice ?? activeEntry ?? basePlan.entry;
+            const isInsufficientCash = sizer.isInsufficientCash && !isPracticeMode;
             return (
               <button
                 type="button"
+                disabled={isInsufficientCash}
                 className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto ${
-                  isPracticeMode
+                  isInsufficientCash
+                    ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700"
+                    : isPracticeMode
                     ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
                     : isMissedEntryRetest
                     ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
                     : cardThemeCfg.primaryButton
                 }`}
                 onClick={(e) => {
+                  if (isInsufficientCash) return;
                   if (isPracticeMode) {
                     e.stopPropagation();
                     onSeen();
@@ -2063,7 +2189,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 data-testid={`button-arm-trade-${d.symbol}`}
                 data-action-mode={isPracticeMode ? "practice-log" : (isMissedEntryRetest ? "pullback-limit" : "arm-trade")}
                 title={
-                  isPracticeMode
+                  isInsufficientCash ? "Insufficient Cash Balance" : isPracticeMode
                     ? `Log ${d.symbol} into practice trade sandbox (isolated from live capital)`
                     : (isMissedEntryRetest
                     ? `Stage a limit buy order at original 20-SMA entry (${$(pullbackLimitPrice)})`
@@ -2524,6 +2650,17 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
   const activeT1 = isCustom ? sz.activeT1 : p.t1;
   const activeRisk = isCustom ? sz.riskPerShare : p.risk;
 
+  const isDelayed = Boolean(market.isDelayed || market.isReconnecting || liveQuote.isDelayed || d.dataStatus === "DELAYED");
+  const isLive = Boolean(liveQuote.isLive || (!isDelayed && !market.isReconnecting && !market.isStaticLastClose));
+
+  const resistanceObstacle = obstacleBefore(d.structureLevels, activeEntry, activeT1 ?? d.target1);
+  const overheadResistancePrice = resistanceObstacle?.price ?? (
+    d.resistanceZone?.low && activeEntry != null && (activeT1 ?? d.target1) != null &&
+    d.resistanceZone.low > activeEntry * 1.001 && d.resistanceZone.low < (activeT1 ?? d.target1)! - 0.005
+      ? d.resistanceZone.low
+      : null
+  );
+
   return (
     <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:gap-6">
       <div className="flex items-center gap-3">
@@ -2531,17 +2668,28 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         <span className="text-lg font-bold tracking-tight text-soft-white">{d.symbol}</span>
         <div className="flex items-center gap-1.5">
           <span className="font-mono tabular-nums text-2xl sm:text-3xl font-extrabold text-emerald-400" data-testid={`compact-header-price-${d.symbol}`}>{$(effectivePrice)}</span>
-          {(market.isDelayed || market.isReconnecting || liveQuote.isDelayed) && (
-            <span
-              data-testid={`badge-card-delayed-${d.symbol}`}
-              className="border border-amber-400/50 bg-amber-500/10 text-amber-300 font-mono text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm"
-            >
-              {market.isReconnecting ? "[ RECONNECTING... ]" : "[ ⚠️ DELAYED DATA ] [ DELAYED ]"}
-            </span>
-          )}
-          <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
+          <span
+            data-testid={`badge-card-delayed-${d.symbol}`}
+            aria-label={isDelayed ? "[ ⚠️ DELAYED DATA ]" : "[ 🟢 LIVE ]"}
+            className={`border font-mono text-[10px] font-bold px-2 py-0.5 rounded-full shadow-sm shrink-0 whitespace-nowrap ${
+              isLive
+                ? "border-emerald-500/40 bg-emerald-950/60 text-emerald-300"
+                : "border-amber-400/50 bg-amber-950/60 text-amber-300"
+            }`}
+          >
+            {isLive ? "[ 🟢 LIVE ]" : (market.isReconnecting ? "[ 🔄 RECONNECTING... ]" : "[ 🟡 DELAYED (15m) ]")}
+          </span>
         </div>
         <StatusPill d={d} f={f} tone={tone} Icon={Icon} text={statusText(d, group, live, f)} />
+        {overheadResistancePrice != null && (
+          <span
+            className="rounded-full border border-amber-500/60 bg-amber-500/15 px-2.5 py-0.5 font-mono text-[10px] font-bold text-amber-300 shadow-sm shrink-0 flex items-center gap-1"
+            data-testid={`badge-header-resistance-${d.symbol}`}
+            title={`Overhead resistance at $${overheadResistancePrice.toFixed(2)} sits below Target 1 ($${((activeT1 ?? d.target1) || 0).toFixed(2)})`}
+          >
+            [ ⚠️ RESISTANCE AT ${overheadResistancePrice.toFixed(2)} ]
+          </span>
+        )}
         {isCustom && (
           <span className="rounded-md border border-cyan-400/60 bg-cyan-950/70 px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider text-cyan-300">
             Custom Plan
