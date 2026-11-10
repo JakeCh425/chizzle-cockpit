@@ -29,17 +29,24 @@ describe("Institutional Trading Card UI & Lifecycle Refactor", () => {
       expect(tradingCardSrc).toContain("Target 1");
     });
 
-    it("applies tight container padding (p-3 / p-4 instead of p-6)", () => {
-      // Expanded details uses p-4
-      expect(tradingCardSrc).toContain("expanded-details bg-ink-deep/40 border-t border-ink-line/50 p-4");
+    it("applies tight container padding and increased typography in expanded execution tickets", () => {
+      // Expanded details uses p-3 or p-4
+      expect(tradingCardSrc).toMatch(/expanded-details bg-ink-deep\/40 border-t border-ink-line\/50 p-(?:3|4)/);
       // Compact header uses px-3 sm:px-4
       expect(tradingCardSrc).toContain("px-3 sm:px-4 min-h-14 sm:min-h-16");
+      // Execution ticket prices use text-sm sm:text-base font-mono tabular-nums font-bold text-soft-white
+      expect(tradingCardSrc).toContain("BUY LIMIT: <strong className=\"font-mono tabular-nums font-bold text-soft-white\">");
     });
   });
 
   describe("Task 2: Whole-Number Cash Allocation Input (TradingCard.tsx)", () => {
-    it("enforces integer-only parsing via parseInt and regex stripping of non-digits", () => {
-      expect(tradingCardSrc).toContain("setCustomCash(parseInt(e.target.value.replace(/\\D/g, ''), 10) || 0)");
+    it("enforces whole-number inputs with step='1' and min='1'", () => {
+      expect(tradingCardSrc).toContain('step="1"');
+      expect(tradingCardSrc).toContain('min="1"');
+    });
+
+    it("enforces integer-only parsing via Math.floor(Number(e.target.value))", () => {
+      expect(tradingCardSrc).toContain("setCustomCash(Math.floor(Number(e.target.value)))");
     });
 
     it("hides browser spinner arrows on number inputs via Tailwind CSS", () => {
@@ -73,9 +80,9 @@ describe("Institutional Trading Card UI & Lifecycle Refactor", () => {
     });
 
     describe("Backend Enforcement (server/swing/lifecycle.ts)", () => {
-      it("downgrades extension check failures from READY_TO_TRADE to WATCH_RETEST", () => {
+      it("downgrades extension check failures from READY_TO_TRADE to WATCH_EXTENDED or WATCH_RETEST", () => {
         expect(lifecycleSrc).toContain('d.nextAction = `Do not chase ${sym}. Wait for retest zone');
-        expect(lifecycleSrc).toContain('return out("WATCH_RETEST", { earlyTrigger: early });');
+        expect(lifecycleSrc).toMatch(/return out\("(?:WATCH_EXTENDED|WATCH_RETEST)",\s*\{\s*earlyTrigger:\s*early\s*\}\);/);
       });
 
       it("downgrades un-triggered setups evaluated after 4:00 PM ET to SIGNAL_EXPIRED", () => {

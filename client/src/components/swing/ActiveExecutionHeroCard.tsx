@@ -310,9 +310,11 @@ export function ActiveExecutionHeroCard({
                 </span>
                 <input
                   type="number"
+                  step="1"
+                  min="1"
                   value={customCash}
-                  onChange={(e) => setCustomCash(Number(e.target.value))}
-                  className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32"
+                  onChange={(e) => setCustomCash(Math.floor(Number(e.target.value)))}
+                  className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                   data-testid={`hero-input-cash-${trade.symbol}`}
                   placeholder="1000"
                 />

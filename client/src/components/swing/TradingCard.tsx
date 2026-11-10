@@ -2238,17 +2238,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                       Broker Ticket ({customShares} Shares):
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold tabular-nums">
+                  <div className="flex flex-wrap items-center gap-2.5 font-mono text-sm sm:text-base font-bold tabular-nums">
                     <span className="text-emerald-400">
-                      BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({customShares} sh)
+                      BUY LIMIT: <strong className="font-mono tabular-nums font-bold text-soft-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({customShares} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-cyan-300">
-                      SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(customShares / 2)} sh)
+                      SELL LIMIT (50%): <strong className="font-mono tabular-nums font-bold text-soft-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(customShares / 2)} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-rose-400">
-                      SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({customShares - Math.floor(customShares / 2)} sh)
+                      SELL STOP: <strong className="font-mono tabular-nums font-bold text-soft-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({customShares - Math.floor(customShares / 2)} sh)
                     </span>
                   </div>
                 </div>
@@ -2259,25 +2259,27 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                   data-testid={`custom-allocation-bar-${d.symbol}`}
                 >
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray">
+                    <span className="font-mono text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-gray">
                       Custom Allocation:
                     </span>
                     <input
                       type="number"
+                      step="1"
+                      min="1"
                       value={customCash}
-                      onChange={(e) => setCustomCash(parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)}
-                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      onChange={(e) => setCustomCash(Math.floor(Number(e.target.value)))}
+                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm sm:text-base font-bold focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       data-testid={`input-cash-${d.symbol}`}
                       placeholder="1000"
                     />
                   </div>
 
                   <div className="flex items-center gap-2 font-mono" data-testid={`text-calculated-shares-${d.symbol}`}>
-                    <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                    <span className="text-xs sm:text-sm uppercase tracking-wider text-slate-gray font-bold">
                       Calculated Shares:
                     </span>
-                    <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
-                      <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{customShares}</strong> Shares
+                    <span className="text-sm sm:text-base font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line font-mono">
+                      <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{customShares}</strong> <span className="font-mono tabular-nums font-bold text-soft-white">Shares</span>
                     </span>
                   </div>
                 </div>
@@ -2342,44 +2344,46 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 <div className="flex items-center gap-2.5">
                   <label
                     htmlFor={`input-cash-panel-${d.symbol}`}
-                    className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray"
+                    className="font-mono text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-gray"
                   >
                     Cash Allocation:
                   </label>
                   <input
                     id={`input-cash-panel-${d.symbol}`}
                     type="number"
+                    step="1"
+                    min="1"
                     value={customCash}
-                    onChange={(e) => setCustomCash(parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)}
-                    className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors tabular-nums w-32 sm:w-36 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                    onChange={(e) => setCustomCash(Math.floor(Number(e.target.value)))}
+                    className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors sm:text-base font-bold tabular-nums w-32 sm:w-36 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     data-testid={`input-cash-panel-${d.symbol}`}
                     title="Manual Cash Allocation ($)"
                   />
                 </div>
 
                 <div className="flex items-center gap-2 font-mono">
-                  <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                  <span className="text-xs sm:text-sm uppercase tracking-wider text-slate-gray font-bold">
                     Calculated Shares:
                   </span>
-                  <span className="text-sm sm:text-base font-bold text-soft-white tabular-nums px-2.5 py-1 rounded bg-ink-black/60 border border-ink-line">
-                    <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{calculatedShares}</strong> Shares
+                  <span className="text-sm sm:text-base font-bold text-soft-white tabular-nums px-2.5 py-1 rounded bg-ink-black/60 border border-ink-line font-mono">
+                    <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{calculatedShares}</strong> <span className="font-mono tabular-nums font-bold text-soft-white">Shares</span>
                   </span>
                 </div>
               </div>
 
               {/* Sleek UI Telemetry Block */}
               <div
-                className="font-mono text-xs uppercase tracking-wider text-slate-gray flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-ink-line/40 tabular-nums"
+                className="font-mono text-xs uppercase tracking-wider text-slate-gray flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-ink-line/40 tabular-nums sm:text-sm font-bold"
                 data-testid={`risk-telemetry-${d.symbol}`}
               >
-                <span>EQUITY: ${safeEquity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="font-mono tabular-nums font-bold text-soft-white">EQUITY: ${safeEquity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
                 <span className="text-slate-600">|</span>
-                <span>TOTAL RISK: ${totalRisk.toFixed(2)}</span>
+                <span className="font-mono tabular-nums font-bold text-soft-white">TOTAL RISK: ${totalRisk.toFixed(2)}</span>
                 <span className="text-slate-600">|</span>
                 <span>
                   RISK OVERALL:{" "}
                   <span
-                    className={`font-bold tabular-nums ${riskPercent > 2.0 ? "text-signal-red font-extrabold" : "text-signal-green font-bold"}`}
+                    className={`font-mono tabular-nums font-bold ${riskPercent > 2.0 ? "text-signal-red font-extrabold" : "text-signal-green font-bold"}`}
                     data-testid={`text-risk-percent-${d.symbol}`}
                   >
                     {riskPercent.toFixed(2)}%

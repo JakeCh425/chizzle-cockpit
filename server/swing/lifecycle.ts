@@ -421,7 +421,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   const zone = retestZone(c, trigger, tfAtr);
   d.retestLevel = zone;
   if (ex.ext) {
-    d.riskLabel = "WATCH — EXTENDED, DO NOT CHASE";
+    d.riskLabel = "EXPIRED — CHASE RISK";
     d.whyNotReady = [
       `Price ${fx(price)} is ${fx(ex.pct)}% above ${extRefLabel} ${fx(extRef)} (max ${s.maxExtensionPct}%)${ex.by.includes("PCT") ? " — over the % limit" : ""}`,
       ...(ex.atr != null ? [`${fx(ex.atr)} ATR above ${ex.atrRef} (max ${s.maxExtensionAtr})${ex.by.includes("ATR") ? " — over the ATR limit" : ""}`] : []),
@@ -431,7 +431,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     ];
     d.nextAction = `Do not chase ${sym}. Wait for retest zone ${fx(zone.low)}–${fx(zone.high)} and bullish 1H close.`;
     d.suggestedShares = 0;
-    return out("WATCH_RETEST", { earlyTrigger: early });
+    return out("WATCH_EXTENDED", { earlyTrigger: early });
   }
   const postSignal = c.closed1h.filter((b) => b.t >= signalEnd);
   const wasExtended = postSignal.some((b) => extensionOf(c, b.c, extRef, tfAtr, extRefLabel).ext);

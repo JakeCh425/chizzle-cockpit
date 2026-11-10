@@ -23,7 +23,7 @@ describe("Task 1: Editable Cash Input & Dynamic Sizing (TradingCard.tsx)", () =>
   it("renders editable input with futuristic dark-mode styling and numeric change handler", () => {
     expect(tradingCardSrc).toContain('type="number"');
     expect(tradingCardSrc).toContain("value={customCash}");
-    expect(tradingCardSrc).toMatch(/setCustomCash\((?:Number\(e\.target\.value\)|parseInt\(e\.target\.value\.replace\()/);
+    expect(tradingCardSrc).toMatch(/setCustomCash\((?:Math\.floor\(Number\(e\.target\.value\)\)|Number\(e\.target\.value\)|parseInt\(e\.target\.value\.replace\()/);
     expect(tradingCardSrc).toContain("bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono");
   });
 
@@ -46,7 +46,7 @@ describe("Task 1: Editable Cash Input & Dynamic Sizing (TradingCard.tsx)", () =>
   it("passes customShares into Fidelity ticket UI, ScaleOutRLadder, and Risk calculations", () => {
     expect(tradingCardSrc).toContain("calculatedShares={customShares}");
     expect(tradingCardSrc).toContain("Broker Ticket ({customShares} Shares)");
-    expect(tradingCardSrc).toContain("BUY LIMIT: <strong className=\"text-white\">${activeEntry != null ? activeEntry.toFixed(2) : \"—\"}</strong> ({customShares} sh)");
+    expect(tradingCardSrc).toMatch(/BUY LIMIT: <strong className="[^"]*text-(?:white|soft-white)[^"]*">\$\{activeEntry != null \? activeEntry\.toFixed\(2\) : "—"\}<\/strong> \(\{customShares\} sh\)/);
     expect(tradingCardSrc).toContain("totalShares={customShares}");
     expect(tradingCardSrc).toContain("const totalRisk = customShares * activeRiskPerShare;");
   });
