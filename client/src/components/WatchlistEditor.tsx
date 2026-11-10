@@ -20,6 +20,7 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Ticker, WatchlistItem } from "@shared/schema";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { ArrowDown, ArrowUp, Plus, Trash2, Zap, RotateCcw, X, AlertTriangle } from "lucide-react";
+import { AlertOptInToggle } from "./AlertOptInToggle";
 import { useToast } from "@/hooks/use-toast";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { subscribeSymbol } from "@/lib/priceFeed";
@@ -259,7 +260,8 @@ export default function WatchlistEditor({ className = "" }: Props) {
             <span className="text-[12px] font-mono-num font-semibold uppercase tracking-wider text-soft-white">
               {r.symbol}
             </span>
-            <div className="flex items-center gap-px">
+            <div className="flex items-center gap-1">
+              <AlertOptInToggle symbol={r.symbol} />
               <button
                 type="button"
                 onClick={() => move(i, -1)}

@@ -17,6 +17,7 @@
  *   - resolveTelegramChatIds()       // helper to look up chat IDs via getUpdates
  */
 import { storage } from "./storage";
+import { isTickerAlertOptedIn } from "./alertOptInStore";
 import {
   getVerifiedTelegramChatId,
   sendTelegramMessage,
@@ -251,6 +252,12 @@ async function sendSmsTwilio(to: string, body: string): Promise<{ ok: boolean; e
  */
 export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<void> {
   try {
+    const isOptedIn = await isTickerAlertOptedIn(payload.ticker);
+    if (!isOptedIn) {
+      console.log(`[AlertDispatcher] Alert suppressed: alerts_enabled is false for ${payload.ticker}`);
+      return;
+    }
+
     const signalKey = buildSignalKey(payload);
     const contacts = await storage.listEnabledAlertContacts();
     if (contacts.length === 0) return;

@@ -14,8 +14,9 @@
 
 import { isRegularMarketHours } from "./marketHours";
 import { calculatePositionSize } from "../shared/positionSizing";
+import { isTickerAlertOptedIn, formatInstitutionalConfirmedAlert } from "./alertOptInStore";
 
-export { isRegularMarketHours, calculatePositionSize };
+export { isRegularMarketHours, calculatePositionSize, isTickerAlertOptedIn, formatInstitutionalConfirmedAlert };
 
 // Shared session-level deduplication cache: ${ticker}_${confirmedCandleTime}_ARMED
 export const sentAlertsCache = new Map<string, number>();
@@ -296,7 +297,15 @@ export function formatTelegramTradeDeskAlert(p: TelegramTradeAlertPayload): stri
 
   const status = p.status || "ACTIONABLE";
 
+  const headline = formatInstitutionalConfirmedAlert({
+    ticker,
+    entryPrice: entry,
+    stopLoss: stop,
+    target1: t1,
+  });
+
   const lines = [
+    headline,
     `🎯 CHIZZLE TRADE DESK | [${ticker}]`,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `⚡ EVENT: ${eventLabel}`,
@@ -430,6 +439,19 @@ export async function dispatchActionableTelegramAlert(params: {
       status: "suppressed",
       error: "DROP ALERT: Setup is not 100% actionable",
     };
+  }
+
+  // Strict Opt-In Gate: Drop/suppress alert if alerts_enabled is false for this ticker
+  if (!params.force) {
+    const isOptedIn = await isTickerAlertOptedIn(ticker);
+    if (!isOptedIn) {
+      console.log(`[TelegramDispatcher] Alert suppressed: alerts_enabled is false for ${ticker}`);
+      return {
+        ok: true,
+        status: "suppressed",
+        error: `DROP ALERT: alerts_enabled is false for ${ticker}`,
+      };
+    }
   }
 
   // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)

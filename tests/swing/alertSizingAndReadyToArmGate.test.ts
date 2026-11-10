@@ -17,6 +17,7 @@ import {
   clearNotificationAuditLog,
 } from "../../server/backendNotificationWorker";
 import { isRegularMarketHours } from "../../server/marketHours";
+import { setTickerAlertOptIn } from "../../server/alertOptInStore";
 
 describe("Master Alert Fix - Synchronize Share Sizing & Lock Dispatch to ARMED / READY TO TRADE", () => {
   beforeEach(() => {
@@ -24,6 +25,10 @@ describe("Master Alert Fix - Synchronize Share Sizing & Lock Dispatch to ARMED /
     telegramAlertsCache.clear();
     serverAlertsCache.clear();
     clearNotificationAuditLog();
+    setTickerAlertOptIn("MSFT", true);
+    setTickerAlertOptIn("NVDA", true);
+    setTickerAlertOptIn("PLTR", true);
+    setTickerAlertOptIn("AAPL", true);
     vi.restoreAllMocks();
   });
 

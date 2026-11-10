@@ -17,6 +17,7 @@ import {
 import { isRegularMarketHours } from "./marketHours";
 import { calculatePositionSize } from "../shared/positionSizing";
 import { sentAlertsCache } from "./emailDispatcher";
+import { isTickerAlertOptedIn, formatInstitutionalConfirmedAlert } from "./alertOptInStore";
 
 export {
   shouldDispatchAlert,
@@ -27,6 +28,8 @@ export {
   isRegularMarketHours,
   calculatePositionSize,
   sentAlertsCache,
+  isTickerAlertOptedIn,
+  formatInstitutionalConfirmedAlert,
 };
 
 export const DEFAULT_MONITORED_WATCHLIST: string[] = [
@@ -327,10 +330,24 @@ export function formatExecutionReadyAlertMessage(params: {
     params.calculatedShares && params.calculatedShares > 0
       ? params.calculatedShares
       : sizing.totalShares;
-  const order1Shares = sizing.t1Shares ?? Math.floor(shares / 2);
-  const order2Shares = sizing.t2Shares ?? (shares - order1Shares);
+  const order1Shares =
+    params.calculatedShares && params.calculatedShares > 0
+      ? Math.floor(shares / 2)
+      : (sizing.t1Shares ?? Math.floor(shares / 2));
+  const order2Shares =
+    params.calculatedShares && params.calculatedShares > 0
+      ? (shares - order1Shares)
+      : (sizing.t2Shares ?? (shares - order1Shares));
+
+  const headline = formatInstitutionalConfirmedAlert({
+    ticker,
+    entryPrice: entry,
+    stopLoss: stop,
+    target1: t1,
+  });
 
   return [
+    headline,
     `🚨 CHIZZLE EXECUTION READY: [${ticker}]`,
     `Status: ${statusLabel}`,
     `Core Math: Entry $${entry.toFixed(2)} | Stop $${stop.toFixed(2)} | Target 1 (1.5R) $${t1.toFixed(2)} | Target 2 (2.0R) $${t2.toFixed(2)}`,
@@ -1095,7 +1112,7 @@ export async function dispatchServerSetupAlert(params: {
     ((target2 - params.entryPrice) / riskPerShare) >= 1.45 &&
     (!shouldCheckMarketHours || isRegularMarketHours(evalTime) === true);
 
-  if (!params.force && !isReadyToArm) {
+    if (!params.force && !isReadyToArm) {
     return {
       ok: true,
       suppressed: true,
@@ -1124,6 +1141,42 @@ export async function dispatchServerSetupAlert(params: {
         dedupeKey,
       },
     };
+  }
+
+  // Strict Opt-In Gate: Drop/suppress alert if alerts_enabled is false for this ticker
+  if (!params.force) {
+    const isOptedIn = await isTickerAlertOptedIn(symbol);
+    if (!isOptedIn) {
+      console.log(`[NotificationWorker] Alert suppressed: alerts_enabled is false for ${symbol}`);
+      return {
+        ok: true,
+        suppressed: true,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp,
+        setupState: setup,
+        auditEntry: {
+          id: `suppressed-opt-in-${symbol}-${Date.now()}`,
+          symbol,
+          alertSent: setup.alertSent,
+          lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+          alertType,
+          setupType: params.setupType ?? "Suppressed",
+          entryPrice: params.entryPrice,
+          stopLoss: params.stopLoss,
+          target1: params.target1,
+          calculatedShares,
+          channels: [],
+          delivery: {},
+          status: "STUBBED",
+          firedAt: setup.lastAlertTimestamp ?? Date.now(),
+          isoTimestamp: new Date().toISOString(),
+          formattedTime: formatAlertTimestampCT(),
+          badgeText: "[ Suppressed · Opt-In Disabled ]",
+          message: `DROP ALERT: alerts_enabled is false for ${symbol}. Notifications are muted for this ticker.`,
+          dedupeKey,
+        },
+      };
+    }
   }
 
   // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)

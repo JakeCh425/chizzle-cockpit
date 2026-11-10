@@ -18,6 +18,7 @@ import {
 } from "@/lib/engine";
 import { useToast } from "@/hooks/use-toast";
 import { Plus, Trash2, RefreshCw, ChevronRight, ChevronDown, Check, X, Eye, EyeOff } from "lucide-react";
+import { AlertOptInToggle } from "@/components/AlertOptInToggle";
 
 interface RegimeGates {
   effectiveRegime: "green" | "yellow" | "red";
@@ -356,7 +357,12 @@ function SetupRow({
             </button>
           ) : null}
         </td>
-        <td className="px-3 py-2 font-mono-num">{t.symbol}</td>
+        <td className="px-3 py-2 font-mono-num">
+          <div className="flex items-center gap-1.5">
+            <span>{t.symbol}</span>
+            <AlertOptInToggle symbol={t.symbol} />
+          </div>
+        </td>
         <td className="px-2 py-2 text-[10px] uppercase tracking-wider text-slate-gray">{setupLabel}</td>
         <td className={`px-2 py-2 text-[10px] uppercase tracking-wider ${candidate && !regimeEligible ? "opacity-60" : ""}`} data-testid={`state-${t.symbol}-${candidate?.setup || "none"}`}>
           <div className="flex flex-col gap-1">

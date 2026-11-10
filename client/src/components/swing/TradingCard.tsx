@@ -1,5 +1,6 @@
 import { ModalLargeChart } from "./ModalLargeChart";
 import { ScaleOutRLadder } from "./ScaleOutRLadder";
+import { AlertOptInToggle } from "@/components/AlertOptInToggle";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import { FidelityExecutionGuide } from "@/components/FidelityExecutionGuide";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
@@ -1922,6 +1923,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           >
             {d.symbol}
           </span>
+
+          {/* Opt-In Alert Notification Toggle */}
+          <AlertOptInToggle symbol={d.symbol} />
 
           <span
             className={`font-mono tabular-nums text-sm font-bold text-slate-300 shrink-0 ${isSyncingLiveData ? "hidden" : ""}`}

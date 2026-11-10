@@ -4,6 +4,7 @@ import type { Server } from "node:http";
 import fs from "node:fs";
 import path from "node:path";
 import { storage } from "./storage";
+import { toggleTickerAlertOptIn, isTickerAlertOptedIn } from "./alertOptInStore";
 import {
   startPricePoller,
   setupPriceWebSocket,
@@ -224,6 +225,38 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       if (!ids) return res.status(400).json({ error: "ids[] required" });
       await storage.reorderWatchlist(ids);
       res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  });
+
+  // ─── Watchlist alert opt-in toggle (Strict Opt-In Engine) ──────────
+  const handleAlertToggle = async (req: any, res: any) => {
+    try {
+      const sym = String(req.params.symbol || "").toUpperCase().trim();
+      if (!sym || !/^[A-Z0-9.\-]{1,12}$/.test(sym)) {
+        return res.status(400).json({ error: "Invalid ticker symbol" });
+      }
+      const explicit = typeof req.body?.enabled === "boolean" ? req.body.enabled : undefined;
+      const result = await toggleTickerAlertOptIn(sym, explicit);
+      res.json({
+        ok: true,
+        symbol: result.symbol,
+        alertsEnabled: result.alertsEnabled,
+      });
+    } catch (e: any) {
+      res.status(500).json({ error: e?.message || String(e) });
+    }
+  };
+
+  app.put("/api/watchlist/:symbol/alert-toggle", handleAlertToggle);
+  app.post("/api/watchlist/:symbol/alert-toggle", handleAlertToggle);
+  app.get("/api/watchlist/:symbol/alert-toggle", async (req: any, res: any) => {
+    try {
+      const sym = String(req.params.symbol || "").toUpperCase().trim();
+      if (!sym) return res.status(400).json({ error: "Invalid ticker symbol" });
+      const enabled = await isTickerAlertOptedIn(sym);
+      res.json({ ok: true, symbol: sym, alertsEnabled: enabled });
     } catch (e: any) {
       res.status(500).json({ error: e?.message || String(e) });
     }

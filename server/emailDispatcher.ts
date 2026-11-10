@@ -17,8 +17,9 @@
 import { getTradingDayKey } from "./telegramDispatcher";
 import { isRegularMarketHours } from "./marketHours";
 import { calculatePositionSize } from "../shared/positionSizing";
+import { isTickerAlertOptedIn, formatInstitutionalConfirmedAlert } from "./alertOptInStore";
 
-export { isRegularMarketHours, calculatePositionSize };
+export { isRegularMarketHours, calculatePositionSize, isTickerAlertOptedIn, formatInstitutionalConfirmedAlert };
 
 export interface ApprovedSetupEmailPayload {
   userEmail?: string;
@@ -250,11 +251,18 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   const supportLevel = p.supportLevel || p.validatedSma || "20-SMA Support";
   const regime = p.regime || "4H 20-SMA Pullback Valid";
   const subject = formatApprovedSetupEmailSubject(ticker);
+  const headline = formatInstitutionalConfirmedAlert({
+    ticker,
+    entryPrice: entry,
+    stopLoss: stop,
+    target1: t1,
+  });
 
   const ticketLine1 = `BUY [${shares}] Shares Limit @ $${entry.toFixed(2)}`;
   const ticketLine2 = `OCO SELL [${t1Shares}] Shares @ $${t1.toFixed(2)} (T1) | STOP [${t2Shares}] Shares @ $${stop.toFixed(2)}`;
 
   const text = [
+    headline,
     subject,
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`,
     `📈 TICKER: ${ticker}`,
@@ -434,6 +442,20 @@ export async function dispatchApprovedExecutionEmail(
         ok: true,
         status: "suppressed",
         error: "DROP ALERT: Setup is not 100% actionable (not an actionable execution setup).",
+        subject,
+        text,
+        html,
+      };
+    }
+
+    // Strict Opt-In Gate: Drop/suppress alert if alerts_enabled is false for this ticker
+    const isOptedIn = await isTickerAlertOptedIn(ticker);
+    if (!isOptedIn) {
+      console.log(`[EmailDispatcher] Alert suppressed: alerts_enabled is false for ${ticker}`);
+      return {
+        ok: true,
+        status: "suppressed",
+        error: `DROP ALERT: alerts_enabled is false for ${ticker}`,
         subject,
         text,
         html,

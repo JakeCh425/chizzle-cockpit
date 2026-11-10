@@ -15,6 +15,7 @@ import {
   dispatchServerSetupAlert,
   clearNotificationAuditLog,
 } from "../../server/backendNotificationWorker";
+import { setTickerAlertOptIn } from "../../server/alertOptInStore";
 
 describe("Telegram Bot Refactor - Strict Channel Targeting, Session Deduplication & 1H Candle Gate", () => {
   const originalEnv = { ...process.env };
@@ -22,6 +23,8 @@ describe("Telegram Bot Refactor - Strict Channel Targeting, Session Deduplicatio
   beforeEach(() => {
     clearAlertLedger();
     clearNotificationAuditLog();
+    setTickerAlertOptIn("SMH", true);
+    setTickerAlertOptIn("NVDA", true);
     process.env = { ...originalEnv };
   });
 

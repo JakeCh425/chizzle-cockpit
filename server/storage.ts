@@ -58,15 +58,21 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import { eq, desc, and, sql } from "drizzle-orm";
 
-if (!process.env.DATABASE_URL) {
+const isTestMode = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
+
+if (!process.env.DATABASE_URL && !isTestMode) {
   console.error("[storage] FATAL: DATABASE_URL environment variable is not set. Set it to your Neon Postgres connection string and restart.");
   process.exit(1);
 }
 
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false },
-});
+export const pool = new Pool(
+  process.env.DATABASE_URL
+    ? {
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false },
+      }
+    : undefined
+);
 
 // ─── Run migrations inline (idempotent via IF NOT EXISTS) ─────────────────────
 async function runMigrations() {
@@ -114,7 +120,8 @@ CREATE TABLE IF NOT EXISTS watchlist (
   state TEXT NOT NULL DEFAULT 'DORMANT',
   score_components TEXT NOT NULL DEFAULT '{}',
   total_score DOUBLE PRECISION NOT NULL DEFAULT 0,
-  grade TEXT NOT NULL DEFAULT 'Ignore'
+  grade TEXT NOT NULL DEFAULT 'Ignore',
+  alerts_enabled BOOLEAN NOT NULL DEFAULT false
 );
 
 CREATE TABLE IF NOT EXISTS trades (
@@ -563,6 +570,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_mtf_universe_symbol_exchange ON mtf_univers
     // instead of being purged. Defaults to false; existing rows are active.
     "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived BOOLEAN NOT NULL DEFAULT false",
     "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS archived_at TEXT",
+    // Opt-in alert notifications per ticker (defaults to false for strict opt-in)
+    "ALTER TABLE watchlist ADD COLUMN IF NOT EXISTS alerts_enabled BOOLEAN NOT NULL DEFAULT false",
     // 2026-06: Phase 5 Risk Governor — extend settings with new risk fields.
     "ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_daily_loss_amount DOUBLE PRECISION NOT NULL DEFAULT 50",
     "ALTER TABLE settings ADD COLUMN IF NOT EXISTS max_weekly_loss_amount DOUBLE PRECISION NOT NULL DEFAULT 150",
@@ -928,6 +937,44 @@ export const storage = {
     for (let i = 0; i < orderedIds.length; i++) {
       await db.update(watchlist).set({ position: i } as any).where(eq(watchlist.id, orderedIds[i]));
     }
+  },
+  async getWatchlistAlertsEnabled(symbol: string): Promise<boolean> {
+    const sym = symbol.toUpperCase().trim();
+    const res = await pool.query<{ alerts_enabled: boolean }>(
+      `SELECT w.alerts_enabled
+       FROM watchlist w
+       JOIN tickers t ON t.id = w.ticker_id
+       WHERE UPPER(t.symbol) = $1 AND w.archived = false
+       LIMIT 1`,
+      [sym]
+    );
+    if (res.rows.length === 0) {
+      return false;
+    }
+    return Boolean(res.rows[0].alerts_enabled);
+  },
+  async toggleWatchlistAlerts(symbol: string, enabled?: boolean): Promise<{ symbol: string; alertsEnabled: boolean }> {
+    const sym = symbol.toUpperCase().trim();
+    let ticker = await this.getTickerBySymbol(sym);
+    let watchItem: WatchlistItem | undefined;
+
+    if (!ticker) {
+      const created = await this.createTickerWithWatchlist(sym, 0, 2);
+      ticker = created.ticker;
+      watchItem = created.watchlist;
+    } else {
+      const rows = await db.select().from(watchlist).where(eq(watchlist.tickerId, ticker.id)).limit(1);
+      if (rows.length === 0) {
+        const added = await this.addWatchlistBySymbol(sym, 0);
+        watchItem = added.watchlist;
+      } else {
+        watchItem = rows[0];
+      }
+    }
+
+    const nextVal = enabled !== undefined ? Boolean(enabled) : !watchItem.alertsEnabled;
+    await db.update(watchlist).set({ alertsEnabled: nextVal } as any).where(eq(watchlist.id, watchItem.id));
+    return { symbol: sym, alertsEnabled: nextVal };
   },
 
   // trades — main lists exclude archived rows.

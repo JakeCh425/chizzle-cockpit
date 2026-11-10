@@ -75,6 +75,8 @@ export const watchlist = pgTable("watchlist", {
   // 2026-06: soft-archive (deletions go here, can be restored from the Archived section).
   archived: boolean("archived").notNull().default(false),
   archivedAt: text("archived_at"),
+  // Opt-in alert notifications (strict opt-in per ticker, defaults to false)
+  alertsEnabled: boolean("alerts_enabled").notNull().default(false),
 });
 
 // ─── trades ───────────────────────────────────────────────────────────────────
