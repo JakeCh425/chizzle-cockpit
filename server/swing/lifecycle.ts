@@ -489,6 +489,31 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   d.passedRules.push(...g.passed, `not extended (${fx(ex.pct)}% / ${fx(ex.atr)} ATR above ${extRefLabel})`, `R:R to T1 ${fx(plan.rrT1)} ≥ ${s.minRrT1}`);
   d.whyNotReady = [];
   d.whyThisPrinted.push(`plan: entry ${fx(plan.entry)} · stop ${fx(plan.stop)} · T1 ${fx(plan.t1)} · T2 ${fx(plan.t2)}`, GAP_RISK_WARNING);
+  // ── End-of-Day Expiration Rule (§EOD) ──────────────────────────────────────
+  // If the engine evaluates a setup after 4:00 PM ET (16:00 market time / 15:00 CT)
+  // on or after the day the signal was generated, and the entry trigger was not reached
+  // during that day's regular market hours, downgrade from READY_TO_TRADE back to
+  // SETUP_CONFIRMED (Pending) or SIGNAL_EXPIRED to protect against overnight gap risks.
+  const signalDateParts = chicago(signalEnd);
+  const signalDayCloseTs = chicagoTs(signalDateParts.ymd, 15 * 60); // 15:00 CT = 16:00 ET = 4:00 PM ET
+  const isPastMarketClose = c.E.now >= signalDayCloseTs;
+  const entryLevel = plan.entry ?? trigger;
+  const wasTriggerHitInRth =
+    (c.price != null && c.price >= entryLevel && c.E.now < signalDayCloseTs) ||
+    c.closed1h.some((b) => b.t >= signalEnd && b.h >= entryLevel && chicago(b.t).ymd === signalDateParts.ymd);
+
+  if (isPastMarketClose && !wasTriggerHitInRth) {
+    d.riskLabel = "EXPIRED — END OF DAY";
+    d.whyNotReady = [
+      `Setup expired at market close (${fmtCT(signalDayCloseTs)}). Entry trigger ${fx(entryLevel)} was not reached during regular market hours.`,
+      "Un-triggered Day 1 setups do not remain Live Execution Ready into Day 2, protecting against overnight gap risks.",
+    ];
+    d.nextAction = `${sym} setup expired at market close without filling. Wait for next market session to confirm fresh levels.`;
+    d.suggestedShares = 0;
+    (d as any).expiredEndOfDay = true;
+    return out("SETUP_CONFIRMED", { earlyTrigger: early });
+  }
+
   // ── Data-status rules v2: DELAYED / STALE block Ready — the card and its levels stay visible ──
   if (dataRulesV2() && (c.dataStatus === "DELAYED" || c.dataStatus === "STALE")) {
     d.riskLabel = dataVerifyLabel(c.dataStatus);
@@ -497,6 +522,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     d.suggestedShares = 0;
     return out("BLOCKED_DATA_MISMATCH", { earlyTrigger: early });
   }
+
   d.nextAction = "Practice plan is available. Review entry, stop, targets, and risk.";
   return out("READY_TO_TRADE", { earlyTrigger: early });
 }

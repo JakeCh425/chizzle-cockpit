@@ -28,6 +28,11 @@ export function ActiveExecutionHeroCard({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [customCash, setCustomCash] = useState<number>((trade as any)?.capital || 1000);
+  const customShares = trade.entryPrice && trade.entryPrice > 0 ? Math.floor(customCash / trade.entryPrice) : trade.shares;
+  const effectiveShares = customShares > 0 ? customShares : trade.shares;
+  const effectiveT1Shares = Math.floor(effectiveShares / 2);
+  const effectiveT2Shares = effectiveShares - effectiveT1Shares;
 
   useEffect(() => {
     if (bulkExpanded !== undefined && bulkExpanded !== null) {
@@ -40,8 +45,8 @@ export function ActiveExecutionHeroCard({
   const alertTimeText = auditLog.formattedTime || (trade as any).alertTimestamp || "10:00 CT";
 
   // Trade capital & risk calculations
-  const totalCapital = trade.shares * trade.entryPrice;
-  const totalRisk = trade.shares * trade.riskPerShare;
+  const totalCapital = effectiveShares * trade.entryPrice;
+  const totalRisk = effectiveShares * trade.riskPerShare;
 
   // Live price strictly from central market store
   const livePrice =
@@ -237,7 +242,7 @@ export function ActiveExecutionHeroCard({
           <ScaleOutRLadder
             entryPrice={trade.entryPrice}
             stopLossPrice={trade.stopLoss}
-            totalShares={trade.shares}
+            totalShares={effectiveShares /* totalShares={trade.shares} */}
             resistancePrice={(trade as any).resistancePrice ?? (trade as any).structuralResistance}
             symbol={trade.symbol}
           />
@@ -255,7 +260,7 @@ export function ActiveExecutionHeroCard({
               </div>
               <div className="flex items-center gap-3">
                 <span className="font-mono text-[10px] text-slate-400">
-                  Account Sizing: <strong>{trade.shares} total shares</strong> ($250 standard max risk)
+                  Account Sizing: <strong>{effectiveShares} total shares</strong> ($250 standard max risk)
                 </span>
                 <button
                   type="button"
@@ -264,7 +269,7 @@ export function ActiveExecutionHeroCard({
                       `FIDELITY ORDER TICKET: ${trade.symbol}`,
                       `STEP 1 - BUY LIMIT ENTRY:`,
                       `• Action: BUY`,
-                      `• Quantity: ${trade.shares} shares`,
+                      `• Quantity: ${effectiveShares} shares`,
                       `• Order Type: LIMIT`,
                       `• Limit Price: $${trade.entryPrice.toFixed(2)}`,
                       `• Time in Force: DAY`,
@@ -272,13 +277,13 @@ export function ActiveExecutionHeroCard({
                       `STEP 2 - CONDITIONAL BRACKET (OCO):`,
                       `[Leg 1 - Profit Target]:`,
                       `• Action: SELL`,
-                      `• Quantity: ${trade.t1Shares} shares (50% scale)`,
+                      `• Quantity: ${effectiveT1Shares} shares (50% scale)`,
                       `• Order Type: LIMIT`,
                       `• Limit Price: $${trade.target1.toFixed(2)}`,
                       `• Time in Force: GTC (Good 'Til Canceled)`,
                       `[Leg 2 - Stop Loss Protection]:`,
                       `• Action: SELL`,
-                      `• Quantity: ${trade.shares} shares (Full position)`,
+                      `• Quantity: ${effectiveShares} shares (Full position)`,
                       `• Order Type: STOP`,
                       `• Stop Price: $${trade.stopLoss.toFixed(2)}`,
                       `• Time in Force: GTC`,
@@ -291,6 +296,35 @@ export function ActiveExecutionHeroCard({
                   {copiedKey === "full-ticket" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                   <span>{copiedKey === "full-ticket" ? "ORDER TICKET COPIED TO CLIPBOARD" : "COPY FIDELITY ORDER TICKET"}</span>
                 </button>
+              </div>
+            </div>
+
+            {/* Custom Allocation Control Bar (Just above the Fidelity Ticket order steps) */}
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-ink-line bg-ink-black/60 shadow-inner mb-3"
+              data-testid={`hero-custom-allocation-bar-${trade.symbol}`}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray">
+                  Custom Allocation:
+                </span>
+                <input
+                  type="number"
+                  value={customCash}
+                  onChange={(e) => setCustomCash(Number(e.target.value))}
+                  className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32"
+                  data-testid={`hero-input-cash-${trade.symbol}`}
+                  placeholder="1000"
+                />
+              </div>
+
+              <div className="flex items-center gap-2 font-mono">
+                <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                  Calculated Shares:
+                </span>
+                <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
+                  <strong className="text-neon-blue font-extrabold">{effectiveShares}</strong> Shares
+                </span>
               </div>
             </div>
 
@@ -311,10 +345,10 @@ export function ActiveExecutionHeroCard({
                   <div className="flex justify-between py-1 border-b border-slate-800/60">
                     <span className="text-slate-400">Shares / Quantity:</span>
                     <div className="flex items-center gap-1.5">
-                      <strong className="text-white tabular-nums">{trade.shares}</strong>
+                      <strong className="text-white tabular-nums">{effectiveShares}</strong>
                       <button
                         type="button"
-                        onClick={() => copyToClipboard(String(trade.shares), "shares", "Shares")}
+                        onClick={() => copyToClipboard(String(effectiveShares), "shares", "Shares")}
                         className="text-slate-400 hover:text-white"
                         title="Copy Shares"
                         data-testid={`copy-hero-shares-${trade.symbol}`}
@@ -359,7 +393,7 @@ export function ActiveExecutionHeroCard({
                 <div className="space-y-1.5 text-xs font-mono">
                   <div className="p-2 rounded bg-slate-900 border border-emerald-900/60 flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] text-emerald-400 font-bold block">Order 1: Sell Limit ({trade.t1Shares} shares @ 1.5R)</span>
+                      <span className="text-[10px] text-emerald-400 font-bold block">Order 1: Sell Limit ({effectiveT1Shares} shares @ 1.5R)</span>
                       <span className="font-extrabold text-white text-sm tabular-nums">${trade.target1.toFixed(2)}</span>
                     </div>
                     <button
@@ -375,7 +409,7 @@ export function ActiveExecutionHeroCard({
 
                   <div className="p-2 rounded bg-slate-900 border border-rose-900/60 flex items-center justify-between">
                     <div>
-                      <span className="text-[10px] text-rose-400 font-bold block">Order 2: Stop Loss (All {trade.shares} shares @ 1.0R)</span>
+                      <span className="text-[10px] text-rose-400 font-bold block">Order 2: Stop Loss (All {effectiveShares} shares @ 1.0R)</span>
                       <span className="font-extrabold text-rose-400 text-sm tabular-nums">${trade.stopLoss.toFixed(2)}</span>
                     </div>
                     <button

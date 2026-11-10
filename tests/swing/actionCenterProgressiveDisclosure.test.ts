@@ -119,12 +119,12 @@ describe("Action Center & Setup Card Progressive Disclosure Architecture", () =>
     });
 
     it("Task 2: dynamically calculates shares and displays prominent count, wired to execution ticket and compact row", () => {
-      expect(tradingCardSrc).toContain("Math.floor(numericCash / plannedEntry)");
+      expect(tradingCardSrc).toContain("Math.floor(customCash / p.entry)");
       expect(tradingCardSrc).toContain('data-testid={`text-calculated-shares-${d.symbol}`}');
-      expect(tradingCardSrc).toContain("{calculatedShares}");
-      expect(tradingCardSrc).toContain("Broker Ticket ({calculatedShares} Shares):");
-      expect(tradingCardSrc).toContain("calculatedShares={calculatedShares}");
-      expect(tradingCardSrc).toContain("totalShares={calculatedShares}");
+      expect(tradingCardSrc).toMatch(/{customShares}|{calculatedShares}/);
+      expect(tradingCardSrc).toMatch(/Broker Ticket \({customShares} Shares\):|Broker Ticket \({calculatedShares} Shares\):/);
+      expect(tradingCardSrc).toMatch(/calculatedShares={customShares}|calculatedShares={calculatedShares}/);
+      expect(tradingCardSrc).toMatch(/totalShares={customShares}|totalShares={calculatedShares}/);
     });
 
     it("Task 3: renders account equity and risk telemetry block with conditional 2.0% threshold coloring", () => {

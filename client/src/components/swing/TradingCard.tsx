@@ -238,6 +238,56 @@ export function computeTargetLevels(
   };
 }
 
+/**
+ * End-of-Day Expiration Utility (Task 2):
+ * Checks if a READY_TO_TRADE setup has expired past the 4:00 PM ET (16:00 ET / 15:00 CT) market close
+ * on the day the signal was generated.
+ */
+export function isSignalPastEndOfDay(d: SwingDecision, now: Date = new Date()): boolean {
+  if (d.setupStatus !== "READY_TO_TRADE") return false;
+  const signalTs = d.setupTimestamp || (d as any).signalAge?.confirmedAt || d.quoteTimestamp;
+  if (!signalTs) return false;
+
+  const signalDate = new Date(signalTs);
+  if (isNaN(signalDate.getTime())) return false;
+
+  const nyFmt = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  });
+
+  const getNyParts = (date: Date) => {
+    const parts = nyFmt.formatToParts(date);
+    const map: Record<string, string> = {};
+    for (const p of parts) map[p.type] = p.value;
+    return {
+      ymd: `${map.year}-${map.month}-${map.day}`,
+      minutes: Number(map.hour) * 60 + Number(map.minute),
+    };
+  };
+
+  const signalNy = getNyParts(signalDate);
+  const nowNy = getNyParts(now);
+  const closeMinutes = 16 * 60; // 4:00 PM ET (16:00)
+
+  // Past signal day entirely
+  if (nowNy.ymd > signalNy.ymd) {
+    return true;
+  }
+
+  // Same day, but past 4:00 PM ET
+  if (nowNy.ymd === signalNy.ymd && nowNy.minutes >= closeMinutes) {
+    return true;
+  }
+
+  return false;
+}
+
 export function beginnerStatusText(
   d: SwingDecision,
   group: ActionGroup,
@@ -1596,11 +1646,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const [isBodyExpanded, setIsBodyExpanded] = useState(false);
   const [isMiniGuideOpen, setIsMiniGuideOpen] = useState(false);
 
+  // Task 2: End-of-Day Auto-Expiration (Frontend)
+  const isExpiredEndOfDay = isSignalPastEndOfDay(d);
+
+  useEffect(() => {
+    if (isExpiredEndOfDay) {
+      setIsExpanded(false);
+    }
+  }, [isExpiredEndOfDay]);
+
   useEffect(() => {
     if (props.bulkExpanded !== undefined && props.bulkExpanded !== null) {
-      setIsExpanded(props.bulkExpanded);
+      if (!isExpiredEndOfDay) {
+        setIsExpanded(props.bulkExpanded);
+      }
     }
-  }, [props.bulkExpanded]);
+  }, [props.bulkExpanded, isExpiredEndOfDay]);
 
   useEffect(() => {
     if (props.collapsed === true && (props.bulkExpanded === undefined || props.bulkExpanded === null)) {
@@ -1657,24 +1718,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const dynamicShares = sizer.calculatedShares > 0 ? sizer.calculatedShares : positionShares;
   const dynamicFunding = sizer.totalCapitalRequired > 0 ? sizer.totalCapitalRequired : fundingAllocated;
 
-  // Dynamic Trade Capital & Manual Position Sizing
-  const defaultCashAllocation = dynamicFunding > 0 ? Math.round(dynamicFunding) : (activeEntry ? Math.round(activeEntry * (dynamicShares || 1)) : 1000);
-  const [customCash, setCustomCash] = useState<string | number>(defaultCashAllocation);
-  const [isCustomCashEdited, setIsCustomCashEdited] = useState(false);
-
-  useEffect(() => {
-    if (!isCustomCashEdited && dynamicFunding > 0) {
-      setCustomCash(Math.round(dynamicFunding));
-    }
-  }, [dynamicFunding, isCustomCashEdited]);
-
-  const numericCash = typeof customCash === "number" ? customCash : parseFloat(String(customCash));
-  const hasValidCustomCash = !isNaN(numericCash) && numericCash > 0;
+  // Dynamic Trade Capital & Manual Position Sizing (Task 1)
+  const [customCash, setCustomCash] = useState<number>(p.capital || (dynamicFunding > 0 ? Math.round(dynamicFunding) : 1000));
+  const numericCash = customCash;
   const plannedEntry = activeEntry ?? p.entry ?? 1;
-  const calculatedShares = hasValidCustomCash && plannedEntry > 0 ? Math.floor(numericCash / plannedEntry) : dynamicShares;
-  const effectiveFunding = hasValidCustomCash ? numericCash : dynamicFunding;
+  const customShares = p.entry ? Math.floor(customCash / p.entry) : Math.floor(numericCash / plannedEntry);
+  const calculatedShares = customShares > 0 ? customShares : dynamicShares;
+  const effectiveFunding = customCash > 0 ? customCash : dynamicFunding;
   const activeRiskPerShare = activeRisk && activeRisk > 0 ? activeRisk : (activeEntry != null && activeStop != null ? Math.abs(activeEntry - activeStop) : 1);
-  const totalRisk = calculatedShares * activeRiskPerShare;
+  const totalRisk = customShares * activeRiskPerShare;
   const riskPercent = safeEquity > 0 ? (totalRisk / safeEquity) * 100 : 0;
 
   // Execution-Quality Gatekeeper (6-Point Quality Trade Validation)
@@ -1752,8 +1804,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   }, [d.setupType, d.notes, (d as any).bars, (d as any).sma20, effectivePrice]);
 
   // Ready to Buy subtle glow distinction (amber in practice mode, emerald in live mode)
-  const isReadyToBuy = group === "READY" && f.isTradeable;
-  const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
+  const isReadyToBuy = group === "READY" && f.isTradeable && !isExpiredEndOfDay;
+  const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED" || isExpiredEndOfDay;
 
   const stageInfo = useMemo(() => {
     return tradeSetupStore.evaluateSetupStage({
@@ -1769,7 +1821,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
 
   const { config: cardThemeCfg } = useCardTheme();
 
-  const cardBorderClass = isPracticeMode && isReadyToBuy
+  const cardBorderClass = isExpiredEndOfDay
+    ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
+    : isPracticeMode && isReadyToBuy
     ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-500/40"
     : isReadyToBuy || stageInfo.stage === 3 || isConfirmed
     ? "border-2 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] ring-1 ring-emerald-500/40"
@@ -1917,7 +1971,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               [ MOMENTUM SETUP: 10-SMA ]
             </span>
           )}
-          {stageInfo.isInitializing ? (
+          {isExpiredEndOfDay ? (
+            <span
+              data-testid={`badge-expired-eod-${d.symbol}`}
+              className="rounded-full border border-rose-500/80 bg-rose-950/80 px-2.5 py-0.5 font-mono text-[9.5px] font-bold text-rose-300 shadow-sm shrink-0"
+              title="Setup expired at market close (4:00 PM ET). Un-triggered Day 1 setups do not remain Live Execution Ready into Day 2."
+            >
+              [ EXPIRED - END OF DAY ]
+            </span>
+          ) : stageInfo.isInitializing ? (
             <span
               data-testid={`badge-stage-initializing-${d.symbol}`}
               className="rounded-full border border-cyan-400 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold text-cyan-300 animate-pulse shrink-0"
@@ -1946,7 +2008,13 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               [ WATCH / PENDING RETEST ]
             </span>
           )}
-          <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
+          <StatusPill
+            d={d}
+            f={f}
+            tone={isExpiredEndOfDay ? "warn" : freshTone(d, group, f)}
+            Icon={isExpiredEndOfDay ? Clock : (overridesStatus(d, f) ? AlertTriangle : ICON[group])}
+            text={isExpiredEndOfDay ? "EXPIRED - END OF DAY" : statusText(d, group, live, f)}
+          />
         </div>
 
         {/* 3 Core Prices: Buy Target, Stop Loss, Target 1 + POSITION SIZING Block */}
@@ -2127,32 +2195,67 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 data-testid={`mini-fidelity-guide-${d.symbol}`}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
-                    <ClipboardList className="h-3.5 w-3.5" />
-                    <span>Broker Ticket ({calculatedShares} Shares):</span>
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wider uppercase">
+                      1-Click Fidelity Ticket
+                    </span>
+                    <span className="font-mono text-xs font-bold uppercase text-white tracking-wider flex items-center gap-1.5">
+                      <ClipboardList className="h-3.5 w-3.5 text-emerald-400" />
+                      Broker Ticket ({customShares} Shares):
+                    </span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold tabular-nums">
                     <span className="text-emerald-400">
-                      BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({calculatedShares} sh)
+                      BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({customShares} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-cyan-300">
-                      SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(calculatedShares / 2)} sh)
+                      SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(customShares / 2)} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-rose-400">
-                      SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({calculatedShares - Math.floor(calculatedShares / 2)} sh)
+                      SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({customShares - Math.floor(customShares / 2)} sh)
                     </span>
                   </div>
                 </div>
+
+                {/* Custom Allocation Control Bar (Just above the Fidelity Ticket) */}
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-ink-line bg-ink-black/60 shadow-inner my-1"
+                  data-testid={`custom-allocation-bar-${d.symbol}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray">
+                      Custom Allocation:
+                    </span>
+                    <input
+                      type="number"
+                      value={customCash}
+                      onChange={(e) => setCustomCash(Number(e.target.value))}
+                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32"
+                      data-testid={`input-cash-${d.symbol}`}
+                      placeholder="1000"
+                    />
+                  </div>
+
+                  <div className="flex items-center gap-2 font-mono" data-testid={`text-calculated-shares-${d.symbol}`}>
+                    <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                      Calculated Shares:
+                    </span>
+                    <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
+                      <strong className="text-neon-blue font-extrabold">{customShares}</strong> Shares
+                    </span>
+                  </div>
+                </div>
+
                 <FidelityExecutionGuide
                   ticker={d.symbol}
                   entryPrice={activeEntry}
                   stopLoss={activeStop}
                   target1={targets.t1}
                   target2={targets.t2}
-                  calculatedShares={calculatedShares}
+                  calculatedShares={customShares}
                   isOpen={isMiniGuideOpen}
                   onClose={() => setIsMiniGuideOpen(false)}
                   className="!static !w-full !max-w-full mt-1"
@@ -2165,7 +2268,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               <ScaleOutRLadder
                 entryPrice={activeEntry}
                 stopLossPrice={activeStop}
-                totalShares={calculatedShares}
+                totalShares={customShares}
                 resistancePrice={overheadResistancePrice}
                 symbol={d.symbol}
               />
@@ -2179,29 +2282,23 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2.5">
                   <label
-                    htmlFor={`input-cash-${d.symbol}`}
+                    htmlFor={`input-cash-panel-${d.symbol}`}
                     className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray"
                   >
                     Cash Allocation:
                   </label>
                   <input
-                    id={`input-cash-${d.symbol}`}
+                    id={`input-cash-panel-${d.symbol}`}
                     type="number"
-                    step="10"
-                    min="0"
                     value={customCash}
-                    onChange={(e) => {
-                      setIsCustomCashEdited(true);
-                      setCustomCash(e.target.value);
-                    }}
-                    placeholder={dynamicFunding > 0 ? String(Math.round(dynamicFunding)) : "1000"}
+                    onChange={(e) => setCustomCash(Number(e.target.value))}
                     className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors tabular-nums w-32 sm:w-36"
-                    data-testid={`input-cash-${d.symbol}`}
+                    data-testid={`input-cash-panel-${d.symbol}`}
                     title="Manual Cash Allocation ($)"
                   />
                 </div>
 
-                <div className="flex items-center gap-2 font-mono" data-testid={`text-calculated-shares-${d.symbol}`}>
+                <div className="flex items-center gap-2 font-mono">
                   <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
                     Calculated Shares:
                   </span>
