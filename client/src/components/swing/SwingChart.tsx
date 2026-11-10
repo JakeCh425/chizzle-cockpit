@@ -12,7 +12,7 @@ import {
 } from "lightweight-charts";
 import type { ChartMarker, ChartLevel, ChartZone, SwingDecision } from "@shared/swingDecision";
 import { STATUS_LABEL } from "@shared/swingDecision";
-import { DATA_TONE, fmtCT, swingGet, type BarsResp } from "@/lib/swing";
+import { DATA_TONE, fmtCT, swingGet, fetchBarsWithFallback, type BarsResp } from "@/lib/swing";
 import { usePersistentState } from "@/hooks/use-persistent-state";
 import { expiredExplainer } from "@shared/tradeSummary";
 import { hasPlan, stopLimitFor } from "./TradeTicket";
@@ -296,7 +296,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
 
   const bars = useQuery<BarsResp>({
     queryKey: ["/api/swing/bars", symbol ?? "", tf, range, ov.ext ? "1" : "0"],
-    queryFn: () => swingGet<BarsResp>(`/api/swing/bars/${symbol}?tf=${tf}&range=${range}${ov.ext ? "&extended=1" : ""}`),
+    queryFn: ({ signal }) => fetchBarsWithFallback(symbol ?? "", tf, range, Boolean(ov.ext), signal),
     enabled: !!symbol, staleTime: 60_000, retry: 1, retryDelay: 1500,
     // Keep the current chart on screen while a new range/timeframe loads (same symbol only).
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === (symbol ?? "") ? prev : undefined),
@@ -307,6 +307,16 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     const t0 = Date.now(); const id = setInterval(() => setWaitSec(Math.round((Date.now() - t0) / 1000)), 1000);
     return () => clearInterval(id);
   }, [bars.isFetching]);
+
+  // Clean mount/unmount when switching symbols (e.g. AAPL -> JPM) to prevent race conditions
+  useEffect(() => {
+    if (mainRef.current) {
+      try {
+        mainRef.current.setData([]);
+      } catch {}
+    }
+    setWaitSec(0);
+  }, [symbol]);
 
   const boxRef = useRef<HTMLDivElement>(null);
   const bandRef = useRef<HTMLDivElement>(null);
@@ -992,6 +1002,14 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
               className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-amber-400 bg-amber-500/20 text-amber-300 font-mono text-xs font-extrabold tracking-wider uppercase shadow-[0_0_12px_rgba(245,158,11,0.35)]"
             >
               [ ⚠️ DELAYED DATA ]
+            </span>
+          )}
+          {(bars.data?.isStatic || bars.data?.source === "STATIC" || b?.source === "STATIC") && (
+            <span
+              data-testid="badge-static-bars"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md border border-amber-400 bg-amber-500/20 text-amber-300 font-mono text-xs font-extrabold tracking-wider uppercase shadow-[0_0_12px_rgba(245,158,11,0.35)]"
+            >
+              [ ⚠️ STATIC {TF_LABEL[tf]} BARS ]
             </span>
           )}
           {market.isLoadingTicker && (

@@ -1,7 +1,8 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import { tradeSetupStore } from "@/lib/useTradeSetupStore";
 
 export interface MechanicalScanItem {
   ticker: string;
@@ -134,8 +135,16 @@ export function useStrategyEngine() {
     return list;
   }, [results, marketStore.prices, marketStore.currentPrice, marketStore.activeTicker, global?.livePrices, global?.confirmedSetups, dismissedSymbols]);
 
+  // Synchronize confirmed trades into centralized tradeSetupStore
+  useEffect(() => {
+    for (const trade of confirmedHeroTrades) {
+      tradeSetupStore.addActiveExecutionSetup(trade);
+    }
+  }, [confirmedHeroTrades]);
+
   const dismissHeroTrade = useCallback((symbol: string) => {
     const sym = symbol.toUpperCase();
+    tradeSetupStore.dismissHeroTrade(sym);
     setDismissedSymbols((prev) => {
       const next = new Set(prev);
       next.add(sym);

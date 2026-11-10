@@ -20,8 +20,9 @@ import {
   DEFAULT_CARD_THEME,
   cardThemeStore,
 } from "./cardTheme";
+import { tradeSetupStore } from "./useTradeSetupStore";
 
-export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore, purgeStaleLocalStorageOnBoot, clearStaleCachedPrices, type CardThemePreset };
+export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataStore, globalStore, useMarketDataStore, tradeSetupStore, purgeStaleLocalStorageOnBoot, clearStaleCachedPrices, type CardThemePreset };
 export type { MarketDataState, MarketTick, LastValidTick, SetupAlertState };
 
 export interface ActiveTickerData {
@@ -450,6 +451,29 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       const next = [newItem, ...watchlist];
       saveWatchlist(next);
       setActiveTicker(sym);
+
+      // Immediately render card marked [ INITIALIZING SCAN... ]
+      tradeSetupStore.evaluateSetupStage({
+        symbol: sym,
+        currentPrice: basePrice,
+        isInitializing: true,
+      });
+
+      // Evaluate its current 4H regime and assign it to its proper Stage within 3 seconds
+      setTimeout(() => {
+        const refSma20 = +(basePrice * 0.985).toFixed(2);
+        const refSma50 = +(basePrice * 0.965).toFixed(2);
+        const refEma10 = +(basePrice * 0.992).toFixed(2);
+        tradeSetupStore.evaluateSetupStage({
+          symbol: sym,
+          currentPrice: basePrice,
+          sma20: refSma20,
+          sma50: refSma50,
+          ema10: refEma10,
+          isInitializing: false,
+        });
+      }, 3000);
+
       return { ok: true, message: `Added ${sym} to Watchlist` };
     },
     [watchlist, saveWatchlist, setActiveTicker]
@@ -460,6 +484,9 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
       const sym = symbol.trim().toUpperCase();
       const next = watchlist.filter((item) => item.symbol !== sym);
       saveWatchlist(next);
+
+      // Remove from centralized trade setup store
+      tradeSetupStore.removeActiveExecutionSetup(sym);
 
       // Record in removed-tickers set so auto-migration does not re-add it
       if (typeof window !== "undefined") {

@@ -1,6 +1,7 @@
 import { useEffect, useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { globalStore, useMarketDataStore, type SetupAlertState } from "@/lib/useMarketDataStore";
+import { tradeSetupStore } from "@/lib/useTradeSetupStore";
 
 export interface ClientNotificationAuditEntry {
   id: string;
@@ -56,8 +57,11 @@ export function useNotificationAuditLog(symbol?: string) {
   const backendSetupStates = query.data?.setupStates ?? {};
   const cleanSym = symbol ? symbol.trim().toUpperCase() : "";
 
-  // Synchronize backend alertSent states into the frontend Global Store
+  // Synchronize backend alertSent states into the frontend Global Store and Trade Setup Store
   useEffect(() => {
+    if (Object.keys(bySymbol).length > 0) {
+      tradeSetupStore.syncFromBackendAuditLog(bySymbol);
+    }
     for (const [sym, entry] of Object.entries(bySymbol)) {
       if (entry && (entry.status === "SENT" || entry.status === "STUBBED" || entry.alertSent)) {
         const current = globalStore.getSetupAlertState(sym);

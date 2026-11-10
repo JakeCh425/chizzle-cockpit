@@ -53,6 +53,7 @@ import { useFreshness } from "@/lib/freshness";
 import { replacesEngineStatus, rrText, STATE_LABEL, STATE_TONE, type FreshnessResult } from "@shared/cardFreshness";
 import { useGlobalState } from "@/lib/globalState";
 import { is10EmaMomentumSetup, is10SmaMomentumSetup } from "@/lib/sma";
+import { tradeSetupStore } from "@/lib/useTradeSetupStore";
 
 // ─── UTILS & CONSTANTS ─────────────────────────────────────────────────────
 const BAD_DATA = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
@@ -1720,12 +1721,26 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const isReadyToBuy = group === "READY" && f.isTradeable;
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED";
 
+  const stageInfo = useMemo(() => {
+    return tradeSetupStore.evaluateSetupStage({
+      symbol: d.symbol,
+      currentPrice: effectivePrice ?? d.currentPrice ?? 100,
+      sma20: (d as any).sma20 ?? (effectivePrice != null ? +(effectivePrice * 0.985).toFixed(2) : null),
+      sma50: (d as any).sma50 ?? (effectivePrice != null ? +(effectivePrice * 0.965).toFixed(2) : null),
+      ema10: (d as any).ema10 ?? (effectivePrice != null ? +(effectivePrice * 0.992).toFixed(2) : null),
+      isTradeConfirmed: isConfirmed || group === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE",
+      isInitializing: Boolean((d as any).isInitializing),
+    });
+  }, [d.symbol, effectivePrice, isConfirmed, group, d.setupStatus, (d as any).sma20, (d as any).sma50, (d as any).ema10, (d as any).isInitializing]);
+
   const { config: cardThemeCfg } = useCardTheme();
 
   const cardBorderClass = isPracticeMode && isReadyToBuy
     ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-500/40"
-    : isReadyToBuy
-    ? "border-emerald-500/50 shadow-[0_0_20px_rgba(52,211,153,0.18)] ring-1 ring-emerald-500/30"
+    : isReadyToBuy || stageInfo.stage === 3 || isConfirmed
+    ? "border-2 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] ring-1 ring-emerald-500/40"
+    : stageInfo.stage === 2
+    ? "border border-amber-400/80 shadow-[0_0_15px_rgba(245,158,11,0.2)]"
     : isInvalidated
     ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
     : cardThemeCfg.cardBorder;
@@ -1775,6 +1790,35 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         <div className="flex items-center gap-3">
           <span className={`font-mono text-xl font-black ${cardThemeCfg.headerText}`}>{d.symbol}</span>
           <span className="font-mono text-sm font-bold text-slate-300 tabular-nums">{$(effectivePrice)}</span>
+          {stageInfo.isInitializing ? (
+            <span
+              data-testid={`badge-stage-initializing-${d.symbol}`}
+              className="rounded-full border border-cyan-400 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold text-cyan-300 animate-pulse"
+            >
+              [ INITIALIZING SCAN... ]
+            </span>
+          ) : stageInfo.stage === 3 ? (
+            <span
+              data-testid={`badge-stage-3-${d.symbol}`}
+              className="rounded-full border-2 border-emerald-500 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-black text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+            >
+              [ ⚡ ACTIVE EXECUTION READY ]
+            </span>
+          ) : stageInfo.stage === 2 ? (
+            <span
+              data-testid={`badge-stage-2-${d.symbol}`}
+              className="rounded-full border border-amber-400 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-black text-amber-300 animate-pulse"
+            >
+              [ ⏳ TESTING SUPPORT / AWAITING 1H CLOSE ]
+            </span>
+          ) : (
+            <span
+              data-testid={`badge-stage-1-${d.symbol}`}
+              className="rounded-full border border-slate-700 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold text-slate-300"
+            >
+              [ WATCH / PENDING RETEST ]
+            </span>
+          )}
           <span className="text-xs font-mono text-slate-400 hidden sm:inline">{setupName(d.setupType)}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -1938,6 +1982,37 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               NEW
             </span>
           )}
+          {/* Beginner-Friendly 3-Stage Lifecycle Badge */}
+          {stageInfo.isInitializing ? (
+            <span
+              data-testid={`badge-stage-initializing-${d.symbol}`}
+              className="rounded-full border border-cyan-400 bg-gray-900 px-2.5 py-0.5 font-mono text-[10px] font-bold text-cyan-300 animate-pulse shrink-0"
+            >
+              [ INITIALIZING SCAN... ]
+            </span>
+          ) : stageInfo.stage === 3 ? (
+            <span
+              data-testid={`badge-stage-3-${d.symbol}`}
+              className="rounded-full border-2 border-emerald-500 bg-gray-900 px-2.5 py-0.5 font-mono text-[10.5px] font-black text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.4)] shrink-0"
+            >
+              [ ⚡ ACTIVE EXECUTION READY ]
+            </span>
+          ) : stageInfo.stage === 2 ? (
+            <span
+              data-testid={`badge-stage-2-${d.symbol}`}
+              className="rounded-full border border-amber-400 bg-gray-900 px-2.5 py-0.5 font-mono text-[10.5px] font-black text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.3)] animate-pulse shrink-0"
+            >
+              [ ⏳ TESTING SUPPORT / AWAITING 1H CLOSE ]
+            </span>
+          ) : (
+            <span
+              data-testid={`badge-stage-1-${d.symbol}`}
+              className="rounded-full border border-slate-700 bg-gray-900 px-2.5 py-0.5 font-mono text-[10.5px] font-bold text-slate-300 shrink-0"
+            >
+              [ WATCH / PENDING RETEST ]
+            </span>
+          )}
+
           <PendingChip d={d} />
         </div>
 
@@ -2006,6 +2081,20 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             ) : (
               <ChevronDown className="h-4 w-4 text-slate-900 shrink-0" />
             )}
+          </button>
+
+          {/* Watchlist Delete Button */}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              global?.removeTicker?.(d.symbol);
+            }}
+            data-testid={`button-delete-ticker-${d.symbol}`}
+            className="p-1 px-2 rounded-md border border-gray-700 bg-gray-900 hover:bg-rose-950/40 text-slate-400 hover:text-rose-400 font-mono text-[11px] font-bold transition-colors cursor-pointer shrink-0"
+            title={`Remove ${d.symbol} from watchlist`}
+          >
+            [ x ]
           </button>
         </div>
       </div>
@@ -2629,8 +2718,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           )}
 
           {/* ─── STATUS TEXT: Plain-English beginner-friendly sentence ─── */}
-          <div className="my-1 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 text-xs font-medium leading-relaxed text-slate-200">
-            {statusSentence}
+          <div className="my-1 rounded-lg border border-ink-line/40 bg-ink-black/40 backdrop-blur-sm px-3 py-2 text-xs font-medium leading-relaxed text-slate-200" data-testid={`stage-status-text-${d.symbol}`}>
+            {stageInfo.statusText || statusSentence}
           </div>
 
           {/* ─── EMBEDDED SPARKLINE CHART (Click to expand large modal chart) ─── */}

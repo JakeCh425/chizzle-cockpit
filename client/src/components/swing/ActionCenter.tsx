@@ -26,6 +26,7 @@ import { CardThemeSwitcher } from "./CardThemeSwitcher";
 import { ActiveExecutionHeroCard } from "./ActiveExecutionHeroCard";
 import { evaluateQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { useStrategyEngine, type ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
+import { useTradeSetupStore, tradeSetupStore } from "@/lib/useTradeSetupStore";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
 import { useFreshness } from "@/lib/freshness";
@@ -532,8 +533,27 @@ function ActionCenterInner() {
   const auditLog = useNotificationAuditLog();
   const { toast } = useToast();
   const strategyEngine = useStrategyEngine();
-  const heroTrades = strategyEngine.confirmedHeroTrades;
-  const heroSymSet = new Set(heroTrades.map((t) => t.symbol));
+  const storeActiveSetups = useTradeSetupStore((s) => s.activeExecutionSetups);
+
+  const heroTrades = useMemo(() => {
+    const map = new Map<string, ConfirmedHeroTrade>();
+    for (const t of storeActiveSetups) {
+      map.set(t.symbol.toUpperCase(), t);
+    }
+    for (const t of strategyEngine.confirmedHeroTrades) {
+      if (!map.has(t.symbol.toUpperCase())) {
+        map.set(t.symbol.toUpperCase(), t);
+      }
+    }
+    return Array.from(map.values());
+  }, [storeActiveSetups, strategyEngine.confirmedHeroTrades]);
+
+  const heroSymSet = new Set(heroTrades.map((t) => t.symbol.toUpperCase()));
+
+  const handleHeroDismiss = useCallback((symbol: string) => {
+    strategyEngine.dismissHeroTrade(symbol);
+    tradeSetupStore.dismissHeroTrade(symbol);
+  }, [strategyEngine]);
 
   // Strict State-Routing Gatekeeper for the "Active Execution Zone":
   // A card may ONLY mount in the top row if isSetupReady === true AND levelsValid === true AND 1hCandleConfirmed === true.
@@ -662,7 +682,7 @@ function ActionCenterInner() {
         if (global?.setConfirmedSetup) {
           global.setConfirmedSetup(trade.symbol, false);
         }
-        strategyEngine.dismissHeroTrade(trade.symbol);
+        handleHeroDismiss(trade.symbol);
         toast({
           title: `🧪 Practice Trade Logged · ${trade.symbol}`,
           description: `${trade.symbol} logged to Practice Sandbox at ${formatCurrency(trade.entryPrice)}. Routed to Active Trades.`,
@@ -694,7 +714,7 @@ function ActionCenterInner() {
         global.setConfirmedSetup(trade.symbol, false);
       }
 
-      strategyEngine.dismissHeroTrade(trade.symbol);
+      handleHeroDismiss(trade.symbol);
       await invalidateTrades();
       toast({
         title: "Trade Executed & Active",
@@ -1009,7 +1029,7 @@ function ActionCenterInner() {
                   <ActiveExecutionHeroCard
                     key={`hero-${trade.symbol}`}
                     trade={trade}
-                    onDismiss={strategyEngine.dismissHeroTrade}
+                    onDismiss={handleHeroDismiss}
                     onArmOrExecute={handleHeroArmOrExecute}
                   />
                 ))}
