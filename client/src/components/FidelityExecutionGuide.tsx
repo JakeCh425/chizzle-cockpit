@@ -73,22 +73,28 @@ export function FidelityExecutionGuide({
   const sizer = usePositionSizer({
     accountEquity: global?.accountEquity,
     riskPercentage: global?.riskPercentage,
+    availableCash: global?.availableCash,
     entryPrice,
     stopLossPrice: stopLoss,
   });
 
-  const calculatedShares =
+  const finalShares =
     propCalculatedShares != null && propCalculatedShares > 0
       ? propCalculatedShares
       : shares != null && shares > 0
       ? shares
       : sizer.calculatedShares;
+  const calculatedShares = finalShares;
 
-  // Strict OCO mathematical split: Order 1 uses Math.floor(calculatedShares / 2), Order 2 uses exact remaining shares
+  // Strict Scale-Out Split:
+  // Order 1 (T1 Limit @ 1.5R): Math.floor(calculatedShares / 2) shares
+  // Order 2 (Stop Loss @ 1.0R): calculatedShares total shares (100% protection)
+  // Order 3 (T2 / Trail @ 2.0R): Remaining balance after T1 fill
   const order1Shares = t1Shares ?? Math.floor(calculatedShares / 2);
-  const order2RemainingShares = t2Shares ?? (calculatedShares - Math.floor(calculatedShares / 2));
+  const order2Shares = calculatedShares;
+  const order3RemainingShares = t2Shares ?? (calculatedShares - Math.floor(calculatedShares / 2));
   const t1SharesCount = order1Shares;
-  const t2SharesCount = order2RemainingShares;
+  const t2SharesCount = order3RemainingShares;
 
   if (!isOpen) return null;
 
@@ -290,11 +296,11 @@ export function FidelityExecutionGuide({
             <div className="flex items-center justify-between">
               <span className="text-slate-400">Quantity:</span>
               <span className="font-semibold text-slate-200" data-testid="guide-order-2-qty">
-                {calculatedShares > 0 ? (
+                {finalShares > 0 ? (
                   <>
-                    <span className="font-mono font-bold text-rose-400 tabular-nums">{order2RemainingShares} Shares</span>
+                    <span className="font-mono font-bold text-rose-400 tabular-nums">{order2Shares} Shares</span>
                     <span className="text-slate-400 text-[10px] ml-1.5">
-                      (Remaining • {calculatedShares} Shares 100% of shares)
+                      (All {finalShares} shares • 100% of shares)
                     </span>
                   </>
                 ) : (

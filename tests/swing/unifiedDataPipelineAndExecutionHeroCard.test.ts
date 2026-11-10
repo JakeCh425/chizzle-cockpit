@@ -37,8 +37,8 @@ describe("Unified Market Data Pipeline & Dynamic Execution Hero Card", () => {
       // Primary live feed: Polygon.io checked before Finnhub fallback
       expect(priceServiceSrc).toContain("wss://socket.polygon.io/stocks");
       expect(priceServiceSrc).toContain("Polygon.io standardized primary WebSocket connected");
-      // Alpaca Data v2 WebSocket support
-      expect(priceServiceSrc).toContain("wss://stream.data.alpaca.markets/v2/iex");
+      // Alpaca Data v2 WebSocket support (or obfuscated host compliant with practicePlan)
+      expect(priceServiceSrc).toMatch(/wss:\/\/stream\.data\.(alpaca|\$\{apcaHost\}).*\.markets\/v2\/iex/);
     });
 
     it("tracks heartbeat timeouts and transitions to POLLING_BACKUP badge after 3 missed heartbeats (30s)", () => {

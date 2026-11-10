@@ -24,6 +24,7 @@ import { PriorityBoard } from "./SetupScore";
 import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
 import { CardThemeSwitcher } from "./CardThemeSwitcher";
 import { ActiveExecutionHeroCard } from "./ActiveExecutionHeroCard";
+import { evaluateQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { useStrategyEngine, type ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import { useAccountSnapshot } from "./FundingPanel";
 import { useSwingTrades, tradeApi, invalidateTrades } from "@/lib/swingTrades";
@@ -613,11 +614,28 @@ function ActionCenterInner() {
       return isRelaxedRR && isRelaxedStatus;
     }
 
+    // Quality Trade Validation Gatekeeper
+    const qualityVal = evaluateQualityTradeValidation({
+      symbol: d.symbol,
+      entryPrice: entry,
+      stopLossPrice: stop,
+      target1: t1,
+      currentPrice: (d as any).currentPrice ?? entry,
+      structureLevels: d.structureLevels,
+      resistanceZone: d.resistanceZone,
+      availableCash: global?.availableCash,
+      decision: d,
+      setupStatus: d.setupStatus,
+    });
+    if (!qualityVal.isValid) {
+      return false;
+    }
+
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
   const confirmedRows = rows.filter(isConfirmedSetup);
-  const confirmedSymSet = new Set([...confirmedRows.map((d) => d.symbol), ...heroSymSet]);
+  const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
   const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 

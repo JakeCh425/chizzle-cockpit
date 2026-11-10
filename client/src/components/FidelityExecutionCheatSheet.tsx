@@ -75,6 +75,7 @@ export function FidelityExecutionCheatSheet({
   const sizer = usePositionSizer({
     accountEquity: global?.accountEquity,
     riskPercentage: global?.riskPercentage,
+    availableCash: global?.availableCash,
     entryPrice: entry,
     stopLossPrice: stop,
   });

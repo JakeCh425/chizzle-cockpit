@@ -72,6 +72,12 @@ import { useEffect } from "react";
 import { GlobalStateProvider } from "@/lib/globalState";
 import { purgeStaleLocalStorageOnBoot } from "@/lib/useMarketDataStore";
 import { UniversalTradeModal } from "@/components/UniversalTradeModal";
+import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
+
+function MarketDataPipelineRoot() {
+  useMarketDataPipeline();
+  return null;
+}
 
 function App() {
   useEffect(() => {
@@ -88,6 +94,7 @@ function App() {
           <GlobalStateProvider>
             <Toaster />
             <WakeSyncRoot />
+            <MarketDataPipelineRoot />
             <UniversalTradeModal />
             <Router hook={useHashLocation}>
               <AppRouter />

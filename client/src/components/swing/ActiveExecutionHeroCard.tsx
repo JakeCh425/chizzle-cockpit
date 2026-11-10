@@ -3,6 +3,7 @@ import { Zap, Copy, Check, ShieldCheck, ArrowRight, X, ExternalLink } from "luci
 import { useToast } from "@/hooks/use-toast";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore } from "@/lib/useMarketDataStore";
+import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import type { ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 
 export interface ActiveExecutionHeroCardProps {
@@ -25,6 +26,8 @@ export function ActiveExecutionHeroCard({
   const [isExecuting, setIsExecuting] = useState(false);
 
   const isPractice = Boolean(global?.isPracticeMode);
+  const auditLog = useNotificationAuditLog(trade.symbol);
+  const alertTimeText = auditLog.formattedTime || (trade as any).alertTimestamp || "10:00 CT";
 
   // Live price strictly from central market store
   const livePrice =
@@ -89,6 +92,13 @@ export function ActiveExecutionHeroCard({
 
           <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-extrabold uppercase tracking-widest text-emerald-300">
             {trade.testedLine ? `1H ${trade.testedLine.replace("_", " ")} Confirmed` : "1H Candle Closed Green"}
+          </span>
+
+          <span
+            className="rounded-full bg-emerald-950/80 border border-emerald-400/70 px-2.5 py-0.5 font-mono text-[10px] sm:text-[11px] font-bold text-emerald-300 shadow-sm flex items-center gap-1 shrink-0"
+            data-testid={`badge-hero-alert-sent-${trade.symbol}`}
+          >
+            [ 🔔 Alert Sent: {alertTimeText} ]
           </span>
         </div>
 
@@ -217,9 +227,41 @@ export function ActiveExecutionHeroCard({
               Exact Order Ticket Preset (Buy Limit + OCO Bracket)
             </h4>
           </div>
-          <span className="font-mono text-[10px] text-slate-400">
-            Account Sizing: <strong>{trade.shares} total shares</strong> ($250 standard max risk)
-          </span>
+          <div className="flex items-center gap-3">
+            <span className="font-mono text-[10px] text-slate-400">
+              Account Sizing: <strong>{trade.shares} total shares</strong> ($250 standard max risk)
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                const fullTicket = [
+                  `FIDELITY ORDER TICKET: ${trade.symbol}`,
+                  `STEP 1 - BUY LIMIT ENTRY:`,
+                  `• Action: BUY`,
+                  `• Quantity: ${trade.shares} Shares`,
+                  `• Order Type: LIMIT`,
+                  `• Limit Price: $${trade.entryPrice.toFixed(2)}`,
+                  `• TIF: Day`,
+                  ``,
+                  `STEP 2 - CONDITIONAL BRACKET (OCO):`,
+                  `• Order 1 (T1 Limit @ 1.5R): SELL ${trade.t1Shares} Shares @ LIMIT $${trade.target1.toFixed(2)}`,
+                  `• Order 2 (Stop Loss @ 1.0R): SELL ${trade.shares} Shares @ STOP $${trade.stopLoss.toFixed(2)}`,
+                  `• TIF: GTC`,
+                ].join("\n");
+                copyToClipboard(fullTicket, "full-ticket", "Fidelity Order Ticket");
+              }}
+              className="px-2.5 py-1 rounded bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 font-mono text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-sm cursor-pointer"
+              data-testid={`button-copy-fidelity-ticket-${trade.symbol}`}
+              title="Copy pre-formatted Fidelity order ticket directly to clipboard"
+            >
+              {copiedKey === "full-ticket" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
+              <span>
+                {copiedKey === "full-ticket"
+                  ? "[ 📋 ORDER TICKET COPIED TO CLIPBOARD ]"
+                  : "[ 📋 COPY FIDELITY ORDER TICKET ]"}
+              </span>
+            </button>
+          </div>
         </div>
 
         {/* Step 1 & Step 2 Columns */}

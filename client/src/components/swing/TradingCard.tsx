@@ -26,6 +26,7 @@ import {
 import { ScoreChip, ScoreSection } from "./SetupScore";
 import { FundingPanel, useCardSizing } from "./FundingPanel";
 import { usePositionSizer } from "@/hooks/usePositionSizer";
+import { useQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { MarketContextSection } from "./MarketContextSection";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { usePersistentState } from "@/hooks/use-persistent-state";
@@ -1641,6 +1642,23 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const dynamicShares = sizer.calculatedShares > 0 ? sizer.calculatedShares : positionShares;
   const dynamicFunding = sizer.totalCapitalRequired > 0 ? sizer.totalCapitalRequired : fundingAllocated;
 
+  // Execution-Quality Gatekeeper (6-Point Quality Trade Validation)
+  const qualityValidation = useQualityTradeValidation({
+    symbol: d.symbol,
+    entryPrice: activeEntry,
+    stopLossPrice: activeStop,
+    target1: targets.t1,
+    target2: targets.t2,
+    currentPrice: effectivePrice,
+    structureLevels: d.structureLevels,
+    resistanceZone: d.resistanceZone,
+    availableCash: availableTradingCash,
+    allocatedCapital: dynamicFunding,
+    shares: dynamicShares,
+    decision: d,
+    setupStatus: d.setupStatus,
+  });
+
   // Potential Gain calculation to active Target 1 (1.5R when Scale-Out Mode ON, else 2.0R)
   const potentialGainPct = activeEntry != null && targets.t1 != null && activeEntry > 0
     ? ((targets.t1 - activeEntry) / activeEntry) * 100
@@ -1870,6 +1888,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               [ ⚠️ RESISTANCE AT ${overheadResistancePrice.toFixed(2)} ]
             </span>
           )}
+          {!qualityValidation.isValid && !isPracticeMode && qualityValidation.unmetBadge && (
+            <span
+              className="rounded-md border border-amber-500/60 bg-amber-950/70 text-amber-300 font-mono text-[9.5px] font-bold px-2 py-0.5 tracking-wider uppercase shrink-0 shadow-sm"
+              data-testid={`badge-unmet-quality-${d.symbol}`}
+              title={qualityValidation.unmetReason ?? "Execution Quality Gatekeeper Locked"}
+            >
+              {qualityValidation.unmetBadge}
+            </span>
+          )}
           {is10EmaMomentum && (
             <span
               className="rounded-md border border-slate-300 bg-slate-800/90 px-2 py-0.5 text-[9px] font-mono font-bold uppercase tracking-wider text-slate-100 shadow-sm shrink-0 ring-1 ring-white/40"
@@ -1918,22 +1945,29 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 max-w-full">
           <button
             type="button"
-            disabled={isPracticeMode}
+            disabled={isPracticeMode || !qualityValidation.isValid}
             onClick={(e) => {
+              if (isPracticeMode || !qualityValidation.isValid) return;
               e.stopPropagation();
               setIsMiniGuideOpen((prev) => !prev);
             }}
             className={`px-2.5 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 ${
-              isPracticeMode
-                ? "border-slate-700 bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-50"
+              isPracticeMode || !qualityValidation.isValid
+                ? "border-slate-700 bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-40"
                 : isMiniGuideOpen
                 ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
                 : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
             }`}
             data-testid={`button-mini-guide-${d.symbol}`}
-            title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : "Toggle Quick View Fidelity Ticket Mini-Guide"}
+            title={
+              isPracticeMode
+                ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]"
+                : !qualityValidation.isValid
+                ? (qualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]")
+                : "Toggle Quick View Fidelity Ticket Mini-Guide"
+            }
           >
-            {isPracticeMode ? "[Fidelity Disabled]" : "[Fidelity Ticket]"}
+            {isPracticeMode ? "[Fidelity Disabled]" : !qualityValidation.isValid ? "[Ticket Locked]" : "[Fidelity Ticket]"}
           </button>
 
           {potentialGainPct > 0 ? (
@@ -2134,12 +2168,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             const basePlan = effectivePlan(d, ver);
             const pullbackLimitPrice = d.entryPrice ?? activeEntry ?? basePlan.entry;
             const isInsufficientCash = sizer.isInsufficientCash && !isPracticeMode;
+            const isQualityLocked = !qualityValidation.isValid && !isPracticeMode;
+            const isArmDisabled = isInsufficientCash || isQualityLocked;
             return (
               <button
                 type="button"
-                disabled={isInsufficientCash}
+                /* disabled={isInsufficientCash} */
+                disabled={isArmDisabled}
                 className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto ${
-                  isInsufficientCash
+                  isArmDisabled
                     ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700"
                     : isPracticeMode
                     ? "bg-amber-500/15 text-amber-300 border border-amber-400/50 hover:bg-amber-500/25"
@@ -2148,7 +2185,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     : cardThemeCfg.primaryButton
                 }`}
                 onClick={(e) => {
-                  if (isInsufficientCash) return;
+                  if (isArmDisabled) return;
                   if (isPracticeMode) {
                     e.stopPropagation();
                     onSeen();
@@ -2189,7 +2226,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 data-testid={`button-arm-trade-${d.symbol}`}
                 data-action-mode={isPracticeMode ? "practice-log" : (isMissedEntryRetest ? "pullback-limit" : "arm-trade")}
                 title={
-                  isInsufficientCash ? "Insufficient Cash Balance" : isPracticeMode
+                  isQualityLocked
+                    ? (qualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]")
+                    : isInsufficientCash ? "Insufficient Cash Balance" : isPracticeMode
                     ? `Log ${d.symbol} into practice trade sandbox (isolated from live capital)`
                     : (isMissedEntryRetest
                     ? `Stage a limit buy order at original 20-SMA entry (${$(pullbackLimitPrice)})`

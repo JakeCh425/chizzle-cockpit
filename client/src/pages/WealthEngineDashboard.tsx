@@ -35,6 +35,7 @@ import { usePreCloseAlert, PRE_CLOSE_ALERT_MESSAGE } from "@/hooks/usePreCloseAl
 import { useOffScreenPreEntryAlerts } from "@/hooks/useOffScreenPreEntryAlerts";
 import { useProximityAlert } from "@/hooks/useProximityAlert";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
+import { useQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { NotificationsAndAlertsPanel } from "@/components/NotificationsAndAlertsPanel";
 import {
   TrendingUp, TrendingDown, Activity, ChevronDown, ChevronUp, ChevronLeft, ChevronRight, Zap, Moon, Sun, Flame, Sparkles, Terminal,
@@ -2843,6 +2844,27 @@ export default function WealthEngineDashboard() {
     checks: confirmationChecks,
   } = tradeReadiness;
 
+  // Execution-Quality Gatekeeper (6-Point Quality Trade Validation for Wealth Studio)
+  const studioQualityValidation = useQualityTradeValidation({
+    symbol: (activeTickerData?.symbol ?? activeItem?.symbol ?? activeTicker).toUpperCase(),
+    entryPrice: entryPriceVal,
+    stopLossPrice: stopLossVal,
+    target1: t1Val,
+    target2: t2Val,
+    currentPrice: currentPrice,
+    structureLevels: activeItem?.structureLevels,
+    resistanceZone: activeItem?.resistanceZone,
+    availableCash: global.availableCash,
+    allocatedCapital: cardSizing.totalCapitalRequired,
+    shares: cardSizing.calculatedShares,
+    decision: activeItem as any,
+    setupStatus: activeItem?.status,
+    is1HCandleClosedGreen: is1HGreenAboveSupport,
+    supportHeld: true,
+    candleConfirmation: is1HGreenAboveSupport,
+  });
+  const isStudioQualityLocked = !studioQualityValidation.isValid && !isPracticeMode;
+
   // Automated "Retest" Limit Orders (The Pullback Method)
   const [stagedPullbackOrders, setStagedPullbackOrders] = useState<Record<string, number>>({});
   const stagedPullbackPrice = stagedPullbackOrders[activeTicker] ?? null;
@@ -4783,6 +4805,16 @@ export default function WealthEngineDashboard() {
                       </div>
                     )}
 
+                    {isStudioQualityLocked && studioQualityValidation.unmetBadge && (
+                      <div
+                        className="p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-[10px] font-mono flex items-center gap-1.5"
+                        data-testid="studio-quality-gate-notice"
+                      >
+                        <AlertTriangle className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                        <span>{studioQualityValidation.unmetBadge} — {studioQualityValidation.unmetReason}</span>
+                      </div>
+                    )}
+
                     <div className="flex flex-wrap items-center gap-2">
                       {/* Automated "Retest" Limit Order Button (The Pullback Method) */}
                       <button
@@ -4806,10 +4838,10 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-arm-practice-trade"
-                        disabled={!isTradeConfirmed || cardSizing.isInsufficientCash} /* disabled={!isTradeConfirmed} */
+                        disabled={!isTradeConfirmed || cardSizing.isInsufficientCash || isStudioQualityLocked} /* disabled={!isTradeConfirmed} */
                         onClick={(e) => {
                           e.stopPropagation();
-                          if (cardSizing.isInsufficientCash) return;
+                          if (cardSizing.isInsufficientCash || isStudioQualityLocked) return;
                           if (isTradeReady) {
                             if (isPracticeMode) {
                               if (global.logPracticeTrade) {
@@ -4852,17 +4884,17 @@ export default function WealthEngineDashboard() {
                             });
                           }
                         }}
-                        title={cardSizing.isInsufficientCash ? "Insufficient Cash Balance" : (isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"))}
+                        title={isStudioQualityLocked ? (studioQualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]") : cardSizing.isInsufficientCash ? "Insufficient Cash Balance" : (isPracticeMode ? `Log ${activeItem?.symbol ?? activeTicker} into practice trade sandbox (isolated from live capital)` : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Arm practice trade"))}
                         className={`flex-1 py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeReady || cardSizing.isInsufficientCash
+                          !isTradeReady || cardSizing.isInsufficientCash || isStudioQualityLocked
                             ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
                             : isPracticeMode
                             ? "opacity-100 bg-amber-500 text-slate-950 ring-2 ring-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.5)] hover:shadow-[0_0_25px_rgba(245,158,11,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                             : "opacity-100 bg-[#00E676] text-slate-950 ring-2 ring-emerald-400 shadow-[0_0_20px_rgba(0,230,118,0.5)] hover:shadow-[0_0_25px_rgba(0,230,118,0.7)] animate-pulse font-black cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}
                         style={{
-                          backgroundColor: (!isTradeReady || cardSizing.isInsufficientCash) ? undefined : (isPracticeMode ? "#F59E0B" : "#00E676"),
-                          color: (!isTradeReady || cardSizing.isInsufficientCash) ? undefined : "#050914",
+                          backgroundColor: (!isTradeReady || cardSizing.isInsufficientCash || isStudioQualityLocked) ? undefined : (isPracticeMode ? "#F59E0B" : "#00E676"),
+                          color: (!isTradeReady || cardSizing.isInsufficientCash || isStudioQualityLocked) ? undefined : "#050914",
                         }}
                       >
                         <Play className="h-3.5 w-3.5 fill-current" />
@@ -4872,17 +4904,17 @@ export default function WealthEngineDashboard() {
                       <button
                         type="button"
                         data-testid="button-execute-fidelity-ticket"
-                        disabled={!isTradeConfirmed || isPracticeMode} /* disabled={!isTradeConfirmed} */
+                        disabled={!isTradeConfirmed || isPracticeMode || isStudioQualityLocked} /* disabled={!isTradeConfirmed} */
                         onClick={(e) => {
                           e.stopPropagation();
                           if (isTradeReady) {
-                            if (isPracticeMode) return;
+                            if (isPracticeMode || isStudioQualityLocked) return;
                             setIsFidelityGuideOpen(true);
                           }
                         }}
-                        title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet")}
+                        title={isPracticeMode ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]" : isStudioQualityLocked ? (studioQualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]") : (!isTradeReady ? "Trade locked. Awaiting Cockpit 1H candle confirmation." : "Execute Fidelity Ticket Cheat Sheet")}
                         className={`py-2 px-3 rounded-xl font-mono text-xs font-bold uppercase tracking-wider flex items-center justify-center gap-1.5 shadow-md transition-all ${
-                          !isTradeReady || isPracticeMode
+                          !isTradeReady || isPracticeMode || isStudioQualityLocked
                             ? "opacity-40 cursor-not-allowed opacity-50 bg-slate-800 text-slate-500 border border-slate-700 pointer-events-auto"
                             : "opacity-100 border border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 hover:shadow-[0_0_15px_rgba(52,211,153,0.4)] cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
                         }`}

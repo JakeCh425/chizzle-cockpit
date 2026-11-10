@@ -43,9 +43,16 @@ export interface SetupAlertState {
   status?: string;
 }
 
+export interface TickerData {
+  symbol: string;
+  price: number | null;
+  lastValidTick?: LastValidTick;
+}
+
 export interface MarketDataState {
   activeTicker: string;
   currentPrice: number | null;
+  tickers: Record<string, TickerData>;
   isLoading: boolean;
   isLoadingTicker: boolean;
   isStaticLastClose: boolean;
@@ -198,6 +205,7 @@ export function clearStaleCachedPrices(): void {
 export const initialState: MarketDataState = {
   activeTicker: "NVDA",
   currentPrice: null,
+  tickers: {},
   isLoading: true,
   isLoadingTicker: true,
   isStaticLastClose: false,
@@ -239,12 +247,33 @@ class MarketDataStore {
     clearStaleCachedPrices();
     this.state = {
       ...initialState,
+      tickers: {},
       prices: {},
       quotes: {},
       lastValidTicks: {},
       previousClose: {},
       setupAlerts: {},
     };
+  }
+
+  public get tickers(): Record<string, TickerData> {
+    const res: Record<string, TickerData> = {};
+    for (const [sym, p] of Object.entries(this.state.prices || {})) {
+      res[sym] = { symbol: sym, price: p, lastValidTick: this.state.lastValidTicks[sym] };
+    }
+    for (const [sym, t] of Object.entries(this.state.tickers || {})) {
+      res[sym] = t;
+    }
+    return res;
+  }
+
+  public getTickerPrice(symbol: string): number | null {
+    const sym = symbol.toUpperCase().trim().split(":").pop()!;
+    return this.state.prices[sym] ?? (sym === this.state.activeTicker ? this.state.currentPrice : null) ?? null;
+  }
+
+  public setTickerPrice(symbol: string, price: number): void {
+    this.setCurrentPrice(price, symbol);
   }
 
   public getCardTheme(): CardThemePreset {
@@ -430,11 +459,13 @@ class MarketDataStore {
     const nextLastValid = { ...this.state.lastValidTicks };
     const nextPrevClose = { ...this.state.previousClose };
     const nextPrices = { ...this.state.prices };
+    const nextTickers = { ...this.state.tickers };
     if (cleanNext) {
       // Clear stale cached tick/seed references for the newly focused ticker so fresh authoritative REST/WS data is never blocked by old seed values
       delete nextLastValid[cleanNext];
       delete nextPrevClose[cleanNext];
       delete nextPrices[cleanNext];
+      delete nextTickers[cleanNext];
     }
 
     this.state = {
@@ -445,6 +476,7 @@ class MarketDataStore {
       isLoadingTicker: true,
       isStaticLastClose: false,
       prices: nextPrices,
+      tickers: nextTickers,
       lastValidTicks: nextLastValid,
       previousClose: nextPrevClose,
     };
@@ -652,6 +684,14 @@ class MarketDataStore {
       prices: {
         ...this.state.prices,
         [sym]: tick.price,
+      },
+      tickers: {
+        ...this.state.tickers,
+        [sym]: {
+          symbol: sym,
+          price: tick.price,
+          lastValidTick: { price: tick.price, timestamp: now, prevClose },
+        },
       },
       lastValidTicks: {
         ...this.state.lastValidTicks,
