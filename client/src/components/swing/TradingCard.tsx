@@ -1647,22 +1647,27 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const [isBodyExpanded, setIsBodyExpanded] = useState(false);
   const [isMiniGuideOpen, setIsMiniGuideOpen] = useState(false);
 
-  // Task 2: End-of-Day Auto-Expiration (Frontend)
+  // Task 3: Expiration Rules (Run-Ups & End-of-Day)
   const isExpiredEndOfDay = isSignalPastEndOfDay(d);
+  const isExtendedRunUp = Boolean(
+    d.extensionCheck?.extended === true ||
+    (d as any).isExtended === true ||
+    d.setupStatus === "WATCH_EXTENDED"
+  );
 
   useEffect(() => {
-    if (isExpiredEndOfDay) {
+    if (isExpiredEndOfDay || isExtendedRunUp) {
       setIsExpanded(false);
     }
-  }, [isExpiredEndOfDay]);
+  }, [isExpiredEndOfDay, isExtendedRunUp]);
 
   useEffect(() => {
     if (props.bulkExpanded !== undefined && props.bulkExpanded !== null) {
-      if (!isExpiredEndOfDay) {
+      if (!isExpiredEndOfDay && !isExtendedRunUp) {
         setIsExpanded(props.bulkExpanded);
       }
     }
-  }, [props.bulkExpanded, isExpiredEndOfDay]);
+  }, [props.bulkExpanded, isExpiredEndOfDay, isExtendedRunUp]);
 
   useEffect(() => {
     if (props.collapsed === true && (props.bulkExpanded === undefined || props.bulkExpanded === null)) {
@@ -1805,8 +1810,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   }, [d.setupType, d.notes, (d as any).bars, (d as any).sma20, effectivePrice]);
 
   // Ready to Buy subtle glow distinction (amber in practice mode, emerald in live mode)
-  const isReadyToBuy = group === "READY" && f.isTradeable && !isExpiredEndOfDay;
-  const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED" || isExpiredEndOfDay;
+  const isReadyToBuy = group === "READY" && f.isTradeable && !isExpiredEndOfDay && !isExtendedRunUp;
+  const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED" || isExpiredEndOfDay || isExtendedRunUp;
 
   const stageInfo = useMemo(() => {
     return tradeSetupStore.evaluateSetupStage({
@@ -1815,14 +1820,16 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       sma20: (d as any).sma20 ?? (effectivePrice != null ? +(effectivePrice * 0.985).toFixed(2) : null),
       sma50: (d as any).sma50 ?? (effectivePrice != null ? +(effectivePrice * 0.965).toFixed(2) : null),
       ema10: (d as any).ema10 ?? (effectivePrice != null ? +(effectivePrice * 0.992).toFixed(2) : null),
-      isTradeConfirmed: isConfirmed || group === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE",
+      isTradeConfirmed: (isConfirmed || group === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE") && !isExpiredEndOfDay && !isExtendedRunUp,
       isInitializing: Boolean((d as any).isInitializing),
     });
-  }, [d.symbol, effectivePrice, isConfirmed, group, d.setupStatus, (d as any).sma20, (d as any).sma50, (d as any).ema10, (d as any).isInitializing]);
+  }, [d.symbol, effectivePrice, isConfirmed, group, d.setupStatus, (d as any).sma20, (d as any).sma50, (d as any).ema10, (d as any).isInitializing, isExpiredEndOfDay, isExtendedRunUp]);
 
   const { config: cardThemeCfg } = useCardTheme();
 
-  const cardBorderClass = isExpiredEndOfDay
+  const cardBorderClass = isExtendedRunUp
+    ? "border-amber-500/50 shadow-[0_0_15px_rgba(245,158,11,0.15)]"
+    : isExpiredEndOfDay
     ? "border-rose-500/40 shadow-[0_0_15px_rgba(244,63,94,0.1)]"
     : isPracticeMode && isReadyToBuy
     ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.25)] ring-1 ring-amber-500/40"
@@ -1927,12 +1934,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           {/* Opt-In Alert Notification Toggle */}
           <AlertOptInToggle symbol={d.symbol} />
 
-          <span
-            className={`font-mono tabular-nums text-sm font-bold text-slate-300 shrink-0 ${isSyncingLiveData ? "hidden" : ""}`}
-            data-testid={`inline-header-price-${d.symbol}`}
-          >
-            {$(effectivePrice)}
-          </span>
+          <div className="flex items-baseline gap-1.5 shrink-0">
+            <span
+              className={`text-2xl font-mono tabular-nums font-bold text-soft-white sm:text-3xl shrink-0 ${isSyncingLiveData ? "hidden" : ""}`}
+              data-testid={`inline-header-price-${d.symbol}`}
+            >
+              {$(effectivePrice)}
+            </span>
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+              LIVE
+            </span>
+          </div>
           <DataStatusIndicator symbol={d.symbol} liveQuote={liveQuote} />
         </div>
 
@@ -1975,13 +1987,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               [ MOMENTUM SETUP: 10-SMA ]
             </span>
           )}
-          {isExpiredEndOfDay ? (
+          {isExtendedRunUp ? (
+            <span
+              data-testid={`badge-expired-extended-${d.symbol}`}
+              className="rounded-full border border-amber-500/80 bg-amber-950/80 px-2.5 py-0.5 font-mono text-[9.5px] font-bold text-amber-300 shadow-sm shrink-0"
+              title="Price ran too far past entry trigger without pulling back (Extended). Chasing is blocked and execution ticket is hidden."
+            >
+              [ EXPIRED - EXTENDED ]
+            </span>
+          ) : isExpiredEndOfDay ? (
             <span
               data-testid={`badge-expired-eod-${d.symbol}`}
               className="rounded-full border border-rose-500/80 bg-rose-950/80 px-2.5 py-0.5 font-mono text-[9.5px] font-bold text-rose-300 shadow-sm shrink-0"
               title="Setup expired at market close (4:00 PM ET). Un-triggered Day 1 setups do not remain Live Execution Ready into Day 2."
             >
-              [ EXPIRED - END OF DAY ]
+              [ EXPIRED - EOD ]
+              {/* [ EXPIRED - END OF DAY ] */}
             </span>
           ) : stageInfo.isInitializing ? (
             <span
@@ -2015,52 +2036,58 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           <StatusPill
             d={d}
             f={f}
-            tone={isExpiredEndOfDay ? "warn" : freshTone(d, group, f)}
-            Icon={isExpiredEndOfDay ? Clock : (overridesStatus(d, f) ? AlertTriangle : ICON[group])}
-            text={isExpiredEndOfDay ? "EXPIRED - END OF DAY" : statusText(d, group, live, f)}
+            tone={isExtendedRunUp ? "warn" : isExpiredEndOfDay ? "warn" : freshTone(d, group, f)}
+            Icon={isExtendedRunUp ? AlertTriangle : isExpiredEndOfDay ? Clock : (overridesStatus(d, f) ? AlertTriangle : ICON[group])}
+            text={
+              isExtendedRunUp
+                ? "EXPIRED - EXTENDED"
+                : isExpiredEndOfDay
+                ? "EXPIRED - EOD"
+                : statusText(d, group, live, f)
+            }
           />
         </div>
 
         {/* 3 Core Prices: Buy Target, Stop Loss, Target 1 + POSITION SIZING Block */}
         <div
-          className={`flex items-center gap-3 sm:gap-6 px-2.5 sm:px-3 py-1 rounded-lg border border-slate-800/80 bg-slate-950/60 shrink-0 transition-all ${
+          className={`flex-1 flex items-center justify-between gap-2 sm:gap-4 px-3 py-1 rounded-lg border border-slate-800/80 bg-slate-950/60 min-w-0 transition-all ${
             isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
           }`}
           data-testid={`core-metrics-${d.symbol}`}
           data-syncing-live={isSyncingLiveData ? "true" : "false"}
         >
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Buy Target
-            </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-emerald-400">
+          <div className="flex-1 flex items-baseline gap-1.5 min-w-0">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white sm:text-3xl text-emerald-400">
               {$(activeEntry)}
             </span>
-          </div>
-          <div className="flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-4">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Stop Loss
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold shrink-0">
+              Buy Target
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-rose-400">
+          </div>
+          <div className="flex-1 flex items-baseline gap-1.5 min-w-0 border-l border-slate-800/80 pl-2.5 sm:pl-3">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white sm:text-3xl text-rose-400">
               {$(activeStop)}
             </span>
-          </div>
-          <div className="flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-4">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Return % {scaleOutMode ? "(1.5R)" : "(T1)"}
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold shrink-0">
+              Stop Loss
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-signal-green">
+          </div>
+          <div className="flex-1 flex items-baseline gap-1.5 min-w-0 border-l border-slate-800/80 pl-2.5 sm:pl-3">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white sm:text-3xl text-signal-green">
               {potentialGainPct > 0 ? `+${potentialGainPct.toFixed(2)}%` : (targets.t1 != null ? $(targets.t1) : "—")}
+            </span>
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold shrink-0">
+              Target 1 {potentialGainPct > 0 ? `(+${potentialGainPct.toFixed(1)}%)` : scaleOutMode ? "(1.5R)" : "(T1)"}
             </span>
           </div>
 
           {/* POSITION SIZING Block next to Target 1 */}
-          <div className="hidden lg:flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-4 shrink-0" data-testid={`card-position-sizing-${d.symbol}`}>
+          <div className="hidden xl:flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-3 shrink-0" data-testid={`card-position-sizing-${d.symbol}`}>
             <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
               Position Sizing
             </span>
             <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
-              {calculatedShares} Shares · ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
+              {calculatedShares} Shares · ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Total · Risk: ${totalRisk.toFixed(2)}
             </span>
           </div>
         </div>
@@ -2077,33 +2104,35 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             </span>
           )}
 
-          <button
-            type="button"
-            disabled={isPracticeMode || !qualityValidation.isValid}
-            onClick={(e) => {
-              if (isPracticeMode || !qualityValidation.isValid) return;
-              e.stopPropagation();
-              setIsMiniGuideOpen((prev) => !prev);
-              if (!isExpanded) setIsExpanded(true);
-            }}
-            className={`px-2 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 hidden md:inline-flex ${
-              isPracticeMode || !qualityValidation.isValid
-                ? "border-slate-700 bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-40"
-                : isMiniGuideOpen
-                ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
-                : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
-            }`}
-            data-testid={`button-mini-guide-${d.symbol}`}
-            title={
-              isPracticeMode
-                ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]"
-                : !qualityValidation.isValid
-                ? (qualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]")
-                : "Toggle Quick View Fidelity Ticket Mini-Guide"
-            }
-          >
-            {isPracticeMode ? "[Fidelity Disabled]" : !qualityValidation.isValid ? "[Ticket Locked]" : "[Fidelity Ticket]"}
-          </button>
+          {!isExtendedRunUp && !isExpiredEndOfDay && (
+            <button
+              type="button"
+              disabled={isPracticeMode || !qualityValidation.isValid}
+              onClick={(e) => {
+                if (isPracticeMode || !qualityValidation.isValid) return;
+                e.stopPropagation();
+                setIsMiniGuideOpen((prev) => !prev);
+                if (!isExpanded) setIsExpanded(true);
+              }}
+              className={`px-2 py-1 rounded-md border font-mono text-[10px] font-bold uppercase tracking-wider transition-all cursor-pointer shadow-sm shrink-0 hidden md:inline-flex ${
+                isPracticeMode || !qualityValidation.isValid
+                  ? "border-slate-700 bg-slate-900/60 text-slate-500 cursor-not-allowed opacity-40"
+                  : isMiniGuideOpen
+                  ? "border-emerald-400 bg-emerald-500/25 text-emerald-300 shadow-[0_0_10px_rgba(52,211,153,0.3)]"
+                  : "border-emerald-500/40 bg-emerald-950/60 text-emerald-400 hover:bg-emerald-900/60 hover:text-emerald-200"
+              }`}
+              data-testid={`button-mini-guide-${d.symbol}`}
+              title={
+                isPracticeMode
+                  ? "[ FIDELITY TICKET DISABLED IN PRACTICE MODE ]"
+                  : !qualityValidation.isValid
+                  ? (qualityValidation.unmetReason ?? "[ EXECUTION GATE LOCKED ]")
+                  : "Toggle Quick View Fidelity Ticket Mini-Guide"
+              }
+            >
+              {isPracticeMode ? "[Fidelity Disabled]" : !qualityValidation.isValid ? "[Ticket Locked]" : "[Fidelity Ticket]"}
+            </button>
+          )}
 
           <button
             type="button"
@@ -2193,7 +2222,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             {/* ─── 'QUICK VIEW' MINI-GUIDE (Below core numbers when toggled) ─── */}
-            {isMiniGuideOpen && (
+            {!isExtendedRunUp && !isExpiredEndOfDay && isMiniGuideOpen && (
               <div
                 className="my-1 p-2.5 rounded-lg border border-emerald-500/40 bg-slate-950/90 text-slate-200 font-mono text-xs flex flex-col gap-2 shadow-lg animate-in fade-in slide-in-from-top-1 duration-150 relative"
                 data-testid={`mini-fidelity-guide-${d.symbol}`}
@@ -2236,8 +2265,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     <input
                       type="number"
                       value={customCash}
-                      onChange={(e) => setCustomCash(Number(e.target.value))}
-                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32"
+                      onChange={(e) => setCustomCash(parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)}
+                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                       data-testid={`input-cash-${d.symbol}`}
                       placeholder="1000"
                     />
@@ -2248,7 +2277,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                       Calculated Shares:
                     </span>
                     <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
-                      <strong className="text-neon-blue font-extrabold">{customShares}</strong> Shares
+                      <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{customShares}</strong> Shares
                     </span>
                   </div>
                 </div>
@@ -2264,6 +2293,32 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                   onClose={() => setIsMiniGuideOpen(false)}
                   className="!static !w-full !max-w-full mt-1"
                 />
+              </div>
+            )}
+
+            {/* Run-Up (Extended) Expiration Banner */}
+            {isExtendedRunUp && (
+              <div
+                className="my-1.5 p-3 rounded-lg border border-amber-500/60 bg-amber-950/60 text-amber-200 font-mono text-xs flex items-center gap-2.5 shadow-sm"
+                data-testid={`banner-expired-extended-${d.symbol}`}
+              >
+                <AlertTriangle className="h-4 w-4 text-amber-400 shrink-0" />
+                <span>
+                  <strong>[ EXPIRED - EXTENDED ]:</strong> Price has extended beyond valid entry range. Execution ticket locked to prevent chasing.
+                </span>
+              </div>
+            )}
+
+            {/* End of Day Expiration Banner */}
+            {isExpiredEndOfDay && (
+              <div
+                className="my-1.5 p-3 rounded-lg border border-rose-500/60 bg-rose-950/60 text-rose-200 font-mono text-xs flex items-center gap-2.5 shadow-sm"
+                data-testid={`banner-expired-eod-${d.symbol}`}
+              >
+                <Clock className="h-4 w-4 text-rose-400 shrink-0" />
+                <span>
+                  <strong>[ EXPIRED - EOD ]:</strong> Setup expired at 4:00 PM ET market close without triggering. Execution ticket locked.
+                </span>
               </div>
             )}
 
@@ -2295,8 +2350,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     id={`input-cash-panel-${d.symbol}`}
                     type="number"
                     value={customCash}
-                    onChange={(e) => setCustomCash(Number(e.target.value))}
-                    className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors tabular-nums w-32 sm:w-36"
+                    onChange={(e) => setCustomCash(parseInt(e.target.value.replace(/\D/g, ''), 10) || 0)}
+                    className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors tabular-nums w-32 sm:w-36 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
                     data-testid={`input-cash-panel-${d.symbol}`}
                     title="Manual Cash Allocation ($)"
                   />
@@ -2307,7 +2362,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     Calculated Shares:
                   </span>
                   <span className="text-sm sm:text-base font-bold text-soft-white tabular-nums px-2.5 py-1 rounded bg-ink-black/60 border border-ink-line">
-                    <strong className="text-neon-blue font-extrabold">{calculatedShares}</strong> Shares
+                    <strong className="text-xl font-mono text-neon-blue font-bold tabular-nums">{calculatedShares}</strong> Shares
                   </span>
                 </div>
               </div>

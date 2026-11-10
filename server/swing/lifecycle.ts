@@ -7,6 +7,7 @@
 // Analysis and practice plans only. Never places, routes or suggests broker orders.
 import {
   FORMING_WARNING, GAP_RISK_WARNING, pickPrimary,
+  STATUS_PRIORITY, CARD_GRADES,
   dataVerifyLabel,
   type CardGrade, type DataHealth, type DataStatus, type PriceZone, type SetupStatus, type SetupType, type SwingDecision, type SwingSettings,
   type StructureLevel,
@@ -430,7 +431,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     ];
     d.nextAction = `Do not chase ${sym}. Wait for retest zone ${fx(zone.low)}–${fx(zone.high)} and bullish 1H close.`;
     d.suggestedShares = 0;
-    return out("WATCH_EXTENDED", { earlyTrigger: early });
+    return out("WATCH_RETEST", { earlyTrigger: early });
   }
   const postSignal = c.closed1h.filter((b) => b.t >= signalEnd);
   const wasExtended = postSignal.some((b) => extensionOf(c, b.c, extRef, tfAtr, extRefLabel).ext);
@@ -511,7 +512,7 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     d.nextAction = `${sym} setup expired at market close without filling. Wait for next market session to confirm fresh levels.`;
     d.suggestedShares = 0;
     (d as any).expiredEndOfDay = true;
-    return out("SETUP_CONFIRMED", { earlyTrigger: early });
+    return out("SIGNAL_EXPIRED", { earlyTrigger: early });
   }
 
   // ── Data-status rules v2: DELAYED / STALE block Ready — the card and its levels stay visible ──
@@ -601,7 +602,19 @@ function suppressChase(cands: Candidate[]) {
 
 /** pickPrimary, then among equal status+grade prefer the ORIGINAL (earliest) signal. */
 function choosePrimary(vis: Candidate[]): SwingDecision | null {
-  const p = pickPrimary(vis.map((x) => x.decision));
+  if (!vis.length) return null;
+  // Precedence engine: elevate expiredEndOfDay setups so an active setup that expired at 4:00 PM
+  // is not usurped by non-ready forming/pending patterns.
+  const ranked = [...vis].sort((a, b) => {
+    const aPrio = (a.decision as any).expiredEndOfDay && a.decision.setupStatus === "SIGNAL_EXPIRED" ? 1.8 : STATUS_PRIORITY[a.decision.setupStatus];
+    const bPrio = (b.decision as any).expiredEndOfDay && b.decision.setupStatus === "SIGNAL_EXPIRED" ? 1.8 : STATUS_PRIORITY[b.decision.setupStatus];
+    const p = aPrio - bPrio;
+    if (p !== 0) return p;
+    const g = CARD_GRADES.indexOf(a.decision.cardGrade) - CARD_GRADES.indexOf(b.decision.cardGrade);
+    if (g !== 0) return g;
+    return (b.decision.rewardRiskT1 ?? 0) - (a.decision.rewardRiskT1 ?? 0);
+  });
+  const p = ranked[0]?.decision ?? null;
   if (!p) return null;
   const peers = vis.map((x) => x.decision).filter((d) => d.setupStatus === p.setupStatus && d.cardGrade === p.cardGrade);
   return peers.reduce((a, b) => ((a.setupTimestamp ?? "") <= (b.setupTimestamp ?? "") ? a : b));
