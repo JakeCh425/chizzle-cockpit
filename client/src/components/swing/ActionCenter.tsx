@@ -2,7 +2,7 @@
 // Top-of-Cockpit summary of every watchlist symbol.
 // PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE.
 
-import { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";

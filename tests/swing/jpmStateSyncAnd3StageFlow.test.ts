@@ -155,6 +155,16 @@ describe("Master Pipeline Fix - JPM State Sync, 3-Stage Beginner Flow & Resilien
 
       expect(hookSrc).toContain("tradeSetupStore.syncFromBackendAuditLog(bySymbol)");
     });
+
+    it("guards ActionCenter against missing React hook imports (useMemo, useCallback, useRef, useState, useEffect)", () => {
+      const actionCenterSrc = fs.readFileSync(
+        path.resolve(rootDir, "client/src/components/swing/ActionCenter.tsx"),
+        "utf-8"
+      );
+
+      expect(actionCenterSrc).toMatch(/import\s+React,\s*\{\s*[^}]*\buseMemo\b[^}]*\}\s*from\s+["']react["']/);
+      expect(actionCenterSrc).toMatch(/import\s+React,\s*\{\s*[^}]*\buseCallback\b[^}]*\}\s*from\s+["']react["']/);
+    });
   });
 
   describe("2. Fix Chart Data Freeze ('Loading 4H bars...' & 'Scan Failed')", () => {
