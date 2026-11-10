@@ -4,13 +4,15 @@ import path from "path";
 
 const actionCenterPath = path.resolve(__dirname, "../../client/src/components/swing/ActionCenter.tsx");
 const tradingCardPath = path.resolve(__dirname, "../../client/src/components/swing/TradingCard.tsx");
+const heroCardPath = path.resolve(__dirname, "../../client/src/components/swing/ActiveExecutionHeroCard.tsx");
 
 describe("Action Center & Setup Card Progressive Disclosure Architecture", () => {
   const actionCenterSrc = fs.readFileSync(actionCenterPath, "utf-8").replace(/\r\n/g, "\n");
   const tradingCardSrc = fs.readFileSync(tradingCardPath, "utf-8").replace(/\r\n/g, "\n");
+  const heroCardSrc = fs.readFileSync(heroCardPath, "utf-8").replace(/\r\n/g, "\n");
 
-  describe("Task 1: Global Action Center Controls (ActionCenter.tsx)", () => {
-    it("provides master collapse container with ChevronUp / ChevronDown toggle button", () => {
+  describe("Task 1: Repair the Expand/Collapse State Logic", () => {
+    it("provides master collapse container with ChevronUp / ChevronDown toggle button in ActionCenter", () => {
       expect(actionCenterSrc).toContain('data-testid="button-toggle-action-center"');
       expect(actionCenterSrc).toContain("setBoxOpen(!boxOpen)");
       expect(actionCenterSrc).toContain("<ChevronUp");
@@ -19,65 +21,91 @@ describe("Action Center & Setup Card Progressive Disclosure Architecture", () =>
       expect(actionCenterSrc).toContain("[ Expand Action Center ]");
     });
 
-    it("includes sleek bulk controls for [ Expand All ] and [ Collapse All ]", () => {
+    it("includes sleek bulk controls for [ Expand All ] and [ Collapse All ] and wires to both card types", () => {
       expect(actionCenterSrc).toContain('data-testid="button-bulk-expand-all"');
       expect(actionCenterSrc).toContain("[ Expand All ]");
       expect(actionCenterSrc).toContain('data-testid="button-bulk-collapse-all"');
       expect(actionCenterSrc).toContain("[ Collapse All ]");
-    });
-
-    it("wires bulkExpanded state down to individual InlineTradingCard instances", () => {
       expect(actionCenterSrc).toContain("const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);");
+      // Passes down to both ActiveExecutionHeroCard and InlineTradingCard
+      expect(actionCenterSrc).toContain("<ActiveExecutionHeroCard");
       expect(actionCenterSrc).toContain("bulkExpanded={bulkExpanded}");
-      expect(tradingCardSrc).toContain("bulkExpanded?: boolean | null;");
-      expect(tradingCardSrc).toContain("setIsExpanded(props.bulkExpanded);");
-    });
-  });
-
-  describe("Task 2: The 'Compact Row' Default State (TradingCard.tsx)", () => {
-    it("enforces compact row container height and progressive disclosure layout", () => {
-      expect(tradingCardSrc).toContain("min-h-14 sm:min-h-16 h-14 sm:h-16");
-      expect(tradingCardSrc).toContain('data-testid={`compact-card-header-${d.symbol}`}');
+      expect(actionCenterSrc).toContain("<InlineTradingCard");
     });
 
-    it("features Left to Right flow: Chevron toggle, Ticker Symbol, Status Badge, 3 Core Prices", () => {
-      // 1. Expand/collapse toggle
-      expect(tradingCardSrc).toContain('data-testid={`button-toggle-card-collapse-${d.symbol}`}');
-      expect(tradingCardSrc).toContain("setIsExpanded((prev) => !prev)");
-      // 2. Ticker symbol with prominent typography
-      expect(tradingCardSrc).toContain('text-xl font-extrabold tracking-tight text-soft-white');
-      expect(tradingCardSrc).toContain('data-testid={`card-symbol-${d.symbol}`}');
-      // 3. Status Badge
-      expect(tradingCardSrc).toContain("[ ⚡ LIVE EXECUTION READY ]");
-      // 4. 3 Core Prices
-      expect(tradingCardSrc).toContain('data-testid={`core-metrics-${d.symbol}`}');
+    it("ensures toolbar toggle button updates both isCollapsedAll and bulkExpanded", () => {
+      expect(actionCenterSrc).toContain('data-testid="button-collapse-expand-all"');
+      expect(actionCenterSrc).toContain("setIsCollapsedAll(next);");
+      expect(actionCenterSrc).toContain("setBulkExpanded(!next);");
     });
 
-    it("applies institutional typography shift: massive price numbers and tiny uppercase labels", () => {
-      // Tiny labels: text-[9px] uppercase tracking-widest text-slate-gray
-      expect(tradingCardSrc).toContain("text-[9px] uppercase tracking-widest text-slate-gray");
-      // Massive prices: text-lg sm:text-xl font-mono tabular-nums font-bold text-soft-white
-      expect(tradingCardSrc).toContain("text-lg sm:text-xl font-mono tabular-nums font-bold text-soft-white");
-    });
-  });
-
-  describe("Task 3: The 'Expanded View' Institutional State (TradingCard.tsx)", () => {
-    it("wraps expanded view inside an institutional glassmorphism panel with smooth Tailwind transitions", () => {
-      expect(tradingCardSrc).toContain("bg-ink-deep/40 border-t border-ink-line/50 p-4 mt-2 transition-all duration-200 ease-in-out");
-      expect(tradingCardSrc).toContain('data-testid={`card-expanded-details-${d.symbol}`}');
+    it("ensures ActiveExecutionHeroCard has local isExpanded state defaulting to false and listens to bulkExpanded", () => {
+      expect(heroCardSrc).toContain("const [isExpanded, setIsExpanded] = useState(false);");
+      expect(heroCardSrc).toContain("setIsExpanded(bulkExpanded);");
+      expect(heroCardSrc).toContain('data-testid={`button-toggle-hero-collapse-${trade.symbol}`}');
     });
 
-    it("renders institutional execution details (ScaleOutRLadder, Fidelity guide, summary strip, mini-chart) inside expanded body", () => {
-      const expandedIdx = tradingCardSrc.indexOf('data-testid={`card-expanded-details-${d.symbol}`}');
-      const ladderIdx = tradingCardSrc.indexOf("<ScaleOutRLadder");
-      const fidelityIdx = tradingCardSrc.indexOf("<FidelityExecutionGuide");
-      const summaryStripIdx = tradingCardSrc.indexOf('data-testid={`setup-card-summary-strip-${d.symbol}`}');
-      const miniChartIdx = tradingCardSrc.indexOf('data-testid={`mini-chart-${d.symbol}`}');
+    it("crucial fix: wraps entire bottom half of ActiveExecutionHeroCard (Fidelity ticket, Target 2, Scale-outs, Log as Executed) inside expanded-details conditional block", () => {
+      expect(heroCardSrc).toContain("{isExpanded && (");
+      expect(heroCardSrc).toContain('className="expanded-details mt-4 border-t border-ink-line/50 pt-4"');
+      expect(heroCardSrc).toContain('data-testid={`hero-expanded-details-${trade.symbol}`}');
 
+      const expandedIdx = heroCardSrc.indexOf('data-testid={`hero-expanded-details-${trade.symbol}`}');
+      const target2Idx = heroCardSrc.indexOf('data-testid={`copy-hero-target2-${trade.symbol}`}');
+      const ladderIdx = heroCardSrc.indexOf("<ScaleOutRLadder");
+      const fidelityIdx = heroCardSrc.indexOf('data-testid={`hero-fidelity-ticket-${trade.symbol}`}');
+      const armBtnIdx = heroCardSrc.indexOf('data-testid={`button-arm-hero-${trade.symbol}`}');
+
+      expect(target2Idx).toBeGreaterThan(expandedIdx);
       expect(ladderIdx).toBeGreaterThan(expandedIdx);
       expect(fidelityIdx).toBeGreaterThan(expandedIdx);
-      expect(summaryStripIdx).toBeGreaterThan(expandedIdx);
-      expect(miniChartIdx).toBeGreaterThan(expandedIdx);
+      expect(armBtnIdx).toBeGreaterThan(expandedIdx);
+    });
+
+    it("ensures TradingCard has local isExpanded state defaulting to false and listens to bulkExpanded", () => {
+      expect(tradingCardSrc).toContain("const [isExpanded, setIsExpanded] = useState(false);");
+      expect(tradingCardSrc).toContain("setIsExpanded(props.bulkExpanded);");
+      expect(tradingCardSrc).toContain("expanded-details");
+    });
+  });
+
+  describe("Task 2: The Ultra-Compact Default Row (Big Text, Small Footprint)", () => {
+    it("features Left to Right flow with Chevron toggle, Ticker Symbol (text-signal-green), and Status Badge in Hero Card", () => {
+      expect(heroCardSrc).toContain('data-testid={`button-toggle-hero-collapse-${trade.symbol}`}');
+      expect(heroCardSrc).toContain("text-signal-green");
+      expect(heroCardSrc).toContain("[ ⚡ LIVE EXECUTION READY ]");
+    });
+
+    it("applies institutional typography shift to ActiveExecutionHeroCard: massive text-2xl numbers and tiny labels", () => {
+      expect(heroCardSrc).toContain("text-[9px] uppercase tracking-widest text-slate-gray");
+      expect(heroCardSrc).toContain("text-2xl font-mono tabular-nums font-bold text-soft-white");
+      expect(heroCardSrc).toContain("Limit Entry Price");
+      expect(heroCardSrc).toContain("Stop Loss (1.0R)");
+      expect(heroCardSrc).toContain("Target 1 (1.5R - 50%)");
+    });
+
+    it("applies institutional typography shift to TradingCard: massive text-2xl numbers and tiny labels", () => {
+      expect(tradingCardSrc).toContain("text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold");
+      expect(tradingCardSrc).toContain("text-2xl font-mono tabular-nums font-bold text-soft-white");
+      expect(tradingCardSrc).toContain("text-signal-green");
+      expect(tradingCardSrc).toContain("Buy Target");
+      expect(tradingCardSrc).toContain("Stop Loss");
+    });
+  });
+
+  describe("Task 3: Surface Trade Capital & Targets in the Compact View", () => {
+    it("surfaces position sizing and trade capital readout in ActiveExecutionHeroCard compact row", () => {
+      expect(heroCardSrc).toContain('data-testid={`hero-position-sizing-${trade.symbol}`}');
+      expect(heroCardSrc).toContain("font-mono text-sm font-semibold text-neon-blue tabular-nums");
+      expect(heroCardSrc).toContain("{trade.shares} Shares · ${totalCapital.toLocaleString(");
+      expect(heroCardSrc).toContain("Total · Risk: ${totalRisk.toFixed(2)}");
+    });
+
+    it("surfaces position sizing and trade capital readout in TradingCard compact row", () => {
+      expect(tradingCardSrc).toContain('data-testid={`card-position-sizing-${d.symbol}`}');
+      expect(tradingCardSrc).toContain("font-mono text-sm font-semibold text-neon-blue tabular-nums");
+      expect(tradingCardSrc).toContain("{dynamicShares} Shares · ${dynamicFunding.toLocaleString(");
+      expect(tradingCardSrc).toContain("Total · Risk: ${sizer.totalDollarRiskAllowed.toFixed(2)}");
     });
   });
 });

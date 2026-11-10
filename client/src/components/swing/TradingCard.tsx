@@ -1603,8 +1603,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   }, [props.bulkExpanded]);
 
   useEffect(() => {
-    if (props.collapsed !== undefined && (props.bulkExpanded === undefined || props.bulkExpanded === null)) {
-      setIsExpanded(!props.collapsed);
+    if (props.collapsed === true && (props.bulkExpanded === undefined || props.bulkExpanded === null)) {
+      setIsExpanded(false);
     }
   }, [props.collapsed, props.bulkExpanded]);
 
@@ -1843,7 +1843,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </button>
 
           <span
-            className="font-mono text-xl font-extrabold tracking-tight text-soft-white shrink-0"
+            className="font-mono text-xl font-extrabold tracking-tight text-signal-green shrink-0"
             data-testid={`card-symbol-${d.symbol}`}
           >
             {d.symbol}
@@ -1929,7 +1929,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           <StatusPill d={d} f={f} tone={freshTone(d, group, f)} Icon={overridesStatus(d, f) ? AlertTriangle : ICON[group]} text={statusText(d, group, live, f)} />
         </div>
 
-        {/* 3 Core Prices: Buy Target, Stop Loss, Return % */}
+        {/* 3 Core Prices: Buy Target, Stop Loss, Target 1 + POSITION SIZING Block */}
         <div
           className={`flex items-center gap-3 sm:gap-6 px-2.5 sm:px-3 py-1 rounded-lg border border-slate-800/80 bg-slate-950/60 shrink-0 transition-all ${
             isSyncingLiveData ? "blur-sm opacity-40 pointer-events-none select-none" : ""
@@ -1941,7 +1941,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
               Buy Target
             </span>
-            <span className="text-lg sm:text-xl font-mono tabular-nums font-bold text-soft-white text-emerald-400">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-emerald-400">
               {$(activeEntry)}
             </span>
           </div>
@@ -1949,7 +1949,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
               Stop Loss
             </span>
-            <span className="text-lg sm:text-xl font-mono tabular-nums font-bold text-rose-400">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-rose-400">
               {$(activeStop)}
             </span>
           </div>
@@ -1957,8 +1957,18 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
               Return % {scaleOutMode ? "(1.5R)" : "(T1)"}
             </span>
-            <span className="text-lg sm:text-xl font-mono tabular-nums font-bold text-soft-white text-signal-green">
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-signal-green">
               {potentialGainPct > 0 ? `+${potentialGainPct.toFixed(2)}%` : (targets.t1 != null ? $(targets.t1) : "—")}
+            </span>
+          </div>
+
+          {/* POSITION SIZING Block next to Target 1 */}
+          <div className="hidden lg:flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-4 shrink-0" data-testid={`card-position-sizing-${d.symbol}`}>
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+              Position Sizing
+            </span>
+            <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
+              {dynamicShares} Shares · ${dynamicFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${sizer.totalDollarRiskAllowed.toFixed(2)}
             </span>
           </div>
         </div>
@@ -2079,7 +2089,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
       {/* ─── EXPANDED STATE (Accordion): All deeper diagnostics, lazy-loaded charts & AI engine ─── */}
       {isExpanded && (
         <div
-          className="flex flex-col gap-2.5 pt-3 mt-2 border-t border-[var(--card-border)] bg-ink-deep/40 border-t border-ink-line/50 p-4 mt-2 transition-all duration-200 ease-in-out"
+          className="flex flex-col gap-2.5 pt-3 mt-2 border-t border-[var(--card-border)] expanded-details bg-ink-deep/40 border-t border-ink-line/50 p-4 mt-2 transition-all duration-200 ease-in-out"
           data-testid={`card-expanded-details-${d.symbol}`}
           onClick={(e) => e.stopPropagation()}
           onMouseDown={(e) => e.stopPropagation()}

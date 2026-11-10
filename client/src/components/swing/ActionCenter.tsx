@@ -1087,6 +1087,7 @@ function ActionCenterInner() {
                     trade={trade}
                     onDismiss={handleHeroDismiss}
                     onArmOrExecute={handleHeroArmOrExecute}
+                    bulkExpanded={bulkExpanded}
                   />
                 ))}
 
@@ -1348,19 +1349,23 @@ function ActionCenterInner() {
             <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setIsCollapsedAll(!isCollapsedAll)}
+                onClick={() => {
+                  const next = !isCollapsedAll;
+                  setIsCollapsedAll(next);
+                  setBulkExpanded(!next);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
                 data-testid="button-collapse-expand-all"
               >
-                {isCollapsedAll ? (
-                  <>
-                    <ChevronsUpDown className="h-3.5 w-3.5 text-cyan-400" />
-                    <span>Expand All Cards</span>
-                  </>
-                ) : (
+                {bulkExpanded === true || (!isCollapsedAll && bulkExpanded !== false) ? (
                   <>
                     <ChevronsDownUp className="h-3.5 w-3.5 text-cyan-400" />
                     <span>Collapse All Cards</span>
+                  </>
+                ) : (
+                  <>
+                    <ChevronsUpDown className="h-3.5 w-3.5 text-cyan-400" />
+                    <span>Expand All Cards</span>
                   </>
                 )}
               </button>
