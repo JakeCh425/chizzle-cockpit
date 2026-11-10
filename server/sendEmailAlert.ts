@@ -13,6 +13,8 @@ import {
   ApprovedSetupEmailPayload,
 } from "./emailDispatcher";
 import { isRegularMarketHours } from "./marketHours";
+import { calculatePositionSize } from "../shared/positionSizing";
+import { sentAlertsCache } from "./emailDispatcher";
 
 export {
   isActionableExecution,
@@ -25,6 +27,8 @@ export {
   formatApprovedSetupEmailSubject,
   clearEmailDeduplicationLedger,
   isRegularMarketHours,
+  calculatePositionSize,
+  sentAlertsCache,
   type ApprovedSetupEmailPayload,
 };
 
@@ -108,10 +112,20 @@ export function formatPreEntryEmailHtml(params: {
 
   const entryStr = formatPriceString(params.entryPrice ?? params.price);
   const t1Str = formatPriceString(params.target1 ?? (Number(params.entryPrice ?? params.price) * 1.03));
+  const entryVal = Number(params.entryPrice ?? params.price) || 100;
+  const stopVal = Number(params.stopLoss ?? entryVal * 0.985);
+  const sizing = calculatePositionSize(
+    (params as any).totalEquity ?? (params as any).accountEquity ?? 1615,
+    (params as any).availableCash ?? 1600,
+    entryVal,
+    stopVal,
+    0.01
+  );
   const shares =
     params.shares ??
     params.calculatedShares ??
-    (typeof params.plan === "object" ? params.plan?.shares ?? params.plan?.calculatedShares : undefined);
+    (typeof params.plan === "object" ? params.plan?.shares ?? params.plan?.calculatedShares : undefined) ??
+    sizing.totalShares;
 
   let planText = "";
   if (typeof params.plan === "string" && params.plan.trim() && !params.plan.includes("[object Object]")) {
@@ -365,6 +379,21 @@ export async function sendPreEntryEmail(
       };
     }
   }
+
+  // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)
+  const confirmedCandleTime = candleTimestamp ?? Math.floor(Date.now() / 3_600_000);
+  const armedAlertKey = `${cleanTicker}_${confirmedCandleTime}_ARMED`;
+  if (!force && sentAlertsCache.has(armedAlertKey)) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: `Already sent for this confirmed entry: ${armedAlertKey}`,
+      subject: emailSubject,
+      html: emailHtml,
+      message: `Already sent for this confirmed entry: ${armedAlertKey}`,
+    };
+  }
+  sentAlertsCache.set(armedAlertKey, Date.now());
 
   // Strict execution lock (debounce/cache) per active setup
   const formattedPrice = formatPriceString(price);

@@ -15,6 +15,8 @@ import {
   getVerifiedTelegramChatId,
 } from "./pre-entry-alerts";
 import { isRegularMarketHours } from "./marketHours";
+import { calculatePositionSize } from "../shared/positionSizing";
+import { sentAlertsCache } from "./emailDispatcher";
 
 export {
   shouldDispatchAlert,
@@ -23,6 +25,8 @@ export {
   formatTelegramTradeDeskAlert,
   getVerifiedTelegramChatId,
   isRegularMarketHours,
+  calculatePositionSize,
+  sentAlertsCache,
 };
 
 export const DEFAULT_MONITORED_WATCHLIST: string[] = [
@@ -312,12 +316,19 @@ export function formatExecutionReadyAlertMessage(params: {
     params.instruction ||
     "Review Fidelity Guide and prepare limit order.";
 
+  const sizing = calculatePositionSize(
+    (params as any).totalEquity ?? (params as any).accountEquity ?? 1615,
+    (params as any).availableCash ?? 1600,
+    entry,
+    stop,
+    0.01
+  );
   const shares =
     params.calculatedShares && params.calculatedShares > 0
       ? params.calculatedShares
-      : Math.max(1, Math.floor(250 / risk));
-  const order1Shares = Math.floor(shares / 2);
-  const order2Shares = shares - order1Shares;
+      : sizing.totalShares;
+  const order1Shares = sizing.t1Shares ?? Math.floor(shares / 2);
+  const order2Shares = sizing.t2Shares ?? (shares - order1Shares);
 
   return [
     `🚨 CHIZZLE EXECUTION READY: [${ticker}]`,
@@ -591,12 +602,13 @@ export function evaluateServer1HCandleConfirmation(params: {
   );
   const target2 = Number((entryPrice + 2.0 * riskPerShare).toFixed(2));
 
-  const equity = params.accountEquity && params.accountEquity > 0 ? params.accountEquity : 25000;
-  const riskPct = params.riskPercentage && params.riskPercentage > 0 ? params.riskPercentage : 1.0;
-  const dollarRisk = equity * (riskPct / 100);
-  const calculatedShares = Math.max(1, Math.floor(dollarRisk / riskPerShare));
-  const order1Shares = Math.floor(calculatedShares / 2);
-  const order2Shares = calculatedShares - order1Shares;
+  const equity = params.accountEquity && params.accountEquity > 0 ? params.accountEquity : 1615;
+  const availableCash = (params as any).availableCash && (params as any).availableCash > 0 ? (params as any).availableCash : equity;
+  const riskPct = params.riskPercentage && params.riskPercentage > 0 ? params.riskPercentage : 0.01;
+  const sizing = calculatePositionSize(equity, availableCash, entryPrice, stopLoss, riskPct);
+  const calculatedShares = sizing.totalShares;
+  const order1Shares = sizing.t1Shares;
+  const order2Shares = sizing.t2Shares;
 
   // Strict Execution Zone Proximity check (within 0.5% of SMA 20, SMA 50, or EMA 10 / SMA 10 and above stopLoss)
   const gateEval = evaluateExecutionZoneAlertGate({
@@ -767,6 +779,8 @@ export async function dispatchServerSetupAlert(params: {
   chatId?: string;
   email?: string;
   phoneNumber?: string;
+  accountEquity?: number;
+  availableCash?: number;
   force?: boolean;
 }): Promise<{
   ok: boolean;
@@ -816,12 +830,12 @@ export async function dispatchServerSetupAlert(params: {
   const setupIsReady = gate.setupIsReady;
 
   // Gate 0: Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
-  if (!params.force) {
-    const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
-    const hasExplicitBarTime = typeof params.barTimestamp === "number" && params.barTimestamp > 10_000_000_000;
-    const evalTime = hasExplicitBarTime ? (params.barTimestamp as number) : Date.now();
-    const shouldCheckMarketHours = !isTestEnv || hasExplicitBarTime;
+  const isTestEnv = process.env.NODE_ENV === "test" || Boolean(process.env.VITEST);
+  const hasExplicitBarTime = typeof params.barTimestamp === "number" && params.barTimestamp > 10_000_000_000;
+  const evalTime = hasExplicitBarTime ? (params.barTimestamp as number) : Date.now();
+  const shouldCheckMarketHours = !isTestEnv || hasExplicitBarTime;
 
+  if (!params.force) {
     if (shouldCheckMarketHours && !isRegularMarketHours(evalTime)) {
       return {
         ok: true,
@@ -1025,12 +1039,19 @@ export async function dispatchServerSetupAlert(params: {
   }
 
   const riskPerShare = Math.max(0.01, Math.abs(params.entryPrice - params.stopLoss));
+  const sizing = calculatePositionSize(
+    params.accountEquity ?? 1615,
+    (params as any).availableCash ?? 1600,
+    params.entryPrice,
+    params.stopLoss,
+    0.01
+  );
   const calculatedShares =
     params.calculatedShares && params.calculatedShares > 0
       ? params.calculatedShares
-      : Math.max(1, Math.floor(250 / riskPerShare));
-  const order1Shares = Math.floor(calculatedShares / 2);
-  const order2Shares = calculatedShares - order1Shares;
+      : sizing.totalShares;
+  const order1Shares = sizing.t1Shares;
+  const order2Shares = sizing.t2Shares;
 
   const target1 = Number(
     (params.target1 ?? (params.entryPrice + 1.5 * riskPerShare)).toFixed(2)
@@ -1065,6 +1086,80 @@ export async function dispatchServerSetupAlert(params: {
   const targetChatId = params.chatId || process.env.TELEGRAM_CHAT_ID || "7864955612";
   const targetEmail = params.email || process.env.USER_ALERT_EMAIL || "jakechairez@gmail.com";
   const targetPhone = params.phoneNumber || process.env.ALERT_PHONE_NUMBER || "";
+
+  // Lock Dispatch to "ARMED / READY TO TRADE" State Only
+  const isReadyToArm = 
+    (params.status === "CONFIRMED" || params.status === "CONFIRMED_1H_CLOSE" || params.status === "READY_TO_TRADE" || isConfirmedAlertType) &&
+    params.is1hCandleClosedGreen !== false &&
+    params.isTradeConfirmed !== false &&
+    ((target2 - params.entryPrice) / riskPerShare) >= 1.45 &&
+    (!shouldCheckMarketHours || isRegularMarketHours(evalTime) === true);
+
+  if (!params.force && !isReadyToArm) {
+    return {
+      ok: true,
+      suppressed: true,
+      alertSent: setup.alertSent,
+      lastAlertTimestamp: setup.lastAlertTimestamp,
+      setupState: setup,
+      auditEntry: {
+        id: `suppressed-not-ready-${symbol}-${Date.now()}`,
+        symbol,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+        alertType,
+        setupType: params.setupType ?? "Suppressed",
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        target1: params.target1,
+        calculatedShares,
+        channels: [],
+        delivery: {},
+        status: "STUBBED",
+        firedAt: setup.lastAlertTimestamp ?? Date.now(),
+        isoTimestamp: new Date().toISOString(),
+        formattedTime: formatAlertTimestampCT(),
+        badgeText: "[ Suppressed · Not Ready ]",
+        message: "DROP ALERT: Setup is not 100% actionable (isReadyToArm is false).",
+        dedupeKey,
+      },
+    };
+  }
+
+  // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)
+  const confirmedCandleTime = params.barTimestamp ?? barKey;
+  const armedAlertKey = `${symbol}_${confirmedCandleTime}_ARMED`;
+  if (!params.force && sentAlertsCache.has(armedAlertKey)) {
+    return {
+      ok: true,
+      suppressed: true,
+      alertSent: setup.alertSent,
+      lastAlertTimestamp: setup.lastAlertTimestamp,
+      setupState: setup,
+      auditEntry: {
+        id: `suppressed-armed-dedupe-${symbol}-${Date.now()}`,
+        symbol,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+        alertType,
+        setupType: params.setupType ?? "Suppressed",
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        target1: params.target1,
+        calculatedShares,
+        channels: [],
+        delivery: {},
+        status: "STUBBED",
+        firedAt: setup.lastAlertTimestamp ?? Date.now(),
+        isoTimestamp: new Date().toISOString(),
+        formattedTime: formatAlertTimestampCT(),
+        badgeText: "[ Suppressed · Armed Dedupe ]",
+        message: `Already sent for this confirmed entry: ${armedAlertKey}`,
+        dedupeKey,
+      },
+    };
+  }
+  sentAlertsCache.set(armedAlertKey, Date.now());
 
   // Execute inside strict gate: if (setupIsReady && !setup.alertSent) { sendAlert(); updateSetup({ alertSent: true }); }
   let auditEntry: NotificationAuditEntry;

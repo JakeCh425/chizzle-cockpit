@@ -13,8 +13,12 @@
 // 5. Clean, compact prop-desk Telegram message formatting with Validated Support Level & Fidelity order ticket
 
 import { isRegularMarketHours } from "./marketHours";
+import { calculatePositionSize } from "../shared/positionSizing";
 
-export { isRegularMarketHours };
+export { isRegularMarketHours, calculatePositionSize };
+
+// Shared session-level deduplication cache: ${ticker}_${confirmedCandleTime}_ARMED
+export const sentAlertsCache = new Map<string, number>();
 
 export interface TelegramTradeAlertPayload {
   ticker: string;
@@ -255,12 +259,16 @@ export function formatTelegramTradeDeskAlert(p: TelegramTradeAlertPayload): stri
   const t1 = Number((p.target1 ?? (entry + 1.5 * risk)).toFixed(2));
   const t2 = Number((p.target2 ?? (entry + 2.0 * risk)).toFixed(2));
 
-  const shares = Math.max(
-    1,
-    p.shares && p.shares > 0 ? p.shares : Math.floor(250 / risk)
+  const sizing = calculatePositionSize(
+    (p as any).totalEquity ?? (p as any).accountEquity ?? 1615,
+    (p as any).availableCash ?? 1600,
+    entry,
+    stop,
+    0.01
   );
-  const t1Shares = p.t1Shares ?? Math.floor(shares / 2);
-  const t2Shares = p.t2Shares ?? shares - t1Shares;
+  const shares = p.shares && p.shares > 0 ? p.shares : sizing.totalShares;
+  const t1Shares = p.t1Shares ?? sizing.t1Shares;
+  const t2Shares = p.t2Shares ?? sizing.t2Shares;
 
   const eventUpper = (p.event || "").toUpperCase();
   const eventLabel =
@@ -360,6 +368,7 @@ export async function dispatchActionableTelegramAlert(params: {
     (typeof params.candleTimestamp === "number" && params.candleTimestamp > 1_000_000_000_000
       ? params.candleTimestamp
       : Date.now());
+  const evalMs = typeof evalTime === "number" ? evalTime : evalTime.getTime();
 
   // 1. Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
   if (!params.force && !isRegularMarketHours(evalTime)) {
@@ -404,16 +413,36 @@ export async function dispatchActionableTelegramAlert(params: {
   const isActionable =
     isConfirmed &&
     params.isTradeConfirmed === true &&
-    params.is1HCandleClosedGreen !== false &&
+    params.is1HCandleClosedGreen === true &&
     rr >= 1.45;
 
-  if (!params.force && !isActionable) {
+  // Lock Dispatch to "ARMED / READY TO TRADE" State Only
+  const isReadyToArm = 
+    isConfirmed &&
+    params.is1HCandleClosedGreen === true &&
+    params.isTradeConfirmed === true &&
+    rr >= 1.45 &&
+    isRegularMarketHours(evalTime) === true;
+
+  if (!params.force && !isReadyToArm) {
     return {
       ok: true,
       status: "suppressed",
-      error: `${ticker} setup is not an actionable execution (unconfirmed, red candle, or R:R < 1.5). Alert suppressed.`,
+      error: "DROP ALERT: Setup is not 100% actionable",
     };
   }
+
+  // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)
+  const confirmedCandleTime = params.candleTimestamp ?? Math.floor(evalMs / 3_600_000);
+  const alertKey = `${ticker}_${confirmedCandleTime}_ARMED`;
+  if (!params.force && sentAlertsCache.has(alertKey)) {
+    return {
+      ok: true,
+      status: "suppressed",
+      error: `Already sent for this confirmed entry: ${alertKey}`,
+    };
+  }
+  sentAlertsCache.set(alertKey, Date.now());
 
   // 3. Session & Candle-Based Deduplication (Max 1 Alert per Setup)
   const candleTs = params.candleTimestamp ?? Math.floor(Date.now() / 3_600_000);

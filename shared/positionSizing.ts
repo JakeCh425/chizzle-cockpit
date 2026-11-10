@@ -148,3 +148,118 @@ export function fundingStatus(updatedAt: string | null, now = Date.now()): { sta
   const ageText = dd >= 1 ? `${dd} day${dd > 1 ? "s" : ""} ago` : h >= 1 ? `${h} h ago` : "under 1 h ago";
   return { state: age > FUNDING_STALE_MS ? "STALE" : "MANUAL", ageText };
 }
+
+/**
+ * Single shared math utility for risk-based position sizing with cash limit guard.
+ * Shared by both the UI setup cards and the notification worker.
+ */
+export function calculatePositionSize(
+  totalEquity: number,
+  availableCash: number,
+  entryPrice: number,
+  stopLossPrice: number,
+  riskPercentage?: number // Strict 1.0% risk ($16.15)
+): { totalShares: number; t1Shares: number; t2Shares: number; calculatedShares: number };
+export function calculatePositionSize(input: {
+  accountEquity?: number | null;
+  availableCash?: number | null;
+  entryPrice?: number | null;
+  stopLossPrice?: number | null;
+  riskPercentage?: number | null;
+}): any;
+export function calculatePositionSize(
+  totalEquityOrInput: any,
+  availableCashArg?: number,
+  entryPriceArg?: number,
+  stopLossPriceArg?: number,
+  riskPercentageArg: number = 0.01
+): any {
+  if (typeof totalEquityOrInput !== "object" || totalEquityOrInput === null) {
+    const totalEquity = Number(totalEquityOrInput) || 1615;
+    const availableCash = Number(availableCashArg ?? totalEquity);
+    const entryPrice = Number(entryPriceArg || 0);
+    const stopLossPrice = Number(stopLossPriceArg || 0);
+    const rawRisk = Number(riskPercentageArg ?? 0.01);
+    const riskPercentage = rawRisk <= 0.05 ? rawRisk : rawRisk / 100;
+
+    const riskBudget = totalEquity * riskPercentage;
+    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+    if (riskPerShare <= 0) return { totalShares: 0, t1Shares: 0, t2Shares: 0, calculatedShares: 0 };
+
+    const riskBasedShares = Math.floor(riskBudget / riskPerShare);
+    const cashBasedShares = entryPrice > 0 ? Math.floor(availableCash / entryPrice) : 0;
+    const totalShares = Math.max(1, Math.min(riskBasedShares, cashBasedShares));
+
+    const t1Shares = Math.floor(totalShares / 2);
+    const t2Shares = totalShares - t1Shares;
+
+    return { totalShares, t1Shares, t2Shares, calculatedShares: totalShares };
+  }
+
+  const input = totalEquityOrInput;
+  const safeEquity = Number(input?.accountEquity) || 25000;
+  const accountEquity = safeEquity > 0 ? safeEquity : 25000;
+  const safeCash = input?.availableCash !== undefined && input?.availableCash !== null
+    ? Number(input.availableCash)
+    : accountEquity;
+  const availableCash = !isNaN(safeCash) && safeCash >= 0 ? safeCash : accountEquity;
+  const safeRiskPct = Number(input?.riskPercentage) || 1.0;
+  const riskPercentage = safeRiskPct > 0 ? safeRiskPct : 1.0;
+  const entry = typeof input?.entryPrice === "number" && !isNaN(input.entryPrice) ? input.entryPrice : 0;
+  const stop = typeof input?.stopLossPrice === "number" && !isNaN(input.stopLossPrice) ? input.stopLossPrice : 0;
+
+  const rawRiskPerShare = Math.abs(entry - stop);
+  const dollarRiskPerShare = Math.round(rawRiskPerShare * 10000) / 10000;
+  const totalDollarRiskAllowed = accountEquity * (riskPercentage <= 0.05 ? riskPercentage : riskPercentage / 100);
+
+  let riskShares = 0;
+  let cashShares = 0;
+
+  if (dollarRiskPerShare > 0.0001 && entry > 0 && stop > 0) {
+    riskShares = Math.floor((totalDollarRiskAllowed / dollarRiskPerShare) + 1e-9);
+  }
+  if (entry > 0 && availableCash > 0) {
+    cashShares = Math.floor((availableCash / entry) + 1e-9);
+  }
+
+  const maxShares = Math.min(riskShares, cashShares);
+  const calculatedShares = (availableCash > 0 && availableCash < entry) || (riskShares > 0 && cashShares === 0)
+    ? 0
+    : Math.max(0, maxShares);
+  const totalShares = calculatedShares;
+
+  const totalCapitalRequired = calculatedShares * entry;
+  const portfolioAllocationPercent = accountEquity > 0 ? (totalCapitalRequired / accountEquity) * 100 : 0;
+  const t1Shares = Math.floor(calculatedShares / 2);
+  const t2Shares = calculatedShares - t1Shares;
+
+  const isInsufficientCash = entry > 0 && (availableCash < entry || (riskShares > 0 && cashShares === 0));
+  const isMarginRequired = totalCapitalRequired > availableCash;
+
+  const warningMessage = isInsufficientCash
+    ? "Insufficient Cash Balance"
+    : isMarginRequired
+    ? "Exceeds Available Cash (Margin Required)"
+    : null;
+
+  return {
+    accountEquity,
+    availableCash,
+    riskPercentage,
+    entryPrice: entry,
+    stopLossPrice: stop,
+    dollarRiskPerShare,
+    totalDollarRiskAllowed,
+    calculatedShares,
+    totalShares,
+    sharesAllowed: calculatedShares,
+    positionCost: totalCapitalRequired,
+    totalCapitalRequired,
+    portfolioAllocationPercent,
+    t1Shares,
+    t2Shares,
+    isMarginRequired,
+    isInsufficientCash,
+    warningMessage,
+  };
+}

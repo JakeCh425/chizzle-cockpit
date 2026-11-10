@@ -16,8 +16,9 @@
 
 import { getTradingDayKey } from "./telegramDispatcher";
 import { isRegularMarketHours } from "./marketHours";
+import { calculatePositionSize } from "../shared/positionSizing";
 
-export { isRegularMarketHours };
+export { isRegularMarketHours, calculatePositionSize };
 
 export interface ApprovedSetupEmailPayload {
   userEmail?: string;
@@ -48,6 +49,9 @@ export interface ApprovedSetupEmailPayload {
 }
 
 export const EMAIL_PROXIMITY_COOLDOWN_MS = 120 * 60 * 1000; // 120 minutes
+
+// Shared session-level deduplication cache: ${ticker}_${confirmedCandleTime}_ARMED
+export const sentAlertsCache = new Map<string, number>();
 
 // 1. In-memory execution email ledger tracking ${ticker}_${candleTimestamp}_${tradeAction}
 const sentEmailAlerts = new Map<string, number>();
@@ -232,12 +236,16 @@ export function formatApprovedSetupEmail(p: ApprovedSetupEmailPayload): {
   const t2 = Number((p.target2 ?? (entry + 2.0 * risk)).toFixed(2));
   const rr = p.riskRewardRatio ?? Number(((t2 - entry) / risk).toFixed(1));
 
-  const shares = Math.max(
-    1,
-    p.shares && p.shares > 0 ? p.shares : Math.floor(250 / risk)
+  const sizing = calculatePositionSize(
+    (p as any).totalEquity ?? (p as any).accountEquity ?? 1615,
+    (p as any).availableCash ?? 1600,
+    entry,
+    stop,
+    0.01
   );
-  const t1Shares = p.t1Shares ?? Math.floor(shares / 2);
-  const t2Shares = p.t2Shares ?? shares - t1Shares;
+  const shares = p.shares && p.shares > 0 ? p.shares : sizing.totalShares;
+  const t1Shares = p.t1Shares ?? sizing.t1Shares;
+  const t2Shares = p.t2Shares ?? sizing.t2Shares;
 
   const supportLevel = p.supportLevel || p.validatedSma || "20-SMA Support";
   const regime = p.regime || "4H 20-SMA Pullback Valid";
@@ -369,15 +377,17 @@ export async function dispatchApprovedExecutionEmail(
     };
   }
 
+  const evalTime =
+    payload.now ??
+    (payload.candleTimestamp &&
+    typeof payload.candleTimestamp === "number" &&
+    payload.candleTimestamp > 1_000_000_000_000
+      ? payload.candleTimestamp
+      : Date.now());
+  const evalMs = typeof evalTime === "number" ? evalTime : evalTime.getTime();
+
   // Gate 0: Hard Market-Hours Gatekeeper (RTH Only: Mon-Fri 9:30 AM - 4:00 PM EST)
   if (!payload.force) {
-    const evalTime =
-      payload.now ??
-      (payload.candleTimestamp &&
-      typeof payload.candleTimestamp === "number" &&
-      payload.candleTimestamp > 1_000_000_000_000
-        ? payload.candleTimestamp
-        : Date.now());
     if (!isRegularMarketHours(evalTime)) {
       return {
         ok: true,
@@ -411,6 +421,40 @@ export async function dispatchApprovedExecutionEmail(
   }
 
   if (!payload.force) {
+    // Lock Dispatch to "ARMED / READY TO TRADE" State Only
+    const isReadyToArm = 
+      (payload.status === 'CONFIRMED' || payload.status === 'CONFIRMED_1H_CLOSE' || payload.status === 'READY_TO_TRADE') &&
+      payload.is1HCandleClosedGreen === true &&
+      payload.isTradeConfirmed === true &&
+      (payload.riskRewardRatio ?? 2.0) >= 1.45 &&
+      isRegularMarketHours(evalTime) === true;
+
+    if (!isReadyToArm) {
+      return {
+        ok: true,
+        status: "suppressed",
+        error: "DROP ALERT: Setup is not 100% actionable (not an actionable execution setup).",
+        subject,
+        text,
+        html,
+      };
+    }
+
+    // Session-Level Deduplication (Max 1 Alert Per Ticker Per Day)
+    const confirmedCandleTime = payload.candleTimestamp ?? Math.floor(evalMs / 3_600_000);
+    const alertKey = `${ticker}_${confirmedCandleTime}_ARMED`;
+    if (sentAlertsCache.has(alertKey)) {
+      return {
+        ok: true,
+        status: "suppressed",
+        error: `Already sent for this confirmed entry: ${alertKey}`,
+        subject,
+        text,
+        html,
+      };
+    }
+    sentAlertsCache.set(alertKey, Date.now());
+
     // Execution email: MUST satisfy isActionableExecution
     const isApproved = isActionableExecution({
       status: payload.status ?? "CONFIRMED",

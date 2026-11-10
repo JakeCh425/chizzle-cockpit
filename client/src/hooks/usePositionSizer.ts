@@ -18,6 +18,7 @@ export interface PositionSizerResult {
   dollarRiskPerShare: number;
   totalDollarRiskAllowed: number;
   calculatedShares: number;
+  totalShares: number;
   sharesAllowed: number;
   positionCost: number;
   totalCapitalRequired: number;
@@ -33,11 +34,47 @@ export const DEFAULT_ACCOUNT_EQUITY = 25000;
 export const DEFAULT_RISK_PERCENTAGE = 1.0;
 
 /**
- * Pure calculation function for risk-based position sizing with cash limit guard.
- * Enforces: maxShares = Math.min(Math.floor(riskBudget / riskPerShare), Math.floor(availableCash / entryPrice))
- * Automatically downsizes shares to fit cash accounts without requiring margin.
+ * Single shared math utility for risk-based position sizing with cash limit guard.
+ * Shared by both the UI setup cards and the notification worker.
  */
-export function calculatePositionSize(input: PositionSizerInput): PositionSizerResult {
+export function calculatePositionSize(
+  totalEquity: number,
+  availableCash: number,
+  entryPrice: number,
+  stopLossPrice: number,
+  riskPercentage?: number // Strict 1.0% risk ($16.15)
+): { totalShares: number; t1Shares: number; t2Shares: number; calculatedShares: number };
+export function calculatePositionSize(input: PositionSizerInput): PositionSizerResult;
+export function calculatePositionSize(
+  totalEquityOrInput: any,
+  availableCashArg?: number,
+  entryPriceArg?: number,
+  stopLossPriceArg?: number,
+  riskPercentageArg: number = 0.01
+): any {
+  if (typeof totalEquityOrInput !== "object" || totalEquityOrInput === null) {
+    const totalEquity = Number(totalEquityOrInput) || 1615;
+    const availableCash = Number(availableCashArg ?? totalEquity);
+    const entryPrice = Number(entryPriceArg || 0);
+    const stopLossPrice = Number(stopLossPriceArg || 0);
+    const rawRisk = Number(riskPercentageArg ?? 0.01);
+    const riskPercentage = rawRisk <= 0.05 ? rawRisk : rawRisk / 100;
+
+    const riskBudget = totalEquity * riskPercentage;
+    const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+    if (riskPerShare <= 0) return { totalShares: 0, t1Shares: 0, t2Shares: 0, calculatedShares: 0 };
+
+    const riskBasedShares = Math.floor(riskBudget / riskPerShare);
+    const cashBasedShares = Math.floor(availableCash / entryPrice);
+    const totalShares = Math.max(1, Math.min(riskBasedShares, cashBasedShares));
+
+    const t1Shares = Math.floor(totalShares / 2);
+    const t2Shares = totalShares - t1Shares;
+
+    return { totalShares, t1Shares, t2Shares, calculatedShares: totalShares };
+  }
+
+  const input = totalEquityOrInput as PositionSizerInput;
   const safeEquity = Number(input?.accountEquity) || DEFAULT_ACCOUNT_EQUITY;
   const accountEquity = safeEquity > 0 ? safeEquity : DEFAULT_ACCOUNT_EQUITY;
 
@@ -75,6 +112,7 @@ export function calculatePositionSize(input: PositionSizerInput): PositionSizerR
   // Enforce cash guard: maxShares = Math.min(riskShares, cashShares)
   const maxShares = Math.min(riskShares, cashShares);
   const calculatedShares = Math.max(0, maxShares);
+  const totalShares = calculatedShares;
 
   // Formula: totalCapitalRequired = calculatedShares * entryPrice
   const totalCapitalRequired = calculatedShares * entry;
@@ -109,6 +147,7 @@ export function calculatePositionSize(input: PositionSizerInput): PositionSizerR
     dollarRiskPerShare,
     totalDollarRiskAllowed,
     calculatedShares,
+    totalShares,
     sharesAllowed: calculatedShares,
     positionCost: totalCapitalRequired,
     totalCapitalRequired,
