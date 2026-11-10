@@ -1,4 +1,5 @@
 import { ModalLargeChart } from "./ModalLargeChart";
+import { ScaleOutRLadder } from "./ScaleOutRLadder";
 import { BrokerExecutionSteps } from "@/components/BrokerExecutionSteps";
 import { FidelityExecutionGuide } from "@/components/FidelityExecutionGuide";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
@@ -2157,6 +2158,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
         </div>
       </div>
 
+      {/* ─── INLINE 4-COLUMN SCALE-OUT R-LADDER (1.5R Partial + 2R/3R/4R Runners) ─── */}
+      {activeEntry != null && activeStop != null && (
+        <ScaleOutRLadder
+          entryPrice={activeEntry}
+          stopLossPrice={activeStop}
+          totalShares={dynamicShares}
+          resistancePrice={overheadResistancePrice}
+          symbol={d.symbol}
+        />
+      )}
+
       {/* ─── NEW SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
       <div
         className={`flex flex-col gap-1.5 px-2.5 py-1.5 my-1 rounded-lg border border-[var(--card-border)] bg-slate-900/60 font-mono tabular-nums text-xs shadow-inner overflow-hidden truncate transition-all ${
@@ -2825,15 +2837,27 @@ function CompactRow(props: Omit<CardProps, "inDialog"> & { setupKey: string; isN
         )}
       </div>
       
-      <div className="flex flex-1 flex-wrap items-center gap-4 text-sm font-mono text-slate-gray">
-        {activeEntry != null ? (
-          <>
-            <span>Entry <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeEntry)}</strong></span>
-            <span>Stop <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeStop)}</strong></span>
-            <span>T1 <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeT1)}</strong></span>
-            <span>Risk/sh <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeRisk)}</strong></span>
-          </>
-        ) : <span>{d.nextAction || "No plan levels yet."}</span>}
+      <div className="flex flex-1 flex-col justify-center min-w-0">
+        <div className="flex flex-wrap items-center gap-4 text-sm font-mono text-slate-gray">
+          {activeEntry != null ? (
+            <>
+              <span>Entry <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeEntry)}</strong></span>
+              <span>Stop <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeStop)}</strong></span>
+              <span>T1 <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeT1)}</strong></span>
+              <span>Risk/sh <strong className={isCustom ? "text-cyan-300 font-bold" : "text-soft-white"}>{$(activeRisk)}</strong></span>
+            </>
+          ) : <span>{d.nextAction || "No plan levels yet."}</span>}
+        </div>
+        {activeEntry != null && activeStop != null && (
+          <ScaleOutRLadder
+            entryPrice={activeEntry}
+            stopLossPrice={activeStop}
+            totalShares={sz.calculatedShares || (p as any)?.shares || 10}
+            resistancePrice={overheadResistancePrice}
+            symbol={d.symbol}
+            className="w-full"
+          />
+        )}
       </div>
 
       <div className="flex items-center gap-4">

@@ -5,6 +5,7 @@ import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import type { ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
+import { ScaleOutRLadder } from "./ScaleOutRLadder";
 
 export interface ActiveExecutionHeroCardProps {
   trade: ConfirmedHeroTrade;
@@ -215,6 +216,15 @@ export function ActiveExecutionHeroCard({
           </div>
         </div>
       </div>
+
+      {/* ── INLINE 4-COLUMN SCALE-OUT R-LADDER (1.5R Partial + 2R/3R/4R Runners) ── */}
+      <ScaleOutRLadder
+        entryPrice={trade.entryPrice}
+        stopLossPrice={trade.stopLoss}
+        totalShares={trade.shares}
+        resistancePrice={(trade as any).resistancePrice ?? (trade as any).structuralResistance}
+        symbol={trade.symbol}
+      />
 
       {/* ── ACTIONABLE FIDELITY ORDER TICKET EMBED ── */}
       <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900/90 p-3.5 sm:p-4 shadow-xl" data-testid={`hero-fidelity-ticket-${trade.symbol}`}>
