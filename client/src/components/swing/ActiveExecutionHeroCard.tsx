@@ -28,9 +28,17 @@ export function ActiveExecutionHeroCard({
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [isExecuting, setIsExecuting] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [customCash, setCustomCash] = useState<number>((trade as any)?.capital || 1000);
-  const customShares = trade.entryPrice && trade.entryPrice > 0 ? Math.floor(customCash / trade.entryPrice) : trade.shares;
-  const effectiveShares = customShares > 0 ? customShares : trade.shares;
+  const [isTicketExpanded, setIsTicketExpanded] = useState(false);
+
+  // Dynamic share & capital sizing: eliminate standalone/stale totalCost state variables
+  const [userCashInput, setUserCashInput] = useState<number | null>(null);
+  const customCash = userCashInput ?? (trade.shares && trade.entryPrice ? Math.round(trade.shares * trade.entryPrice) : ((trade as any)?.capital || 1000));
+  const setCustomCash = (val: number) => setUserCashInput(val);
+
+  const calculatedShares = trade.entryPrice && trade.entryPrice > 0
+    ? (userCashInput != null ? Math.floor(userCashInput / trade.entryPrice) : trade.shares)
+    : trade.shares;
+  const effectiveShares = calculatedShares > 0 ? calculatedShares : trade.shares;
   const effectiveT1Shares = Math.floor(effectiveShares / 2);
   const effectiveT2Shares = effectiveShares - effectiveT1Shares;
 
@@ -44,9 +52,10 @@ export function ActiveExecutionHeroCard({
   const auditLog = useNotificationAuditLog(trade.symbol);
   const alertTimeText = auditLog.formattedTime || (trade as any).alertTimestamp || "10:00 CT";
 
-  // Trade capital & risk calculations
-  const totalCapital = effectiveShares * trade.entryPrice;
-  const totalRisk = effectiveShares * trade.riskPerShare;
+  // Derived in render cycle: strictly tied to calculatedShares so price and shares can never desync
+  const totalPositionCost = calculatedShares * trade.entryPrice;
+  const totalCapital = totalPositionCost;
+  const totalRisk = calculatedShares * trade.riskPerShare;
 
   // Live price strictly from central market store
   const livePrice =
@@ -182,7 +191,7 @@ export function ActiveExecutionHeroCard({
               Position Sizing
             </span>
             <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
-              {trade.shares} Shares · ${totalCapital.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
+              {calculatedShares} Shares · ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
             </span>
           </div>
         </div>
@@ -249,7 +258,7 @@ export function ActiveExecutionHeroCard({
 
           {/* ── ACTIONABLE FIDELITY ORDER TICKET EMBED ── */}
           <div className="mt-4 rounded-xl border border-slate-700 bg-slate-900/90 p-3.5 sm:p-4 shadow-xl" data-testid={`hero-fidelity-ticket-${trade.symbol}`}>
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2 mb-3">
+            <div className={`flex flex-wrap items-center justify-between gap-2 ${isTicketExpanded ? "border-b border-slate-800 pb-2 mb-3" : ""}`}>
               <div className="flex items-center gap-2">
                 <span className="rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 px-2 py-0.5 font-mono text-[10px] font-bold tracking-wider uppercase">
                   1-Click Fidelity Ticket
@@ -258,9 +267,9 @@ export function ActiveExecutionHeroCard({
                   Exact Order Ticket Preset (Buy Limit + OCO Bracket)
                 </h4>
               </div>
-              <div className="flex items-center gap-3">
-                <span className="font-mono text-[10px] text-slate-400">
-                  Account Sizing: <strong>{effectiveShares} total shares</strong> ($250 standard max risk)
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                <span className="font-mono text-[10px] text-slate-400 hidden sm:inline">
+                  Account Sizing: <strong>{calculatedShares} total shares</strong> ($250 standard max risk)
                 </span>
                 <button
                   type="button"
@@ -296,137 +305,162 @@ export function ActiveExecutionHeroCard({
                   {copiedKey === "full-ticket" ? <Check className="h-3.5 w-3.5 text-emerald-400" /> : <Copy className="h-3.5 w-3.5" />}
                   <span>{copiedKey === "full-ticket" ? "ORDER TICKET COPIED TO CLIPBOARD" : "COPY FIDELITY ORDER TICKET"}</span>
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setIsTicketExpanded((prev) => !prev)}
+                  className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-mono font-bold flex items-center gap-1.5 transition-colors cursor-pointer border border-slate-700"
+                  data-testid={`button-toggle-ticket-details-${trade.symbol}`}
+                  aria-expanded={isTicketExpanded}
+                  title={isTicketExpanded ? "Hide ticket details and allocation breakdown" : "View ticket details and allocation breakdown"}
+                >
+                  {isTicketExpanded ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>[ ⌃ Hide Ticket Details ]</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5 text-indigo-400" />
+                      <span>[ ⌄ View Ticket Details ]</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
 
-            {/* Custom Allocation Control Bar (Just above the Fidelity Ticket order steps) */}
-            <div
-              className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-ink-line bg-ink-black/60 shadow-inner mb-3"
-              data-testid={`hero-custom-allocation-bar-${trade.symbol}`}
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray">
-                  Custom Allocation:
-                </span>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={customCash}
-                  onChange={(e) => setCustomCash(Math.floor(Number(e.target.value)))}
-                  className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
-                  data-testid={`hero-input-cash-${trade.symbol}`}
-                  placeholder="1000"
-                />
-              </div>
+            {/* When expanded, reveal the Custom Allocation input and the Step 1/Step 2 OCO breakdown */}
+            {isTicketExpanded && (
+              <div className="flex flex-col gap-3 mt-3 animate-in fade-in duration-150" data-testid={`ticket-expanded-body-${trade.symbol}`}>
+                {/* Custom Allocation Control Bar (Just above the Fidelity Ticket order steps) */}
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-ink-line bg-ink-black/60 shadow-inner"
+                  data-testid={`hero-custom-allocation-bar-${trade.symbol}`}
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray">
+                      Custom Allocation:
+                    </span>
+                    <input
+                      type="number"
+                      step="1"
+                      min="1"
+                      value={customCash}
+                      onChange={(e) => setCustomCash(Math.floor(Number(e.target.value)))}
+                      className="bg-ink-black border border-ink-line rounded px-2 py-1 text-neon-blue font-mono tabular-nums text-sm focus:border-neon-blue outline-none transition-colors w-28 sm:w-32 [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+                      data-testid={`hero-input-cash-${trade.symbol}`}
+                      placeholder="1000"
+                    />
+                  </div>
 
-              <div className="flex items-center gap-2 font-mono">
-                <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
-                  Calculated Shares:
-                </span>
-                <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
-                  <strong className="text-neon-blue font-extrabold">{effectiveShares}</strong> Shares
-                </span>
-              </div>
-            </div>
-
-            {/* 2-Step Interactive Fidelity Layout */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
-              {/* STEP 1: Buy Limit Entry */}
-              <div className="rounded-lg border border-cyan-500/30 bg-slate-950/70 p-3 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-mono font-bold text-cyan-300 border-b border-slate-800 pb-1.5">
-                  <span>Step 1: Open Initial Position</span>
-                  <span className="text-[10px] uppercase text-cyan-400/80">BUY · LIMIT</span>
+                  <div className="flex items-center gap-2 font-mono">
+                    <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                      Calculated Shares:
+                    </span>
+                    <span className="text-sm font-bold text-soft-white tabular-nums px-2.5 py-0.5 rounded bg-ink-black/80 border border-ink-line">
+                      <strong className="text-neon-blue font-extrabold">{calculatedShares}</strong> Shares
+                    </span>
+                  </div>
                 </div>
 
-                <div className="space-y-1 text-xs font-mono">
-                  <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Order Action:</span>
-                    <strong className="text-emerald-400">BUY</strong>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Shares / Quantity:</span>
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-white tabular-nums">{effectiveShares}</strong>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(String(effectiveShares), "shares", "Shares")}
-                        className="text-slate-400 hover:text-white"
-                        title="Copy Shares"
-                        data-testid={`copy-hero-shares-${trade.symbol}`}
-                      >
-                        {copiedKey === "shares" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      </button>
+                {/* 2-Step Interactive Fidelity Layout */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
+                  {/* STEP 1: Buy Limit Entry */}
+                  <div className="rounded-lg border border-cyan-500/30 bg-slate-950/70 p-3 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-mono font-bold text-cyan-300 border-b border-slate-800 pb-1.5">
+                      <span>Step 1: Open Initial Position</span>
+                      <span className="text-[10px] uppercase text-cyan-400/80">BUY · LIMIT</span>
+                    </div>
+
+                    <div className="space-y-1 text-xs font-mono">
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-400">Order Action:</span>
+                        <strong className="text-emerald-400">BUY</strong>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-400">Shares / Quantity:</span>
+                        <div className="flex items-center gap-1.5">
+                          <strong className="text-white tabular-nums">{effectiveShares}</strong>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(String(effectiveShares), "shares", "Shares")}
+                            className="text-slate-400 hover:text-white"
+                            title="Copy Shares"
+                            data-testid={`copy-hero-shares-${trade.symbol}`}
+                          >
+                            {copiedKey === "shares" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-400">Order Type:</span>
+                        <strong className="text-white">Limit</strong>
+                      </div>
+                      <div className="flex justify-between py-1 border-b border-slate-800/60">
+                        <span className="text-slate-400">Limit Price:</span>
+                        <div className="flex items-center gap-1.5">
+                          <strong className="text-emerald-400 tabular-nums">${trade.entryPrice.toFixed(2)}</strong>
+                          <button
+                            type="button"
+                            onClick={() => copyToClipboard(trade.entryPrice.toFixed(2), "step1-price", "Limit Price")}
+                            className="text-slate-400 hover:text-white"
+                            title="Copy Limit Price"
+                            data-testid={`copy-hero-step1-price-${trade.symbol}`}
+                          >
+                            {copiedKey === "step1-price" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          </button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between py-1">
+                        <span className="text-slate-400">Time in Force:</span>
+                        <strong className="text-amber-300">DAY</strong>
+                      </div>
                     </div>
                   </div>
-                  <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Order Type:</span>
-                    <strong className="text-white">Limit</strong>
-                  </div>
-                  <div className="flex justify-between py-1 border-b border-slate-800/60">
-                    <span className="text-slate-400">Limit Price:</span>
-                    <div className="flex items-center gap-1.5">
-                      <strong className="text-emerald-400 tabular-nums">${trade.entryPrice.toFixed(2)}</strong>
-                      <button
-                        type="button"
-                        onClick={() => copyToClipboard(trade.entryPrice.toFixed(2), "step1-price", "Limit Price")}
-                        className="text-slate-400 hover:text-white"
-                        title="Copy Limit Price"
-                        data-testid={`copy-hero-step1-price-${trade.symbol}`}
-                      >
-                        {copiedKey === "step1-price" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      </button>
+
+                  {/* STEP 2: OCO Bracket Protection */}
+                  <div className="rounded-lg border border-emerald-500/30 bg-slate-950/70 p-3 space-y-2">
+                    <div className="flex items-center justify-between text-[11px] font-mono font-bold text-emerald-300 border-b border-slate-800 pb-1.5">
+                      <span>Step 2: Conditional Bracket (OCO)</span>
+                      <span className="text-[10px] uppercase text-emerald-400/80">One Cancels Other</span>
                     </div>
-                  </div>
-                  <div className="flex justify-between py-1">
-                    <span className="text-slate-400">Time in Force:</span>
-                    <strong className="text-amber-300">DAY</strong>
+
+                    <div className="space-y-1.5 text-xs font-mono">
+                      <div className="p-2 rounded bg-slate-900 border border-emerald-900/60 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-emerald-400 font-bold block">Order 1: Sell Limit ({effectiveT1Shares} shares @ 1.5R)</span>
+                          <span className="font-extrabold text-white text-sm tabular-nums">${trade.target1.toFixed(2)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(trade.target1.toFixed(2), "oco-t1", "Target 1 Limit")}
+                          className="px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                          data-testid={`copy-hero-oco-t1-${trade.symbol}`}
+                        >
+                          {copiedKey === "oco-t1" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          <span>Copy T1</span>
+                        </button>
+                      </div>
+
+                      <div className="p-2 rounded bg-slate-900 border border-rose-900/60 flex items-center justify-between">
+                        <div>
+                          <span className="text-[10px] text-rose-400 font-bold block">Order 2: Stop Loss (All {effectiveShares} shares @ 1.0R)</span>
+                          <span className="font-extrabold text-rose-400 text-sm tabular-nums">${trade.stopLoss.toFixed(2)}</span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => copyToClipboard(trade.stopLoss.toFixed(2), "oco-stop", "Stop Loss")}
+                          className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                          data-testid={`copy-hero-oco-stop-${trade.symbol}`}
+                        >
+                          {copiedKey === "oco-stop" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
+                          <span>Copy Stop</span>
+                        </button>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>
-
-              {/* STEP 2: OCO Bracket Protection */}
-              <div className="rounded-lg border border-emerald-500/30 bg-slate-950/70 p-3 space-y-2">
-                <div className="flex items-center justify-between text-[11px] font-mono font-bold text-emerald-300 border-b border-slate-800 pb-1.5">
-                  <span>Step 2: Conditional Bracket (OCO)</span>
-                  <span className="text-[10px] uppercase text-emerald-400/80">One Cancels Other</span>
-                </div>
-
-                <div className="space-y-1.5 text-xs font-mono">
-                  <div className="p-2 rounded bg-slate-900 border border-emerald-900/60 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] text-emerald-400 font-bold block">Order 1: Sell Limit ({effectiveT1Shares} shares @ 1.5R)</span>
-                      <span className="font-extrabold text-white text-sm tabular-nums">${trade.target1.toFixed(2)}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(trade.target1.toFixed(2), "oco-t1", "Target 1 Limit")}
-                      className="px-2 py-1 rounded bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                      data-testid={`copy-hero-oco-t1-${trade.symbol}`}
-                    >
-                      {copiedKey === "oco-t1" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      <span>Copy T1</span>
-                    </button>
-                  </div>
-
-                  <div className="p-2 rounded bg-slate-900 border border-rose-900/60 flex items-center justify-between">
-                    <div>
-                      <span className="text-[10px] text-rose-400 font-bold block">Order 2: Stop Loss (All {effectiveShares} shares @ 1.0R)</span>
-                      <span className="font-extrabold text-rose-400 text-sm tabular-nums">${trade.stopLoss.toFixed(2)}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(trade.stopLoss.toFixed(2), "oco-stop", "Stop Loss")}
-                      className="px-2 py-1 rounded bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
-                      data-testid={`copy-hero-oco-stop-${trade.symbol}`}
-                    >
-                      {copiedKey === "oco-stop" ? <Check className="h-3 w-3 text-emerald-400" /> : <Copy className="h-3 w-3" />}
-                      <span>Copy Stop</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
+            )}
           </div>
 
           {/* ── DISMISS / LOG ACTIONS BAR ── */}
@@ -475,3 +509,6 @@ export function ActiveExecutionHeroCard({
     </div>
   );
 }
+
+export { ActiveExecutionHeroCard as ExecutionHeroCard };
+

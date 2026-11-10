@@ -97,7 +97,7 @@ describe("Action Center & Setup Card Progressive Disclosure Architecture", () =>
     it("surfaces position sizing and trade capital readout in ActiveExecutionHeroCard compact row", () => {
       expect(heroCardSrc).toContain('data-testid={`hero-position-sizing-${trade.symbol}`}');
       expect(heroCardSrc).toContain("font-mono text-sm font-semibold text-neon-blue tabular-nums");
-      expect(heroCardSrc).toContain("{trade.shares} Shares · ${totalCapital.toLocaleString(");
+      expect(heroCardSrc).toMatch(/\{(?:trade\.shares|calculatedShares)\}\s*Shares\s*·\s*\$\{(?:totalCapital|totalPositionCost)\.toLocaleString\(/);
       expect(heroCardSrc).toContain("Total · Risk: ${totalRisk.toFixed(2)}");
     });
 
