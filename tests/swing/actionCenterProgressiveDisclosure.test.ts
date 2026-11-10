@@ -104,8 +104,37 @@ describe("Action Center & Setup Card Progressive Disclosure Architecture", () =>
     it("surfaces position sizing and trade capital readout in TradingCard compact row", () => {
       expect(tradingCardSrc).toContain('data-testid={`card-position-sizing-${d.symbol}`}');
       expect(tradingCardSrc).toContain("font-mono text-sm font-semibold text-neon-blue tabular-nums");
-      expect(tradingCardSrc).toContain("{dynamicShares} Shares · ${dynamicFunding.toLocaleString(");
-      expect(tradingCardSrc).toContain("Total · Risk: ${sizer.totalDollarRiskAllowed.toFixed(2)}");
+      expect(tradingCardSrc).toContain("{calculatedShares} Shares · ${effectiveFunding.toLocaleString(");
+      expect(tradingCardSrc).toContain("Total · Risk: ${totalRisk.toFixed(2)}");
+    });
+  });
+
+  describe("Dynamic Manual Position Sizing & Risk Telemetry Architecture", () => {
+    it("Task 1: renders editable Trade Capital input inside expanded card with futuristic styling", () => {
+      expect(tradingCardSrc).toContain('data-testid={`input-cash-${d.symbol}`}');
+      expect(tradingCardSrc).toContain("bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors");
+      expect(tradingCardSrc).toContain("type=\"number\"");
+      expect(tradingCardSrc).toContain("Cash Allocation:");
+      expect(tradingCardSrc).toContain("const [customCash, setCustomCash] = useState");
+    });
+
+    it("Task 2: dynamically calculates shares and displays prominent count, wired to execution ticket and compact row", () => {
+      expect(tradingCardSrc).toContain("Math.floor(numericCash / plannedEntry)");
+      expect(tradingCardSrc).toContain('data-testid={`text-calculated-shares-${d.symbol}`}');
+      expect(tradingCardSrc).toContain("{calculatedShares}");
+      expect(tradingCardSrc).toContain("Broker Ticket ({calculatedShares} Shares):");
+      expect(tradingCardSrc).toContain("calculatedShares={calculatedShares}");
+      expect(tradingCardSrc).toContain("totalShares={calculatedShares}");
+    });
+
+    it("Task 3: renders account equity and risk telemetry block with conditional 2.0% threshold coloring", () => {
+      expect(tradingCardSrc).toContain('data-testid={`risk-telemetry-${d.symbol}`}');
+      expect(tradingCardSrc).toContain("font-mono text-xs uppercase tracking-wider text-slate-gray");
+      expect(tradingCardSrc).toContain("EQUITY: ${safeEquity.toLocaleString(");
+      expect(tradingCardSrc).toContain("TOTAL RISK: ${totalRisk.toFixed(2)}");
+      expect(tradingCardSrc).toContain("RISK OVERALL:");
+      expect(tradingCardSrc).toContain('data-testid={`text-risk-percent-${d.symbol}`}');
+      expect(tradingCardSrc).toContain('riskPercent > 2.0 ? "text-signal-red font-extrabold" : "text-signal-green font-bold"');
     });
   });
 });

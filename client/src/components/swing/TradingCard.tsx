@@ -1657,6 +1657,26 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const dynamicShares = sizer.calculatedShares > 0 ? sizer.calculatedShares : positionShares;
   const dynamicFunding = sizer.totalCapitalRequired > 0 ? sizer.totalCapitalRequired : fundingAllocated;
 
+  // Dynamic Trade Capital & Manual Position Sizing
+  const defaultCashAllocation = dynamicFunding > 0 ? Math.round(dynamicFunding) : (activeEntry ? Math.round(activeEntry * (dynamicShares || 1)) : 1000);
+  const [customCash, setCustomCash] = useState<string | number>(defaultCashAllocation);
+  const [isCustomCashEdited, setIsCustomCashEdited] = useState(false);
+
+  useEffect(() => {
+    if (!isCustomCashEdited && dynamicFunding > 0) {
+      setCustomCash(Math.round(dynamicFunding));
+    }
+  }, [dynamicFunding, isCustomCashEdited]);
+
+  const numericCash = typeof customCash === "number" ? customCash : parseFloat(String(customCash));
+  const hasValidCustomCash = !isNaN(numericCash) && numericCash > 0;
+  const plannedEntry = activeEntry ?? p.entry ?? 1;
+  const calculatedShares = hasValidCustomCash && plannedEntry > 0 ? Math.floor(numericCash / plannedEntry) : dynamicShares;
+  const effectiveFunding = hasValidCustomCash ? numericCash : dynamicFunding;
+  const activeRiskPerShare = activeRisk && activeRisk > 0 ? activeRisk : (activeEntry != null && activeStop != null ? Math.abs(activeEntry - activeStop) : 1);
+  const totalRisk = calculatedShares * activeRiskPerShare;
+  const riskPercent = safeEquity > 0 ? (totalRisk / safeEquity) * 100 : 0;
+
   // Execution-Quality Gatekeeper (6-Point Quality Trade Validation)
   const qualityValidation = useQualityTradeValidation({
     symbol: d.symbol,
@@ -1668,8 +1688,8 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
     structureLevels: d.structureLevels,
     resistanceZone: d.resistanceZone,
     availableCash: availableTradingCash,
-    allocatedCapital: dynamicFunding,
-    shares: dynamicShares,
+    allocatedCapital: effectiveFunding,
+    shares: calculatedShares,
     decision: d,
     setupStatus: d.setupStatus,
   });
@@ -1968,7 +1988,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               Position Sizing
             </span>
             <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
-              {dynamicShares} Shares · ${dynamicFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${sizer.totalDollarRiskAllowed.toFixed(2)}
+              {calculatedShares} Shares · ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
             </span>
           </div>
         </div>
@@ -2110,19 +2130,19 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-1.5 text-emerald-400 font-bold text-[11px]">
                     <ClipboardList className="h-3.5 w-3.5" />
-                    <span>Broker Ticket ({dynamicShares} Shares):</span>
+                    <span>Broker Ticket ({calculatedShares} Shares):</span>
                   </div>
                   <div className="flex flex-wrap items-center gap-2 font-mono text-[11px] font-bold tabular-nums">
                     <span className="text-emerald-400">
-                      BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({dynamicShares} sh)
+                      BUY LIMIT: <strong className="text-white">${activeEntry != null ? activeEntry.toFixed(2) : "—"}</strong> ({calculatedShares} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-cyan-300">
-                      SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(dynamicShares / 2)} sh)
+                      SELL LIMIT (50%): <strong className="text-white">${targets.t1 != null ? targets.t1.toFixed(2) : "—"}</strong> ({Math.floor(calculatedShares / 2)} sh)
                     </span>
                     <span className="text-slate-500">|</span>
                     <span className="text-rose-400">
-                      SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({dynamicShares - Math.floor(dynamicShares / 2)} sh)
+                      SELL STOP: <strong className="text-white">${activeStop != null ? activeStop.toFixed(2) : "—"}</strong> ({calculatedShares - Math.floor(calculatedShares / 2)} sh)
                     </span>
                   </div>
                 </div>
@@ -2132,7 +2152,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                   stopLoss={activeStop}
                   target1={targets.t1}
                   target2={targets.t2}
-                  calculatedShares={dynamicShares}
+                  calculatedShares={calculatedShares}
                   isOpen={isMiniGuideOpen}
                   onClose={() => setIsMiniGuideOpen(false)}
                   className="!static !w-full !max-w-full mt-1"
@@ -2145,11 +2165,72 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               <ScaleOutRLadder
                 entryPrice={activeEntry}
                 stopLossPrice={activeStop}
-                totalShares={dynamicShares}
+                totalShares={calculatedShares}
                 resistancePrice={overheadResistancePrice}
                 symbol={d.symbol}
               />
             )}
+
+            {/* ─── DYNAMIC POSITION SIZING & RISK TELEMETRY PANEL ─── */}
+            <div
+              className="flex flex-col gap-2 p-3 rounded-lg border border-ink-line bg-ink-black/40 backdrop-blur-sm"
+              data-testid={`card-capital-risk-panel-${d.symbol}`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <label
+                    htmlFor={`input-cash-${d.symbol}`}
+                    className="font-mono text-xs font-bold uppercase tracking-wider text-slate-gray"
+                  >
+                    Cash Allocation:
+                  </label>
+                  <input
+                    id={`input-cash-${d.symbol}`}
+                    type="number"
+                    step="10"
+                    min="0"
+                    value={customCash}
+                    onChange={(e) => {
+                      setIsCustomCashEdited(true);
+                      setCustomCash(e.target.value);
+                    }}
+                    placeholder={dynamicFunding > 0 ? String(Math.round(dynamicFunding)) : "1000"}
+                    className="bg-ink-black/50 border border-ink-line rounded-md px-3 py-1.5 font-mono text-sm text-neon-blue focus:border-neon-blue outline-none transition-colors tabular-nums w-32 sm:w-36"
+                    data-testid={`input-cash-${d.symbol}`}
+                    title="Manual Cash Allocation ($)"
+                  />
+                </div>
+
+                <div className="flex items-center gap-2 font-mono" data-testid={`text-calculated-shares-${d.symbol}`}>
+                  <span className="text-xs uppercase tracking-wider text-slate-gray font-bold">
+                    Calculated Shares:
+                  </span>
+                  <span className="text-sm sm:text-base font-bold text-soft-white tabular-nums px-2.5 py-1 rounded bg-ink-black/60 border border-ink-line">
+                    <strong className="text-neon-blue font-extrabold">{calculatedShares}</strong> Shares
+                  </span>
+                </div>
+              </div>
+
+              {/* Sleek UI Telemetry Block */}
+              <div
+                className="font-mono text-xs uppercase tracking-wider text-slate-gray flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-ink-line/40 tabular-nums"
+                data-testid={`risk-telemetry-${d.symbol}`}
+              >
+                <span>EQUITY: ${safeEquity.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                <span className="text-slate-600">|</span>
+                <span>TOTAL RISK: ${totalRisk.toFixed(2)}</span>
+                <span className="text-slate-600">|</span>
+                <span>
+                  RISK OVERALL:{" "}
+                  <span
+                    className={`font-bold tabular-nums ${riskPercent > 2.0 ? "text-signal-red font-extrabold" : "text-signal-green font-bold"}`}
+                    data-testid={`text-risk-percent-${d.symbol}`}
+                  >
+                    {riskPercent.toFixed(2)}%
+                  </span>
+                </span>
+              </div>
+            </div>
 
             {/* ─── SUMMARY STRIP: Funding Allocated | Position Size (Shares) | Target R-Multiple ─── */}
             <div
@@ -2164,7 +2245,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 <div className="flex items-center gap-1.5 min-w-0 truncate">
                   <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Risk ($1R):</span>
                   <strong className="text-emerald-400 font-bold font-mono tabular-nums truncate" data-testid={`card-dollar-risk-${d.symbol}`}>
-                    ${sizer.totalDollarRiskAllowed.toFixed(2)}
+                    ${totalRisk.toFixed(2)}
                   </strong>
                 </div>
                 <div className="flex items-center gap-1 bg-slate-950/80 p-0.5 rounded border border-slate-800 shrink-0">
@@ -2195,13 +2276,13 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
                   <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Funding Allocated:</span>
                   <strong className="text-emerald-400 font-mono tabular-nums font-bold truncate">
-                    ${dynamicFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </strong>
                 </div>
                 <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
                   <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
                   <strong className="text-cyan-300 font-mono tabular-nums font-bold truncate">
-                    {dynamicShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${dynamicFunding.toLocaleString()})</span>
+                    {calculatedShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${effectiveFunding.toLocaleString()})</span>
                   </strong>
                 </div>
                 <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
@@ -2256,7 +2337,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                   return (
                     <button
                       type="button"
-                      disabled={isArmDisabled}
+                      disabled={isArmDisabled} /* disabled={isInsufficientCash} */
                       className={`flex items-center gap-1.5 rounded-md px-3.5 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors cursor-pointer shadow-sm pointer-events-auto ${
                         isArmDisabled
                           ? "opacity-40 cursor-not-allowed bg-slate-800 text-slate-500 border border-slate-700"
