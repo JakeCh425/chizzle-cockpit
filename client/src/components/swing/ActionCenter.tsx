@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
@@ -460,6 +460,7 @@ function ActionCenterInner() {
   const title = savedTitle?.trim() || DEFAULT_TITLE;
   const [seen, setSeen] = usePersistentState<string[]>("ac-seen-setups", []);
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
+  const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
 
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -852,11 +853,66 @@ function ActionCenterInner() {
 
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-4 border-b border-slate-800 pb-4">
-        <button className="rounded-md p-1.5 text-slate-gray transition-colors hover:bg-ink-line hover:text-soft-white" onClick={() => setBoxOpen(!boxOpen)} aria-expanded={boxOpen} aria-controls="ac-body" aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`} data-testid="button-toggle-action-center">
-          {boxOpen ? <ChevronDown className="h-5 w-5" aria-hidden /> : <ChevronRight className="h-5 w-5" aria-hidden />}
+        {/* Master Action Center Collapse Toggle */}
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
+          onClick={() => setBoxOpen(!boxOpen)}
+          aria-expanded={boxOpen}
+          aria-controls="ac-body"
+          aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`}
+          data-testid="button-toggle-action-center"
+        >
+          {boxOpen ? (
+            <>
+              <ChevronUp className="h-4 w-4 text-emerald-400" aria-hidden />
+              <span>[ Collapse Action Center ]</span>
+            </>
+          ) : (
+            <>
+              <ChevronDown className="h-4 w-4 text-emerald-400" aria-hidden />
+              <span>[ Expand Action Center ]</span>
+            </>
+          )}
         </button>
         
         <EditableTitle value={title} onChange={setTitle} />
+
+        {/* Sleek Bulk Card Controls: [ Expand All ] and [ Collapse All ] */}
+        <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 font-mono text-xs shadow-sm" role="group" aria-label="Bulk Card Controls">
+          <button
+            type="button"
+            onClick={() => {
+              setIsCollapsedAll(false);
+              setBulkExpanded(true);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              bulkExpanded === true
+                ? "bg-emerald-500 text-slate-950 shadow-sm"
+                : "text-slate-300 hover:text-white hover:bg-slate-800"
+            }`}
+            data-testid="button-bulk-expand-all"
+          >
+            <ChevronsUpDown className="h-3.5 w-3.5" />
+            <span>[ Expand All ]</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setIsCollapsedAll(true);
+              setBulkExpanded(false);
+            }}
+            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
+              bulkExpanded === false
+                ? "bg-slate-700 text-white shadow-sm"
+                : "text-slate-300 hover:text-white hover:bg-slate-800"
+            }`}
+            data-testid="button-bulk-collapse-all"
+          >
+            <ChevronsDownUp className="h-3.5 w-3.5" />
+            <span>[ Collapse All ]</span>
+          </button>
+        </div>
         
         <span
           className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest ${
@@ -1346,7 +1402,7 @@ function ActionCenterInner() {
               const populated = isPopulated(d, ver);
               return (
                 <div key={d.symbol} className="flex flex-col gap-1.5 self-start w-full">
-                  <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} />
+                  <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} bulkExpanded={bulkExpanded} />
                   {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
                   {fOf(d).shouldCollapse && (
                     <button className="flex w-max items-center gap-1.5 rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onClick={() => setCard(key, true)} data-testid={`button-move-older-${d.symbol}`}>
