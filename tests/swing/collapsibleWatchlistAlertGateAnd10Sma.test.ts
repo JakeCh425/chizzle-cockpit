@@ -285,3 +285,29 @@ describe("Task 2: Strict Ready to Trade Alert Gate & Session Idempotency", () =>
     expect(readyAlertsMap.has(`SPY-${todayKey}`)).toBe(false);
   });
 });
+
+describe("Task: Collapsible Pending & Waiting Zone in ActionCenter.tsx", () => {
+  it("ActionCenter includes isPendingOpen state and collapsible toggle button", async () => {
+    const fs = await import("fs");
+    const path = await import("path");
+    const acPath = path.resolve(__dirname, "../../client/src/components/swing/ActionCenter.tsx");
+    const content = fs.readFileSync(acPath, "utf-8");
+
+    // Task 1: local state hook
+    expect(content).toContain("const [isPendingOpen, setIsPendingOpen] = useState(true);");
+
+    // Task 1: Header toggle button with interactive styling
+    expect(content).toContain('data-testid="button-toggle-pending-section"');
+    expect(content).toContain("cursor-pointer hover:bg-white/5 transition-colors");
+    expect(content).toContain("onClick={() => setIsPendingOpen((prev) => !prev)}");
+    expect(content).toContain("isPendingOpen ? (");
+    expect(content).toContain("<ChevronDown className=");
+    expect(content).toContain("<ChevronRight className=");
+    expect(content).toContain("[ ⏳ PENDING & WAITING ]");
+
+    // Task 2: Conditional rendering block wrapping the list
+    expect(content).toContain("{isPendingOpen && (");
+    expect(content).toContain('<div className="flex flex-col gap-1 mt-2">');
+    expect(content).toContain('data-testid="waiting-room-rows"');
+  });
+});

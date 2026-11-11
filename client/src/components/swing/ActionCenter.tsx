@@ -469,6 +469,7 @@ function ActionCenterInner() {
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
   const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
   const [uiPreferencesOpen, setUiPreferencesOpen] = useState(false);
+  const [isPendingOpen, setIsPendingOpen] = useState(true);
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(true);
   const [isWatchlistCollapsed, setIsWatchlistCollapsed] = usePersistentState<boolean>("ac-watchlist-collapsed", false);
 
@@ -1488,8 +1489,20 @@ function ActionCenterInner() {
               className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#101827] p-4 shadow-lg w-full"
               data-testid="zone-pending-waiting"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <button
+                type="button"
+                onClick={() => setIsPendingOpen((prev) => !prev)}
+                className="w-full flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 cursor-pointer hover:bg-white/5 transition-colors rounded p-1 text-left"
+                data-testid="button-toggle-pending-section"
+                aria-expanded={isPendingOpen}
+                aria-label={isPendingOpen ? "Collapse Pending & Waiting section" : "Expand Pending & Waiting section"}
+              >
                 <div className="flex items-center gap-2">
+                  {isPendingOpen ? (
+                    <ChevronDown className="h-4 w-4 text-cyan-400" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  )}
                   <span className="h-2 w-2 rounded-full bg-slate-500" />
                   <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-slate-200 flex items-center gap-2">
                     <span>[ ⏳ PENDING & WAITING ]</span>
@@ -1502,7 +1515,7 @@ function ActionCenterInner() {
                 <span className="font-mono text-[10.5px] uppercase tracking-wider text-slate-400 hidden sm:inline">
                   Forming Setups · Waiting For Retest · Missed Entries · Standby Hard Blocks
                 </span>
-              </div>
+              </button>
 
               {/* Compatibility hooks for test suites */}
               <div className="hidden grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start w-full" data-testid="ac-cards-grid">
@@ -1516,92 +1529,96 @@ function ActionCenterInner() {
               </div>
 
               {/* Ultra-compact single-line rows with AI Predictive Tips: [Ticker] | [Current Price] | [Blocked Reason] + [AI Tip] */}
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full mb-2" data-testid="pending-cards-grid" />
-              <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
-                {generalLoud.map((d) => {
-                  const liveQuote = prices?.[d.symbol];
-                  const effectivePrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? d.currentPrice ?? 0;
-                  const ext = getSetupPriceExtension(d);
-                  const isExtended = ext.extensionPercent > 0.75;
-                  const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
-                  const blockedReason = isExtended
-                    ? `Extended (${ext.diffSign}${ext.extensionPercent.toFixed(1)}%) — Await Retest`
-                    : d.hasHardBlock
-                    ? "Blocked: 4H SMA 50 Ceiling"
-                    : d.isStandbyDay
-                    ? "Standby Day (Red Regime)"
-                    : d.isWaitAndRetest
-                    ? "Wait for Retest"
-                    : d.setupStatus === "SETUP_FORMING"
-                    ? "Setup Forming"
-                    : d.notes || d.status || "Pending Confirmation";
+              {isPendingOpen && (
+                <div className="flex flex-col gap-1 mt-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full mb-2" data-testid="pending-cards-grid" />
+                  <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
+                    {generalLoud.map((d) => {
+                      const liveQuote = prices?.[d.symbol];
+                      const effectivePrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? d.currentPrice ?? 0;
+                      const ext = getSetupPriceExtension(d);
+                      const isExtended = ext.extensionPercent > 0.75;
+                      const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
+                      const blockedReason = isExtended
+                        ? `Extended (${ext.diffSign}${ext.extensionPercent.toFixed(1)}%) — Await Retest`
+                        : d.hasHardBlock
+                        ? "Blocked: 4H SMA 50 Ceiling"
+                        : d.isStandbyDay
+                        ? "Standby Day (Red Regime)"
+                        : d.isWaitAndRetest
+                        ? "Wait for Retest"
+                        : d.setupStatus === "SETUP_FORMING"
+                        ? "Setup Forming"
+                        : d.notes || d.status || "Pending Confirmation";
 
-                  // Dynamic Distance & Readiness Engine for AI Predictive Tips
-                  const targetSma = (d as any).sma20 ?? (d.structureLevels?.sma20 ?? (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
-                  const sma50Val = (d as any).sma50 ?? (d.structureLevels?.sma50 ?? (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
-                  const distancePercent = targetSma > 0 && effectivePrice > 0
-                    ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
-                    : 1.5;
-                  const isHardBlock = Boolean(
-                    d.hasHardBlock ||
-                    d.isStandbyDay ||
-                    (sma50Val > 0 && targetSma > 0 && targetSma < sma50Val)
-                  );
+                      // Dynamic Distance & Readiness Engine for AI Predictive Tips
+                      const targetSma = (d as any).sma20 ?? (d.structureLevels?.sma20 ?? (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
+                      const sma50Val = (d as any).sma50 ?? (d.structureLevels?.sma50 ?? (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
+                      const distancePercent = targetSma > 0 && effectivePrice > 0
+                        ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
+                        : 1.5;
+                      const isHardBlock = Boolean(
+                        d.hasHardBlock ||
+                        d.isStandbyDay ||
+                        (sma50Val > 0 && targetSma > 0 && targetSma < sma50Val)
+                      );
 
-                  let aiTip = "";
-                  if (isHardBlock) {
-                    aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
-                  } else if (isExtended) {
-                    aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-                  } else if (Math.abs(distancePercent) < 0.5) {
-                    aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
-                  } else {
-                    aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-                  }
+                      let aiTip = "";
+                      if (isHardBlock) {
+                        aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
+                      } else if (isExtended) {
+                        aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
+                      } else if (Math.abs(distancePercent) < 0.5) {
+                        aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
+                      } else {
+                        aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
+                      }
 
-                  return (
-                    <div
-                      key={d.symbol}
-                      onClick={() => {
-                        setSelectedTicker(d.symbol);
-                        global?.setActiveTicker?.(d.symbol);
-                        marketStore.setActiveTicker?.(d.symbol);
-                      }}
-                      className={`flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 py-3 px-3 hover:bg-[#0B1220] transition-colors rounded cursor-pointer font-mono text-xs ${
-                        selectedTicker === d.symbol ? "bg-[#0B1220] border-l-2 border-cyan-400" : ""
-                      }`}
-                      data-testid={`waiting-row-${d.symbol}`}
-                    >
-                      <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="font-bold text-slate-100 text-sm">{d.symbol}</span>
-                        <span className="text-slate-600">|</span>
-                        <span className="text-slate-300 tabular-nums">{formatCurrency(effectivePrice)}</span>
-                        <span className="text-slate-600">|</span>
-                        <span className={`text-xs font-medium ${isExtended ? "text-amber-300" : d.hasHardBlock || d.isStandbyDay ? "text-slate-400" : "text-cyan-400"}`}>
-                          {blockedReason}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {isExtended && (
-                          <div
-                            className="bg-amber-950/60 border border-amber-600/70 text-amber-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold shadow-sm"
-                            data-testid={`badge-extended-await-retest-${d.symbol}`}
-                          >
-                            <span>{extendedBadgeText}</span>
-                          </div>
-                        )}
+                      return (
                         <div
-                          className="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2"
-                          data-testid={`badge-waiting-ai-tip-${d.symbol}`}
+                          key={d.symbol}
+                          onClick={() => {
+                            setSelectedTicker(d.symbol);
+                            global?.setActiveTicker?.(d.symbol);
+                            marketStore.setActiveTicker?.(d.symbol);
+                          }}
+                          className={`flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 py-3 px-3 hover:bg-[#0B1220] transition-colors rounded cursor-pointer font-mono text-xs ${
+                            selectedTicker === d.symbol ? "bg-[#0B1220] border-l-2 border-cyan-400" : ""
+                          }`}
+                          data-testid={`waiting-row-${d.symbol}`}
                         >
-                          <span>{aiTip}</span>
+                          <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
+                          <div className="flex items-center gap-3 shrink-0">
+                            <span className="font-bold text-slate-100 text-sm">{d.symbol}</span>
+                            <span className="text-slate-600">|</span>
+                            <span className="text-slate-300 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            <span className="text-slate-600">|</span>
+                            <span className={`text-xs font-medium ${isExtended ? "text-amber-300" : d.hasHardBlock || d.isStandbyDay ? "text-slate-400" : "text-cyan-400"}`}>
+                              {blockedReason}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {isExtended && (
+                              <div
+                                className="bg-amber-950/60 border border-amber-600/70 text-amber-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold shadow-sm"
+                                data-testid={`badge-extended-await-retest-${d.symbol}`}
+                              >
+                                <span>{extendedBadgeText}</span>
+                              </div>
+                            )}
+                            <div
+                              className="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2"
+                              data-testid={`badge-waiting-ai-tip-${d.symbol}`}
+                            >
+                              <span>{aiTip}</span>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
 
             {/* ═════════════════════════════════════════════════════════════════ */}
