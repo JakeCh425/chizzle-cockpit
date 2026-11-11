@@ -1250,131 +1250,15 @@ function ActionCenterInner() {
         )}
       </div>
 
-      {/* ─── BODY: 3-SECTION INSTITUTIONAL GRID ─── */}
+      {/* ─── BODY: FULL-WIDTH VERTICAL STACK (TOP-TO-BOTTOM) ─── */}
       {boxOpen && (
-        <div id="ac-body" className="grid grid-cols-1 lg:grid-cols-12 gap-4 w-full">
+        <div id="ac-body" className="flex flex-col gap-8 w-full max-w-[1600px] mx-auto">
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* SECTION 1: WATCHLIST & CHART (Left Column - lg:col-span-3)       */}
+          {/* ZONE 1: TRUE "READY TO EXECUTE" (TOP)                              */}
           {/* ═════════════════════════════════════════════════════════════════ */}
-          <div className="lg:col-span-3 flex flex-col gap-4" data-testid="section-watchlist-and-chart">
-            {/* Watchlist Panel */}
-            <div className="bg-[#101827] border border-slate-800 rounded-xl p-3.5 flex flex-col gap-3 shadow-lg">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="font-mono text-xs font-bold text-slate-100 uppercase tracking-wider flex items-center gap-1.5">
-                  <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                  Watchlist
-                </span>
-                <span className="font-mono text-[10px] text-slate-400">
-                  {watchlistSymbols.length} Symbols
-                </span>
-              </div>
-
-              {/* Minimal Input to [+ Add] ticker */}
-              <form onSubmit={handleAddTicker} className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  value={newTickerInput}
-                  onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
-                  placeholder="Add ticker..."
-                  maxLength={6}
-                  className="flex-1 bg-[#0B1220] border border-slate-800 text-slate-100 font-mono text-xs px-2.5 py-1.5 rounded focus:outline-none focus:border-cyan-400 placeholder:text-slate-600 uppercase"
-                  data-testid="input-watchlist-ticker"
-                />
-                <button
-                  type="submit"
-                  disabled={!(newTickerInput ?? "").toString().trim()}
-                  className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-                  data-testid="button-add-watchlist-ticker"
-                >
-                  [+ Add]
-                </button>
-              </form>
-
-              {/* Clean Vertical List of Tickers */}
-              <div className="flex flex-col gap-1 max-h-[220px] overflow-y-auto pr-1 divide-y divide-slate-800/40" data-testid="watchlist-items-list">
-                {watchlistSymbols.map((sym) => {
-                  const isSelected = selectedTicker === sym;
-                  const livePrice = marketStore.prices[sym] ?? prices?.[sym]?.price;
-                  return (
-                    <div
-                      key={sym}
-                      onClick={() => setSelectedTicker(sym)}
-                      className={`flex items-center justify-between py-1.5 px-2 rounded cursor-pointer transition-colors font-mono text-xs ${
-                        isSelected
-                          ? "bg-[#0B1220] border-l-2 border-cyan-400 text-cyan-400 font-bold"
-                          : "text-slate-300 hover:bg-[#0B1220] hover:text-slate-100"
-                      }`}
-                      data-testid={`watchlist-row-${sym}`}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold">{sym}</span>
-                        {livePrice != null && livePrice > 0 && (
-                          <span className="text-[11px] text-slate-400 tabular-nums">
-                            ${livePrice.toFixed(2)}
-                          </span>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={(e) => handleDeleteTicker(sym, e)}
-                        className="text-slate-500 hover:text-rose-400 transition-colors p-1 rounded"
-                        title={`Delete ${sym} from watchlist`}
-                        data-testid={`button-delete-watchlist-${sym}`}
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        <span className="sr-only">[Delete]</span>
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* Bottom half dedicated to TradingView Lightweight Chart */}
-            <div className="bg-[#101827] border border-slate-800 rounded-xl p-3 flex flex-col gap-2 shadow-lg">
-              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
-                <span className="font-mono text-xs font-bold text-slate-100 flex items-center gap-1.5">
-                  <span className="text-cyan-400">{selectedTicker}</span> CHART
-                </span>
-                <div className="flex items-center gap-1 text-[10px] font-mono">
-                  {(["1H", "4H", "D"] as const).map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setChartTf(t)}
-                      className={`px-1.5 py-0.5 rounded transition-colors cursor-pointer ${
-                        chartTf === t
-                          ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 font-bold"
-                          : "text-slate-400 hover:text-slate-200"
-                      }`}
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              <div className="h-[280px] w-full rounded overflow-hidden border border-slate-800/80 bg-[#0B1220]" data-testid="section-watchlist-chart">
-                <SwingChart
-                  symbol={selectedTicker}
-                  decision={selectedDecision}
-                  tf={chartTf}
-                  onTf={setChartTf}
-                  scope={chartScope}
-                  onScope={setChartScope}
-                  onMarker={() => {}}
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* RIGHT COLUMN (lg:col-span-9): Sections 2 & 3                      */}
-          {/* ═════════════════════════════════════════════════════════════════ */}
-          <div className="lg:col-span-9 flex flex-col gap-4">
-            {/* ─── SECTION 2: ACTIVE EXECUTION ZONE (Top Right) ─── */}
-            <div
-              className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
-              data-testid="active-execution-zone"
+          <div
+            className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
+            data-testid="active-execution-zone"
             >
               {/* Compatibility hook: border-2 border-emerald-500/80 bg-emerald-950/30 */}
               <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30" />
@@ -1402,7 +1286,7 @@ function ActionCenterInner() {
                   No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-3.5 sm:gap-4 gap-4" data-testid="ready-cards-grid">
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3.5 sm:gap-4 gap-4" data-testid="ready-cards-grid">
                   {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
                   {validHeroTrades.map((trade) => (
                     <motion.div
@@ -1624,6 +1508,120 @@ function ActionCenterInner() {
               </div>
             </div>
 
+            {/* ═════════════════════════════════════════════════════════════════ */}
+            {/* ZONE 3: WATCHLIST & UNIVERSAL CHART (BOTTOM)                       */}
+            {/* ═════════════════════════════════════════════════════════════════ */}
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 w-full" data-testid="section-watchlist-and-chart">
+              {/* Watchlist Manager Panel (Takes 1 column: lg:col-span-1) */}
+              <div className="lg:col-span-1 bg-[#101827] border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <span className="font-mono text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                    Watchlist Manager
+                  </span>
+                  <span className="font-mono text-xs text-slate-400">
+                    {watchlistSymbols.length} Symbols
+                  </span>
+                </div>
+
+                {/* Minimal Input to [+ Add] ticker */}
+                <form onSubmit={handleAddTicker} className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newTickerInput}
+                    onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
+                    placeholder="Add ticker..."
+                    maxLength={6}
+                    className="flex-1 bg-[#0B1220] border border-slate-800 text-slate-100 font-mono text-xs px-3 py-2 rounded focus:outline-none focus:border-cyan-400 placeholder:text-slate-600 uppercase"
+                    data-testid="input-watchlist-ticker"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!(newTickerInput ?? "").toString().trim()}
+                    className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3 py-2 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    data-testid="button-add-watchlist-ticker"
+                  >
+                    [+ Add]
+                  </button>
+                </form>
+
+                {/* Clean Vertical List of Tickers */}
+                <div className="flex flex-col gap-1 max-h-[340px] overflow-y-auto pr-1 divide-y divide-slate-800/40" data-testid="watchlist-items-list">
+                  {watchlistSymbols.map((sym) => {
+                    const isSelected = selectedTicker === sym;
+                    const livePrice = marketStore.prices[sym] ?? prices?.[sym]?.price;
+                    return (
+                      <div
+                        key={sym}
+                        onClick={() => setSelectedTicker(sym)}
+                        className={`flex items-center justify-between py-2 px-2.5 rounded cursor-pointer transition-colors font-mono text-xs ${
+                          isSelected
+                            ? "bg-[#0B1220] border-l-2 border-cyan-400 text-cyan-400 font-bold"
+                            : "text-slate-300 hover:bg-[#0B1220] hover:text-slate-100"
+                        }`}
+                        data-testid={`watchlist-row-${sym}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-sm">{sym}</span>
+                          {livePrice != null && livePrice > 0 && (
+                            <span className="text-xs text-slate-400 tabular-nums">
+                              ${livePrice.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => handleDeleteTicker(sym, e)}
+                          className="text-slate-500 hover:text-rose-400 transition-colors p-1 rounded"
+                          title={`Delete ${sym} from watchlist`}
+                          data-testid={`button-delete-watchlist-${sym}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                          <span className="sr-only">[Delete]</span>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Main Universal Chart (Takes 2 columns: lg:col-span-2) */}
+              <div className="lg:col-span-2 bg-[#101827] border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-lg">
+                <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                  <span className="font-mono text-sm font-bold text-slate-100 flex items-center gap-2">
+                    <span className="text-cyan-400">{selectedTicker}</span> UNIVERSAL CHART
+                  </span>
+                  <div className="flex items-center gap-1.5 text-xs font-mono">
+                    {(["1H", "4H", "D"] as const).map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setChartTf(t)}
+                        className={`px-2 py-1 rounded transition-colors cursor-pointer ${
+                          chartTf === t
+                            ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 font-bold"
+                            : "text-slate-400 hover:text-slate-200"
+                        }`}
+                      >
+                        {t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="h-[380px] w-full rounded-lg overflow-hidden border border-slate-800/80 bg-[#0B1220]" data-testid="section-watchlist-chart">
+                  <SwingChart
+                    symbol={selectedTicker}
+                    decision={selectedDecision}
+                    tf={chartTf}
+                    onTf={setChartTf}
+                    scope={chartScope}
+                    onScope={setChartScope}
+                    onMarker={() => {}}
+                  />
+                </div>
+              </div>
+            </div>
+
             {/* Task 4: Collapsible UI Preferences (closed by default) */}
             <div className="flex flex-col gap-2 w-full pt-2 border-t border-slate-800/60" data-testid="ui-preferences-container">
               <button
@@ -1716,7 +1714,6 @@ function ActionCenterInner() {
               <TradingCardDialog open={!!dlg} onClose={() => setDlg(null)} mode={dlg!.mode} setMode={(m) => setDlg({ symbol: dlg!.symbol, mode: m })}
                 d={dlgDecision} group={actionGroupOf(dlgDecision)} ver={activeVersion(dlgDecision, sel)} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} />
             )}
-          </div>
         </div>
       )}
     </section>
