@@ -76,10 +76,11 @@ export function SmaSettingsPopover({
         data-testid="button-sma-settings"
         onClick={onToggle}
         className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-800/90 hover:bg-slate-700 text-slate-200 hover:text-white border border-slate-700 text-xs font-mono font-bold tracking-wide uppercase transition-colors cursor-pointer shadow-sm"
-        title="Indicators & Style Settings (SMA 20/50 Ribbon, Volume, ATR 14)"
+        title="[ ⚙️ SMA Settings ] Indicators & Moving Average Customization"
       >
-        <Sliders className="h-3.5 w-3.5 text-cyan-400" />
-        <span>[ Indicators + ]</span>
+        <Settings className="h-3.5 w-3.5 text-cyan-400" />
+        <span>[ ⚙️ SMA Settings ]</span>
+        <span className="sr-only">[ Indicators + ]</span>
       </button>
 
       {isOpen && (

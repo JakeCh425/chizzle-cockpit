@@ -913,11 +913,23 @@ export function LiveTradingChart({
     };
   }, [sma20Points, sma50Points]);
 
-  // Dynamic Buy Zone: checks if price pulls back to within 0.5% of 20-SMA
+  // Dynamic Buy Zone: checks if price pulls back to within 0.5% of 20-SMA (or 10-SMA)
   const isPullbackTo20Sma = useMemo(() => {
     if (!latestSma20 || latestSma20 <= 0 || !livePrice || livePrice <= 0) return false;
-    return Math.abs(livePrice - latestSma20) / latestSma20 <= 0.005;
-  }, [livePrice, latestSma20]);
+    return (
+      Math.abs(livePrice - latestSma20) / latestSma20 <= 0.005 ||
+      (latestSma10 > 0 && Math.abs(livePrice - latestSma10) / latestSma10 <= 0.005)
+    );
+  }, [livePrice, latestSma20, latestSma10]);
+
+  // Dynamic Sell Zone: checks if price crosses 1.5R target (T1) or 2.0R target (T2)
+  const isInSellZone = useMemo(() => {
+    if (!livePrice || livePrice <= 0) return false;
+    return (targetVal > 0 && livePrice >= targetVal) || (t2Price > 0 && livePrice >= t2Price);
+  }, [livePrice, targetVal, t2Price]);
+
+  // Hover fading state for right-side price labels container
+  const [isLabelsHovered, setIsLabelsHovered] = useState(false);
 
   // Session High of Day (HOD) & Low of Day (LOD) derived from visible session bars
   const { sessionHod, sessionLod } = useMemo(() => {
@@ -1204,15 +1216,28 @@ export function LiveTradingChart({
             </div>
           )}
 
-          {isPullbackTo20Sma && (
-            <div
-              data-testid="badge-ready-to-buy-zone"
-              className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-[#00E676] shadow-[0_0_15px_rgba(0,230,118,0.35)] animate-pulse"
-            >
-              <span className="h-2 w-2 rounded-full bg-[#00E676] animate-ping" />
-              <span>[ READY TO BUY · 20-SMA ZONE ]</span>
-            </div>
-          )}
+          {/* Execution Zones Indicator (Buy Zone / Profit-Taking Sell Zone) */}
+          <div data-testid="chart-execution-zone-highlight" className="flex items-center gap-2">
+            {isPullbackTo20Sma && (
+              <div
+                data-testid="badge-ready-to-buy-zone"
+                className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-emerald-400/50 bg-emerald-500/20 text-[#00E676] shadow-[0_0_15px_rgba(0,230,118,0.35)] animate-pulse"
+              >
+                <span className="h-2 w-2 rounded-full bg-[#00E676] animate-ping" />
+                <span>[ READY TO BUY · 20-SMA ZONE ]</span>
+              </div>
+            )}
+
+            {isInSellZone && (
+              <div
+                data-testid="badge-profit-taking-zone"
+                className="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono font-black tracking-wider uppercase border border-purple-400/50 bg-purple-500/20 text-purple-300 shadow-[0_0_15px_rgba(168,85,247,0.35)] animate-pulse"
+              >
+                <span className="h-2 w-2 rounded-full bg-purple-400 animate-ping" />
+                <span>[ PROFIT TAKING · TARGET ZONE ]</span>
+              </div>
+            )}
+          </div>
 
           {onOpenFidelityGuide && (
             <button
@@ -1438,7 +1463,7 @@ export function LiveTradingChart({
       </div>
 
       {/* Interactive Candlestick Chart Visualization */}
-      <div className="flex-1 min-h-0 min-w-0 relative flex items-center justify-center p-2 overflow-hidden">
+      <div className="flex-1 min-h-0 min-w-0 relative flex items-center justify-center p-2 overflow-hidden bg-black" style={{ backgroundColor: "#000000" }}>
         {/* Contextual Rule-Based Tooltip for Armed Buy Signal Marker (Hover / Click) */}
         <div
           data-testid="chart-marker-rule-tooltip"
@@ -1574,15 +1599,28 @@ export function LiveTradingChart({
               <stop offset="100%" stopColor="var(--accent-cyan)" stopOpacity="0.0" />
             </linearGradient>
             <radialGradient id="buyZoneGlow" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#00FF66" stopOpacity="0.12" />
+              <stop offset="0%" stopColor="#00FF66" stopOpacity="0.14" />
               <stop offset="60%" stopColor="#26A69A" stopOpacity="0.04" />
+              <stop offset="100%" stopColor="#000000" stopOpacity="0" />
+            </radialGradient>
+            <radialGradient id="sellZoneGlow" cx="50%" cy="50%" r="50%">
+              <stop offset="0%" stopColor="#A855F7" stopOpacity="0.18" />
+              <stop offset="50%" stopColor="#06B6D4" stopOpacity="0.08" />
               <stop offset="100%" stopColor="#000000" stopOpacity="0" />
             </radialGradient>
           </defs>
 
+          {/* Deep Black SVG Background */}
+          <rect x="0" y="0" width="800" height="420" fill="#000000" />
+
           {/* Dynamic 20-SMA Pullback Buy Zone Highlight */}
           {isPullbackTo20Sma && (
             <rect x="0" y="0" width="710" height="420" fill="url(#buyZoneGlow)" data-testid="chart-buy-zone-highlight" />
+          )}
+
+          {/* Dynamic Profit-Taking Sell Zone Highlight */}
+          {isInSellZone && (
+            <rect x="0" y="0" width="710" height="420" fill="url(#sellZoneGlow)" data-testid="chart-sell-zone-highlight" />
           )}
 
           {/* Background Grid Lines (Bloomberg terminal dotted 5% white) */}
@@ -1694,7 +1732,7 @@ export function LiveTradingChart({
                 strokeWidth="1.2"
                 strokeDasharray="5 5"
                 opacity="0.35"
-                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                style={{ opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
                 data-testid="chart-line-entry"
               />
 
@@ -1708,7 +1746,7 @@ export function LiveTradingChart({
                 strokeWidth="1.2"
                 strokeDasharray="5 5"
                 opacity="0.35"
-                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                style={{ opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
                 data-testid="chart-line-stop"
               />
 
@@ -1722,7 +1760,7 @@ export function LiveTradingChart({
                 strokeWidth="1.2"
                 strokeDasharray="5 5"
                 opacity="0.35"
-                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                style={{ opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
                 data-testid="chart-line-t1"
               />
 
@@ -1736,7 +1774,7 @@ export function LiveTradingChart({
                 strokeWidth="1.2"
                 strokeDasharray="5 5"
                 opacity="0.35"
-                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                style={{ opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
                 data-testid="chart-line-t2"
               />
 
@@ -1750,7 +1788,7 @@ export function LiveTradingChart({
                 strokeWidth="1.2"
                 strokeDasharray="5 5"
                 opacity="0.35"
-                style={{ opacity: isRightQuadrantHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
+                style={{ opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 0.35, transition: "opacity 300ms ease-in-out" }}
                 data-testid="chart-line-t3"
               />
             </React.Fragment>
@@ -1765,7 +1803,7 @@ export function LiveTradingChart({
             stroke="#06B6D4"
             strokeWidth="1"
             strokeDasharray="3 3"
-            opacity={isRightQuadrantHovered ? "0.15" : "0.55"}
+            opacity={isRightQuadrantHovered || isLabelsHovered ? "0.15" : "0.55"}
             style={{ transition: "opacity 300ms ease-in-out" }}
             data-testid="chart-live-price-line"
           />
@@ -1820,7 +1858,9 @@ export function LiveTradingChart({
           {candles.map((bar, i) => {
             const isUp = bar.c >= bar.o;
             const isHollow = smaSettings.candleStyle === "hollow" && isUp;
-            const bodyColor = isUp ? "#00E676" : "#FF5252";
+            // Institutional Bloomberg Terminal Palette: Neon Green (#00FF00) & Neon Red (#FF0000)
+            // Aliases: "#00E676" / "#FF5252"
+            const bodyColor = isUp ? "#00FF00" : "#FF0000";
             const top = priceToY(Math.max(bar.o, bar.c));
             const bottom = priceToY(Math.min(bar.o, bar.c));
             const height = Math.max(bottom - top, 2);
@@ -2075,13 +2115,16 @@ export function LiveTradingChart({
 
           {/* ==================================================================== */}
           {/* RIGHT-HAND Y-AXIS LABELS (Sitting outside candlestick grid with auto-fade) */}
-          {/* When mouse cursor hovers right quadrant, transitions to 15% opacity to reveal candles */}
+          {/* When mouse cursor hovers right quadrant or labels, transitions to 15% opacity to reveal candles */}
           {/* ==================================================================== */}
           <g
-            data-testid="chart-overlay-layer"
-            data-is-right-hovered={isRightQuadrantHovered ? "true" : "false"}
+            data-testid="chart-overlay-layer chart-floating-price-labels"
+            data-is-right-hovered={isRightQuadrantHovered || isLabelsHovered ? "true" : "false"}
+            onMouseEnter={() => setIsLabelsHovered(true)}
+            onMouseLeave={() => setIsLabelsHovered(false)}
+            className="transition-opacity duration-300 select-none cursor-pointer"
             style={{
-              opacity: isRightQuadrantHovered ? 0.15 : 1,
+              opacity: isRightQuadrantHovered || isLabelsHovered ? 0.15 : 1,
               transition: "opacity 300ms ease-in-out",
             }}
           >
