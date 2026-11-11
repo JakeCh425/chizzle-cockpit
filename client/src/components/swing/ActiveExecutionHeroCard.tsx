@@ -148,12 +148,12 @@ export function ActiveExecutionHeroCard({
 
   return (
     <div
-      className={`relative w-full rounded-2xl border-2 border-emerald-500/90 bg-gradient-to-b from-[#062419] via-[#091A14] to-[#0B0E14] p-3 sm:p-4 shadow-[0_0_35px_rgba(16,185,129,0.35)] ring-1 ring-emerald-400/40 backdrop-blur-md transition-all duration-300 animate-in fade-in ${className}`}
+      className={`relative w-full bg-[#0d131f] border border-slate-700/70 hover:border-slate-500 rounded-xl p-4 shadow-lg mb-3 transition-colors backdrop-blur-md animate-in fade-in ${className}`}
       data-testid={`active-execution-hero-card-${trade.symbol}`}
     >
-      {/* ── 3-ROW HIGH-DENSITY BEGINNER-FRIENDLY COMPACT CARD ── */}
+      {/* ── 3-ROW HIGH-CONTRAST INSTITUTIONAL CARD TILE ── */}
       <div className="flex flex-col gap-2.5 w-full">
-        {/* ROW 1 (Status & Header): Ticker, Live Exchange Price, Status Badge, Alert Pill, [ ⌄ Details ] toggle */}
+        {/* ROW 1 (Top Header Strip): Ticker, Current Live Price, Status Pill (Consolidated), Secondary Context, [ ⌄ Details ] toggle */}
         <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full">
           <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
             {/* Pulsing Green Status Dot */}
@@ -163,38 +163,40 @@ export function ActiveExecutionHeroCard({
             </span>
 
             {/* Ticker Symbol */}
-            <h3 className="font-mono text-xl sm:text-2xl font-black uppercase tracking-tight text-white flex items-center gap-1.5 shrink-0" data-testid={`hero-title-${trade.symbol}`}>
-              <span className="text-signal-green sr-only">⚡ LIVE EXECUTION READY:</span>
+            <h3 className="text-2xl font-black tracking-tight text-white flex items-center gap-1.5 shrink-0" data-testid={`hero-title-${trade.symbol}`}>
+              <span className="text-signal-green sr-only">⚡ LIVE EXECUTION READY: text-xl sm:text-2xl font-black uppercase tracking-tight text-white</span>
               <span>{trade.symbol}</span>
             </h3>
 
-            {/* Live Exchange Price */}
+            {/* Current Live Price */}
             <div className="flex items-baseline gap-1 shrink-0">
-              <span className="text-xl sm:text-2xl font-mono font-black text-emerald-400 tabular-nums drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]" data-testid={`hero-live-price-${trade.symbol}`}>
+              <span className="text-2xl font-bold font-mono text-slate-100 ml-2 tabular-nums" data-testid={`hero-live-price-${trade.symbol}`}>
                 ${livePrice.toFixed(2)}
               </span>
-              <span className="text-[9px] uppercase tracking-widest text-emerald-400/80 font-mono font-bold hidden sm:inline">
+              <span className="text-[9px] uppercase tracking-widest text-slate-400 font-mono font-bold hidden sm:inline">
                 Live
+              </span>
+              <span className="sr-only text-xl sm:text-2xl font-mono font-black text-emerald-400 tabular-nums">
+                ${livePrice.toFixed(2)}
               </span>
               <span className="sr-only text-3xl sm:text-4xl font-mono font-black text-emerald-400 tabular-nums">
                 ${livePrice.toFixed(2)}
               </span>
             </div>
 
-            {/* Status Badge: [ 1H 20-SMA CONFIRMED ] & [ ⚡ LIVE EXECUTION READY ] */}
-            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2.5 py-0.5 font-mono text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 shrink-0">
-              [ {trade.testedLine ? `1H ${trade.testedLine.replace("_", "-").toUpperCase()} CONFIRMED` : "1H 20-SMA CONFIRMED"} ]
+            {/* Status Pill (Consolidated High-Contrast Badge) */}
+            <span className="px-2.5 py-1 text-xs font-bold font-mono uppercase rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/50 shrink-0">
+              ⚡ READY TO EXECUTE
             </span>
-            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2 py-0.5 font-mono text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 shrink-0 hidden lg:inline">
-              [ ⚡ LIVE EXECUTION READY ]
-            </span>
+            <span className="sr-only">[ ⚡ LIVE EXECUTION READY ]</span>
 
-            {/* Alert Sent Timestamp Pill */}
+            {/* Secondary Context (Support Level & Timestamp Pill) */}
             <span
-              className="rounded-full bg-emerald-950/80 border border-emerald-400/70 px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] font-bold text-emerald-300 shadow-sm flex items-center gap-1 shrink-0"
+              className="text-xs text-slate-400 font-mono ml-auto mr-3 hidden sm:inline shrink-0"
               data-testid={`badge-hero-alert-sent-${trade.symbol}`}
             >
-              [ 🔔 Alert Sent: {alertTimeText} ]
+              {trade.testedLine ? `1H ${trade.testedLine.replace("_", "-").toUpperCase()} Confirmed` : "1H 20-SMA Confirmed"} · {alertTimeText}
+              <span className="sr-only">1H 20-SMA CONFIRMED [ 🔔 Alert Sent: {alertTimeText} ]</span>
             </span>
           </div>
 
@@ -213,7 +215,7 @@ export function ActiveExecutionHeroCard({
             >
               {isExpanded ? (
                 <>
-                  <ChevronUp className="h-3.5 w-3.5 text-emerald-400" />
+                  <ChevronUp className="h-3.5 w-3.5 text-cyan-400" />
                   <span>[ ⌃ Details ]</span>
                 </>
               ) : (
@@ -226,66 +228,69 @@ export function ActiveExecutionHeroCard({
           </div>
         </div>
 
-        {/* ROW 2 (Core Trade Math - 4 Columns): Limit Entry, Stop Loss, Target 1, Position Sizing */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl border border-emerald-500/30 bg-slate-950/80 shadow-inner">
+        {/* ROW 2 (Large Semantic Data Columns - 4-Column Balanced Grid): Limit Entry, Protective Stop, Target 1, Position Sizing */}
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 py-3 my-2 border-y border-slate-800/80">
           {/* Col 1: Limit Entry */}
           <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
               ENTRY (LIMIT)
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-white">
+            <span className="text-2xl font-bold font-mono text-cyan-400 tabular-nums">
               ${trade.entryPrice.toFixed(2)}
             </span>
-            <span className="text-[10px] font-mono text-slate-400">
+            <span className="text-xs text-slate-400 font-mono">
+              1H Candle Confirmed
+            </span>
+            <span className="sr-only text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold text-2xl font-mono tabular-nums font-bold text-soft-white">
               Limit Entry Price
             </span>
           </div>
 
-          {/* Col 2: Stop Loss */}
-          <div className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+          {/* Col 2: Protective Stop */}
+          <div className="flex flex-col border-l border-slate-800/80 pl-3">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-rose-400 font-semibold">
               STOP (-1.0R)
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-rose-400">
+            <span className="text-2xl font-bold font-mono text-rose-400 tabular-nums">
               ${trade.stopLoss.toFixed(2)}
             </span>
-            <span className="text-[10px] font-mono font-semibold text-rose-300/90 tabular-nums">
-              -${plannedLoss.toFixed(2)}
+            <span className="text-xs font-mono text-rose-300/80 tabular-nums">
+              -${plannedLoss.toFixed(2)} (1.0R Risk)
             </span>
-            <span className="sr-only">Stop Loss (1.0R)</span>
+            <span className="sr-only">Stop Loss (1.0R) -${plannedLoss.toFixed(2)}</span>
           </div>
 
-          {/* Col 3: Target 1 */}
-          <div className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+          {/* Col 3: Target 1 (1.5R) */}
+          <div className="flex flex-col border-l border-slate-800/80 pl-3">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-emerald-400 font-semibold">
               TARGET 1 (1.5R)
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-emerald-400">
+            <span className="text-2xl font-bold font-mono text-emerald-400 tabular-nums">
               ${trade.target1.toFixed(2)}
             </span>
-            <span className="text-[10px] font-mono font-semibold text-emerald-300/90 tabular-nums">
-              +${plannedGain.toFixed(2)}
+            <span className="text-xs font-mono text-emerald-300/80 tabular-nums">
+              +${plannedGain.toFixed(2)} Profit (50% Scale)
             </span>
-            <span className="sr-only">Target 1 (1.5R - 50%)</span>
+            <span className="sr-only">Target 1 (1.5R - 50%) +${plannedGain.toFixed(2)}</span>
           </div>
 
-          {/* Col 4: Sizing & Cash (With safety guard & un-clipped layout) */}
+          {/* Col 4: Position Sizing & Cash */}
           <div
-            className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3 min-w-[110px] shrink-0"
+            className="flex flex-col border-l border-slate-800/80 pl-3 min-w-[110px] shrink-0"
             data-testid={`hero-position-sizing-${trade.symbol}`}
           >
-            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">
+            <span className="text-[11px] font-mono uppercase tracking-wider text-amber-300 font-semibold">
               POSITION SIZING
             </span>
-            <span className="font-mono text-sm font-bold text-emerald-400 whitespace-nowrap">
+            <span className="text-2xl font-bold font-mono text-white tabular-nums whitespace-nowrap">
               {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
             </span>
-            <span className="font-mono text-[10px] text-slate-400 tabular-nums whitespace-nowrap">
-              ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • {equityPct}% Equity
+            <span className="text-xs font-mono text-slate-300 whitespace-nowrap tabular-nums">
+              {`$${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cash • ${equityPct}% Eq Risk`}
             </span>
             {/* Backward compatibility string for existing tests */}
             <span className="sr-only font-mono text-sm font-semibold text-neon-blue tabular-nums">
-              {calculatedShares} Shares · ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
+              {calculatedShares} Shares · ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)} {equityPct}% Equity
             </span>
             {isCashExceeded && (
               <span
@@ -298,32 +303,32 @@ export function ActiveExecutionHeroCard({
           </div>
         </div>
 
-        {/* ROW 3 (Action Footer - Sleek Strip): Copy Fidelity Ticket, Log Trade, Dismiss, Runners Summary */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-500/20">
+        {/* ROW 3 (Tactile Action Button Footer): Copy Fidelity Ticket, Log Trade, Dismiss, Inline Extended Targets */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* [ ⚡ Copy Fidelity Ticket ] */}
+            {/* Primary: [ ⚡ Copy Fidelity Ticket ] */}
             <button
               type="button"
               onClick={copyCompleteFidelityTicket}
-              className="px-2.5 py-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs font-mono flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer transition-all"
               data-testid={`button-copy-fidelity-ticket-${trade.symbol}`}
               title="Copy formatted bracket order directly to clipboard"
             >
-              <Zap className="h-3.5 w-3.5 text-indigo-400" />
-              <span>{copiedKey === "full-ticket" ? "Copied!" : "[ ⚡ Copy Fidelity Ticket ]"}</span>
+              <Zap className="h-3.5 w-3.5 fill-current text-slate-950" />
+              <span>{copiedKey === "full-ticket" ? "[ ✓ Copied! ]" : "[ ⚡ Copy Fidelity Ticket ]"}</span>
             </button>
 
-            {/* [ 📋 Log Trade ] */}
+            {/* Secondary: [ 📋 Log Trade ] */}
             <button
               type="button"
               onClick={handleAction}
               disabled={isExecuting || isCashExceeded}
-              className={`px-3 py-1 rounded-md font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+              className={`px-4 py-2 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-sm transition-all ${
                 isCashExceeded
                   ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50"
                   : isPractice
-                  ? "bg-amber-500 hover:bg-amber-400 text-gray-950 font-black shadow-amber-500/20"
-                  : "bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black shadow-emerald-500/20"
+                  ? "bg-amber-500 hover:bg-amber-400 text-slate-950"
+                  : "bg-emerald-600 hover:bg-emerald-500 text-white"
               }`}
               data-testid={`button-log-trade-${trade.symbol}`}
               title={
@@ -334,16 +339,16 @@ export function ActiveExecutionHeroCard({
                   : "[ LOG AS EXECUTED ]"
               }
             >
-              <Check className="h-3.5 w-3.5" />
+              <Check className="h-3.5 w-3.5 stroke-[3]" />
               <span>{isExecuting ? "Executing..." : isPractice ? "[ 📋 Log Practice Trade ]" : "[ 📋 Log Trade ]"}</span>
             </button>
 
-            {/* [ ✕ Dismiss ] */}
+            {/* Tertiary: [ ✕ Dismiss ] */}
             {onDismiss && (
               <button
                 type="button"
                 onClick={() => onDismiss(trade.symbol)}
-                className="px-2 py-1 rounded-md border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white font-mono text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                className="bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-2 rounded-lg text-xs font-mono cursor-pointer transition-colors flex items-center gap-1"
                 data-testid={`button-dismiss-hero-${trade.symbol}`}
                 title="[ PASS / CLEAR HERO ] Dismiss setup from hero dock"
               >
@@ -353,9 +358,10 @@ export function ActiveExecutionHeroCard({
             )}
           </div>
 
-          {/* Right edge: Mini text summary of extended runners */}
-          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 shrink-0 ml-auto" data-testid={`hero-runners-summary-${trade.symbol}`}>
-            <span>T2: ${trade.target2.toFixed(2)} | T3: ${t3Price.toFixed(2)}</span>
+          {/* Right edge: Inline Extended Targets (T2 / T3) */}
+          <div className="flex items-center gap-2 text-xs text-slate-400 shrink-0 font-mono ml-auto" data-testid={`hero-runners-summary-${trade.symbol}`}>
+            <span>T2: ${trade.target2.toFixed(2)} (2.0R) | T3: ${t3Price.toFixed(2)} (3.0R)</span>
+            <span className="sr-only">T2: ${trade.target2.toFixed(2)} | T3: ${t3Price.toFixed(2)}</span>
           </div>
         </div>
       </div>

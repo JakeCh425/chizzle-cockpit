@@ -1094,24 +1094,24 @@ function ActionCenterInner() {
         <div id="ac-body" className="flex flex-col gap-3.5">
           {/* ─── ZONE A (TOP ROW): [ ⚡ READY TO TRADE ] ─── */}
           <div
-            className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full"
+            className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
             data-testid="active-execution-zone"
           >
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-emerald-500/30 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-3 w-3">
                   <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
-                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300 flex items-center gap-2">
+                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-slate-200 flex items-center gap-2">
                   <span>[ ⚡ READY TO TRADE ]</span>
-                  <span className="text-[10px] text-emerald-400/70 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
+                  <span className="text-[10px] text-slate-400 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
-                <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
+                <span className="bg-emerald-500 text-black px-2 py-0.5 rounded-full font-bold text-xs font-mono">
                   {totalActiveConfirmed} READY
                 </span>
               </div>
-              <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
+              <span className="font-mono text-[10.5px] uppercase tracking-wider text-slate-400">
                 No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated
               </span>
             </div>
