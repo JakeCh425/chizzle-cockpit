@@ -52,6 +52,8 @@ export {
 
 const LIVE_URL = "https://chizzle-cockpit-duyn.onrender.com";
 
+export const dailySessionAlertMap = new Map<string, { sent: boolean; timestamp: number }>();
+
 export type AlertPhase = "forming" | "confirmed";
 export type AlertMode = "conservative" | "aggressive";
 
@@ -252,6 +254,21 @@ async function sendSmsTwilio(to: string, body: string): Promise<{ ok: boolean; e
  */
 export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<void> {
   try {
+    const setup: any = payload;
+    const setupStatus = setup.setupStatus ?? (setup.phase === "confirmed" ? "SETUP_CONFIRMED" : setup.phase === "forming" ? "SETUP_FORMING" : "PENDING");
+    const hasHardBlock = Boolean(setup.hasHardBlock ?? setup.status?.includes("HARD BLOCK") ?? setup.status?.includes("STANDBY"));
+    if (setupStatus !== "READY_TO_TRADE" || hasHardBlock) {
+      console.log(`[AlertDispatcher] Alert suppressed: Setup not strictly Ready to Trade (${payload.ticker} status=${setupStatus}, hasHardBlock=${hasHardBlock})`);
+      return;
+    }
+
+    const todayKey = new Date().toISOString().slice(0, 10);
+    const sessionKey = `${payload.ticker.toUpperCase()}-${todayKey}`;
+    if (dailySessionAlertMap.get(sessionKey)?.sent) {
+      console.log(`[AlertDispatcher] Alert suppressed: already sent today for ${sessionKey}`);
+      return;
+    }
+
     const isOptedIn = await isTickerAlertOptedIn(payload.ticker);
     if (!isOptedIn) {
       console.log(`[AlertDispatcher] Alert suppressed: alerts_enabled is false for ${payload.ticker}`);
@@ -261,6 +278,8 @@ export async function dispatchHammerAlert(payload: HammerAlertPayload): Promise<
     const signalKey = buildSignalKey(payload);
     const contacts = await storage.listEnabledAlertContacts();
     if (contacts.length === 0) return;
+
+    dailySessionAlertMap.set(sessionKey, { sent: true, timestamp: Date.now() });
 
     const subject = buildSubject(payload);
     const html = buildEmailHtml(payload);

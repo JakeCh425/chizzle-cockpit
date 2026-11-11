@@ -13,7 +13,7 @@ import {
   type StructureLevel,
 } from "@shared/swingDecision";
 import { planTargetsFor } from "@shared/practicePlan";
-import { atr, pivotHighs, supportLevels, type SwingBar } from "./candleMath";
+import { atr, pivotHighs, supportLevels, sma, type SwingBar } from "./candleMath";
 import { aggregate4H, aggregateWeekly, chicago, chicagoTs, dailyClosed, inRth, tag1H, type Bar1H, type Bar4H } from "./bars";
 import { detectAll, LOOKBACK_4H, type Detection } from "./detectors";
 import { buildPlan, stopTooWideAdvice, type Plan } from "./planMath";
@@ -168,6 +168,8 @@ function blank(c: Ctx): SwingDecision {
     referenceClose: E.reference?.close ?? null, referenceSource: E.reference?.source ?? null,
     evaluatedAt: iso(E.now)!,
     dataHealth: c.health,
+    sma10: null,
+    sma10Status: null,
   };
 }
 
@@ -279,6 +281,23 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
 
   const tfBars: SwingBar[] = det.timeframe === "4H" ? c.closed4h : c.closed1h;
   const tfAtr = atr(tfBars);
+
+  // 10-SMA Momentum Rule Integration
+  const sma10Val = sma(c.closed1h.map((b) => b.c), 10);
+  const curPrice = c.price ?? price;
+  const isAbove10Sma = sma10Val != null && curPrice != null && curPrice >= sma10Val;
+  d.sma10 = sma10Val != null ? r2(sma10Val) : null;
+  d.sma10Status = isAbove10Sma ? "HOLDING_ABOVE_10_SMA" : "BELOW_10_SMA";
+  if (isAbove10Sma) {
+    if (!d.passedRules.includes("Short-Term Momentum: Price > 10-SMA")) {
+      d.passedRules.push("Short-Term Momentum: Price > 10-SMA");
+    }
+  } else {
+    if (!d.missingConditions.includes("Short-Term Momentum: Price > 10-SMA")) {
+      d.missingConditions.push("Short-Term Momentum: Price > 10-SMA");
+    }
+  }
+
   const planAt = (asOf: number): Plan => {
     const tagged = taggedResistancesAsOf(c, asOf);
     return { ...buildPlan({

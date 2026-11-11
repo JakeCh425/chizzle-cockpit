@@ -71,6 +71,7 @@ const deps = {
 // ─── Ready event creation ────────────────────────────────────────────────────
 const seen = new Set<string>();               // keys already recorded (memory fast-path; the DB is authoritative)
 const pending = new Map<string, Promise<void>>();
+export const dailySessionAlertMap = new Map<string, { sent: boolean; timestamp: number }>();
 
 async function deliverTelegram(text: string, attempts: number) {
   const prefs = await deps.loadPrefs();
@@ -103,13 +104,21 @@ async function deliverEmail(subject: string, lines: string[], attempts: number) 
 }
 
 export async function recordReady(d: SwingDecision, qualifyingBar: string | null): Promise<void> {
-  if (!deps.enabled() || d.setupStatus !== "READY_TO_TRADE") return;
+  const setup: any = d;
+  if (!deps.enabled() || setup.setupStatus !== "READY_TO_TRADE" || setup.hasHardBlock) return;
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const sessionKey = `${d.symbol.toUpperCase()}-${todayKey}`;
+  if (dailySessionAlertMap.get(sessionKey)?.sent) return;
   const key = readyKey(d, qualifyingBar);
   if (seen.has(key)) return;
   const run = pending.get(key);
   if (run) return run;
   const p = (async () => {
-    if (await deps.store.findByKey(key)) { seen.add(key); return; }
+    if (await deps.store.findByKey(key)) {
+      seen.add(key);
+      dailySessionAlertMap.set(sessionKey, { sent: true, timestamp: Date.now() });
+      return;
+    }
     const prefs = await deps.loadPrefs();
     const sel = await deps.selectedVersions().catch(() => null);
     const v = sel ? activeVersion(d, sel) : null;
@@ -128,6 +137,7 @@ export async function recordReady(d: SwingDecision, qualifyingBar: string | null
       acknowledged: !inApp, acknowledgedAt: inApp ? null : new Date(),
     });
     seen.add(key);
+    dailySessionAlertMap.set(sessionKey, { sent: true, timestamp: Date.now() });
     console.log(`[ready-alerts] READY event #${row.id} ${d.symbol} ${key}`);
     const fail = (e: any) => ({ status: "failed", kind: "NETWORK", error: String(e?.message ?? e).slice(0, 160), attempts: 1, attemptedAt: new Date().toISOString(), nextAt: null });
     const [tg, em] = await Promise.all([deliverTelegram(msg.text, 0).catch(fail), deliverEmail(msg.subject, msg.lines, 0).catch(fail)]);

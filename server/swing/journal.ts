@@ -41,7 +41,21 @@ export function journalRowFrom(b: JournalBody, d: Partial<SwingDecision> | null,
   const stop = lv.stop ?? d?.structuralStop ?? null;
   const shares = lv.shares ?? d?.suggestedShares ?? null;
   const riskPerShare = entry != null && stop != null ? Math.abs(entry - stop) : d?.riskPerShare ?? null;
-  const decision = { ...(d ?? {}), chart: undefined, journalMeta: { decisionSource: source, planLabel: lv.label ?? (b.levels ? "My Adjusted Plan" : "Engine Plan"), practiceOnly: true } };
+  const sma10 = (d as any)?.sma10 ?? (b as any)?.snapshot?.sma10 ?? null;
+  const sma10Status = (d as any)?.sma10Status ?? (b as any)?.snapshot?.sma10Status ?? null;
+  const decision = {
+    ...(d ?? {}),
+    sma10,
+    sma10Status,
+    chart: undefined,
+    journalMeta: {
+      decisionSource: source,
+      planLabel: lv.label ?? (b.levels ? "My Adjusted Plan" : "Engine Plan"),
+      practiceOnly: true,
+      sma10,
+      sma10Status,
+    },
+  };
   return {
     action: b.action, symbol: d?.symbol ?? sym, setupType: d?.setupType ?? null, grade: d?.cardGrade ?? null,
     timeframes: d ? [d.setupTimeframe, "1H"].filter(Boolean).join("/") : null,

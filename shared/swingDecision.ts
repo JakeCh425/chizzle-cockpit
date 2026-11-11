@@ -153,6 +153,11 @@ export interface SwingDecision {
 
   target1Source?: "resistance" | "r-multiple";
   target2Source?: "resistance" | "r-multiple";
+
+  /** 10-period simple moving average on 1H closes. */
+  sma10?: number | null;
+  /** Mechanical 10-SMA rule status. */
+  sma10Status?: "HOLDING_ABOVE_10_SMA" | "BELOW_10_SMA" | null;
   /** Target provenance (additive, metadata only): the pivot-high resistance levels above entry that the
    *  engine's plan math saw AS OF plan time, nearest first, and which one (if any) became T1 / T2. */
   structureLevels?: StructureLevel[];

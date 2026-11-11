@@ -766,6 +766,8 @@ export function recordNotificationAudit(params: {
   return entry;
 }
 
+export const backendDailySessionAlertMap = new Map<string, { sent: boolean; timestamp: number }>();
+
 /**
  * Dispatches Twilio SMS, Resend Email, and Telegram Bot API payloads directly
  * from the backend server and logs the audit trail entry.
@@ -819,6 +821,84 @@ export async function dispatchServerSetupAlert(params: {
     stopLoss: params.stopLoss,
     status: params.status,
   });
+
+  // Strict conditional gate: MUST NOT send alert if ticker is merely "Confirmed", "Forming", or "Pending"
+  const rawStatus = (params as any).setupStatus ?? (params as any).setup?.setupStatus ?? params.status;
+  const setupStatus = rawStatus === "READY_TO_TRADE" ? "READY_TO_TRADE" : (params.isTradeConfirmed && params.status === "READY_TO_TRADE" ? "READY_TO_TRADE" : rawStatus ?? "PENDING");
+  const hasHardBlock = Boolean(
+    (params as any).hasHardBlock ??
+    (params as any).setup?.hasHardBlock ??
+    params.status?.includes("HARD BLOCK") ??
+    params.status?.includes("STANDBY") ??
+    params.status?.includes("4H Ceiling")
+  );
+
+  if (!params.force && (setupStatus !== "READY_TO_TRADE" || hasHardBlock)) {
+    return {
+      ok: true,
+      suppressed: true,
+      alertSent: setup.alertSent,
+      lastAlertTimestamp: setup.lastAlertTimestamp,
+      setupState: setup,
+      auditEntry: {
+        id: `suppressed-status-${symbol}-${Date.now()}`,
+        symbol,
+        alertSent: setup.alertSent,
+        lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+        alertType,
+        setupType: params.setupType ?? "Suppressed",
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        target1: params.target1,
+        calculatedShares: params.calculatedShares ?? 0,
+        channels: [],
+        delivery: {},
+        status: "STUBBED",
+        firedAt: setup.lastAlertTimestamp ?? Date.now(),
+        isoTimestamp: new Date().toISOString(),
+        formattedTime: formatAlertTimestampCT(),
+        badgeText: hasHardBlock ? "[ Suppressed · Hard Block ]" : "[ Suppressed · Not Ready ]",
+        message: hasHardBlock
+          ? "Hard Block active: Outbound alerts strictly blocked."
+          : `Setup status '${setupStatus}' is not READY_TO_TRADE (merely Confirmed/Forming/Pending). Outbound alerts blocked.`,
+        dedupeKey,
+      },
+    };
+  }
+
+  // Idempotency: Memory cache / DB flag marking alert as sent for that ticker's daily session
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const dailySessionKey = `${symbol}-${todayKey}`;
+  if (!params.force && (setup.alertSent || backendDailySessionAlertMap.get(dailySessionKey)?.sent)) {
+    return {
+      ok: true,
+      suppressed: true,
+      alertSent: true,
+      lastAlertTimestamp: setup.lastAlertTimestamp,
+      setupState: setup,
+      auditEntry: {
+        id: `suppressed-session-${symbol}-${Date.now()}`,
+        symbol,
+        alertSent: true,
+        lastAlertTimestamp: setup.lastAlertTimestamp ?? 0,
+        alertType,
+        setupType: params.setupType ?? "Suppressed",
+        entryPrice: params.entryPrice,
+        stopLoss: params.stopLoss,
+        target1: params.target1,
+        calculatedShares: params.calculatedShares ?? 0,
+        channels: [],
+        delivery: {},
+        status: "STUBBED",
+        firedAt: setup.lastAlertTimestamp ?? Date.now(),
+        isoTimestamp: new Date().toISOString(),
+        formattedTime: formatAlertTimestampCT(),
+        badgeText: "[ 🔔 Alert Sent ]",
+        message: `Alert already sent for ${symbol} in current daily session.`,
+        dedupeKey,
+      },
+    };
+  }
 
   // Strict Execution Zone check when live price & moving averages / status are provided
   const isConfirmedAlertType =
@@ -1294,6 +1374,7 @@ export async function dispatchServerSetupAlert(params: {
       message,
       dedupeKey,
     });
+    backendDailySessionAlertMap.set(dailySessionKey, { sent: true, timestamp: nowTs });
   } else {
     auditEntry = getLatestAlertForSymbol(symbol)!;
   }
@@ -1334,6 +1415,7 @@ export function clearNotificationAuditLog(): void {
   notificationAuditLog.length = 0;
   firedDedupeKeys.clear();
   setupAlertStateMap.clear();
+  backendDailySessionAlertMap.clear();
 }
 
 /**

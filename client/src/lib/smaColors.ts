@@ -9,6 +9,8 @@
 // setup qualification, or trading rules.
 
 export const SMA_COLORS = {
+  /** Bright amber-gold — short-term momentum trend / fast support. */
+  sma10: "#FBBF24",
   /** Electric cyan — short-term swing trend / dynamic support. */
   sma20: "#22d3ee",
   /** Amber/gold — intermediate trend. */
@@ -21,18 +23,21 @@ export const SMA_COLORS = {
  * required (chip borders, legend dots, inline text). Keep in sync with the
  * hex values above. */
 export const SMA_TEXT_CLASSES = {
+  sma10: "text-amber-400",
   sma20: "text-cyan-400",
   sma50: "text-amber-400",
   sma200: "text-violet-400",
 } as const;
 
 export const SMA_BORDER_CLASSES = {
+  sma10: "border-amber-400",
   sma20: "border-cyan-400",
   sma50: "border-amber-400",
   sma200: "border-violet-400",
 } as const;
 
 export const SMA_BG_CLASSES = {
+  sma10: "bg-amber-400",
   sma20: "bg-cyan-400",
   sma50: "bg-amber-400",
   sma200: "bg-violet-400",
@@ -40,6 +45,8 @@ export const SMA_BG_CLASSES = {
 
 /** Short educational label per SMA — shown in the hover popover. */
 export const SMA_EDU: Record<keyof typeof SMA_COLORS, string> = {
+  sma10:
+    "Fast momentum trendline. High velocity swing support and gauge of short-term aggressive continuation.",
   sma20:
     "Short-term swing trend and dynamic support. Constructive when price holds above; becoming extended when far above.",
   sma50:
@@ -49,6 +56,7 @@ export const SMA_EDU: Record<keyof typeof SMA_COLORS, string> = {
 };
 
 export const SMA_LABEL: Record<keyof typeof SMA_COLORS, string> = {
+  sma10: "SMA 10",
   sma20: "SMA 20",
   sma50: "SMA 50",
   sma200: "SMA 200",

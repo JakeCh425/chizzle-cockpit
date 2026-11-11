@@ -152,12 +152,17 @@ function lightenHex(hex: string, amount: number): string {
 // SMA hover copy — short, educational, neutral. Never phrases a moving
 // average touch as a guaranteed signal.
 const SMA_DESCRIPTIONS: Record<number, string> = {
+  10: "Fast momentum trendline. High velocity swing support.",
   20: "Short-term swing trend and nearby dynamic support.",
   50: "Intermediate trend reference used to judge trend health.",
   200: "Long-term trend reference and major institutional level.",
 };
 
 const SMA_CLASSIFICATIONS: Record<number, { classification: string; description: string }> = {
+  10: {
+    classification: "Short-term momentum",
+    description: "Average close of the last 10 bars; gauge of fast short-term momentum and aggressive continuation.",
+  },
   20: {
     classification: "Short-term trend",
     description: "Average close of the last 20 bars; dynamic support/resistance reference during pullbacks.",
@@ -187,6 +192,7 @@ function smaRelationship(close: number, sma: number, prevSma: number | null): st
 // SMA colors per Phase 4 spec: electric cyan / bright amber-gold / violet.
 function defaultIndicators(): IndicatorConfig[] {
   return [
+    { id: "sma10",  kind: "SMA",  enabled: true,  period: 10,  color: "#FBBF24" },
     { id: "sma20",  kind: "SMA",  enabled: true,  period: 20,  color: SMA_COLORS.sma20 },
     { id: "sma50",  kind: "SMA",  enabled: true,  period: 50,  color: SMA_COLORS.sma50 },
     { id: "sma200", kind: "SMA",  enabled: true,  period: 200, color: SMA_COLORS.sma200 },
@@ -402,6 +408,7 @@ function computeInsights(bars: OHLCBar[], indicators: IndicatorConfig[], regime?
   const prev = bars[bars.length - 2];
 
   // SMA crosses.
+  const sma10Arr = sma(closes, 10);
   const sma20Arr = sma(closes, 20);
   const sma50Arr = sma(closes, 50);
   const sma200Arr = sma(closes, 200);
@@ -417,7 +424,7 @@ function computeInsights(bars: OHLCBar[], indicators: IndicatorConfig[], regime?
     if (!now && before) return `Price crossed below ${name} today`;
     return null;
   };
-  for (const [arr, name, kind] of [[sma20Arr,"SMA20","info"], [sma50Arr,"SMA50","info"], [sma200Arr,"SMA200","info"]] as const) {
+  for (const [arr, name, kind] of [[sma10Arr,"SMA10","info"], [sma20Arr,"SMA20","info"], [sma50Arr,"SMA50","info"], [sma200Arr,"SMA200","info"]] as const) {
     const msg = crossedAbove(arr as any, name);
     if (msg) out.push({ kind: msg.includes("above") ? "bull" : "bear", text: msg });
   }
