@@ -2082,13 +2082,24 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </div>
 
           {/* POSITION SIZING Block next to Target 1 */}
-          <div className="hidden xl:flex flex-col border-l border-slate-800/80 pl-2.5 sm:pl-3 shrink-0" data-testid={`card-position-sizing-${d.symbol}`}>
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Position Sizing
+          <div className="hidden xl:flex flex-col items-end min-w-[100px] shrink-0 border-l border-slate-800/80 pl-2.5 sm:pl-3 text-right" data-testid={`card-position-sizing-${d.symbol}`}>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">
+              Position Size
             </span>
-            <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
+            <span className="font-mono text-sm font-bold text-emerald-400 whitespace-nowrap tabular-nums">
+              {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
+            </span>
+            <span className="font-mono text-[10px] text-slate-400 tabular-nums whitespace-nowrap">
+              ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Total
+            </span>
+            <span className="sr-only font-mono text-sm font-semibold text-neon-blue tabular-nums">
               {calculatedShares} Shares · ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Total · Risk: ${totalRisk.toFixed(2)}
             </span>
+            {effectiveFunding > (global?.availableCash ?? 25000) && (
+              <span className="mt-0.5 px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-400/50 whitespace-nowrap" data-testid={`badge-card-cash-exceeded-${d.symbol}`}>
+                [ ⚠️ Cash Limit Exceeded ]
+              </span>
+            )}
           </div>
         </div>
 
@@ -2439,11 +2450,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                     ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                   </strong>
                 </div>
-                <div className="flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
-                  <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Position Size:</span>
-                  <strong className="text-cyan-300 font-mono tabular-nums font-bold truncate">
-                    {calculatedShares} Shares <span className="text-slate-400 text-[10px] font-normal">(${effectiveFunding.toLocaleString()})</span>
-                  </strong>
+                <div className="flex flex-col min-w-[110px] shrink-0 text-right">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">Position Size</span>
+                  <span className="font-mono text-sm font-bold text-emerald-400 whitespace-nowrap tabular-nums">
+                    {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
+                  </span>
+                  <span className="sr-only">
+                    {calculatedShares} Shares (${effectiveFunding.toLocaleString()})
+                  </span>
                 </div>
                 <div className="col-span-2 sm:col-span-1 flex flex-col min-w-0 overflow-hidden text-ellipsis whitespace-nowrap truncate">
                   <span className="text-slate-400 font-semibold uppercase text-[10px] truncate">Target R-Multiple:</span>

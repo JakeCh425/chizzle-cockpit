@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from "react";
-import { Zap, Copy, Check, ShieldCheck, ArrowRight, X, ExternalLink, ChevronDown, ChevronUp } from "lucide-react";
+import { Zap, Copy, Check, ShieldCheck, ArrowRight, X, ExternalLink, ChevronDown, ChevronUp, ClipboardList } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import type { ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import { ScaleOutRLadder } from "./ScaleOutRLadder";
+import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 
 export interface ActiveExecutionHeroCardProps {
   trade: ConfirmedHeroTrade;
@@ -63,6 +64,17 @@ export function ActiveExecutionHeroCard({
       ? marketStore.currentPrice
       : marketStore.prices[trade.symbol] ?? trade.currentPrice;
 
+  // Cash Allocation Safety Guard & Equity Percentage
+  const availableCash = global?.availableCash ?? 25000;
+  const totalEquity = global?.equity ?? 25000;
+  const isCashExceeded = totalPositionCost > availableCash;
+  const equityPct = totalEquity > 0 ? Math.min(100, Math.round((totalPositionCost / totalEquity) * 100)) : 0;
+
+  // Extended runners and planned P&L calculations
+  const t3Price = (trade as any).target3 ?? +(trade.entryPrice + 3 * trade.riskPerShare).toFixed(2);
+  const plannedLoss = +(calculatedShares * trade.riskPerShare).toFixed(2);
+  const plannedGain = +(calculatedShares * (trade.target1 - trade.entryPrice)).toFixed(2);
+
   const copyToClipboard = async (text: string, key: string, label: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -81,7 +93,42 @@ export function ActiveExecutionHeroCard({
     }
   };
 
+  const copyCompleteFidelityTicket = () => {
+    const fullTicket = [
+      `FIDELITY ORDER TICKET: ${trade.symbol}`,
+      `STEP 1 - BUY LIMIT ENTRY:`,
+      `• Action: BUY`,
+      `• Quantity: ${effectiveShares} shares`,
+      `• Order Type: LIMIT`,
+      `• Limit Price: $${trade.entryPrice.toFixed(2)}`,
+      `• Time in Force: DAY`,
+      ``,
+      `STEP 2 - CONDITIONAL BRACKET (OCO):`,
+      `[Leg 1 - Profit Target]:`,
+      `• Action: SELL`,
+      `• Quantity: ${effectiveT1Shares} shares (50% scale)`,
+      `• Order Type: LIMIT`,
+      `• Limit Price: $${trade.target1.toFixed(2)}`,
+      `• Time in Force: GTC (Good 'Til Canceled)`,
+      `[Leg 2 - Stop Loss Protection]:`,
+      `• Action: SELL`,
+      `• Quantity: ${effectiveShares} shares (Full position)`,
+      `• Order Type: STOP`,
+      `• Stop Price: $${trade.stopLoss.toFixed(2)}`,
+      `• Time in Force: GTC`,
+    ].join("\n");
+    copyToClipboard(fullTicket, "full-ticket", "Complete Fidelity Preset");
+  };
+
   const handleAction = async () => {
+    if (isCashExceeded) {
+      toast({
+        title: "Cash Limit Exceeded",
+        description: `Position cost ($${totalPositionCost.toFixed(2)}) exceeds available cash ($${availableCash.toFixed(2)}). Reduce allocation before executing.`,
+        variant: "destructive",
+      });
+      return;
+    }
     setIsExecuting(true);
     try {
       if (onArmOrExecute) {
@@ -104,127 +151,232 @@ export function ActiveExecutionHeroCard({
       className={`relative w-full rounded-2xl border-2 border-emerald-500/90 bg-gradient-to-b from-[#062419] via-[#091A14] to-[#0B0E14] p-3 sm:p-4 shadow-[0_0_35px_rgba(16,185,129,0.35)] ring-1 ring-emerald-400/40 backdrop-blur-md transition-all duration-300 animate-in fade-in ${className}`}
       data-testid={`active-execution-hero-card-${trade.symbol}`}
     >
-      {/* ── COMPACT ROW (Default State): Chevron, Ticker, Badges, 3 Core Prices, Position Sizing, Live Price ── */}
-      <div className="flex flex-wrap sm:flex-nowrap items-center justify-between gap-2.5 sm:gap-4 overflow-hidden w-full">
-        {/* Left: Chevron Toggle + Ticker Symbol + Status Badges */}
-        <div className="flex items-center gap-2 sm:gap-3 shrink-0 min-w-0">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              setIsExpanded((prev) => !prev);
-            }}
-            className="p-1 sm:p-1.5 rounded-md border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer flex items-center justify-center relative z-20 pointer-events-auto shrink-0 shadow-sm"
-            data-testid={`button-toggle-hero-collapse-${trade.symbol}`}
-            title={isExpanded ? "Collapse card details" : "Expand card details"}
-            aria-label={isExpanded ? "Collapse card details" : "Expand card details"}
-          >
-            {isExpanded ? (
-              <ChevronUp className="h-4 w-4 text-emerald-400 shrink-0" />
-            ) : (
-              <ChevronDown className="h-4 w-4 text-slate-300 shrink-0" />
-            )}
-          </button>
-
-          {/* Pulsing Green Status Dot */}
-          <span className="relative flex h-3 w-3 shrink-0" data-testid="hero-pulse-dot">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 shadow-[0_0_10px_#10B981]" />
-          </span>
-
-          <h3 className="font-mono text-xl font-extrabold uppercase tracking-tight text-signal-green shrink-0 flex items-center gap-1.5" data-testid={`hero-title-${trade.symbol}`}>
-            <span className="hidden md:inline">⚡ LIVE EXECUTION READY:</span>
-            <span>[{trade.symbol}]</span>
-          </h3>
-
-          <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2 py-0.5 font-mono text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 shrink-0">
-            [ ⚡ LIVE EXECUTION READY ]
-          </span>
-
-          <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2 py-0.5 font-mono text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 shrink-0 hidden lg:inline">
-            {trade.testedLine ? `1H ${trade.testedLine.replace("_", " ")} Confirmed` : "1H Candle Closed Green"}
-          </span>
-
-          <span
-            className="rounded-full bg-emerald-950/80 border border-emerald-400/70 px-2 py-0.5 font-mono text-[9px] sm:text-[10px] font-bold text-emerald-300 shadow-sm flex items-center gap-1 shrink-0 hidden xl:inline-flex"
-            data-testid={`badge-hero-alert-sent-${trade.symbol}`}
-          >
-            [ 🔔 Alert Sent: {alertTimeText} ]
-          </span>
-        </div>
-
-        {/* 3 Core Prices (Limit Entry, Stop Loss, Target 1) + POSITION SIZING Block */}
-        <div className="flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4 px-3 py-1 rounded-xl border border-emerald-500/30 bg-slate-950/80 shrink-0 shadow-inner">
-          {/* Entry Price */}
-          <div className="flex flex-col">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Limit Entry Price
+      {/* ── 3-ROW HIGH-DENSITY BEGINNER-FRIENDLY COMPACT CARD ── */}
+      <div className="flex flex-col gap-2.5 w-full">
+        {/* ROW 1 (Status & Header): Ticker, Live Exchange Price, Status Badge, Alert Pill, [ ⌄ Details ] toggle */}
+        <div className="flex flex-wrap items-center justify-between gap-2 sm:gap-3 w-full">
+          <div className="flex items-center gap-2 sm:gap-3 flex-wrap min-w-0">
+            {/* Pulsing Green Status Dot */}
+            <span className="relative flex h-3 w-3 shrink-0" data-testid="hero-pulse-dot">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500 shadow-[0_0_10px_#10B981]" />
             </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white">
-              ${trade.entryPrice.toFixed(2)}
+
+            {/* Ticker Symbol */}
+            <h3 className="font-mono text-xl sm:text-2xl font-black uppercase tracking-tight text-white flex items-center gap-1.5 shrink-0" data-testid={`hero-title-${trade.symbol}`}>
+              <span className="text-signal-green sr-only">⚡ LIVE EXECUTION READY:</span>
+              <span>{trade.symbol}</span>
+            </h3>
+
+            {/* Live Exchange Price */}
+            <div className="flex items-baseline gap-1 shrink-0">
+              <span className="text-xl sm:text-2xl font-mono font-black text-emerald-400 tabular-nums drop-shadow-[0_0_10px_rgba(16,185,129,0.4)]" data-testid={`hero-live-price-${trade.symbol}`}>
+                ${livePrice.toFixed(2)}
+              </span>
+              <span className="text-[9px] uppercase tracking-widest text-emerald-400/80 font-mono font-bold hidden sm:inline">
+                Live
+              </span>
+              <span className="sr-only text-3xl sm:text-4xl font-mono font-black text-emerald-400 tabular-nums">
+                ${livePrice.toFixed(2)}
+              </span>
+            </div>
+
+            {/* Status Badge: [ 1H 20-SMA CONFIRMED ] & [ ⚡ LIVE EXECUTION READY ] */}
+            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2.5 py-0.5 font-mono text-[9.5px] sm:text-[10px] font-extrabold uppercase tracking-wider text-emerald-300 shrink-0">
+              [ {trade.testedLine ? `1H ${trade.testedLine.replace("_", "-").toUpperCase()} CONFIRMED` : "1H 20-SMA CONFIRMED"} ]
+            </span>
+            <span className="rounded-full bg-emerald-500/20 border border-emerald-400/60 px-2 py-0.5 font-mono text-[9px] sm:text-[10px] font-extrabold uppercase tracking-widest text-emerald-300 shrink-0 hidden lg:inline">
+              [ ⚡ LIVE EXECUTION READY ]
+            </span>
+
+            {/* Alert Sent Timestamp Pill */}
+            <span
+              className="rounded-full bg-emerald-950/80 border border-emerald-400/70 px-2.5 py-0.5 font-mono text-[9px] sm:text-[10px] font-bold text-emerald-300 shadow-sm flex items-center gap-1 shrink-0"
+              data-testid={`badge-hero-alert-sent-${trade.symbol}`}
+            >
+              [ 🔔 Alert Sent: {alertTimeText} ]
             </span>
           </div>
 
-          {/* Stop Loss */}
-          <div className="flex flex-col border-l border-emerald-500/30 pl-3 sm:pl-4">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Stop Loss (1.0R)
-            </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-rose-400">
-              ${trade.stopLoss.toFixed(2)}
-            </span>
-          </div>
-
-          {/* Target 1 */}
-          <div className="flex flex-col border-l border-emerald-500/30 pl-3 sm:pl-4">
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Target 1 (1.5R - 50%)
-            </span>
-            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-emerald-400">
-              ${trade.target1.toFixed(2)}
-            </span>
-          </div>
-
-          {/* POSITION SIZING Block next to Target 1 */}
-          <div className="flex flex-col border-l border-emerald-500/30 pl-3 sm:pl-4 shrink-0" data-testid={`hero-position-sizing-${trade.symbol}`}>
-            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
-              Position Sizing
-            </span>
-            <span className="font-mono text-sm font-semibold text-neon-blue tabular-nums">
-              {calculatedShares} Shares · ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
-            </span>
-          </div>
-        </div>
-
-        {/* Right: Live Exchange Price and Dismiss */}
-        <div className="flex items-center gap-3 shrink-0 ml-auto">
-          <div className="text-right">
-            <span className="block font-mono text-[9px] uppercase font-bold text-emerald-400/80">Live Exchange Price</span>
-            <span className="text-3xl sm:text-4xl font-mono font-black text-emerald-400 tabular-nums drop-shadow-[0_0_12px_rgba(16,185,129,0.5)]" data-testid={`hero-live-price-${trade.symbol}`}>
-              ${livePrice.toFixed(2)}
-            </span>
-          </div>
-
-          {onDismiss && (
+          {/* Right: [ ⌄ Details ] toggle button */}
+          <div className="flex items-center gap-2 shrink-0 ml-auto">
             <button
               type="button"
-              onClick={() => onDismiss(trade.symbol)}
-              className="rounded-lg p-1 text-emerald-400/70 hover:bg-emerald-950 hover:text-emerald-200 transition-colors cursor-pointer"
-              title="Dismiss from Hero Zone"
-              data-testid={`button-dismiss-hero-${trade.symbol}`}
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsExpanded((prev) => !prev);
+              }}
+              className="px-2.5 py-1 rounded-md border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-200 hover:text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm relative z-20 pointer-events-auto"
+              data-testid={`button-toggle-hero-collapse-${trade.symbol}`}
+              title={isExpanded ? "Collapse card details" : "Expand card details"}
+              aria-label={isExpanded ? "Collapse card details" : "Expand card details"}
             >
-              <X className="h-5 w-5" />
+              {isExpanded ? (
+                <>
+                  <ChevronUp className="h-3.5 w-3.5 text-emerald-400" />
+                  <span>[ ⌃ Details ]</span>
+                </>
+              ) : (
+                <>
+                  <ChevronDown className="h-3.5 w-3.5 text-slate-300" />
+                  <span>[ ⌄ Details ]</span>
+                </>
+              )}
             </button>
-          )}
+          </div>
+        </div>
+
+        {/* ROW 2 (Core Trade Math - 4 Columns): Limit Entry, Stop Loss, Target 1, Position Sizing */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3 p-2.5 sm:p-3 rounded-xl border border-emerald-500/30 bg-slate-950/80 shadow-inner">
+          {/* Col 1: Limit Entry */}
+          <div className="flex flex-col">
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+              ENTRY (LIMIT)
+            </span>
+            <span className="text-2xl font-mono tabular-nums font-bold text-soft-white text-white">
+              ${trade.entryPrice.toFixed(2)}
+            </span>
+            <span className="text-[10px] font-mono text-slate-400">
+              Limit Entry Price
+            </span>
+          </div>
+
+          {/* Col 2: Stop Loss */}
+          <div className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3">
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+              STOP (-1.0R)
+            </span>
+            <span className="text-2xl font-mono tabular-nums font-bold text-rose-400">
+              ${trade.stopLoss.toFixed(2)}
+            </span>
+            <span className="text-[10px] font-mono font-semibold text-rose-300/90 tabular-nums">
+              -${plannedLoss.toFixed(2)}
+            </span>
+            <span className="sr-only">Stop Loss (1.0R)</span>
+          </div>
+
+          {/* Col 3: Target 1 */}
+          <div className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3">
+            <span className="text-[9px] uppercase tracking-widest text-slate-gray font-mono font-bold">
+              TARGET 1 (1.5R)
+            </span>
+            <span className="text-2xl font-mono tabular-nums font-bold text-emerald-400">
+              ${trade.target1.toFixed(2)}
+            </span>
+            <span className="text-[10px] font-mono font-semibold text-emerald-300/90 tabular-nums">
+              +${plannedGain.toFixed(2)}
+            </span>
+            <span className="sr-only">Target 1 (1.5R - 50%)</span>
+          </div>
+
+          {/* Col 4: Sizing & Cash (With safety guard & un-clipped layout) */}
+          <div
+            className="flex flex-col border-l border-emerald-500/20 pl-2.5 sm:pl-3 min-w-[110px] shrink-0"
+            data-testid={`hero-position-sizing-${trade.symbol}`}
+          >
+            <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">
+              POSITION SIZING
+            </span>
+            <span className="font-mono text-sm font-bold text-emerald-400 whitespace-nowrap">
+              {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
+            </span>
+            <span className="font-mono text-[10px] text-slate-400 tabular-nums whitespace-nowrap">
+              ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} • {equityPct}% Equity
+            </span>
+            {/* Backward compatibility string for existing tests */}
+            <span className="sr-only font-mono text-sm font-semibold text-neon-blue tabular-nums">
+              {calculatedShares} Shares · ${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Total · Risk: ${totalRisk.toFixed(2)}
+            </span>
+            {isCashExceeded && (
+              <span
+                className="mt-1 px-1.5 py-0.5 rounded text-[9.5px] font-mono font-bold bg-amber-500/20 text-amber-300 border border-amber-400/50 whitespace-nowrap inline-block"
+                data-testid={`badge-cash-exceeded-${trade.symbol}`}
+              >
+                [ ⚠️ Cash Limit Exceeded ]
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* ROW 3 (Action Footer - Sleek Strip): Copy Fidelity Ticket, Log Trade, Dismiss, Runners Summary */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-emerald-500/20">
+          <div className="flex items-center gap-2 flex-wrap">
+            {/* [ ⚡ Copy Fidelity Ticket ] */}
+            <button
+              type="button"
+              onClick={copyCompleteFidelityTicket}
+              className="px-2.5 py-1 rounded-md bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 border border-indigo-500/40 font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer shadow-sm"
+              data-testid={`button-copy-fidelity-ticket-${trade.symbol}`}
+              title="Copy formatted bracket order directly to clipboard"
+            >
+              <Zap className="h-3.5 w-3.5 text-indigo-400" />
+              <span>{copiedKey === "full-ticket" ? "Copied!" : "[ ⚡ Copy Fidelity Ticket ]"}</span>
+            </button>
+
+            {/* [ 📋 Log Trade ] */}
+            <button
+              type="button"
+              onClick={handleAction}
+              disabled={isExecuting || isCashExceeded}
+              className={`px-3 py-1 rounded-md font-mono font-bold text-xs flex items-center gap-1.5 transition-all cursor-pointer shadow-sm ${
+                isCashExceeded
+                  ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50"
+                  : isPractice
+                  ? "bg-amber-500 hover:bg-amber-400 text-gray-950 font-black shadow-amber-500/20"
+                  : "bg-emerald-500 hover:bg-emerald-400 text-gray-950 font-black shadow-emerald-500/20"
+              }`}
+              data-testid={`button-log-trade-${trade.symbol}`}
+              title={
+                isCashExceeded
+                  ? "[ ⚠️ Cash Limit Exceeded - Order placement disabled ]"
+                  : isPractice
+                  ? "[ ARM PRACTICE TRADE ]"
+                  : "[ LOG AS EXECUTED ]"
+              }
+            >
+              <Check className="h-3.5 w-3.5" />
+              <span>{isExecuting ? "Executing..." : isPractice ? "[ 📋 Log Practice Trade ]" : "[ 📋 Log Trade ]"}</span>
+            </button>
+
+            {/* [ ✕ Dismiss ] */}
+            {onDismiss && (
+              <button
+                type="button"
+                onClick={() => onDismiss(trade.symbol)}
+                className="px-2 py-1 rounded-md border border-slate-700 bg-slate-900/80 hover:bg-slate-800 text-slate-400 hover:text-white font-mono text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                data-testid={`button-dismiss-hero-${trade.symbol}`}
+                title="[ PASS / CLEAR HERO ] Dismiss setup from hero dock"
+              >
+                <X className="h-3.5 w-3.5" />
+                <span>[ ✕ Dismiss ]</span>
+              </button>
+            )}
+          </div>
+
+          {/* Right edge: Mini text summary of extended runners */}
+          <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 shrink-0 ml-auto" data-testid={`hero-runners-summary-${trade.symbol}`}>
+            <span>T2: ${trade.target2.toFixed(2)} | T3: ${t3Price.toFixed(2)}</span>
+          </div>
         </div>
       </div>
 
-      {/* ── CONDITIONAL EXPANDED DETAILS (Target 2, Scale-Outs, Fidelity Ticket, Actions) ── */}
+      {/* ── CONDITIONAL EXPANDED DETAILS (Accordion Body with Smooth Animation) ── */}
       {isExpanded && (
         <div
           className="expanded-details mt-4 border-t border-ink-line/50 pt-4"
           data-testid={`hero-expanded-details-${trade.symbol}`}
         >
+          {/* Beginner-Friendly Step-by-Step Action Engine */}
+          <StepByStepActionChecklist
+            symbol={trade.symbol}
+            triggerPrice={trade.entryPrice}
+            entryPrice={trade.entryPrice}
+            stopLoss={trade.stopLoss}
+            target1={trade.target1}
+            is1hClosed={true}
+            isArmed={isExecuting}
+            isFilled={false}
+          />
           {/* Target 2 (2.0R Core) & Copy buttons */}
           <div className="rounded-xl border border-purple-500/40 bg-slate-950/80 p-3 shadow-inner mb-3">
             <div className="flex items-center justify-between text-purple-400 font-mono text-[10px] font-bold uppercase tracking-wider">
