@@ -1905,6 +1905,17 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   // Task 3: AI Edge Tip Rationale
   const aiTipText = useMemo(() => getAiTipText(d, group, isConfirmed, isExtendedRunUp, isExpiredEndOfDay), [d, group, isConfirmed, isExtendedRunUp, isExpiredEndOfDay]);
 
+  const lastUpdatedFormatted = useMemo(() => {
+    const ts = (d as any).evaluatedAt || d.quoteTimestamp;
+    if (!ts) return "LIVE";
+    try {
+      const dt = new Date(ts);
+      return dt.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", second: "2-digit", hour12: true });
+    } catch {
+      return fmtCT(ts);
+    }
+  }, [(d as any).evaluatedAt, d.quoteTimestamp]);
+
   const handleAdjustPlan = () => {
     onSeen();
     setIsExpanded(true);
@@ -1989,6 +2000,20 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             data-testid={`card-symbol-${d.symbol}`}
           >
             {d.symbol}
+          </span>
+
+          <span
+            className="font-mono text-xs text-cyan-400 shrink-0"
+            data-testid={`timestamp-updated-${d.symbol}`}
+          >
+            Last Updated: {lastUpdatedFormatted}
+          </span>
+
+          <span
+            className="px-2 py-0.5 text-[11px] font-mono font-bold uppercase rounded bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 shrink-0"
+            data-testid={`badge-ready-${d.symbol}`}
+          >
+            READY
           </span>
 
           {/* Opt-In Alert Notification Toggle */}
