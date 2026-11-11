@@ -468,6 +468,7 @@ function ActionCenterInner() {
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
   const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
   const [uiPreferencesOpen, setUiPreferencesOpen] = useState(false);
+  const [isWatchlistCollapsed, setIsWatchlistCollapsed] = usePersistentState<boolean>("ac-watchlist-collapsed", false);
 
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -543,6 +544,34 @@ function ActionCenterInner() {
   const strategyEngine = useStrategyEngine();
   const storeActiveSetups = useTradeSetupStore((s) => s.activeExecutionSetups);
 
+  // Execution proximity gate: Max 0.75% chase tolerance
+  const getSetupPriceExtension = useCallback((d: any) => {
+    const entry = d.entryPrice ?? d.entry ?? 0;
+    const live =
+      marketStore.prices[d.symbol] ??
+      prices?.[d.symbol]?.price ??
+      global?.livePrices?.[d.symbol] ??
+      d.currentPrice ??
+      0;
+    if (entry > 0 && live > 0) {
+      const pct = Math.abs((live - entry) / entry) * 100;
+      return {
+        extensionPercent: pct,
+        isWithinRange: pct <= 0.75,
+        livePrice: live,
+        entryPrice: entry,
+        diffSign: live >= entry ? "+" : "-",
+      };
+    }
+    return {
+      extensionPercent: 0,
+      isWithinRange: true,
+      livePrice: live,
+      entryPrice: entry,
+      diffSign: "+",
+    };
+  }, [marketStore.prices, prices, global?.livePrices]);
+
   const heroTrades = useMemo(() => {
     const map = new Map<string, ConfirmedHeroTrade>();
     for (const t of storeActiveSetups) {
@@ -560,9 +589,12 @@ function ActionCenterInner() {
         (typeof t.status === "string" && (t.status.includes("HARD BLOCK") || t.status.includes("STANDBY") || t.status.includes("Ceiling") || t.status.includes("CEILING"))) ||
         (typeof t.notes === "string" && (t.notes.includes("Hard Block") || t.notes.includes("Ceiling")))
       );
-      return !isBlocked;
+      if (isBlocked) return false;
+      const ext = getSetupPriceExtension(t);
+      if (!ext.isWithinRange) return false;
+      return true;
     });
-  }, [storeActiveSetups, strategyEngine.confirmedHeroTrades]);
+  }, [storeActiveSetups, strategyEngine.confirmedHeroTrades, getSetupPriceExtension]);
 
   const heroSymSet = new Set(heroTrades.map((t) => t.symbol.toUpperCase()));
 
@@ -706,6 +738,12 @@ function ActionCenterInner() {
       return false;
     }
 
+    // Strict execution proximity gate (Max 0.75% chase tolerance)
+    const ext = getSetupPriceExtension(d);
+    if (!ext.isWithinRange) {
+      return false;
+    }
+
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
@@ -756,9 +794,9 @@ function ActionCenterInner() {
     });
   }, [validSetups]);
 
-  // Task 1: Strict Ready Filtering (strictly require READY_TO_TRADE and no hard blocks, standby days, or wait-and-retest)
+  // Task 1: Strict Ready Filtering (strictly require READY_TO_TRADE, no hard blocks/standby/retest, AND within 0.75% chase tolerance)
   const readySetups = setups.filter(
-    (d) => d.setupStatus === "READY_TO_TRADE" && !d.isStandbyDay && !d.hasHardBlock && !d.isWaitAndRetest
+    (d) => d.setupStatus === "READY_TO_TRADE" && !d.isStandbyDay && !d.hasHardBlock && !d.isWaitAndRetest && getSetupPriceExtension(d).isWithinRange
   );
   // Task 3: In the Active Execution Zone, sort readySetups by score descending
   readySetups.sort((a, b) => b.score - a.score);
@@ -1351,7 +1389,7 @@ function ActionCenterInner() {
                     return (
                       <div
                         key={d.symbol}
-                        className="flex flex-col justify-between gap-3 rounded-xl p-4 transition-all bg-[#101827] border border-slate-800 hover:border-slate-700 text-slate-100 shadow-md border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse"
+                        className="flex flex-col justify-between gap-3 transition-all bg-[#0c1017] border border-slate-700/60 rounded-lg p-3.5 hover:border-slate-500 text-slate-100 shadow-md border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse"
                         data-testid={`active-execution-card-${d.symbol}`}
                       >
                         {/* Compatibility marker for test assertion */}
@@ -1381,20 +1419,20 @@ function ActionCenterInner() {
                         {/* Middle Row (flex, space-between): Entry Price, Stop Loss, Target 1 */}
                         <div className="flex items-center justify-between gap-2 py-2 border-b border-slate-800 font-mono text-xs">
                           <div className="flex flex-col">
-                            <span className="font-sans font-medium text-slate-400 text-xs">BUY LIMIT:</span>
-                            <span className="font-bold font-mono text-slate-100 text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">BUY LIMIT:</span>
+                            <span className="font-bold font-mono text-amber-400 text-slate-100 text-base tabular-nums">
                               {formatCurrency(entryPrice)}
                             </span>
                           </div>
                           <div className="flex flex-col text-center">
-                            <span className="font-sans font-medium text-slate-400 text-xs">STOP:</span>
-                            <span className="font-bold font-mono text-rose-400 text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">STOP:</span>
+                            <span className="font-bold font-mono text-rose-400 font-bold text-base tabular-nums">
                               {formatCurrency(stopLoss)}
                             </span>
                           </div>
                           <div className="flex flex-col text-right">
-                            <span className="font-sans font-medium text-slate-400 text-xs">TARGET:</span>
-                            <span className="font-bold font-mono text-emerald-400 text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">TARGET:</span>
+                            <span className="font-bold font-mono text-emerald-400 font-bold text-base tabular-nums">
                               {formatCurrency(target1)}
                             </span>
                           </div>
@@ -1474,7 +1512,12 @@ function ActionCenterInner() {
                 {generalLoud.map((d) => {
                   const liveQuote = prices?.[d.symbol];
                   const effectivePrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? d.currentPrice ?? 0;
-                  const blockedReason = d.hasHardBlock
+                  const ext = getSetupPriceExtension(d);
+                  const isExtended = ext.extensionPercent > 0.75;
+                  const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
+                  const blockedReason = isExtended
+                    ? `Extended (${ext.diffSign}${ext.extensionPercent.toFixed(1)}%) — Await Retest`
+                    : d.hasHardBlock
                     ? "Blocked: 4H SMA 50 Ceiling"
                     : d.isStandbyDay
                     ? "Standby Day (Red Regime)"
@@ -1499,6 +1542,8 @@ function ActionCenterInner() {
                   let aiTip = "";
                   if (isHardBlock) {
                     aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
+                  } else if (isExtended) {
+                    aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
                   } else if (Math.abs(distancePercent) < 0.5) {
                     aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
                   } else {
@@ -1524,11 +1569,19 @@ function ActionCenterInner() {
                         <span className="text-slate-600">|</span>
                         <span className="text-slate-300 tabular-nums">{formatCurrency(effectivePrice)}</span>
                         <span className="text-slate-600">|</span>
-                        <span className={`text-xs font-medium ${d.hasHardBlock || d.isStandbyDay ? "text-slate-400" : "text-cyan-400"}`}>
+                        <span className={`text-xs font-medium ${isExtended ? "text-amber-300" : d.hasHardBlock || d.isStandbyDay ? "text-slate-400" : "text-cyan-400"}`}>
                           {blockedReason}
                         </span>
                       </div>
                       <div className="flex items-center gap-2">
+                        {isExtended && (
+                          <div
+                            className="bg-amber-950/60 border border-amber-600/70 text-amber-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold shadow-sm"
+                            data-testid={`badge-extended-await-retest-${d.symbol}`}
+                          >
+                            <span>{extendedBadgeText}</span>
+                          </div>
+                        )}
                         <div
                           className="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2"
                           data-testid={`badge-waiting-ai-tip-${d.symbol}`}
@@ -1548,81 +1601,127 @@ function ActionCenterInner() {
             <div className="w-full" data-testid="section-watchlist-and-chart">
               <div className="bg-[#101827] border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-lg w-full">
                 <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-                  <span className="font-mono text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                    <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                    Watchlist Manager
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="font-mono text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
+                      <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                      Watchlist Manager
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsWatchlistCollapsed((prev) => !prev)}
+                      className="px-2.5 py-1 rounded border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      data-testid="button-toggle-collapse-watchlist"
+                      aria-label={isWatchlistCollapsed ? "Expand Watchlist" : "Collapse Watchlist"}
+                    >
+                      {isWatchlistCollapsed ? "[ ⇥ Expand Watchlist ]" : "[ ⇤ Collapse Watchlist ]"}
+                    </button>
+                  </div>
                   <span className="font-mono text-xs text-slate-400">
                     {watchlistSymbols.length} Symbols Tracked · Single Master Chart Active
                   </span>
                 </div>
 
-                {/* Minimal Input to [+ Add] ticker */}
-                <form onSubmit={handleAddTicker} className="flex items-center gap-2 max-w-md">
-                  <input
-                    type="text"
-                    value={newTickerInput}
-                    onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
-                    placeholder="Search/Add Symbol... [ + ]"
-                    maxLength={6}
-                    className="flex-1 bg-[#0B1220] border border-slate-800 text-slate-100 font-mono text-xs px-3 py-2 rounded focus:outline-none focus:border-cyan-400 placeholder:text-slate-600 uppercase"
-                    data-testid="input-watchlist-ticker"
-                  />
-                  <button
-                    type="submit"
-                    disabled={!(newTickerInput ?? "").toString().trim()}
-                    className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3.5 py-2 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
-                    data-testid="button-add-watchlist-ticker"
+                {isWatchlistCollapsed ? (
+                  <div
+                    className="flex flex-col gap-1.5 w-12 min-w-[48px] max-w-[48px] py-2 items-center bg-[#0c1017] border border-slate-800 rounded-lg"
+                    data-testid="watchlist-collapsed-rail"
                   >
-                    <span>[+]</span>
-                    <span>Add</span>
-                  </button>
-                </form>
-
-                {/* Clean Responsive Grid / List of Tickers */}
-                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1" data-testid="watchlist-items-list">
-                  {watchlistSymbols.map((sym) => {
-                    const isSelected = selectedTicker === sym;
-                    const livePrice = marketStore.prices[sym] ?? prices?.[sym]?.price;
-                    return (
-                      <div
-                        key={sym}
-                        onClick={() => {
-                          setSelectedTicker(sym);
-                          global?.setActiveTicker?.(sym);
-                          marketStore.setActiveTicker?.(sym);
-                        }}
-                        className={`flex items-center justify-between py-2 px-3 rounded-lg border transition-all cursor-pointer font-mono text-xs ${
-                          isSelected
-                            ? "bg-[#0B1220] border-cyan-400 text-cyan-400 font-bold shadow-[0_0_10px_rgba(6,182,212,0.15)]"
-                            : "bg-[#0B1220]/70 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100"
-                        }`}
-                        data-testid={`watchlist-row-${sym}`}
-                      >
-                        <div className="flex flex-col">
-                          <span className="font-bold text-sm">{sym}</span>
-                          {livePrice != null && livePrice > 0 ? (
-                            <span className="text-[11px] text-slate-400 tabular-nums">
-                              ${livePrice.toFixed(2)}
-                            </span>
-                          ) : (
-                            <span className="text-[10px] text-slate-500">Live</span>
-                          )}
-                        </div>
+                    {watchlistSymbols.map((sym) => {
+                      const isSelected = selectedTicker === sym;
+                      const isReady = readySetups.some((s) => s.symbol === sym);
+                      return (
                         <button
+                          key={sym}
                           type="button"
-                          onClick={(e) => handleDeleteTicker(sym, e)}
-                          className="text-slate-500 hover:text-rose-400 transition-colors p-1 rounded"
-                          title={`Delete ${sym} from watchlist`}
-                          data-testid={`button-delete-watchlist-${sym}`}
+                          onClick={() => {
+                            setSelectedTicker(sym);
+                            global?.setActiveTicker?.(sym);
+                            marketStore.setActiveTicker?.(sym);
+                          }}
+                          className={`flex flex-col items-center justify-center p-1.5 rounded transition-all w-10 text-[10px] font-mono font-bold cursor-pointer ${
+                            isSelected
+                              ? "bg-cyan-950/80 text-cyan-300 border border-cyan-400 shadow-sm"
+                              : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                          }`}
+                          title={`${sym} - ${isReady ? "Ready to Trade" : "Pending"}`}
+                          data-testid={`watchlist-rail-ticker-${sym}`}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
-                          <span className="sr-only">[Delete]</span>
+                          <span>{sym}</span>
+                          <span className="text-[9px] leading-none mt-0.5">{isReady ? "🟢" : "🟡"}</span>
                         </button>
-                      </div>
-                    );
-                  })}
-                </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <>
+                    {/* Minimal Input to [+ Add] ticker */}
+                    <form onSubmit={handleAddTicker} className="flex items-center gap-2 max-w-md">
+                      <input
+                        type="text"
+                        value={newTickerInput}
+                        onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
+                        placeholder="Search/Add Symbol... [ + ]"
+                        maxLength={6}
+                        className="flex-1 bg-[#0B1220] border border-slate-800 text-slate-100 font-mono text-xs px-3 py-2 rounded focus:outline-none focus:border-cyan-400 placeholder:text-slate-600 uppercase"
+                        data-testid="input-watchlist-ticker"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!(newTickerInput ?? "").toString().trim()}
+                        className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3.5 py-2 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                        data-testid="button-add-watchlist-ticker"
+                      >
+                        <span>[+]</span>
+                        <span>Add</span>
+                      </button>
+                    </form>
+
+                    {/* Clean Responsive Grid / List of Tickers */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1" data-testid="watchlist-items-list">
+                      {watchlistSymbols.map((sym) => {
+                        const isSelected = selectedTicker === sym;
+                        const livePrice = marketStore.prices[sym] ?? prices?.[sym]?.price;
+                        return (
+                          <div
+                            key={sym}
+                            onClick={() => {
+                              setSelectedTicker(sym);
+                              global?.setActiveTicker?.(sym);
+                              marketStore.setActiveTicker?.(sym);
+                            }}
+                            className={`flex items-center justify-between py-2 px-3 rounded-lg border transition-all cursor-pointer font-mono text-xs ${
+                              isSelected
+                                ? "bg-[#0B1220] border-cyan-400 text-cyan-400 font-bold shadow-[0_0_10px_rgba(6,182,212,0.15)]"
+                                : "bg-[#0B1220]/70 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100"
+                            }`}
+                            data-testid={`watchlist-row-${sym}`}
+                          >
+                            <div className="flex flex-col">
+                              <span className="font-bold text-sm">{sym}</span>
+                              {livePrice != null && livePrice > 0 ? (
+                                <span className="text-[11px] text-slate-400 tabular-nums">
+                                  ${livePrice.toFixed(2)}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-slate-500">Live</span>
+                              )}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => handleDeleteTicker(sym, e)}
+                              className="text-slate-500 hover:text-rose-400 transition-colors p-1 rounded"
+                              title={`Delete ${sym} from watchlist`}
+                              data-testid={`button-delete-watchlist-${sym}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span className="sr-only">[Delete]</span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
 
                 {/* Hidden compatibility hook for test assertions that check for section-watchlist-chart */}
                 <div className="hidden" data-testid="section-watchlist-chart" aria-hidden="true" />

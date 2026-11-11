@@ -70,6 +70,14 @@ export function ActiveExecutionHeroCard({
   const isCashExceeded = totalPositionCost > availableCash;
   const equityPct = totalEquity > 0 ? Math.min(100, Math.round((totalPositionCost / totalEquity) * 100)) : 0;
 
+  // Strict Entry vs. Live Price Range Gating (Prevent Chasing: Max 0.75% chase tolerance)
+  const priceExtensionPercent = trade.entryPrice > 0 && livePrice > 0
+    ? Math.abs((livePrice - trade.entryPrice) / trade.entryPrice) * 100
+    : 0;
+  const isWithinExecutionRange = priceExtensionPercent <= 0.75;
+  const diffSign = livePrice >= trade.entryPrice ? "+" : "-";
+  const extendedBadgeText = `[ ⏳ EXTENDED: ${diffSign}${priceExtensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
+
   // Extended runners and planned P&L calculations
   const t3Price = (trade as any).target3 ?? +(trade.entryPrice + 3 * trade.riskPerShare).toFixed(2);
   const plannedLoss = +(calculatedShares * trade.riskPerShare).toFixed(2);
@@ -94,6 +102,14 @@ export function ActiveExecutionHeroCard({
   };
 
   const copyCompleteFidelityTicket = () => {
+    if (!isWithinExecutionRange) {
+      toast({
+        title: "Trade Out of Range",
+        description: `Price is extended by ${priceExtensionPercent.toFixed(1)}% (max tolerance 0.75%). Await retest.`,
+        variant: "destructive",
+      });
+      return;
+    }
     const fullTicket = [
       `FIDELITY ORDER TICKET: ${trade.symbol}`,
       `STEP 1 - BUY LIMIT ENTRY:`,
@@ -121,6 +137,14 @@ export function ActiveExecutionHeroCard({
   };
 
   const handleAction = async () => {
+    if (!isWithinExecutionRange) {
+      toast({
+        title: "Trade Out of Range",
+        description: `Price is extended by ${priceExtensionPercent.toFixed(1)}% (max tolerance 0.75%). Await retest.`,
+        variant: "destructive",
+      });
+      return;
+    }
     if (isCashExceeded) {
       toast({
         title: "Cash Limit Exceeded",
@@ -189,6 +213,15 @@ export function ActiveExecutionHeroCard({
               ⚡ READY TO EXECUTE
             </span>
             <span className="sr-only">[ ⚡ LIVE EXECUTION READY ]</span>
+
+            {!isWithinExecutionRange && (
+              <span
+                className="px-2.5 py-1 text-xs font-bold font-mono uppercase rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/50 shrink-0"
+                data-testid={`badge-hero-extended-${trade.symbol}`}
+              >
+                {extendedBadgeText}
+              </span>
+            )}
 
             {/* Secondary Context (Support Level & Timestamp Pill) */}
             <span
@@ -310,9 +343,12 @@ export function ActiveExecutionHeroCard({
             <button
               type="button"
               onClick={copyCompleteFidelityTicket}
-              className="bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs font-mono flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer transition-all"
+              disabled={!isWithinExecutionRange}
+              className={`bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold px-4 py-2 rounded-lg text-xs font-mono flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer transition-all ${
+                !isWithinExecutionRange ? "opacity-40 cursor-not-allowed" : ""
+              }`}
               data-testid={`button-copy-fidelity-ticket-${trade.symbol}`}
-              title="Copy formatted bracket order directly to clipboard"
+              title={!isWithinExecutionRange ? `Trade extended (${priceExtensionPercent.toFixed(1)}%). Await retest.` : "Copy formatted bracket order directly to clipboard"}
             >
               <Zap className="h-3.5 w-3.5 fill-current text-slate-950" />
               <span>{copiedKey === "full-ticket" ? "[ ✓ Copied! ]" : "[ ⚡ Copy Fidelity Ticket ]"}</span>
@@ -322,9 +358,9 @@ export function ActiveExecutionHeroCard({
             <button
               type="button"
               onClick={handleAction}
-              disabled={isExecuting || isCashExceeded}
+              disabled={isExecuting || isCashExceeded || !isWithinExecutionRange /* disabled={isExecuting || isCashExceeded} */}
               className={`px-4 py-2 rounded-lg text-xs font-mono font-bold flex items-center gap-1.5 active:scale-95 cursor-pointer shadow-sm transition-all ${
-                isCashExceeded
+                isCashExceeded || !isWithinExecutionRange
                   ? "bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed opacity-50"
                   : isPractice
                   ? "bg-amber-500 hover:bg-amber-400 text-slate-950"
@@ -332,7 +368,9 @@ export function ActiveExecutionHeroCard({
               }`}
               data-testid={`button-log-trade-${trade.symbol}`}
               title={
-                isCashExceeded
+                !isWithinExecutionRange
+                  ? "[ ⏳ Trade Extended — Execution Disabled ]"
+                  : isCashExceeded
                   ? "[ ⚠️ Cash Limit Exceeded - Order placement disabled ]"
                   : isPractice
                   ? "[ ARM PRACTICE TRADE ]"
@@ -369,8 +407,9 @@ export function ActiveExecutionHeroCard({
       {/* ── CONDITIONAL EXPANDED DETAILS (Accordion Body with Smooth Animation) ── */}
       {isExpanded && (
         <div
-          className="expanded-details mt-4 border-t border-ink-line/50 pt-4"
+          className="expanded-details mt-4 border-t border-ink-line/50 pt-4 bg-[#070a0f] border-t border-slate-800 p-3 rounded-b-lg"
           data-testid={`hero-expanded-details-${trade.symbol}`}
+          /* className="expanded-details mt-4 border-t border-ink-line/50 pt-4" */
         >
           {/* Beginner-Friendly Step-by-Step Action Engine */}
           <StepByStepActionChecklist

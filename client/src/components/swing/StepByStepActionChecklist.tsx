@@ -76,7 +76,7 @@ export function StepByStepActionChecklist({
           data-step-status={step1Done ? "COMPLETED" : "ACTIVE"}
           className={`flex items-start gap-2.5 p-2 rounded-md border text-xs transition-all ${
             step1Done
-              ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-300"
+              ? "text-emerald-400 bg-emerald-950/40 border border-emerald-800/50"
               : "border-cyan-400/80 bg-cyan-950/40 text-cyan-300 ring-1 ring-cyan-400/50 shadow-[0_0_12px_rgba(6,182,212,0.3)] animate-pulse"
           }`}
         >
@@ -118,10 +118,10 @@ export function StepByStepActionChecklist({
           data-step-status={step2Done ? "COMPLETED" : step2Active ? "ACTIVE" : "DIMMED"}
           className={`flex items-start gap-2.5 p-2 rounded-md border text-xs transition-all ${
             step2Done
-              ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-300"
+              ? "text-emerald-400 bg-emerald-950/40 border border-emerald-800/50"
               : step2Active
               ? "border-emerald-400/80 bg-emerald-950/40 text-emerald-300 ring-1 ring-emerald-400/50 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-              : "opacity-40 border-gray-800 bg-black/20 text-slate-500"
+              : "opacity-40 text-slate-400 bg-slate-900 border border-slate-800"
           }`}
         >
           <div className="shrink-0 mt-0.5 font-mono font-black">
@@ -167,10 +167,10 @@ export function StepByStepActionChecklist({
           data-step-status={step3Done ? "COMPLETED" : step3Active ? "ACTIVE" : "DIMMED"}
           className={`flex items-start gap-2.5 p-2 rounded-md border text-xs transition-all ${
             step3Done
-              ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-300"
+              ? "text-emerald-400 bg-emerald-950/40 border border-emerald-800/50"
               : step3Active
               ? "border-amber-400/80 bg-amber-950/40 text-amber-300 ring-1 ring-amber-400/50 shadow-[0_0_12px_rgba(245,158,11,0.3)]"
-              : "opacity-40 border-gray-800 bg-black/20 text-slate-500"
+              : "opacity-40 text-slate-400 bg-slate-900 border border-slate-800"
           }`}
         >
           <div className="shrink-0 mt-0.5 font-mono font-black">
@@ -211,10 +211,10 @@ export function StepByStepActionChecklist({
           data-step-status={step4Done ? "COMPLETED" : step4Active ? "ACTIVE" : "DIMMED"}
           className={`flex items-start gap-2.5 p-2 rounded-md border text-xs transition-all ${
             step4Done
-              ? "border-emerald-500/40 bg-emerald-950/20 text-emerald-300"
+              ? "text-emerald-400 bg-emerald-950/40 border border-emerald-800/50"
               : step4Active
               ? "border-emerald-400/80 bg-emerald-950/40 text-emerald-300 ring-1 ring-emerald-400/50 shadow-[0_0_12px_rgba(16,185,129,0.3)]"
-              : "opacity-40 border-gray-800 bg-black/20 text-slate-500"
+              : "opacity-40 text-slate-400 bg-slate-900 border border-slate-800"
           }`}
         >
           <div className="shrink-0 mt-0.5 font-mono font-black">

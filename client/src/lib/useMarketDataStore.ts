@@ -1100,3 +1100,234 @@ export function useMarketStatus() {
     lastTickTimestamp: s.lastTickTimestamp,
   }));
 }
+
+/**
+ * ─── Dual-Source Stable Live Ticker Engine: MarketDataDistributor ───────────
+ * Root pipeline managing:
+ *   - Tier-1 WebSocket: Persistent Polygon.io/Alpaca v2 connection with 20s heartbeat ping
+ *   - Auto-reconnect with exponential backoff (2s, 4s, 8s)
+ *   - Tier-2 Instant Fallback: REST 3-second snapshot loop (/quotes?symbols=... or /api/prices)
+ *     without blanking current prices in useMarketDataStore
+ */
+export interface MarketDataDistributorConfig {
+  heartbeatIntervalMs?: number;
+  restFallbackIntervalMs?: number;
+  backoffSchedule?: number[];
+  wsUrl?: string;
+}
+
+export class MarketDataDistributor {
+  private ws: WebSocket | null = null;
+  private heartbeatInterval: any = null;
+  private restSnapshotInterval: any = null;
+  private reconnectTimeout: any = null;
+  private reconnectAttempt = 0;
+  private isRunning = false;
+  public readonly heartbeatIntervalMs: number;
+  public readonly restFallbackIntervalMs: number;
+  public readonly backoffSchedule: number[];
+  private subscribedSymbols = new Set<string>();
+
+  constructor(config?: MarketDataDistributorConfig) {
+    this.heartbeatIntervalMs = config?.heartbeatIntervalMs ?? 20000; // 20s heartbeat ping
+    this.restFallbackIntervalMs = config?.restFallbackIntervalMs ?? 3000; // 3-second snapshot loop
+    this.backoffSchedule = config?.backoffSchedule ?? [2000, 4000, 8000]; // Exponential backoff (2s, 4s, 8s)
+  }
+
+  public getSubscribedSymbols(): string[] {
+    return Array.from(this.subscribedSymbols);
+  }
+
+  public subscribe(symbols: string[]): void {
+    for (const s of symbols) {
+      if (s) this.subscribedSymbols.add(s.toUpperCase().trim().split(":").pop()!);
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ action: "subscribe", symbols: Array.from(this.subscribedSymbols) }));
+      } catch {}
+    }
+  }
+
+  public unsubscribe(symbols: string[]): void {
+    for (const s of symbols) {
+      if (s) this.subscribedSymbols.delete(s.toUpperCase().trim().split(":").pop()!);
+    }
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ action: "unsubscribe", symbols }));
+      } catch {}
+    }
+  }
+
+  public sendHeartbeat(): void {
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try {
+        this.ws.send(JSON.stringify({ action: "ping", timestamp: Date.now() }));
+      } catch (e) {
+        console.warn("[MarketDataDistributor] Heartbeat ping failed:", e);
+      }
+    }
+  }
+
+  public async fetchRestSnapshot(): Promise<void> {
+    try {
+      const symList = Array.from(this.subscribedSymbols);
+      const url = symList.length > 0
+        ? `/quotes?symbols=${encodeURIComponent(symList.join(","))}`
+        : "/api/prices";
+      const res = await fetch(url).catch(() => null);
+      if (res && res.ok) {
+        const payload = await res.json().catch(() => null);
+        if (payload && typeof payload === "object") {
+          // Update store without blanking existing prices
+          if (Array.isArray(payload)) {
+            for (const item of payload) {
+              const p = extractQuotePrice(item);
+              const sym = item.symbol || item.s;
+              if (sym && p != null && p > 0) {
+                marketDataStore.validateAndApplyTick({
+                  ...item,
+                  symbol: sym,
+                  price: p,
+                });
+              }
+            }
+          } else {
+            for (const [k, v] of Object.entries(payload)) {
+              const p = extractQuotePrice(v);
+              const sym = (typeof v === "object" && v ? (v as any).symbol : null) || k;
+              if (sym && p != null && p > 0) {
+                marketDataStore.validateAndApplyTick({
+                  ...(typeof v === "object" ? v : {}),
+                  symbol: sym,
+                  price: p,
+                });
+              }
+            }
+          }
+        }
+      }
+    } catch {
+      // Graceful silence on network hiccup to prevent terminal spam
+    }
+  }
+
+  public start(): void {
+    if (this.isRunning) return;
+    this.isRunning = true;
+    this.connectWs();
+    this.startHeartbeat();
+    this.startRestFallbackLoop();
+  }
+
+  public stop(): void {
+    this.isRunning = false;
+    if (this.heartbeatInterval) {
+      clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = null;
+    }
+    if (this.restSnapshotInterval) {
+      clearInterval(this.restSnapshotInterval);
+      this.restSnapshotInterval = null;
+    }
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    if (this.ws) {
+      try {
+        this.ws.close();
+      } catch {}
+      this.ws = null;
+    }
+  }
+
+  private connectWs(): void {
+    if (typeof window === "undefined" || !window.WebSocket) return;
+    try {
+      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const host = window.location.host;
+      const wsUrl = `${protocol}//${host}/ws/prices`;
+      this.ws = new WebSocket(wsUrl);
+
+      this.ws.onopen = () => {
+        this.reconnectAttempt = 0;
+        marketDataStore.setStatus("LIVE");
+        if (this.subscribedSymbols.size > 0) {
+          try {
+            this.ws?.send(JSON.stringify({ action: "subscribe", symbols: Array.from(this.subscribedSymbols) }));
+          } catch {}
+        }
+      };
+
+      this.ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data && (data.type === "pong" || data.action === "pong")) {
+            if (data.timestamp) {
+              marketDataStore.setLatency(Date.now() - data.timestamp);
+            }
+            return;
+          }
+          if (Array.isArray(data)) {
+            for (const item of data) {
+              const p = extractQuotePrice(item);
+              const sym = item.symbol || item.s;
+              if (sym && p != null && p > 0) {
+                marketDataStore.validateAndApplyTick({ ...item, symbol: sym, price: p });
+              }
+            }
+          } else if (data && typeof data === "object") {
+            const p = extractQuotePrice(data);
+            const sym = data.symbol || data.s;
+            if (sym && p != null && p > 0) {
+              marketDataStore.validateAndApplyTick({ ...data, symbol: sym, price: p });
+            }
+          }
+        } catch {}
+      };
+
+      this.ws.onerror = () => {
+        this.scheduleReconnect();
+      };
+
+      this.ws.onclose = () => {
+        this.scheduleReconnect();
+      };
+    } catch {
+      this.scheduleReconnect();
+    }
+  }
+
+  private scheduleReconnect(): void {
+    if (!this.isRunning) return;
+    if (this.reconnectTimeout) return;
+    const backoffIndex = Math.min(this.reconnectAttempt, this.backoffSchedule.length - 1);
+    const delay = this.backoffSchedule[backoffIndex]; // 2s, 4s, 8s
+    this.reconnectAttempt++;
+    marketDataStore.setStatus("RECONNECTING");
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.reconnectTimeout = null;
+      this.connectWs();
+    }, delay);
+  }
+
+  private startHeartbeat(): void {
+    if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+    this.heartbeatInterval = setInterval(() => {
+      this.sendHeartbeat();
+    }, this.heartbeatIntervalMs); // 20s heartbeat ping
+  }
+
+  private startRestFallbackLoop(): void {
+    if (this.restSnapshotInterval) clearInterval(this.restSnapshotInterval);
+    this.restSnapshotInterval = setInterval(() => {
+      this.fetchRestSnapshot();
+    }, this.restFallbackIntervalMs); // 3-second snapshot loop
+  }
+}
+
+export const marketDataDistributor = new MarketDataDistributor();
+
