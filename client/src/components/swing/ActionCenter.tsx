@@ -749,7 +749,9 @@ function ActionCenterInner() {
   // Task 3: In the Active Execution Zone, sort readySetups by score descending
   readySetups.sort((a, b) => b.score - a.score);
 
-  const confirmedRows = rows.filter(isConfirmedSetup);
+  // Confirmed/Ready setups in the Active Execution Zone: strictly use readySetups
+  const confirmedRows = readySetups;
+  // Backward compatibility filter hook: const confirmedRows = rows.filter(isConfirmedSetup);
   const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
 
@@ -758,7 +760,8 @@ function ActionCenterInner() {
   const pendingWaitingSetups = setups.filter(
     (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol)
   );
-  const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
+  const generalLoud = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol));
+  // Backward compatibility hook: const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 
   // Top-Rated Priority Routing: sort grid data so any confirmed or ready setups sort strictly to the top
   const sortedGeneralLoud = useMemo(() => {
@@ -1214,7 +1217,7 @@ function ActionCenterInner() {
                 ))}
 
                 {/* Confirmed Setup Cards from Swing Scanner */}
-                {(readySetups.length > 0 ? readySetups : confirmedRows).map((d) => {
+                {confirmedRows.map((d) => {
                   if (heroSymSet.has(d.symbol)) return null;
                   const ver = activeVersion(d, sel);
                   const plan = effectivePlan(d, ver);
