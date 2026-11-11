@@ -2146,7 +2146,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             aria-expanded={isExpanded}
           >
             {isExpanded ? <ChevronUp className="h-3.5 w-3.5 text-emerald-400" /> : <ChevronDown className="h-3.5 w-3.5 text-slate-300" />}
-            <span>{isExpanded ? "Collapse" : "Details"}</span>
+            <span>{isExpanded ? "Collapse Details" : "Expand Details"}</span>
             <span className="sr-only">[ Expand ] [ Collapse Chart & Details ⌃ ] [ Expand Chart & Details ⌄ ]</span>
           </button>
 

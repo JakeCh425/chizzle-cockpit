@@ -3593,6 +3593,51 @@ export default function WealthEngineDashboard() {
             }}
             data-testid="center-tab-bar"
           >
+            {/* Integrated Master Chart Ticker CRUD (Top-Left) */}
+            <div className="flex items-center gap-1.5 mr-3 flex-shrink-0" data-testid="master-chart-ticker-crud">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleQuickAdd(e);
+                }}
+                className="flex items-center gap-1"
+              >
+                <input
+                  type="text"
+                  data-testid="input-master-chart-ticker"
+                  value={newTicker}
+                  onChange={(e) => {
+                    setNewTicker(e.target.value.toUpperCase());
+                    setNewTickerInput(e.target.value.toUpperCase());
+                  }}
+                  placeholder="Ticker..."
+                  maxLength={6}
+                  className="w-20 sm:w-24 px-2 py-1 rounded bg-black/60 border border-slate-700 text-xs font-mono font-bold tracking-wider uppercase text-white placeholder-slate-500 focus:outline-none focus:border-cyan-400"
+                />
+                <button
+                  type="submit"
+                  data-testid="button-master-chart-add-ticker"
+                  className="px-2 py-1 rounded bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 hover:bg-cyan-500/30 text-xs font-mono font-bold uppercase transition-colors cursor-pointer"
+                  title="Add Ticker to Master Chart & Evaluate SMA Rules"
+                >
+                  [ + Add ]
+                </button>
+              </form>
+
+              {activeTicker && (
+                <button
+                  type="button"
+                  onClick={() => removeTicker(activeTicker)}
+                  data-testid="button-master-chart-delete-ticker"
+                  className="px-2 py-1 rounded bg-rose-500/20 text-rose-300 border border-rose-500/40 hover:bg-rose-500/30 text-xs font-mono font-bold uppercase transition-colors cursor-pointer flex items-center gap-1"
+                  title={`Delete ${activeTicker} from Master Chart`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Delete</span>
+                </button>
+              )}
+            </div>
+
             {/* Tabs */}
             <div className="flex items-center gap-1 font-mono text-xs">
               <button
@@ -3703,6 +3748,43 @@ export default function WealthEngineDashboard() {
                     onTimeframeChange={setActiveTf}
                   />
                 </ErrorBoundary>
+
+                {/* Sleek Semi-Transparent Overlay: AI Trade Coach & Reflections (Bottom-Left Corner) */}
+                <div
+                  className="absolute bottom-3 left-3 z-30 max-w-sm sm:max-w-md w-full rounded-xl border border-slate-700/80 bg-slate-950/85 backdrop-blur-md p-3.5 shadow-2xl transition-all select-none pointer-events-auto"
+                  data-testid="master-chart-ai-coach-overlay"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-2 mb-2">
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                      <span className="font-mono text-xs font-extrabold uppercase tracking-wider text-cyan-300">
+                        AI Trade Coach · {activeTicker}
+                      </span>
+                      <span
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-mono font-bold uppercase border ${
+                          isSetupReady
+                            ? "border-emerald-500/40 bg-emerald-500/20 text-emerald-300"
+                            : "border-amber-500/40 bg-amber-500/20 text-amber-300"
+                        }`}
+                        data-testid="master-chart-coach-status"
+                      >
+                        {isSetupReady ? "READY" : "PENDING"}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5 text-xs font-mono">
+                    <div className="text-slate-200 font-medium leading-snug" data-testid="master-chart-coach-guidance">
+                      {activeItem?.tacticalGuidance ||
+                        `Monitoring ${activeTicker} SMA 10/20/50 support bounce. 1H green candle close required before execution.`}
+                    </div>
+
+                    <div className="pt-1.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
+                      <span>Reflections: SMA 10, 20 & 50 Active · 4H Trend Tracked</span>
+                      <span className="text-cyan-400 font-bold">Single Master Chart</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             )}
 

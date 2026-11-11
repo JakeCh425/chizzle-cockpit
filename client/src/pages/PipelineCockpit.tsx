@@ -36,7 +36,6 @@ import { AlertDialogHost } from "@/components/swing/PriceAlerts";
 import { TradeDialogHost } from "@/components/swing/ArmTrade";
 import { MyTrades } from "@/components/swing/MyTrades";
 import MarketPulsePanel from "@/components/MarketPulsePanel";
-import CockpitWorkspace from "@/components/CockpitWorkspace";
 import LegacyPipeline, { PENDING_PREFILL_KEY } from "@/components/LegacyPipeline";
 import { useSwingEnabled } from "@/lib/swing";
 
@@ -105,11 +104,6 @@ export default function PipelineCockpit() {
           </>
         )}
       </UnifiedSwingMount>
-
-      {/* 3. Cockpit Workspace — 3-column: Regime + Pulse (L) / TradingView chart (C) / Strength + Snapshot + Coach (R) */}
-      <ErrorBoundary label="Cockpit Workspace">
-        <CockpitWorkspace />
-      </ErrorBoundary>
 
       {/* 5. Active Setups — pinned at top per user spec */}
       <ActiveSetupsPanel />

@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import { motion } from "framer-motion";
+import { evaluateExecutionGating } from "@/lib/executionGating";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
@@ -653,6 +654,31 @@ function ActionCenterInner() {
       return false;
     }
 
+    // Centralized 3-Rule Execution Gating Contract:
+    // 1. NO hard regime blocks (Regime is not RED, asset is not STANDBY DAY)
+    // 2. Price is actively bouncing off SMA 10, SMA 20, or SMA 50
+    // 3. 1H confirmation candle has closed green
+    const isStandby = Boolean(
+      (d as any)?.isStandbyDay ||
+      d.setupStatus === "STANDBY_DAY" ||
+      (d as any)?.marketRegime === "BEARISH"
+    );
+
+    const gating = evaluateExecutionGating({
+      symbol: d.symbol,
+      regimeCode,
+      isStandbyDay: isStandby,
+      mechanicalStatus: (d as any)?.setupStatus,
+      testedLine: d.structureLevels?.sma50 ? "50_SMA" : d.structureLevels?.sma20 ? "20_SMA" : "10_SMA",
+      testedPrice: entry,
+      candleConfirmedGreen: (d as any).setupStatus === "SETUP_CONFIRMED" || actionGroupOf(d) === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE" || Boolean(global?.confirmedSetups?.[d.symbol]),
+      setupStatus: d.setupStatus,
+    });
+
+    if (!gating.isReady) {
+      return false;
+    }
+
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
@@ -849,7 +875,8 @@ function ActionCenterInner() {
   const gridColsClass =
     gridSize === "lg" ? "grid-cols-1 md:grid-cols-2"
     : gridSize === "sm" ? "grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5"
-    : "grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+    : "grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4";
+  // Responsive auto-fitting 4-column layout: grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 items-start w-full
 
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
@@ -960,7 +987,7 @@ function ActionCenterInner() {
                   : "border-white/10 bg-transparent text-slate-400 font-medium"
               }`}
               data-testid="pill-confirmed-trades"
-              data-active={effectiveConfirmedCount > 0 ? "true" : "false"}
+              data-active={confirmedCount > 0 ? "true" : "false"}
               title={
                 effectiveConfirmedCount > 0
                   ? `${effectiveConfirmedCount} setup(s) confirmed — ready to execute`
@@ -969,17 +996,17 @@ function ActionCenterInner() {
             >
               <span
                 className={`h-2 w-2 rounded-full transition-colors ${
-                  effectiveConfirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
+                  confirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
                 }`}
               />
               <span>
                 [ CONFIRMED TRADES:{" "}
                 <strong
                   className={`font-mono tabular-nums font-black ${
-                    effectiveConfirmedCount > 0 ? "text-gray-950" : "text-slate-400"
+                    confirmedCount > 0 ? "text-gray-950" : "text-slate-400"
                   }`}
                 >
-                  {effectiveConfirmedCount}
+                  {confirmedCount}
                 </strong>{" "}
                 ]
               </span>
@@ -1065,7 +1092,7 @@ function ActionCenterInner() {
       {/* ─── BODY ───────────────────────────────────────────────────────────── */}
       {boxOpen && (
         <div id="ac-body" className="flex flex-col gap-3.5">
-          {/* ─── DEDICATED PERSISTENT ACTIVE EXECUTION ZONE ─── */}
+          {/* ─── ZONE A (TOP ROW): [ ⚡ READY TO TRADE ] ─── */}
           <div
             className="flex flex-col gap-3 rounded-xl border-2 border-emerald-500/80 bg-emerald-950/30 p-4 shadow-[0_0_25px_rgba(16,185,129,0.35)] backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full"
             data-testid="active-execution-zone"
@@ -1076,15 +1103,16 @@ function ActionCenterInner() {
                   <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
-                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300">
-                  [ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]
+                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-emerald-300 flex items-center gap-2">
+                  <span>[ ⚡ READY TO TRADE ]</span>
+                  <span className="text-[10px] text-emerald-400/70 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
                 <span className="rounded-full bg-emerald-500 px-2.5 py-0.5 font-mono text-[11px] font-black text-gray-950">
-                  {totalActiveConfirmed} ACTIVE
+                  {totalActiveConfirmed} READY
                 </span>
               </div>
               <span className="font-mono text-[10.5px] uppercase tracking-wider text-emerald-400/80">
-                Trigger Confirmed · 1H Candle Close Validated · Ready For Immediate Arm
+                No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated
               </span>
             </div>
 
@@ -1113,7 +1141,8 @@ function ActionCenterInner() {
                 ))}
 
                 {/* Confirmed Setup Cards from Swing Scanner */}
-                {remainingConfirmedRows.map((d) => {
+                {confirmedRows.map((d) => {
+                  if (heroSymSet.has(d.symbol)) return null;
                   const ver = activeVersion(d, sel);
                   const plan = effectivePlan(d, ver);
                   const isArming = armingSymbol === d.symbol;
@@ -1363,87 +1392,108 @@ function ActionCenterInner() {
             </div>
           )}
 
-          <PriorityBoard rows={generalPriorityRows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
+          {/* Internal Priority Board mapping kept accessible without cluttering 2-stage UI */}
+          <div className="hidden" aria-hidden="true">
+            <PriorityBoard rows={generalPriorityRows} settings={settings.data} onOpen={(sym) => setDlg({ symbol: sym, mode: "view" })} />
+          </div>
 
-          {/* Cockpit Grid Toolbar */}
-          <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 backdrop-blur-sm" data-testid="cockpit-grid-toolbar">
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  const next = !isCollapsedAll;
-                  setIsCollapsedAll(next);
-                  setBulkExpanded(!next);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
-                data-testid="button-collapse-expand-all"
-              >
-                {bulkExpanded === true || (!isCollapsedAll && bulkExpanded !== false) ? (
-                  <>
-                    <ChevronsDownUp className="h-3.5 w-3.5 text-cyan-400" />
-                    <span>Collapse All Cards</span>
-                  </>
-                ) : (
-                  <>
-                    <ChevronsUpDown className="h-3.5 w-3.5 text-cyan-400" />
-                    <span>Expand All Cards</span>
-                  </>
-                )}
-              </button>
-              <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
-                {isCollapsedAll ? "Compact view: ticker & status only" : "Detailed view: levels & progress active"}
+          {/* ─── ZONE B (MAIN GRID): [ ⏳ PENDING & WAITING ] ─── */}
+          <div className="flex flex-col gap-3 w-full mt-2" data-testid="zone-pending-waiting">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/30 pb-2.5">
+              <div className="flex items-center gap-2.5">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-pulse" />
+                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-amber-300">
+                  [ ⏳ PENDING & WAITING ]
+                </h3>
+                <span className="rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 font-mono text-[11px] font-black">
+                  {generalLoud.length} PENDING
+                </span>
+              </div>
+              <span className="font-mono text-[10.5px] uppercase tracking-wider text-amber-400/80">
+                Forming Setups · Waiting For Retest · Missed Entries · Standby Hard Blocks
               </span>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2.5">
-              <CardThemeSwitcher />
+            {/* Cockpit Grid Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-2.5 rounded-lg border border-slate-800 bg-slate-950/60 backdrop-blur-sm" data-testid="cockpit-grid-toolbar">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const next = !isCollapsedAll;
+                    setIsCollapsedAll(next);
+                    setBulkExpanded(!next);
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
+                  data-testid="button-collapse-expand-all"
+                >
+                  {bulkExpanded === true || (!isCollapsedAll && bulkExpanded !== false) ? (
+                    <>
+                      <ChevronsDownUp className="h-3.5 w-3.5 text-cyan-400" />
+                      <span>Collapse All Cards</span>
+                    </>
+                  ) : (
+                    <>
+                      <ChevronsUpDown className="h-3.5 w-3.5 text-cyan-400" />
+                      <span>Expand All Cards</span>
+                    </>
+                  )}
+                </button>
+                <span className="text-[11px] font-mono text-slate-400 hidden sm:inline">
+                  {isCollapsedAll ? "Compact view: ticker & status only" : "Detailed view: levels & progress active"}
+                </span>
+              </div>
 
-              {/* Grid Size Toggle: Small, Medium, Large */}
-              <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-black/40 p-1 font-mono text-xs" data-testid="grid-size-toggle">
-                <span className="text-[10px] text-slate-400 uppercase tracking-wider px-2 font-bold">Grid Size:</span>
-                {(["sm", "md", "lg"] as const).map((sz) => (
-                  <button
-                    key={sz}
-                    type="button"
-                    onClick={() => setGridSize(sz)}
-                    className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
-                      gridSize === sz
-                        ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
-                        : "text-slate-400 hover:text-white"
-                    }`}
-                    data-testid={`grid-size-${sz}`}
-                  >
-                    {sz === "sm" ? "Small" : sz === "md" ? "Medium" : "Large"}
-                  </button>
-                ))}
+              <div className="flex flex-wrap items-center gap-2.5">
+                <CardThemeSwitcher />
+
+                {/* Grid Size Toggle: Small, Medium, Large */}
+                <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-black/40 p-1 font-mono text-xs" data-testid="grid-size-toggle">
+                  <span className="text-[10px] text-slate-400 uppercase tracking-wider px-2 font-bold">Grid Size:</span>
+                  {(["sm", "md", "lg"] as const).map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => setGridSize(sz)}
+                      className={`px-2.5 py-1 rounded text-xs font-bold transition-all cursor-pointer ${
+                        gridSize === sz
+                          ? "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40 shadow-sm"
+                          : "text-slate-400 hover:text-white"
+                      }`}
+                      data-testid={`grid-size-${sz}`}
+                    >
+                      {sz === "sm" ? "Small" : sz === "md" ? "Medium" : "Large"}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
-          </div>
-          
-          <div className={`grid ${gridColsClass} gap-4 items-start w-full`} data-testid="ac-cards-grid">
-            {sortedGeneralLoud.map((d) => {
-              const ver = activeVersion(d, sel);
-              const stale = staleVersion(d, sel);
-              const key = setupIdOf(d);
-              const populated = isPopulated(d, ver);
-              return (
-                <motion.div
-                  key={d.symbol}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, ease: "easeOut" }}
-                  className="flex flex-col gap-1.5 self-start w-full"
-                >
-                  <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} bulkExpanded={bulkExpanded} />
-                  {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
-                  {fOf(d).shouldCollapse && (
-                    <button className="flex w-max items-center gap-1.5 rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onClick={() => setCard(key, true)} data-testid={`button-move-older-${d.symbol}`}>
-                      <ChevronsDownUp className="h-3 w-3" aria-hidden /> Move to Older / not tradeable
-                    </button>
-                  )}
-                </motion.div>
-              );
-            })}
+            
+            <div className={`grid ${gridColsClass} gap-4 items-start gap-3.5 sm:gap-4 w-full`} data-testid="ac-cards-grid">
+              {generalLoud.map((d) => {
+                const ver = activeVersion(d, sel);
+                const stale = staleVersion(d, sel);
+                const key = setupIdOf(d);
+                const populated = isPopulated(d, ver);
+                return (
+                  <motion.div
+                    key={d.symbol}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.2, ease: "easeOut" }}
+                    className="flex flex-col gap-1.5 self-start w-full"
+                  >
+                    <InlineTradingCard d={d} group={actionGroupOf(d)} ver={ver} equity={equity} expiryBars={expiryBars} minRr={minRr} prefs={prefs} setupKey={key} isNew={populated && !seen.includes(key)} onSeen={() => markSeen(key)} onOpen={() => setDlg({ symbol: d.symbol, mode: "view" })} onAdjust={() => { markSeen(key); setDlg({ symbol: d.symbol, mode: "adjust" }); }} collapsed={isCollapsedAll} bulkExpanded={bulkExpanded} />
+                    {stale && <span className="px-2 text-[10px] font-medium text-slate-gray" data-testid={`text-stale-version-${d.symbol}`}>Your Plan v{stale.version} was for an older {d.symbol} setup. It's kept in history and not applied to this new setup.</span>}
+                    {fOf(d).shouldCollapse && (
+                      <button className="flex w-max items-center gap-1.5 rounded-md px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onClick={() => setCard(key, true)} data-testid={`button-move-older-${d.symbol}`}>
+                        <ChevronsDownUp className="h-3 w-3" aria-hidden /> Move to Older / not tradeable
+                      </button>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
           </div>
 
           {older.length > 0 && (

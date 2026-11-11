@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMarketDataStore } from "@/lib/useMarketDataStore";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { tradeSetupStore } from "@/lib/useTradeSetupStore";
+import { evaluateExecutionGating } from "@/lib/executionGating";
 
 export interface MechanicalScanItem {
   ticker: string;
@@ -72,12 +73,30 @@ export function useStrategyEngine() {
       const sym = item.ticker.toUpperCase();
       if (dismissedSymbols.has(sym)) continue;
 
+      // Centralized 3-Rule Execution Gating:
+      // 1. NO hard regime blocks (Regime is not RED, not STANDBY DAY)
+      // 2. Price is actively bouncing off SMA 10, SMA 20, or SMA 50
+      // 3. 1H confirmation candle has closed green
+      const gating = evaluateExecutionGating({
+        symbol: sym,
+        regimeCode: (global as any)?.regimeCode ?? "yellow",
+        isStandbyDay: item.status.includes("STANDBY_DAY"),
+        mechanicalStatus: item.status,
+        regime4H: item.regime4H,
+        is4hBullish: item.is4hBullish,
+        testedLine: item.testedLine,
+        testedPrice: item.testedPrice,
+        candleConfirmedGreen: item.status === "CONFIRMED BOUNCE" || item.status === "CONFIRMED_BOUNCE",
+        setupStatus: item.status,
+      });
+
+      if (!gating.isReady) continue;
+
       const isBounceConfirmed =
         item.status === "CONFIRMED BOUNCE" ||
         item.status === "CONFIRMED_BOUNCE" ||
         Boolean(global?.confirmedSetups?.[sym]);
 
-      // Mechanical Strategy Engine validation: 4H Pullback Bullish + 1H close confirmation
       const isTradeConfirmed = Boolean(
         isBounceConfirmed ||
         (item.is4hBullish && item.actionable && item.testedPrice != null)
