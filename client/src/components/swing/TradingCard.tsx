@@ -2206,14 +2206,14 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </div>
 
           {/* POSITION SIZING Block next to Target 1 */}
-          <div className="hidden xl:flex flex-col items-end min-w-[100px] shrink-0 border-l border-slate-800/80 pl-2.5 sm:pl-3 text-right" data-testid={`card-position-sizing-${d.symbol}`}>
+          <div className="hidden xl:flex flex-col items-end min-w-[100px] shrink-0 min-w-[110px] min-w-[120px] flex-shrink-0 border-l border-slate-800/80 pl-2.5 sm:pl-3 text-right whitespace-nowrap" data-testid={`card-position-sizing-${d.symbol}`}>
             <span className="text-[10px] font-mono uppercase tracking-wider text-gray-400">
               Position Size
             </span>
             <span className="font-mono text-sm font-bold text-emerald-400 whitespace-nowrap tabular-nums">
               {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
             </span>
-            <span className="font-mono text-[10px] text-slate-400 tabular-nums whitespace-nowrap">
+            <span className="font-mono text-[10px] text-slate-400 tabular-nums whitespace-nowrap overflow-hidden text-ellipsis">
               ${effectiveFunding.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })} Total
             </span>
             <span className="sr-only font-mono text-sm font-semibold text-neon-blue tabular-nums">

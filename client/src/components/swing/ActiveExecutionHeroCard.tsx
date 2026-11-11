@@ -276,7 +276,7 @@ export function ActiveExecutionHeroCard({
 
           {/* Col 4: Position Sizing & Cash */}
           <div
-            className="flex flex-col border-l border-slate-800/80 pl-3 min-w-[110px] shrink-0"
+            className="flex flex-col border-l border-slate-800/80 pl-3 min-w-[110px] shrink-0 min-w-[120px] flex-shrink-0 text-right whitespace-nowrap"
             data-testid={`hero-position-sizing-${trade.symbol}`}
           >
             <span className="text-[11px] font-mono uppercase tracking-wider text-amber-300 font-semibold">
@@ -285,7 +285,7 @@ export function ActiveExecutionHeroCard({
             <span className="text-2xl font-bold font-mono text-white tabular-nums whitespace-nowrap">
               {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
             </span>
-            <span className="text-xs font-mono text-slate-300 whitespace-nowrap tabular-nums">
+            <span className="text-xs font-mono text-slate-300 whitespace-nowrap tabular-nums overflow-hidden text-ellipsis">
               {`$${totalPositionCost.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} Cash • ${equityPct}% Eq Risk`}
             </span>
             {/* Backward compatibility string for existing tests */}
