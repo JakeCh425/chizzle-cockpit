@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { motion } from "framer-motion";
 import { evaluateExecutionGating } from "@/lib/executionGating";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Sparkles, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Settings, Sparkles, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
@@ -463,6 +463,7 @@ function ActionCenterInner() {
   const [seen, setSeen] = usePersistentState<string[]>("ac-seen-setups", []);
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
   const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
+  const [uiPreferencesOpen, setUiPreferencesOpen] = useState(false);
 
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -494,7 +495,7 @@ function ActionCenterInner() {
   const cp: CollapsePref = { section: cpRaw?.section ?? true, cards: cpRaw?.cards ?? {} };
   const setCard = (k: string, collapsed: boolean) => setCp({ ...cp, cards: { ...Object.fromEntries(Object.entries(cp.cards).slice(-199)), [k]: collapsed } });
   
-  const loudAll = rows.filter((d) => actionGroupOf(d) !== "NO_TRADE" && !lockedSyms.has(d.symbol));
+  const loudAll = rows.filter((d) => !lockedSyms.has(d.symbol));
   const fOf = (d: SwingDecision) => fresh(d, activeVersion(d, plans.data?.selected));
   const { older, active: loud } = splitOlder(loudAll, setupIdOf, fOf, cp, { locked: lockedSyms, tradeStatusOf: (d) => openTrades.find((t) => t.symbol === d.symbol)?.status ?? null });
   
@@ -548,7 +549,15 @@ function ActionCenterInner() {
         map.set(t.symbol.toUpperCase(), t);
       }
     }
-    return Array.from(map.values());
+    return Array.from(map.values()).filter((t: any) => {
+      const isBlocked = Boolean(
+        t.hasHardBlock ||
+        t.isStandbyDay ||
+        (typeof t.status === "string" && (t.status.includes("HARD BLOCK") || t.status.includes("STANDBY") || t.status.includes("Ceiling") || t.status.includes("CEILING"))) ||
+        (typeof t.notes === "string" && (t.notes.includes("Hard Block") || t.notes.includes("Ceiling")))
+      );
+      return !isBlocked;
+    });
   }, [storeActiveSetups, strategyEngine.confirmedHeroTrades]);
 
   const heroSymSet = new Set(heroTrades.map((t) => t.symbol.toUpperCase()));
@@ -565,6 +574,19 @@ function ActionCenterInner() {
   const isConfirmedSetup = (d: SwingDecision) => {
     if (lockedSyms.has(d.symbol)) return false;
 
+    // Strict Hard Block / Standby Day / 4H Ceiling / Retest filter
+    if (
+      (d as any).hasHardBlock ||
+      (d as any).isStandbyDay ||
+      (d as any).isWaitAndRetest ||
+      (Array.isArray((d as any).hard_blocks) && (d as any).hard_blocks.length > 0) ||
+      (Array.isArray((d as any).hardBlocks) && (d as any).hardBlocks.length > 0) ||
+      (typeof (d as any).notes === "string" && ((d as any).notes.toLowerCase().includes("hard block") || (d as any).notes.toLowerCase().includes("ceiling"))) ||
+      (typeof (d as any).status === "string" && ((d as any).status.toLowerCase().includes("hard block") || (d as any).status.toLowerCase().includes("ceiling") || (d as any).status.toLowerCase().includes("standby")))
+    ) {
+      return false;
+    }
+
     // Reject non-tradeable, watch-only, forming, or retest statuses
     const invalidStatuses = new Set([
       "WATCH_RETEST",
@@ -574,6 +596,7 @@ function ActionCenterInner() {
       "SIGNAL_EXPIRED",
       "NO_TRADE",
       "SETUP_FORMING",
+      "STANDBY_DAY",
     ]);
     if (invalidStatuses.has(d.setupStatus)) return false;
 
@@ -682,9 +705,59 @@ function ActionCenterInner() {
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
+  const setups = useMemo(() => {
+    return rows.map((d: any) => {
+      const isStandby = Boolean(
+        d.isStandbyDay ||
+        d.setupStatus === "STANDBY_DAY" ||
+        d.marketRegime === "BEARISH" ||
+        (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && r.toLowerCase().includes("standby"))) ||
+        (Array.isArray(d.failedRules) && d.failedRules.some((r: string) => typeof r === "string" && r.toLowerCase().includes("standby")))
+      );
+      const hasBlock = Boolean(
+        d.hasHardBlock ||
+        (Array.isArray(d.hard_blocks) && d.hard_blocks.length > 0) ||
+        (Array.isArray(d.hardBlocks) && d.hardBlocks.length > 0) ||
+        (typeof d.notes === "string" && (d.notes.toLowerCase().includes("hard block") || d.notes.toLowerCase().includes("ceiling") || d.notes.toLowerCase().includes("4h ceiling"))) ||
+        (typeof d.status === "string" && (d.status.toLowerCase().includes("hard block") || d.status.toLowerCase().includes("ceiling") || d.status.toLowerCase().includes("standby"))) ||
+        (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && (r.toLowerCase().includes("hard block") || r.toLowerCase().includes("ceiling") || r.toLowerCase().includes("4h ceiling")))) ||
+        (Array.isArray(d.failedRules) && d.failedRules.some((r: string) => typeof r === "string" && (r.toLowerCase().includes("hard block") || r.toLowerCase().includes("ceiling") || r.toLowerCase().includes("4h ceiling"))))
+      );
+      const isRetest = Boolean(
+        d.isWaitAndRetest ||
+        d.isRetest ||
+        d.setupStatus === "WATCH_RETEST" ||
+        d.setupStatus === "WAIT_AND_RETEST" ||
+        d.setupStatus === "WAIT_FOR_RETEST" ||
+        (typeof d.status === "string" && d.status.toLowerCase().includes("retest")) ||
+        (typeof d.notes === "string" && d.notes.toLowerCase().includes("retest")) ||
+        (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && r.toLowerCase().includes("retest")))
+      );
+      return Object.assign(d, {
+        isStandbyDay: isStandby,
+        hasHardBlock: hasBlock,
+        isWaitAndRetest: isRetest,
+        score: typeof d.score === "number" ? d.score : (d.setupScore?.total ?? 0),
+      });
+    });
+  }, [rows]);
+
+  // Task 1: Strict Ready Filtering (strictly require READY_TO_TRADE and no hard blocks, standby days, or wait-and-retest)
+  const readySetups = setups.filter(
+    (d) => d.setupStatus === "READY_TO_TRADE" && !d.isStandbyDay && !d.hasHardBlock && !d.isWaitAndRetest
+  );
+  // Task 3: In the Active Execution Zone, sort readySetups by score descending
+  readySetups.sort((a, b) => b.score - a.score);
+
   const confirmedRows = rows.filter(isConfirmedSetup);
   const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
+
+  // Task 2: Merge the "Pending & Waiting" Bucket
+  // Combine all setups that are "Pending", "Standby Day / Hard Blocked", "Wait for Retest", or "Forming"
+  const pendingWaitingSetups = setups.filter(
+    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol)
+  );
   const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 
   // Top-Rated Priority Routing: sort grid data so any confirmed or ready setups sort strictly to the top
@@ -700,7 +773,7 @@ function ActionCenterInner() {
     });
   }, [generalLoud]);
 
-  const remainingConfirmedRows = confirmedRows.filter((d) => !heroSymSet.has(d.symbol));
+  const remainingConfirmedRows = (readySetups.length > 0 ? readySetups : confirmedRows).filter((d) => !heroSymSet.has(d.symbol));
   const totalActiveConfirmed = heroTrades.length + remainingConfirmedRows.length;
 
   const handleHeroArmOrExecute = async (trade: ConfirmedHeroTrade) => {
@@ -1141,7 +1214,7 @@ function ActionCenterInner() {
                 ))}
 
                 {/* Confirmed Setup Cards from Swing Scanner */}
-                {confirmedRows.map((d) => {
+                {(readySetups.length > 0 ? readySetups : confirmedRows).map((d) => {
                   if (heroSymSet.has(d.symbol)) return null;
                   const ver = activeVersion(d, sel);
                   const plan = effectivePlan(d, ver);
@@ -1362,10 +1435,37 @@ function ActionCenterInner() {
             }}
           />
           <PlanRefreshBar settings={settings.data} />
-          <CyberThemeSwitcher currentTheme={cyberTheme} onThemeChange={setCyberTheme} />
-          
-          {appOpen && <div id="ac-appearance" data-testid="sec-appearance" data-open="true"><AppearanceControls prefs={prefs} set={setPrefs} /></div>}
-          {appOpen && <CardStyleSection />}
+          {/* Task 4: Collapsible Theme Switcher & UI Preferences */}
+          <div className="flex flex-col gap-2 w-full" data-testid="ui-preferences-container">
+            <button
+              type="button"
+              onClick={() => setUiPreferencesOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 text-xs text-slate-gray hover:text-soft-white transition-colors cursor-pointer py-1 font-mono w-fit"
+              data-testid="button-toggle-ui-preferences"
+              aria-expanded={uiPreferencesOpen}
+            >
+              <Settings className="w-4 h-4" />
+              <span>UI Preferences</span>
+              {uiPreferencesOpen ? (
+                <ChevronUp className="w-3.5 h-3.5 ml-0.5 text-cyan-400" />
+              ) : (
+                <ChevronDown className="w-3.5 h-3.5 ml-0.5 text-slate-400" />
+              )}
+            </button>
+
+            {uiPreferencesOpen && (
+              <div
+                className="flex flex-col gap-3 p-3 rounded-xl border border-slate-800 bg-slate-950/80 backdrop-blur-md transition-all animate-in fade-in duration-200"
+                data-testid="ui-preferences-panel"
+              >
+                <CyberThemeSwitcher currentTheme={cyberTheme} onThemeChange={setCyberTheme} />
+                <div id="ac-appearance" data-testid="sec-appearance" data-open="true">
+                  <AppearanceControls prefs={prefs} set={setPrefs} />
+                </div>
+                <CardStyleSection />
+              </div>
+            )}
+          </div>
           
           {scan.data?.emptyReason && (
             <div className="flex items-center gap-2 rounded-md border border-signal-amber/40 bg-signal-amber/10 px-4 py-3 text-xs font-medium text-signal-amber">

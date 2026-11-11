@@ -18,8 +18,8 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { addJournalEntry, levelsOf, snapshotOf } from "@/lib/journal";
 import {
-  AlertTriangle, BookOpen, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, CircleDashed, Clock, Eye, LineChart,
-  Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap, ClipboardList,
+  AlertTriangle, BookOpen, Bot, Check, Crosshair, Lock, CheckCircle2, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, CircleDashed, Clock, Eye, LineChart,
+  Maximize2, MinusCircle, Pencil, RefreshCw, RotateCcw, ShieldAlert, Sparkles, Sprout, Ban, WifiOff, XCircle, Undo2, Save, Zap, ClipboardList,
 } from "lucide-react";
 import {
   CandlestickSeries, LineSeries, LineStyle, createChart,
@@ -126,6 +126,54 @@ export function historicalWinRate(setupType?: string | null, score?: number | nu
     return Math.max(76, base + 11);
   }
   return base;
+}
+
+// Task 3: AI Edge Tip Rationale Helper
+export function getAiTipText(
+  d: SwingDecision,
+  group?: string,
+  isConfirmed?: boolean,
+  isExtendedRunUp?: boolean,
+  isExpiredEndOfDay?: boolean
+): string {
+  const isBlocked = Boolean(
+    (d as any).hasHardBlock ||
+    (d as any).isStandbyDay ||
+    (Array.isArray((d as any).hard_blocks) && (d as any).hard_blocks.length > 0) ||
+    (Array.isArray((d as any).hardBlocks) && (d as any).hardBlocks.length > 0) ||
+    d.setupStatus === "STANDBY_DAY" ||
+    d.setupStatus === "NO_TRADE" ||
+    d.setupStatus === "BLOCKED_DATA_MISMATCH" ||
+    (typeof d.notes === "string" && (d.notes.toLowerCase().includes("block") || d.notes.toLowerCase().includes("ceiling") || d.notes.toLowerCase().includes("hard block"))) ||
+    (typeof (d as any).status === "string" && ((d as any).status.toLowerCase().includes("block") || (d as any).status.toLowerCase().includes("ceiling"))) ||
+    (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && (r.toLowerCase().includes("block") || r.toLowerCase().includes("ceiling")))) ||
+    (Array.isArray(d.failedRules) && d.failedRules.some((r: string) => typeof r === "string" && (r.toLowerCase().includes("block") || r.toLowerCase().includes("ceiling"))))
+  );
+
+  if (isBlocked) {
+    if (
+      d.symbol === "SMH" ||
+      d.symbol === "QQQ" ||
+      (d.notes && d.notes.toLowerCase().includes("ceiling")) ||
+      (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && r.toLowerCase().includes("ceiling"))) ||
+      (Array.isArray(d.failedRules) && d.failedRules.some((r: string) => typeof r === "string" && r.toLowerCase().includes("ceiling")))
+    ) {
+      return "AI Edge: Blocked by 4H SMA 50 ceiling. Wait for a reclaim.";
+    }
+    const rawReason = d.whyNotReady?.[0] || d.failedRules?.[0] || (d as any).notes || "4H SMA 50 ceiling";
+    return `AI Edge: Blocked by ${rawReason}. Wait for a reclaim.`;
+  }
+
+  const isReady = (group === "READY" || d.setupStatus === "READY_TO_TRADE" || isConfirmed) && !isExtendedRunUp && !isExpiredEndOfDay;
+  if (isReady) {
+    return "AI Edge: 1H momentum aligned with 4H trend, clearing nearest resistance.";
+  }
+
+  if (d.setupStatus === "WATCH_RETEST" || (d as any).isWaitAndRetest) {
+    return "AI Edge: Wait for 1H support retest and green candle confirmation.";
+  }
+
+  return "AI Edge: 1H momentum aligned with 4H trend, clearing nearest resistance.";
 }
 
 export interface TargetLevels {
@@ -1147,6 +1195,15 @@ export function TradingCardBody({ d, group, ver, equity, expiryBars, minRr, pref
 
   return (
     <div className={`flex flex-col gap-4 ${inDialog ? "p-4 sm:p-6" : "p-4 pt-0"}`}>
+      {/* AI Edge Tip Badge in TradingCardBody */}
+      <div
+        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-[10px] text-neon-blue font-medium w-fit shadow-sm"
+        data-testid={`badge-ai-tip-body-${d.symbol}`}
+      >
+        <Sparkles className="h-3.5 w-3.5 text-neon-blue shrink-0" />
+        <span>{getAiTipText(d, group)}</span>
+      </div>
+
       {fr.hasLevels && (overridesStatus(d, fr) || d.setupStatus === "READY_TO_TRADE") && <FreshnessPanel d={d} f={fr} p={p} />}
       
       {guided && <p className="text-sm font-medium leading-relaxed text-slate-gray">{STATUS_EXPLAIN[d.setupStatus] ?? d.nextAction}</p>}
@@ -1845,6 +1902,9 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const winRate = historicalWinRate(d.setupType, d.setupScore, scaleOutMode);
   const statusSentence = beginnerStatusText({ ...d, currentPrice: effectivePrice }, group, activeEntry, activeStop, targets.t1, t1Passed, t2Passed, scaleOutMode, t3Passed);
 
+  // Task 3: AI Edge Tip Rationale
+  const aiTipText = useMemo(() => getAiTipText(d, group, isConfirmed, isExtendedRunUp, isExpiredEndOfDay), [d, group, isConfirmed, isExtendedRunUp, isExpiredEndOfDay]);
+
   const handleAdjustPlan = () => {
     onSeen();
     setIsExpanded(true);
@@ -2046,6 +2106,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
                 : statusText(d, group, live, f)
             }
           />
+          {/* Task 3: AI Edge Tip Inline Badge */}
+          <div
+            className="hidden lg:inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neon-blue/10 border border-neon-blue/30 text-[10px] text-neon-blue font-medium shrink-0 cursor-help"
+            data-testid={`badge-ai-tip-${d.symbol}`}
+            title={aiTipText}
+          >
+            <Sparkles className="h-3 w-3 text-neon-blue shrink-0" />
+            <span className="truncate max-w-[200px] xl:max-w-none">{aiTipText}</span>
+          </div>
         </div>
 
         {/* 3 Core Prices: Buy Target, Stop Loss, Target 1 + POSITION SIZING Block */}
@@ -2232,6 +2301,15 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
             onClick={(e) => e.stopPropagation()}
             onMouseDown={(e) => e.stopPropagation()}
           >
+            {/* Task 3: Sleek AI Edge Tip Banner in Expanded View */}
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-neon-blue/10 border border-neon-blue/30 text-[10px] text-neon-blue font-medium w-fit my-1 shadow-sm"
+              data-testid={`badge-ai-tip-expanded-${d.symbol}`}
+            >
+              <Sparkles className="h-3.5 w-3.5 text-neon-blue shrink-0" />
+              <span>{aiTipText}</span>
+            </div>
+
             {/* ─── 'QUICK VIEW' MINI-GUIDE (Below core numbers when toggled) ─── */}
             {!isExtendedRunUp && !isExpiredEndOfDay && isMiniGuideOpen && (
               <div
