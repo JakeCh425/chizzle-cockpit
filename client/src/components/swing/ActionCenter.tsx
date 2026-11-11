@@ -324,11 +324,13 @@ export function GlobalTrafficLightBanner({
   );
 }
 
+const safeTrim = (val: any) => (typeof val === "string" ? val.trim() : "");
+
 function EditableTitle({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(value);
   const start = () => { setDraft(value); setEditing(true); };
-  const commit = () => { onChange(draft.trim().slice(0, 40) || DEFAULT_TITLE); setEditing(false); };
+  const commit = () => { onChange((draft ?? "").toString().trim().slice(0, 40) || DEFAULT_TITLE); setEditing(false); };
   
   if (editing) return (
     <div className="flex items-center gap-2">
@@ -461,7 +463,7 @@ function ActionCenterInner() {
   const [boxOpen, setBoxOpen] = usePersistentState<boolean>("ac-box-open", true);
   const [appOpen, setAppOpen] = useDisclosure("appearance", false);
   const [savedTitle, setTitle] = usePersistentState<string>("ac-title", DEFAULT_TITLE);
-  const title = savedTitle?.trim() || DEFAULT_TITLE;
+  const title = (savedTitle ?? "").toString().trim() || DEFAULT_TITLE;
   const [seen, setSeen] = usePersistentState<string[]>("ac-seen-setups", []);
   const [dlg, setDlg] = useState<{ symbol: string; mode: "view" | "adjust" } | null>(null);
   const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
@@ -707,8 +709,18 @@ function ActionCenterInner() {
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
+  const rawSetups = rows;
+  const validSetups = useMemo(() => {
+    if (!Array.isArray(rawSetups)) return [];
+    return rawSetups.filter((setup: any) => setup && (setup.ticker || setup.symbol));
+  }, [rawSetups]);
+
   const setups = useMemo(() => {
-    return rows.map((d: any) => {
+    return validSetups.map((d: any) => {
+      const cleanTicker = (d.symbol ?? d.ticker ?? "").toString().trim().toUpperCase();
+      const cleanStatus = (d.setupStatus ?? d.status ?? "").toString().trim();
+      d.symbol = cleanTicker;
+      d.ticker = cleanTicker;
       const isStandby = Boolean(
         d.isStandbyDay ||
         d.setupStatus === "STANDBY_DAY" ||
@@ -742,7 +754,7 @@ function ActionCenterInner() {
         score: typeof d.score === "number" ? d.score : (d.setupScore?.total ?? 0),
       });
     });
-  }, [rows]);
+  }, [validSetups]);
 
   // Task 1: Strict Ready Filtering (strictly require READY_TO_TRADE and no hard blocks, standby days, or wait-and-retest)
   const readySetups = setups.filter(
@@ -806,7 +818,8 @@ function ActionCenterInner() {
 
   const handleAddTicker = (e?: React.FormEvent) => {
     e?.preventDefault();
-    const sym = newTickerInput.trim().toUpperCase();
+    const cleanTicker = (newTickerInput ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
     if (!sym) return;
     if (!customWatchlist.includes(sym)) {
       setCustomWatchlist([...customWatchlist, sym]);
@@ -1269,7 +1282,7 @@ function ActionCenterInner() {
                 />
                 <button
                   type="submit"
-                  disabled={!newTickerInput.trim()}
+                  disabled={!(newTickerInput ?? "").toString().trim()}
                   className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-2.5 py-1.5 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                   data-testid="button-add-watchlist-ticker"
                 >

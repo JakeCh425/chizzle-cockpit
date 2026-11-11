@@ -378,10 +378,9 @@ export function useProximityAlert(input: ProximityAlertInput) {
 
   useEffect(() => {
     if (!enabled || !ticker || currentPrice <= 0 || entryPrice <= 0) return;
-    const cleanTicker = ticker.trim().toUpperCase();
-
-    // Reset alertSent if setup invalidated below stopLoss or closed out
-    const statusUpper = String(status || "").toUpperCase();
+    const cleanTicker = (ticker ?? "").toString().trim().toUpperCase();
+    const cleanStatus = (status ?? "").toString().trim();
+    const statusUpper = cleanStatus.toUpperCase();
     if (
       (stopLoss != null && stopLoss > 0 && currentPrice < stopLoss) ||
       statusUpper === "INVALIDATED" ||

@@ -1871,16 +1871,46 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
   const isInvalidated = (activeStop != null && effectivePrice != null && effectivePrice < activeStop) || d.setupStatus === "SIGNAL_EXPIRED" || isExpiredEndOfDay || isExtendedRunUp;
 
   const stageInfo = useMemo(() => {
-    return tradeSetupStore.evaluateSetupStage({
-      symbol: d.symbol,
-      currentPrice: effectivePrice ?? d.currentPrice ?? 100,
-      sma20: (d as any).sma20 ?? (effectivePrice != null ? +(effectivePrice * 0.985).toFixed(2) : null),
-      sma50: (d as any).sma50 ?? (effectivePrice != null ? +(effectivePrice * 0.965).toFixed(2) : null),
-      ema10: (d as any).ema10 ?? (effectivePrice != null ? +(effectivePrice * 0.992).toFixed(2) : null),
-      isTradeConfirmed: (isConfirmed || group === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE") && !isExpiredEndOfDay && !isExtendedRunUp,
-      isInitializing: Boolean((d as any).isInitializing),
-    });
-  }, [d.symbol, effectivePrice, isConfirmed, group, d.setupStatus, (d as any).sma20, (d as any).sma50, (d as any).ema10, (d as any).isInitializing, isExpiredEndOfDay, isExtendedRunUp]);
+    try {
+      const cleanTicker = (d?.symbol ?? (d as any)?.ticker ?? "").toString().trim().toUpperCase();
+      const cleanStatus = (d?.setupStatus ?? (d as any)?.status ?? "").toString().trim();
+      if (!cleanTicker) {
+        return {
+          stage: 1 as const,
+          stageBadge: "[ PENDING / STAGE_UNKNOWN ]",
+          distanceToSma20Pct: null,
+          supportFloorPrice: null,
+          testedLine: null,
+          minsRemaining: 0,
+          statusText: cleanStatus ? `Status: PENDING (${cleanStatus})` : "Status: PENDING / STAGE_UNKNOWN",
+          isInitializing: false,
+        };
+      }
+      return tradeSetupStore.evaluateSetupStage({
+        symbol: cleanTicker,
+        currentPrice: effectivePrice ?? d.currentPrice ?? 100,
+        sma20: (d as any).sma20 ?? (effectivePrice != null ? +(effectivePrice * 0.985).toFixed(2) : null),
+        sma50: (d as any).sma50 ?? (effectivePrice != null ? +(effectivePrice * 0.965).toFixed(2) : null),
+        ema10: (d as any).ema10 ?? (effectivePrice != null ? +(effectivePrice * 0.992).toFixed(2) : null),
+        isTradeConfirmed: (isConfirmed || group === "CONFIRMED" || d.setupStatus === "READY_TO_TRADE") && !isExpiredEndOfDay && !isExtendedRunUp,
+        isInitializing: Boolean((d as any).isInitializing),
+        status: cleanStatus,
+        setupStatus: d.setupStatus,
+      });
+    } catch (err) {
+      console.warn("[TradingCard] evaluateSetupStage failed:", err, d);
+      return {
+        stage: 1 as const,
+        stageBadge: "[ PENDING / STAGE_UNKNOWN ]",
+        distanceToSma20Pct: null,
+        supportFloorPrice: null,
+        testedLine: null,
+        minsRemaining: 0,
+        statusText: "Status: PENDING / STAGE_UNKNOWN",
+        isInitializing: false,
+      };
+    }
+  }, [d, effectivePrice, isConfirmed, group, isExpiredEndOfDay, isExtendedRunUp]);
 
   const { config: cardThemeCfg } = useCardTheme();
 

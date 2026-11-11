@@ -254,7 +254,8 @@ export function evaluatePreEntryAlertTriggers(
   // Trigger 2 (Time-Based Warning): Setup is marked as FORMING and time is 3 minutes before 1H close (minute === 57)
   const dateObj = typeof now === "number" ? new Date(now) : now;
   const minutes = dateObj.getMinutes();
-  const normStatus = status.trim().toUpperCase();
+  const cleanStatus = (status ?? "").toString().trim();
+  const normStatus = cleanStatus.toUpperCase();
   const isForming =
     normStatus === "FORMING" ||
     normStatus === "SETUP_FORMING" ||
@@ -643,8 +644,9 @@ export function useOffScreenPreEntryAlerts(input: UseOffScreenPreEntryAlertsInpu
   useEffect(() => {
     const checkTriggers = () => {
       if (!ticker || currentPrice <= 0 || entryPrice <= 0) return;
-      const cleanTicker = ticker.trim().toUpperCase();
-      const statusUpper = String(status || "").toUpperCase();
+      const cleanTicker = (ticker ?? "").toString().trim().toUpperCase();
+      const cleanStatus = (status ?? "").toString().trim();
+      const statusUpper = cleanStatus.toUpperCase();
 
       // Reset alertSent if setup invalidates (< stopLoss) or gets closed out
       if (

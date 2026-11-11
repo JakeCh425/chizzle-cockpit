@@ -306,7 +306,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   }, []);
 
   const setActiveTicker = useCallback((ticker: string) => {
-    const sym = ticker.trim().toUpperCase();
+    const cleanTicker = (ticker ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
     // Explicitly fire clearData() in global store BEFORE fetching new ticker data
     marketDataStore.clearData(sym);
     setActiveTickerState(sym);
@@ -377,7 +378,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
   // Quick-Add Ticker
   const addTicker = useCallback(
     (symbol: string): { ok: boolean; message?: string } => {
-      const sym = symbol.trim().toUpperCase();
+      const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+      const sym = cleanTicker;
       if (!sym) return { ok: false, message: "Ticker symbol cannot be empty" };
       if (!/^[A-Z0-9.\-]{1,6}$/.test(sym)) {
         return { ok: false, message: "Invalid ticker format" };
@@ -481,7 +483,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const removeTicker = useCallback(
     (symbol: string) => {
-      const sym = symbol.trim().toUpperCase();
+      const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+      const sym = cleanTicker;
       const next = watchlist.filter((item) => item.symbol !== sym);
       saveWatchlist(next);
 
@@ -844,7 +847,7 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   const setConfirmedSetup = useCallback((symbol: string, confirmed: boolean = true) => {
     if (!symbol) return;
-    const clean = symbol.trim().toUpperCase().split(":").pop()!;
+    const clean = (symbol ?? "").toString().trim().toUpperCase().split(":").pop()!;
     setLiveConfirmedSetups((prev) => {
       if (Boolean(prev[clean]) === Boolean(confirmed)) return prev;
       return { ...prev, [clean]: Boolean(confirmed) };

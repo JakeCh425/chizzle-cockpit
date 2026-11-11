@@ -2,6 +2,8 @@ import { useSyncExternalStore } from "react";
 import type { ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import type { ClientNotificationAuditEntry } from "@/hooks/useNotificationAuditLog";
 
+export const safeTrim = (val: any): string => (typeof val === "string" ? val.trim() : "");
+
 export type SetupStage = 1 | 2 | 3;
 
 export interface SetupStageInfo {
@@ -79,14 +81,19 @@ class TradeSetupStore {
    * Guarantees the setup is never swallowed by local component filters.
    */
   public addActiveExecutionSetup(setup: ConfirmedHeroTrade) {
-    const sym = (setup.symbol || setup.ticker).trim().toUpperCase();
+    if (!setup) return;
+    const rawTicker = setup.symbol ?? (setup as any).ticker ?? "";
+    const cleanTicker = (rawTicker ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
+    if (!sym) return;
+
     if (this.state.dismissedSymbols.has(sym)) {
       // Re-enable if explicitly re-confirmed
       this.state.dismissedSymbols.delete(sym);
     }
 
     const index = this.state.activeExecutionSetups.findIndex(
-      (s) => s.symbol.toUpperCase() === sym
+      (s) => (s.symbol ?? (s as any).ticker ?? "").toString().trim().toUpperCase() === sym
     );
 
     const updated = {
@@ -124,16 +131,20 @@ class TradeSetupStore {
   }
 
   public removeActiveExecutionSetup(symbol: string) {
-    const sym = symbol.trim().toUpperCase();
+    const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
+    if (!sym) return;
     this.state.activeExecutionSetups = this.state.activeExecutionSetups.filter(
-      (s) => s.symbol.toUpperCase() !== sym
+      (s) => (s.symbol ?? (s as any).ticker ?? "").toString().trim().toUpperCase() !== sym
     );
     this.persistActiveSetups();
     this.notify();
   }
 
   public dismissHeroTrade(symbol: string) {
-    const sym = symbol.trim().toUpperCase();
+    const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
+    if (!sym) return;
     this.state.dismissedSymbols.add(sym);
     this.removeActiveExecutionSetup(sym);
   }
@@ -151,7 +162,9 @@ class TradeSetupStore {
     isConfirmed: boolean,
     details?: Partial<ConfirmedHeroTrade>
   ) {
-    const sym = symbol.trim().toUpperCase();
+    const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
+    if (!sym) return;
     if (!isConfirmed) {
       this.removeActiveExecutionSetup(sym);
       return;
@@ -200,7 +213,9 @@ class TradeSetupStore {
 
     for (const [rawSym, entry] of Object.entries(bySymbol)) {
       if (!entry) continue;
-      const sym = rawSym.trim().toUpperCase();
+      const cleanTicker = (rawSym ?? "").toString().trim().toUpperCase();
+      const sym = cleanTicker;
+      if (!sym) continue;
 
       const isConfirmedAlert =
         entry.alertType === "CONFIRMED_1H_20SMA" ||
@@ -280,122 +295,162 @@ class TradeSetupStore {
    * - STAGE 3: [ ⚡ ACTIVE EXECUTION READY ] (1H candle closed green)
    */
   public evaluateSetupStage(params: {
-    symbol: string;
-    currentPrice: number;
+    symbol?: string;
+    ticker?: string;
+    currentPrice?: number;
     sma20?: number | null;
     sma50?: number | null;
     ema10?: number | null;
     isTradeConfirmed?: boolean;
     isInitializing?: boolean;
     now?: Date;
+    status?: string;
+    setupStatus?: string;
   }): SetupStageInfo {
-    const sym = params.symbol.trim().toUpperCase();
-    const price = params.currentPrice;
-    const now = params.now || new Date();
-    const minsRemaining = this.getMinsToNext1HClose(now);
+    try {
+      if (!params || typeof params !== "object") {
+        throw new Error("Missing parameters for evaluateSetupStage");
+      }
+      const rawTicker = (params as any).ticker ?? params.symbol;
+      const cleanTicker = (rawTicker ?? "").toString().trim().toUpperCase();
+      const cleanStatus = ((params as any).status ?? (params as any).setupStatus ?? "").toString().trim();
+      const sym = cleanTicker;
 
-    // Initializing state takes temporary precedence
-    if (params.isInitializing) {
+      if (!sym) {
+        return {
+          stage: 1,
+          stageBadge: "[ PENDING / STAGE_UNKNOWN ]",
+          distanceToSma20Pct: null,
+          supportFloorPrice: null,
+          testedLine: null,
+          minsRemaining: 0,
+          statusText: cleanStatus ? `Status: PENDING (${cleanStatus})` : "Status: PENDING / STAGE_UNKNOWN",
+          isInitializing: false,
+        };
+      }
+
+      const price = typeof params.currentPrice === "number" ? params.currentPrice : 0;
+      const now = params.now || new Date();
+      const minsRemaining = this.getMinsToNext1HClose(now);
+
+      // Initializing state takes temporary precedence
+      if (params.isInitializing) {
+        const info: SetupStageInfo = {
+          stage: 1,
+          stageBadge: "[ INITIALIZING SCAN... ]",
+          distanceToSma20Pct: null,
+          supportFloorPrice: null,
+          testedLine: null,
+          minsRemaining,
+          statusText: "Status: Initializing scanner & connecting WebSocket feed...",
+          isInitializing: true,
+        };
+        this.state.stages[sym] = info;
+        this.notify();
+        return info;
+      }
+
+      // Stage 3: Trade Confirmed (1H candle closed green off MA)
+      if (params.isTradeConfirmed) {
+        const info: SetupStageInfo = {
+          stage: 3,
+          stageBadge: "[ ⚡ ACTIVE EXECUTION READY ]",
+          distanceToSma20Pct: 0,
+          supportFloorPrice: params.sma20 ?? price,
+          testedLine: "20_SMA",
+          minsRemaining: 0,
+          statusText: "1H candle closed green holding support. Active execution ready.",
+          isInitializing: false,
+        };
+        this.state.stages[sym] = info;
+        this.notify();
+        return info;
+      }
+
+      const sma20 = params.sma20 ?? null;
+      const sma50 = params.sma50 ?? null;
+      const ema10 = params.ema10 ?? null;
+
+      let dist20Pct: number | null = null;
+      if (sma20 && sma20 > 0 && price > 0) {
+        dist20Pct = +(((price - sma20) / sma20) * 100).toFixed(2);
+      }
+
+      // Check proximity to any key MA: 10-EMA, 20-SMA, 50-SMA (within 0.5% = 0.005)
+      let closestLine: "10_EMA" | "20_SMA" | "50_SMA" | null = null;
+      let closestFloorPrice: number | null = null;
+      let minDistanceFraction = Infinity;
+
+      const candidates: Array<{ line: "10_EMA" | "20_SMA" | "50_SMA"; val: number | null }> = [
+        { line: "10_EMA", val: ema10 },
+        { line: "20_SMA", val: sma20 },
+        { line: "50_SMA", val: sma50 },
+      ];
+
+      for (const c of candidates) {
+        if (c.val && c.val > 0 && price > 0) {
+          const frac = Math.abs(price - c.val) / c.val;
+          if (frac < minDistanceFraction) {
+            minDistanceFraction = frac;
+            closestLine = c.line;
+            closestFloorPrice = c.val;
+          }
+        }
+      }
+
+      // STAGE 2: Price pulled back within 0.5% of 10-EMA, 20-SMA, or 50-SMA
+      if (minDistanceFraction <= 0.005 && closestFloorPrice != null) {
+        const floorStr = closestFloorPrice.toFixed(2);
+        const info: SetupStageInfo = {
+          stage: 2,
+          stageBadge: "[ ⏳ TESTING SUPPORT / AWAITING 1H CLOSE ]",
+          distanceToSma20Pct: dist20Pct,
+          supportFloorPrice: closestFloorPrice,
+          testedLine: closestLine,
+          minsRemaining,
+          statusText: `Testing Support Floor ($${floorStr}) | Countdown: Awaiting 1H Bar Close (${minsRemaining} mins remaining)`,
+          isInitializing: false,
+        };
+        this.state.stages[sym] = info;
+        this.notify();
+        return info;
+      }
+
+      // STAGE 1: Price > 1.0% away from moving averages
+      const distText = dist20Pct != null ? (dist20Pct >= 0 ? `+${dist20Pct}%` : `${dist20Pct}%`) : "+1.50%";
       const info: SetupStageInfo = {
         stage: 1,
-        stageBadge: "[ INITIALIZING SCAN... ]",
+        stageBadge: "[ WATCH / PENDING RETEST ]",
+        distanceToSma20Pct: dist20Pct,
+        supportFloorPrice: sma20,
+        testedLine: "20_SMA",
+        minsRemaining,
+        statusText: `Current Distance to 20-SMA: ${distText} | Status: WAITING FOR PULLBACK`,
+        isInitializing: false,
+      };
+      this.state.stages[sym] = info;
+      this.notify();
+      return info;
+    } catch (err) {
+      console.warn("[evaluateSetupStage] Error evaluating setup payload:", err, params);
+      return {
+        stage: 1,
+        stageBadge: "[ PENDING / STAGE_UNKNOWN ]",
         distanceToSma20Pct: null,
         supportFloorPrice: null,
         testedLine: null,
-        minsRemaining,
-        statusText: "Status: Initializing scanner & connecting WebSocket feed...",
-        isInitializing: true,
-      };
-      this.state.stages[sym] = info;
-      this.notify();
-      return info;
-    }
-
-    // Stage 3: Trade Confirmed (1H candle closed green off MA)
-    if (params.isTradeConfirmed) {
-      const info: SetupStageInfo = {
-        stage: 3,
-        stageBadge: "[ ⚡ ACTIVE EXECUTION READY ]",
-        distanceToSma20Pct: 0,
-        supportFloorPrice: params.sma20 ?? price,
-        testedLine: "20_SMA",
         minsRemaining: 0,
-        statusText: "1H candle closed green holding support. Active execution ready.",
+        statusText: "Status: PENDING / STAGE_UNKNOWN",
         isInitializing: false,
       };
-      this.state.stages[sym] = info;
-      this.notify();
-      return info;
     }
-
-    const sma20 = params.sma20 ?? null;
-    const sma50 = params.sma50 ?? null;
-    const ema10 = params.ema10 ?? null;
-
-    let dist20Pct: number | null = null;
-    if (sma20 && sma20 > 0 && price > 0) {
-      dist20Pct = +(((price - sma20) / sma20) * 100).toFixed(2);
-    }
-
-    // Check proximity to any key MA: 10-EMA, 20-SMA, 50-SMA (within 0.5% = 0.005)
-    let closestLine: "10_EMA" | "20_SMA" | "50_SMA" | null = null;
-    let closestFloorPrice: number | null = null;
-    let minDistanceFraction = Infinity;
-
-    const candidates: Array<{ line: "10_EMA" | "20_SMA" | "50_SMA"; val: number | null }> = [
-      { line: "10_EMA", val: ema10 },
-      { line: "20_SMA", val: sma20 },
-      { line: "50_SMA", val: sma50 },
-    ];
-
-    for (const c of candidates) {
-      if (c.val && c.val > 0 && price > 0) {
-        const frac = Math.abs(price - c.val) / c.val;
-        if (frac < minDistanceFraction) {
-          minDistanceFraction = frac;
-          closestLine = c.line;
-          closestFloorPrice = c.val;
-        }
-      }
-    }
-
-    // STAGE 2: Price pulled back within 0.5% of 10-EMA, 20-SMA, or 50-SMA
-    if (minDistanceFraction <= 0.005 && closestFloorPrice != null) {
-      const floorStr = closestFloorPrice.toFixed(2);
-      const info: SetupStageInfo = {
-        stage: 2,
-        stageBadge: "[ ⏳ TESTING SUPPORT / AWAITING 1H CLOSE ]",
-        distanceToSma20Pct: dist20Pct,
-        supportFloorPrice: closestFloorPrice,
-        testedLine: closestLine,
-        minsRemaining,
-        statusText: `Testing Support Floor ($${floorStr}) | Countdown: Awaiting 1H Bar Close (${minsRemaining} mins remaining)`,
-        isInitializing: false,
-      };
-      this.state.stages[sym] = info;
-      this.notify();
-      return info;
-    }
-
-    // STAGE 1: Price > 1.0% away from moving averages
-    const distText = dist20Pct != null ? (dist20Pct >= 0 ? `+${dist20Pct}%` : `${dist20Pct}%`) : "+1.50%";
-    const info: SetupStageInfo = {
-      stage: 1,
-      stageBadge: "[ WATCH / PENDING RETEST ]",
-      distanceToSma20Pct: dist20Pct,
-      supportFloorPrice: sma20,
-      testedLine: "20_SMA",
-      minsRemaining,
-      statusText: `Current Distance to 20-SMA: ${distText} | Status: WAITING FOR PULLBACK`,
-      isInitializing: false,
-    };
-    this.state.stages[sym] = info;
-    this.notify();
-    return info;
   }
 
   public getStage(symbol: string): SetupStageInfo | null {
-    return this.state.stages[symbol.trim().toUpperCase()] ?? null;
+    const cleanTicker = (symbol ?? "").toString().trim().toUpperCase();
+    const sym = cleanTicker;
+    if (!sym) return null;
+    return this.state.stages[sym] ?? null;
   }
 }
 
