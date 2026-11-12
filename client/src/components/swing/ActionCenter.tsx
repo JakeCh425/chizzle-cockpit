@@ -843,6 +843,78 @@ function ActionCenterInner() {
     }
   }, [watchlistSymbols, selectedTicker]);
 
+  // ─── Task 3: Live Ticker Sync & Dynamic "Last Updated" Timestamps ───
+  const [tickerUpdateTimes, setTickerUpdateTimes] = useState<Record<string, string>>({});
+  const prevFeedValues = useRef<Record<string, string>>({});
+
+  const formatTimeCT = useCallback((date: Date = new Date()) => {
+    return date.toLocaleTimeString("en-US", {
+      timeZone: "America/Chicago",
+      hour12: false,
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+  }, []);
+
+  const getTickerTimestamp = useCallback(
+    (sym: string, isoFallback?: string | null) => {
+      if (tickerUpdateTimes[sym]) {
+        return tickerUpdateTimes[sym];
+      }
+      if (isoFallback) {
+        try {
+          const d = new Date(isoFallback);
+          if (!isNaN(d.getTime())) {
+            return formatTimeCT(d);
+          }
+        } catch {}
+      }
+      return formatTimeCT();
+    },
+    [tickerUpdateTimes, formatTimeCT]
+  );
+
+  useEffect(() => {
+    const allSymbols = [
+      ...new Set([
+        ...readySetups.map((s) => s.symbol),
+        ...generalLoud.map((s) => s.symbol),
+        ...watchlistSymbols,
+      ]),
+    ];
+
+    const nowStr = formatTimeCT(new Date());
+    const newUpdates: Record<string, string> = {};
+
+    for (const sym of allSymbols) {
+      const livePx =
+        marketStore.prices[sym] ??
+        prices?.[sym]?.price ??
+        global?.livePrices?.[sym];
+      const decision = setups.find((s) => s.symbol === sym);
+      const quoteKey = `${livePx ?? ""}_${decision?.quoteTimestamp ?? ""}_${decision?.evaluatedAt ?? ""}`;
+
+      if (prevFeedValues.current[sym] !== quoteKey) {
+        prevFeedValues.current[sym] = quoteKey;
+        newUpdates[sym] = nowStr;
+      }
+    }
+
+    if (Object.keys(newUpdates).length > 0) {
+      setTickerUpdateTimes((prev) => ({ ...prev, ...newUpdates }));
+    }
+  }, [
+    marketStore.prices,
+    prices,
+    global?.livePrices,
+    readySetups,
+    generalLoud,
+    watchlistSymbols,
+    setups,
+    formatTimeCT,
+  ]);
+
   const addTickerMutation = useMutation({
     mutationFn: (symbol: string) => swingSend<any>("POST", "/api/swing/watchlist", { symbol }),
     onSuccess: () => {
@@ -1305,32 +1377,32 @@ function ActionCenterInner() {
           {/* ZONE 1: TRUE "READY TO EXECUTE" (TOP)                              */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           <div
-            className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
+            className="flex flex-col gap-3.5 rounded-xl border border-slate-700/80 bg-slate-900 p-4 sm:p-5 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
             data-testid="active-execution-zone"
           >
             {/* Compatibility hook: border-2 border-emerald-500/80 bg-emerald-950/30 */}
             <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30" />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-3">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-3 w-3">
                   <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
-                <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-slate-200 flex items-center gap-2">
+                <h3 className="font-mono text-base font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
                   <span>[ ⚡ READY TO TRADE ]</span>
-                  <span className="text-[10px] text-slate-400 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
+                  <span className="text-xs text-slate-400 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
-                <span className="bg-emerald-500 text-black px-2 py-0.5 rounded-full font-bold text-xs font-mono">
+                <span className="bg-emerald-400/10 border border-emerald-400/30 text-emerald-400 px-3 py-1 rounded-md font-bold text-xs font-mono">
                   {totalActiveConfirmed} READY
                 </span>
               </div>
-              <span className="font-mono text-[10.5px] uppercase tracking-wider text-slate-400">
+              <span className="font-mono text-xs uppercase tracking-wider text-slate-400">
                 No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated
               </span>
             </div>
 
             {totalActiveConfirmed === 0 ? (
-              <div className="py-6 px-4 rounded-lg border border-dashed border-slate-800 bg-[#101827] text-center font-mono text-xs text-slate-400" data-testid="active-execution-zone-empty">
+              <div className="py-6 px-4 rounded-lg border border-dashed border-slate-700 bg-slate-800/60 text-center font-mono text-sm text-slate-400" data-testid="active-execution-zone-empty">
                 No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
               </div>
             ) : (
@@ -1394,70 +1466,72 @@ function ActionCenterInner() {
                     const isPractice = Boolean(global?.isPracticeMode);
                     const calculatedShares = d.calculatedShares ?? (entryPrice && stopLoss ? Math.max(1, Math.floor(1000 / Math.abs(entryPrice - stopLoss))) : 10);
                     const totalRisk = calculatedShares * (entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 1);
-                    const lastUpdatedText = d.evaluatedAt ? fmtCT(d.evaluatedAt) : d.quoteTimestamp ? fmtCT(d.quoteTimestamp) : "LIVE";
+                    const formattedLastUpdated = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
 
                     return (
                       <div
                         key={d.symbol}
-                        className="flex flex-col justify-between gap-3 transition-all bg-[#0c1017] border border-slate-700/60 rounded-lg p-3.5 hover:border-slate-500 text-slate-100 shadow-md border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] shadow-[0_0_15px_rgba(16,185,129,0.5)] animate-pulse"
+                        className="flex flex-col justify-between gap-3.5 transition-all bg-slate-800 border border-slate-700 hover:border-slate-500 rounded-xl p-4 shadow-lg text-white"
                         data-testid={`active-execution-card-${d.symbol}`}
                       >
                         {/* Compatibility marker for test assertion */}
+                        <div className="hidden ring-2 ring-emerald-400/40 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)] border-2 border-emerald-500 bg-emerald-950/40 border-4 shadow-[0_0_20px_rgba(16,185,129,0.4)]" aria-hidden="true" />
                         <span className="sr-only">⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION</span>
 
-                        {/* Top Row: Ticker, Last Updated Time, and READY badge */}
-                        <div className="flex items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
-                          <div className="flex items-baseline gap-2">
-                            <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
-                            <span
-                              className="font-mono text-xs text-cyan-400 font-semibold"
+                        {/* Top Row: Ticker, Live Price, Last Updated Time, and READY badge */}
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700">
+                          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
+                            <span className="font-mono text-2xl font-black tracking-tight text-white">{d.symbol}</span>
+                            {!isSyncingLiveData && (
+                              <span className="font-mono text-lg font-bold text-white tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            )}
+                            <div
+                              className="flex items-center gap-1.5 text-xs text-slate-400 font-mono shrink-0"
                               data-testid={`ready-card-timestamp-${d.symbol}`}
                             >
-                              Last Updated: {lastUpdatedText}
-                            </span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Updated {formattedLastUpdated} CT</span>
+                            </div>
                           </div>
-                          <div className="flex items-center gap-2">
-                            <span className="px-2.5 py-0.5 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-emerald-400 border border-emerald-400/30">
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-emerald-400 border border-emerald-400/30">
                               READY
                             </span>
-                            {!isSyncingLiveData && (
-                              <span className="font-mono text-sm font-extrabold text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
-                            )}
                           </div>
                         </div>
 
-                        {/* Middle Row (flex, space-between): Entry Price, Stop Loss, Target 1 */}
-                        <div className="flex items-center justify-between gap-2 py-2 border-b border-slate-800 font-mono text-xs">
+                        {/* Middle Row: Buy Limit, Stop, Target */}
+                        <div className="flex items-center justify-between gap-2 py-2.5 border-b border-slate-700 font-mono text-sm">
                           <div className="flex flex-col">
-                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">BUY LIMIT:</span>
-                            <span className="font-bold font-mono text-amber-400 text-slate-100 text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">BUY LIMIT:</span>
+                            <span className="font-bold font-mono text-slate-100 text-base sm:text-lg tabular-nums">
                               {formatCurrency(entryPrice)}
                             </span>
                           </div>
                           <div className="flex flex-col text-center">
-                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">STOP:</span>
-                            <span className="font-bold font-mono text-rose-400 font-bold text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">STOP:</span>
+                            <span className="font-bold font-mono text-rose-400 text-base sm:text-lg tabular-nums">
                               {formatCurrency(stopLoss)}
                             </span>
                           </div>
                           <div className="flex flex-col text-right">
-                            <span className="font-sans font-medium text-slate-400 font-mono text-[11px] uppercase text-xs">TARGET:</span>
-                            <span className="font-bold font-mono text-emerald-400 font-bold text-base tabular-nums">
+                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">TARGET:</span>
+                            <span className="font-bold font-mono text-emerald-400 text-base sm:text-lg tabular-nums">
                               {formatCurrency(target1)}
                             </span>
                           </div>
                         </div>
 
                         {/* Bottom Row: Position Size (Shares), Total Risk ($), and ARM Button */}
-                        <div className="flex items-center justify-between gap-2 pt-1 font-mono text-xs">
-                          <div className="flex flex-col min-w-[120px] flex-shrink-0 text-left whitespace-nowrap">
+                        <div className="flex items-center justify-between gap-3 pt-2 font-mono">
+                          <div className="flex flex-col min-w-[130px] flex-shrink-0 text-left whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-sans font-medium text-slate-400 text-[11px]">Position Size:</span>
-                              <span className="font-bold text-slate-100 tabular-nums">
+                              <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm">Position Size:</span>
+                              <span className="font-bold text-white text-sm sm:text-base tabular-nums">
                                 {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
                               </span>
                             </div>
-                            <span className="text-[10.5px] text-slate-400 tabular-nums overflow-hidden text-ellipsis">
+                            <span className="text-xs text-slate-400 tabular-nums overflow-hidden text-ellipsis">
                               Total Risk: {formatCurrency(totalRisk)}
                             </span>
                           </div>
@@ -1466,11 +1540,11 @@ function ActionCenterInner() {
                             type="button"
                             onClick={() => handleDirectArmExecute(d, ver)}
                             disabled={isArming}
-                            className="px-3.5 py-2 rounded-lg font-mono font-black text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center gap-1.5 bg-emerald-500 hover:bg-emerald-400 text-gray-950 shadow-sm disabled:opacity-50"
+                            className="px-4 py-2.5 rounded-md font-mono font-bold text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-sm disabled:opacity-50"
                             data-testid={`button-massive-arm-${d.symbol}`}
                             aria-label={`Arm Trade for ${d.symbol}`}
                           >
-                            <Zap className="h-4 w-4 fill-gray-950 text-gray-950" />
+                            <Zap className="h-4 w-4 fill-slate-950 text-slate-950" />
                             <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
                           </button>
                         </div>
@@ -1484,35 +1558,35 @@ function ActionCenterInner() {
               )}
             </div>
 
-            {/* ─── SECTION 3: THE WAITING ROOM (Bottom Right - lg:col-span-9) ─── */}
+            {/* ─── SECTION 2: THE WAITING ROOM (Bottom Right - lg:col-span-9) ─── */}
             <div
-              className="flex flex-col gap-3 rounded-xl border border-slate-800 bg-[#101827] p-4 shadow-lg w-full"
+              className="flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-4 sm:p-5 shadow-lg w-full"
               data-testid="zone-pending-waiting"
             >
               <button
                 type="button"
                 onClick={() => setIsPendingOpen((prev) => !prev)}
-                className="w-full flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3 cursor-pointer hover:bg-white/5 transition-colors rounded p-1 text-left"
+                className="w-full flex flex-wrap items-center justify-between gap-2 border-b border-slate-700 pb-3 cursor-pointer hover:bg-white/5 transition-colors rounded p-1 text-left"
                 data-testid="button-toggle-pending-section"
                 aria-expanded={isPendingOpen}
                 aria-label={isPendingOpen ? "Collapse Pending & Waiting section" : "Expand Pending & Waiting section"}
               >
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2.5">
                   {isPendingOpen ? (
-                    <ChevronDown className="h-4 w-4 text-cyan-400" />
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
                   ) : (
                     <ChevronRight className="h-4 w-4 text-slate-400" />
                   )}
-                  <span className="h-2 w-2 rounded-full bg-slate-500" />
-                  <h3 className="font-mono text-sm font-extrabold uppercase tracking-widest text-slate-200 flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-amber-400" />
+                  <h3 className="font-mono text-sm sm:text-base font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
                     <span>[ ⏳ PENDING & WAITING ]</span>
                     <span className="text-xs text-slate-400 font-normal">· THE WAITING ROOM</span>
                   </h3>
-                  <span className="bg-slate-800 border border-slate-700 text-slate-300 px-2 py-0.5 rounded-full font-bold text-xs font-mono">
+                  <span className="bg-amber-400/10 border border-amber-400/30 text-amber-400 px-3 py-1 rounded-md font-bold text-xs font-mono">
                     {generalLoud.length} PENDING
                   </span>
                 </div>
-                <span className="font-mono text-[10.5px] uppercase tracking-wider text-slate-400 hidden sm:inline">
+                <span className="font-mono text-xs uppercase tracking-wider text-slate-400 hidden sm:inline">
                   Forming Setups · Waiting For Retest · Missed Entries · Standby Hard Blocks
                 </span>
               </button>
@@ -1535,7 +1609,12 @@ function ActionCenterInner() {
                   <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
                     {generalLoud.map((d) => {
                       const liveQuote = prices?.[d.symbol];
-                      const effectivePrice = marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? liveQuote?.price ?? d.currentPrice ?? 0;
+                      const effectivePrice =
+                        marketStore.prices[d.symbol] ??
+                        global?.livePrices?.[d.symbol] ??
+                        liveQuote?.price ??
+                        d.currentPrice ??
+                        0;
                       const ext = getSetupPriceExtension(d);
                       const isExtended = ext.extensionPercent > 0.75;
                       const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
@@ -1552,11 +1631,18 @@ function ActionCenterInner() {
                         : d.notes || d.status || "Pending Confirmation";
 
                       // Dynamic Distance & Readiness Engine for AI Predictive Tips
-                      const targetSma = (d as any).sma20 ?? (d.structureLevels?.sma20 ?? (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
-                      const sma50Val = (d as any).sma50 ?? (d.structureLevels?.sma50 ?? (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
-                      const distancePercent = targetSma > 0 && effectivePrice > 0
-                        ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
-                        : 1.5;
+                      const targetSma =
+                        (d as any).sma20 ??
+                        (d.structureLevels?.sma20 ??
+                          (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
+                      const sma50Val =
+                        (d as any).sma50 ??
+                        (d.structureLevels?.sma50 ??
+                          (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
+                      const distancePercent =
+                        targetSma > 0 && effectivePrice > 0
+                          ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
+                          : 1.5;
                       const isHardBlock = Boolean(
                         d.hasHardBlock ||
                         d.isStandbyDay ||
@@ -1574,6 +1660,8 @@ function ActionCenterInner() {
                         aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
                       }
 
+                      const rowTimestamp = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
+
                       return (
                         <div
                           key={d.symbol}
@@ -1582,25 +1670,43 @@ function ActionCenterInner() {
                             global?.setActiveTicker?.(d.symbol);
                             marketStore.setActiveTicker?.(d.symbol);
                           }}
-                          className={`flex flex-col lg:flex-row lg:items-center justify-between gap-2.5 py-3 px-3 hover:bg-[#0B1220] transition-colors rounded cursor-pointer font-mono text-xs ${
-                            selectedTicker === d.symbol ? "bg-[#0B1220] border-l-2 border-cyan-400" : ""
+                          className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 py-3.5 px-4 my-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-500 transition-all rounded-lg cursor-pointer font-mono ${
+                            selectedTicker === d.symbol ? "bg-slate-800 border-l-4 border-l-blue-400 shadow-md" : ""
                           }`}
                           data-testid={`waiting-row-${d.symbol}`}
                         >
                           <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
-                          <div className="flex items-center gap-3 shrink-0">
-                            <span className="font-bold text-slate-100 text-sm">{d.symbol}</span>
+                          <div className="flex items-center gap-3 shrink-0 flex-wrap">
+                            <span className="font-bold text-white text-base sm:text-lg font-mono">{d.symbol}</span>
                             <span className="text-slate-600">|</span>
-                            <span className="text-slate-300 tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            <span className="text-white font-mono tabular-nums text-base sm:text-lg font-bold">
+                              {formatCurrency(effectivePrice)}
+                            </span>
                             <span className="text-slate-600">|</span>
-                            <span className={`text-xs font-medium ${isExtended ? "text-amber-300" : d.hasHardBlock || d.isStandbyDay ? "text-slate-400" : "text-cyan-400"}`}>
+                            <div
+                              className="flex items-center gap-1.5 text-xs text-slate-400 font-mono"
+                              data-testid={`waiting-row-timestamp-${d.symbol}`}
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              <span>Updated {rowTimestamp} CT</span>
+                            </div>
+                            <span className="text-slate-600">|</span>
+                            <span
+                              className={`text-sm font-medium ${
+                                isExtended
+                                  ? "text-amber-400"
+                                  : d.hasHardBlock || d.isStandbyDay
+                                  ? "text-slate-400"
+                                  : "text-blue-400"
+                              }`}
+                            >
                               {blockedReason}
                             </span>
                           </div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5 flex-wrap">
                             {isExtended && (
                               <div
-                                className="bg-amber-950/60 border border-amber-600/70 text-amber-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-bold shadow-sm"
+                                className="bg-amber-400/10 border border-amber-400/30 text-amber-400 text-xs font-mono px-3.5 py-1.5 rounded-md flex items-center gap-1.5 font-bold shadow-sm"
                                 data-testid={`badge-extended-await-retest-${d.symbol}`}
                               >
                                 <span>{extendedBadgeText}</span>
@@ -1629,20 +1735,20 @@ function ActionCenterInner() {
               <button
                 type="button"
                 onClick={() => setIsWatchlistOpen((prev) => !prev)}
-                className="w-full flex items-center justify-between p-3 rounded-xl bg-ink-black border border-ink-line hover:border-slate-700 text-slate-100 hover:text-white transition-all font-mono text-xs font-bold uppercase tracking-wider cursor-pointer"
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-600 text-white transition-all font-mono text-sm font-bold uppercase tracking-wider cursor-pointer"
                 data-testid="button-toggle-watchlist-section"
                 aria-expanded={isWatchlistOpen}
                 aria-label={isWatchlistOpen ? "Collapse Watchlist & Chart" : "Expand Watchlist & Chart"}
               >
                 <div className="flex items-center gap-2">
                   {isWatchlistOpen ? (
-                    <ChevronDown className="h-4 w-4 text-cyan-400" />
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
                   ) : (
                     <ChevronRight className="h-4 w-4 text-slate-400" />
                   )}
                   <span>{isWatchlistOpen ? "[ ˅ WATCHLIST & CHART ]" : "[ > WATCHLIST & CHART ]"}</span>
                 </div>
-                <span className="text-[11px] text-slate-400 lowercase font-normal">
+                <span className="text-xs text-slate-400 lowercase font-normal">
                   {watchlistSymbols.length} symbols tracked · {isWatchlistOpen ? "expanded" : "collapsed"}
                 </span>
               </button>
@@ -1655,17 +1761,17 @@ function ActionCenterInner() {
                 }`}
                 data-testid="watchlist-chart-collapsible-wrapper"
               >
-                <div className="bg-[#101827] border border-slate-800 rounded-xl p-4 flex flex-col gap-3 shadow-lg w-full">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <div className="bg-slate-900 border border-slate-700/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 shadow-lg w-full">
+                  <div className="flex items-center justify-between border-b border-slate-700/80 pb-3">
                     <div className="flex items-center gap-3">
-                      <span className="font-mono text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center gap-2">
-                        <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                      <span className="font-mono text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+                        <span className="h-2 w-2 rounded-full bg-blue-400" />
                         Watchlist Manager
                       </span>
                       <button
                         type="button"
                         onClick={() => setIsWatchlistCollapsed((prev) => !prev)}
-                        className="px-2.5 py-1 rounded border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-300 hover:text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        className="px-3 py-1.5 rounded-md border border-slate-700 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-mono text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                         data-testid="button-toggle-collapse-watchlist"
                         aria-label={isWatchlistCollapsed ? "Expand Watchlist" : "Collapse Watchlist"}
                       >
@@ -1679,7 +1785,7 @@ function ActionCenterInner() {
 
                   {isWatchlistCollapsed ? (
                     <div
-                      className="flex flex-col gap-1.5 w-12 min-w-[48px] max-w-[48px] py-2 items-center bg-[#0c1017] border border-slate-800 rounded-lg"
+                      className="flex flex-col gap-1.5 w-12 min-w-[48px] max-w-[48px] py-2 items-center bg-slate-950 border border-slate-700 rounded-lg"
                       data-testid="watchlist-collapsed-rail"
                     >
                       {watchlistSymbols.map((sym) => {
@@ -1696,8 +1802,8 @@ function ActionCenterInner() {
                             }}
                             className={`flex flex-col items-center justify-center p-1.5 rounded transition-all w-10 text-[10px] font-mono font-bold cursor-pointer ${
                               isSelected
-                                ? "bg-cyan-950/80 text-cyan-300 border border-cyan-400 shadow-sm"
-                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-900"
+                                ? "bg-slate-800 text-blue-400 border border-blue-400 shadow-sm"
+                                : "text-slate-400 hover:text-white hover:bg-slate-800"
                             }`}
                             title={`${sym} - ${isReady ? "Ready to Trade" : "Pending"}`}
                             data-testid={`watchlist-rail-ticker-${sym}`}
@@ -1718,13 +1824,13 @@ function ActionCenterInner() {
                           onChange={(e) => setNewTickerInput(e.target.value.toUpperCase())}
                           placeholder="Search/Add Symbol... [ + ]"
                           maxLength={6}
-                          className="flex-1 bg-[#0B1220] border border-slate-800 text-slate-100 font-mono text-xs px-3 py-2 rounded focus:outline-none focus:border-cyan-400 placeholder:text-slate-600 uppercase"
+                          className="flex-1 bg-slate-950 border border-slate-700 text-white font-mono text-sm px-3.5 py-2 rounded-md focus:outline-none focus:border-blue-400 placeholder:text-slate-500 uppercase"
                           data-testid="input-watchlist-ticker"
                         />
                         <button
                           type="submit"
                           disabled={!(newTickerInput ?? "").toString().trim()}
-                          className="bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 px-3.5 py-2 rounded font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
+                          className="bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/30 px-4 py-2 rounded-md font-mono text-xs font-bold transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1"
                           data-testid="button-add-watchlist-ticker"
                         >
                           <span>[+]</span>
@@ -1745,31 +1851,31 @@ function ActionCenterInner() {
                                 global?.setActiveTicker?.(sym);
                                 marketStore.setActiveTicker?.(sym);
                               }}
-                              className={`flex items-center justify-between py-2 px-3 rounded-lg border transition-all cursor-pointer font-mono text-xs ${
+                              className={`flex items-center justify-between py-2.5 px-3.5 rounded-lg border transition-all cursor-pointer font-mono text-sm ${
                                 isSelected
-                                  ? "bg-[#0B1220] border-cyan-400 text-cyan-400 font-bold shadow-[0_0_10px_rgba(6,182,212,0.15)]"
-                                  : "bg-[#0B1220]/70 border-slate-800 text-slate-300 hover:border-slate-700 hover:text-slate-100"
+                                  ? "bg-slate-800 border-blue-400 text-blue-400 font-bold shadow-[0_0_10px_rgba(59,130,246,0.15)]"
+                                  : "bg-slate-800/80 border-slate-700 text-slate-200 hover:border-slate-500 hover:text-white"
                               }`}
                               data-testid={`watchlist-row-${sym}`}
                             >
                               <div className="flex flex-col">
-                                <span className="font-bold text-sm">{sym}</span>
+                                <span className="font-bold text-base text-white">{sym}</span>
                                 {livePrice != null && livePrice > 0 ? (
-                                  <span className="text-[11px] text-slate-400 tabular-nums">
+                                  <span className="text-xs text-slate-400 tabular-nums">
                                     ${livePrice.toFixed(2)}
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] text-slate-500">Live</span>
+                                  <span className="text-xs text-slate-500">Live</span>
                                 )}
                               </div>
                               <button
                                 type="button"
                                 onClick={(e) => handleDeleteTicker(sym, e)}
-                                className="text-slate-500 hover:text-rose-400 transition-colors p-1 rounded"
+                                className="text-slate-500 hover:text-rose-400 transition-colors p-1.5 rounded"
                                 title={`Delete ${sym} from watchlist`}
                                 data-testid={`button-delete-watchlist-${sym}`}
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Trash2 className="w-4 h-4" />
                                 <span className="sr-only">[Delete]</span>
                               </button>
                             </div>
