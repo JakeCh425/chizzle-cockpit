@@ -197,8 +197,8 @@ export default function FlexScannerPanel() {
             >
               {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
             </button>
-            <Radar className="h-4 w-4 text-neon-blue" />
-            <div className="text-xs font-bold text-soft-white tracking-wider">FLEX SWING SCANNER</div>
+            <Radar className="h-5 w-5 text-cyan-400" />
+            <div className="text-2xl font-extrabold tracking-tight text-white uppercase">FLEX SWING SCANNER</div>
             {/* 1. State / day type — the market condition */}
             {result && (
               <span className={`text-[11px] px-1.5 py-0.5 rounded font-mono ${

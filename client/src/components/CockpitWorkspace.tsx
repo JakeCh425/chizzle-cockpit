@@ -72,10 +72,11 @@ export default function CockpitWorkspace() {
   });
 
   return (
-    <div
-      className="grid grid-cols-1 lg:grid-cols-[minmax(0,23%)_minmax(0,1fr)_minmax(0,23%)] gap-4 xl:gap-6 items-start"
-      data-testid="cockpit-workspace"
-    >
+    <div className="w-full bg-[#0B1220] text-white p-2 sm:p-4 rounded-xl">
+      <div
+        className="grid grid-cols-1 lg:grid-cols-[minmax(0,23%)_minmax(0,1fr)_minmax(0,23%)] gap-4 xl:gap-6 items-start"
+        data-testid="cockpit-workspace"
+      >
       {/* LEFT COLUMN */}
       <div className="space-y-4 min-w-0" data-testid="workspace-left">
         <CollapsibleSection
@@ -199,5 +200,6 @@ export default function CockpitWorkspace() {
         </CollapsibleSection>
       </div>
     </div>
+  </div>
   );
 }

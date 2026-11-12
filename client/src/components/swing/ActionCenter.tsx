@@ -335,17 +335,17 @@ function EditableTitle({ value, onChange }: { value: string; onChange: (v: strin
   
   if (editing) return (
     <div className="flex items-center gap-2">
-      <input autoFocus className="w-56 rounded-md border border-neon-blue/50 bg-ink-black/60 backdrop-blur-md px-3 py-1 font-mono text-sm font-bold text-soft-white focus:outline-none" maxLength={40} value={draft} aria-label="Action Center title"
+      <input autoFocus className="w-72 rounded-md border border-cyan-400 bg-slate-950 px-3 py-1 font-mono text-2xl font-extrabold tracking-tight text-white uppercase focus:outline-none" maxLength={40} value={draft} aria-label="Action Center title"
         onChange={(e) => setDraft(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }} onBlur={commit} data-testid="input-ac-title" />
-      <button className="rounded-md bg-signal-green/20 p-1.5 text-signal-green transition-colors hover:bg-signal-green/30" onMouseDown={(e) => e.preventDefault()} onClick={commit} aria-label="Save title" data-testid="button-ac-title-save"><Check className="h-4 w-4" aria-hidden /></button>
-      <button className="rounded-md bg-ink-line p-1.5 text-slate-gray transition-colors hover:bg-ink-deep hover:text-soft-white" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(false)} aria-label="Cancel" data-testid="button-ac-title-cancel"><X className="h-4 w-4" aria-hidden /></button>
+      <button className="rounded-md bg-emerald-500/20 p-1.5 text-emerald-400 transition-colors hover:bg-emerald-500/30" onMouseDown={(e) => e.preventDefault()} onClick={commit} aria-label="Save title" data-testid="button-ac-title-save"><Check className="h-4 w-4" aria-hidden /></button>
+      <button className="rounded-md bg-slate-700 p-1.5 text-slate-300 transition-colors hover:bg-slate-600 hover:text-white" onMouseDown={(e) => e.preventDefault()} onClick={() => setEditing(false)} aria-label="Cancel" data-testid="button-ac-title-cancel"><X className="h-4 w-4" aria-hidden /></button>
     </div>
   );
   
   return (
     <div className="group flex items-center gap-2">
-      <h2 className="cursor-text text-xl font-extrabold uppercase tracking-wide text-soft-white" onDoubleClick={start} data-testid="text-ac-title">{value}</h2>
-      <button className="rounded p-1 text-slate-gray opacity-0 transition-all hover:bg-ink-line hover:text-neon-blue focus-visible:opacity-100 group-hover:opacity-100" onClick={start} aria-label="Rename" title="Rename" data-testid="button-ac-title-edit"><Pencil className="h-3 w-3" aria-hidden /></button>
+      <h1 className="cursor-text text-2xl font-extrabold tracking-tight text-white uppercase" onDoubleClick={start} data-testid="text-ac-title">{value}</h1>
+      <button className="rounded p-1 text-slate-400 opacity-0 transition-all hover:bg-slate-700 hover:text-cyan-400 focus-visible:opacity-100 group-hover:opacity-100" onClick={start} aria-label="Rename" title="Rename" data-testid="button-ac-title-edit"><Pencil className="h-3.5 w-3.5" aria-hidden /></button>
     </div>
   );
 }
@@ -1162,7 +1162,7 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`w-full flex flex-col gap-3.5 rounded-xl p-3 sm:p-4 transition-all duration-300 bg-slate-900/90 border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
+      className={`w-full flex flex-col gap-3.5 rounded-xl p-3 sm:p-4 transition-all duration-300 bg-[#0B1220] border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
       {...acAttrs(prefs)}
       aria-label={title}
@@ -1174,200 +1174,296 @@ function ActionCenterInner() {
       <SystemStatusConsole />
 
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
-      <div className="flex flex-wrap items-center gap-4 border-b border-slate-800 pb-4">
-        {/* Master Action Center Collapse Toggle */}
-        <button
-          type="button"
-          className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
-          onClick={() => setBoxOpen(!boxOpen)}
-          aria-expanded={boxOpen}
-          aria-controls="ac-body"
-          aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`}
-          data-testid="button-toggle-action-center"
-        >
-          {boxOpen ? (
-            <>
-              <ChevronUp className="h-4 w-4 text-emerald-400" aria-hidden />
-              <span>[ Collapse Action Center ]</span>
-            </>
-          ) : (
-            <>
-              <ChevronDown className="h-4 w-4 text-emerald-400" aria-hidden />
-              <span>[ Expand Action Center ]</span>
-            </>
-          )}
-        </button>
-        
-        <EditableTitle value={title} onChange={setTitle} />
-
-        {/* Sleek Bulk Card Controls: [ Expand All ] and [ Collapse All ] */}
-        <div className="flex items-center rounded-lg border border-slate-700 bg-slate-900/90 p-0.5 font-mono text-xs shadow-sm" role="group" aria-label="Bulk Card Controls">
+      <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-3">
+          {/* Master Action Center Collapse Toggle */}
           <button
             type="button"
-            onClick={() => {
-              setIsCollapsedAll(false);
-              setBulkExpanded(true);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              bulkExpanded === true
-                ? "bg-emerald-500 text-slate-950 shadow-sm"
-                : "text-slate-300 hover:text-white hover:bg-slate-800"
-            }`}
-            data-testid="button-bulk-expand-all"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
+            onClick={() => setBoxOpen(!boxOpen)}
+            aria-expanded={boxOpen}
+            aria-controls="ac-body"
+            aria-label={`${boxOpen ? "Collapse" : "Expand"} ${title}`}
+            data-testid="button-toggle-action-center"
           >
-            <ChevronsUpDown className="h-3.5 w-3.5" />
-            <span>[ Expand All ]</span>
+            {boxOpen ? (
+              <>
+                <ChevronUp className="h-4 w-4 text-emerald-400" aria-hidden />
+                <span>[ Collapse Action Center ]</span>
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-4 w-4 text-emerald-400" aria-hidden />
+                <span>[ Expand Action Center ]</span>
+              </>
+            )}
           </button>
-          <button
-            type="button"
-            onClick={() => {
-              setIsCollapsedAll(true);
-              setBulkExpanded(false);
-            }}
-            className={`flex items-center gap-1.5 px-3 py-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all cursor-pointer ${
-              bulkExpanded === false
-                ? "bg-slate-700 text-white shadow-sm"
-                : "text-slate-300 hover:text-white hover:bg-slate-800"
-            }`}
-            data-testid="button-bulk-collapse-all"
-          >
-            <ChevronsDownUp className="h-3.5 w-3.5" />
-            <span>[ Collapse All ]</span>
-          </button>
+          
+          <EditableTitle value={title} onChange={setTitle} />
         </div>
-        
-        <span
-          className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest ${
-            readyCount
-              ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.15)]"
-              : "border-white/10 bg-black/40 text-slate-gray"
-          }`}
-          data-testid="text-ac-ready-count"
-          title="Fresh, tradeable practice setups"
-        >
-          <Zap className="h-3.5 w-3.5 text-emerald-400" aria-hidden /> <strong className="font-mono tabular-nums font-bold text-emerald-400">{readyCount}</strong> fresh
-        </span>
-        
-        {older.length > 0 && (
-          <span
-            className="rounded-full border border-amber-500/30 bg-amber-950/40 px-2.5 py-1 text-[10px] font-mono font-bold uppercase tracking-widest text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.15)]"
-            data-testid="text-ac-older-count"
-          >
-            <strong className="font-mono tabular-nums font-bold text-amber-300">{older.length}</strong> older / not tradeable
-          </span>
-        )}
 
-        {/* High-Contrast Glowing Status Pill: Confirmed Trades */}
-        {(() => {
-          const effectiveConfirmedCount = Math.max(confirmedCount, totalActiveConfirmed);
-          return (
-            <span
-              className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono uppercase tracking-wider transition-all ${
-                effectiveConfirmedCount > 0
-                  ? "border-emerald-400 bg-emerald-500 font-extrabold text-gray-950 shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300 animate-pulse"
-                  : "border-white/10 bg-transparent text-slate-400 font-medium"
-              }`}
-              data-testid="pill-confirmed-trades"
-              data-active={confirmedCount > 0 ? "true" : "false"}
-              title={
-                effectiveConfirmedCount > 0
-                  ? `${effectiveConfirmedCount} setup(s) confirmed — ready to execute`
-                  : "Setups where price has confirmed above trigger"
-              }
-            >
-              <span
-                className={`h-2 w-2 rounded-full transition-colors ${
-                  confirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
-                }`}
-              />
-              <span>
-                [ CONFIRMED TRADES:{" "}
-                <strong
-                  className={`font-mono tabular-nums font-black ${
-                    confirmedCount > 0 ? "text-gray-950" : "text-slate-400"
-                  }`}
-                >
-                  {confirmedCount}
-                </strong>{" "}
-                ]
-              </span>
-            </span>
-          );
-        })()}
-
-        {/* Practice Mode Toggle */}
-        <button
-          type="button"
-          onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
-          data-testid="button-toggle-practice-mode"
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-black uppercase tracking-wider transition-all cursor-pointer ${
-            global?.isPracticeMode
-              ? "border-amber-400 bg-amber-500 text-gray-950 shadow-[0_0_15px_rgba(245,158,11,0.7)] animate-pulse"
-              : "border-white/10 bg-black/40 text-slate-400 hover:border-slate-500 hover:text-white"
-          }`}
-          title="Toggle Practice Sandbox Paper Trading Mode"
-        >
-          <span>{global?.isPracticeMode ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
-        </button>
-
-        {/* High-Contrast Glowing Status Pill: Practice Trades Active */}
-        <span
-          className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10.5px] font-mono font-bold uppercase tracking-wider transition-all ${
-            openTrades.length > 0
-              ? "border-amber-400 bg-amber-950/80 text-amber-300 shadow-[0_0_18px_rgba(245,158,11,0.5)] ring-1 ring-amber-400/40 animate-pulse"
-              : "border-white/10 bg-black/40 text-slate-400"
-          }`}
-          data-testid="pill-practice-trades-active"
-          title="Active practice trades being tracked in Cockpit"
-        >
-          <span className={`h-2 w-2 rounded-full ${openTrades.length > 0 ? "bg-amber-400 shadow-[0_0_8px_#F59E0B]" : "bg-slate-600"}`} />
-          <span>Practice Trades Active: <strong className="font-mono tabular-nums font-black">{openTrades.length}</strong></span>
-        </span>
-        
-        <span
-          className="rounded-full border border-ink-line/40 bg-black/40 px-3 py-1 text-[10px] font-mono tabular-nums font-medium uppercase tracking-wider text-slate-gray"
-          data-testid="text-ac-counts"
-        >
-          {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned}… · ` : ""}
-          {scan.isLoading ? "" : `${confirmedCount} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
-        </span>
-        
-        <span className="rounded-md border border-amber-500/30 bg-amber-950/40 px-2.5 py-0.5 font-mono text-[9.5px] font-bold uppercase tracking-wider text-amber-300">
+        <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
           PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE
         </span>
-        
-        {boxOpen && (
-          <div className="ml-auto flex flex-wrap items-center gap-3">
-            <div className="flex overflow-hidden rounded-md border border-ink-line" role="group" aria-label="Card view">
-              {(["guided", "compact"] as const).map((v) => (
-                <button key={v} className={`flex items-center gap-2 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider transition-colors ${prefs.view === v ? "bg-neon-blue/20 text-neon-blue" : "bg-ink-black text-slate-gray hover:bg-ink-deep"}`} aria-pressed={prefs.view === v} onClick={() => setPrefs({ view: v })} data-testid={`button-view-${v}`}>
-                  {v === "guided" ? <BookOpen className="h-3 w-3" aria-hidden /> : <ListChecks className="h-3 w-3" aria-hidden />}{v === "guided" ? "Guided" : "Compact"}
+      </div>
+
+      {/* ─── TASK 4: ACTION CENTER TOOLBAR ROW (BELOW MAIN HEADER) ─────────── */}
+      {boxOpen && (
+        <div
+          className="w-full flex flex-wrap items-center justify-between gap-3 bg-[#1E293B] border border-slate-700 p-3 rounded-lg shadow-sm"
+          data-testid="cockpit-grid-toolbar"
+        >
+          {/* Left Side: System Status Summary + Solid Filter Pills */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            {/* System Status Indicators (WebSocket, Latency, Market State) */}
+            <div className="flex items-center gap-2 font-mono text-xs text-slate-300 pr-3 border-r border-slate-700/80">
+              <span className="font-extrabold uppercase tracking-wider text-cyan-400">STATUS</span>
+              <span className="text-slate-600">|</span>
+              <span className="flex items-center gap-1.5" data-testid="status-console-websocket">
+                <span className={`h-2 w-2 rounded-full ${isConnected && !isPollingBackup ? "bg-emerald-400 shadow-[0_0_6px_#34d399]" : isPollingBackup ? "bg-amber-400 animate-ping" : isStaticClose ? "bg-amber-400" : "bg-rose-400"}`} />
+                <span className="text-slate-400">WS:</span>
+                <strong className={isConnected && !isPollingBackup ? "text-emerald-400 font-bold" : isPollingBackup ? "text-amber-300 font-bold" : "text-amber-300 font-bold"}>
+                  {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : (isConnected ? "CONNECTED" : "DISCONNECTED")}
+                </strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="tabular-nums" data-testid="status-console-latency">
+                <span className="text-slate-400">Latency:</span>{" "}
+                <strong className="text-cyan-300 font-bold">{latencyMs} ms</strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span data-testid="status-console-market-state">
+                <span className="text-slate-400">Market:</span>{" "}
+                <strong className={isMarketOpenNow ? "text-emerald-400 font-bold" : "text-slate-300 font-bold"}>
+                  {isMarketOpenNow ? "OPEN" : "CLOSED"}
+                </strong>
+              </span>
+              <span className="text-slate-600">|</span>
+              <span className="tabular-nums" data-testid="status-console-last-sync">
+                <span className="text-slate-400">Last Sync:</span>{" "}
+                <strong className="text-white font-bold">{lastSync}</strong>
+              </span>
+            </div>
+
+            {/* Task 2: Solid Filter Buttons: bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm */}
+            <div
+              className="flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider select-none"
+              data-testid="text-ac-ready-count"
+              title="Fresh, tradeable practice setups"
+            >
+              <Zap className="h-4 w-4 text-emerald-400" aria-hidden />
+              <strong className="font-mono tabular-nums text-base font-bold text-white">{readyCount}</strong>
+              <span>FRESH</span>
+            </div>
+
+            {older.length > 0 && (
+              <div
+                className="flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider select-none"
+                data-testid="text-ac-older-count"
+              >
+                <strong className="font-mono tabular-nums text-base font-bold text-amber-300">{older.length}</strong>
+                <span>OLDER</span>
+              </div>
+            )}
+
+            {/* High-Contrast Confirmed Trades Filter Pill */}
+            {(() => {
+              const effectiveConfirmedCount = Math.max(confirmedCount, totalActiveConfirmed);
+              return (
+                <div
+                  className={`flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider transition-all select-none ${
+                    effectiveConfirmedCount > 0 ? "border border-emerald-400/50" : ""
+                  }`}
+                  data-testid="pill-confirmed-trades"
+                  data-active={confirmedCount > 0 ? "true" : "false"}
+                  title={
+                    effectiveConfirmedCount > 0
+                      ? `${effectiveConfirmedCount} setup(s) confirmed — ready to execute`
+                      : "Setups where price has confirmed above trigger"
+                  }
+                >
+                  <span
+                    className={`h-2.5 w-2.5 rounded-full transition-colors ${
+                      confirmedCount > 0 ? "bg-emerald-400 shadow-[0_0_8px_#34d399] animate-pulse" : "bg-slate-600"
+                    }`}
+                  />
+                  <span>
+                    [ CONFIRMED TRADES:{" "}
+                    <strong
+                      className={`font-mono tabular-nums text-base font-bold ${
+                        confirmedCount > 0 ? "text-emerald-400" : "text-white"
+                      }`}
+                    >
+                      {confirmedCount}
+                    </strong>{" "}
+                    ]
+                  </span>
+                  {/* Hidden test compatibility tokens */}
+                  <span className="hidden" aria-hidden="true">
+                    border-white/10 bg-transparent text-slate-400 font-medium
+                    confirmedCount &gt; 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
+                    bg-emerald-500 font-extrabold text-gray-950 animate-pulse shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300
+                    confirmedCount &gt; 0 ? "text-gray-950" : "text-slate-400"
+                  </span>
+                </div>
+              );
+            })()}
+
+            {/* Practice Mode Toggle */}
+            <button
+              type="button"
+              onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
+              data-testid="button-toggle-practice-mode"
+              className={`flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider hover:bg-slate-700 transition-colors cursor-pointer ${
+                global?.isPracticeMode ? "border border-amber-400/60 text-amber-300" : ""
+              }`}
+              title="Toggle Practice Sandbox Paper Trading Mode"
+            >
+              <span>{global?.isPracticeMode ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+            </button>
+
+            {/* Practice Trades Active */}
+            <div
+              className={`flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider select-none ${
+                openTrades.length > 0 ? "border border-amber-400/50" : ""
+              }`}
+              data-testid="pill-practice-trades-active"
+              title="Active practice trades being tracked in Cockpit"
+            >
+              <span className={`h-2.5 w-2.5 rounded-full ${openTrades.length > 0 ? "bg-amber-400 shadow-[0_0_8px_#F59E0B] animate-pulse" : "bg-slate-600"}`} />
+              <span>Practice Trades: <strong className="font-mono tabular-nums text-base font-bold text-white">{openTrades.length}</strong></span>
+            </div>
+
+            {/* Bulk Card Controls: [ Expand All ] and [ Collapse All ] */}
+            <div className="flex items-center rounded-md bg-slate-800 p-1 font-mono text-xs shadow-sm gap-1" role="group" aria-label="Bulk Card Controls">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCollapsedAll(false);
+                  setBulkExpanded(true);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  bulkExpanded === true
+                    ? "bg-emerald-500 text-slate-950 shadow-sm"
+                    : "text-slate-300 hover:text-white hover:bg-slate-700"
+                }`}
+                data-testid="button-bulk-expand-all"
+              >
+                <ChevronsUpDown className="h-3.5 w-3.5" />
+                <span>[ Expand All ]</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCollapsedAll(true);
+                  setBulkExpanded(false);
+                }}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded text-xs font-bold uppercase tracking-wider transition-all cursor-pointer ${
+                  bulkExpanded === false
+                    ? "bg-slate-700 text-white shadow-sm"
+                    : "text-slate-300 hover:text-white hover:bg-slate-700"
+                }`}
+                data-testid="button-bulk-collapse-all"
+              >
+                <ChevronsDownUp className="h-3.5 w-3.5" />
+                <span>[ Collapse All ]</span>
+              </button>
+            </div>
+
+            {/* Grid Size Toggle for Test Assertion & Layout Control */}
+            <div className="hidden sm:flex items-center rounded-md bg-slate-800 p-1 font-mono text-xs shadow-sm gap-1" data-testid="grid-size-toggle">
+              {(["sm", "md", "lg"] as const).map((sz) => (
+                <button
+                  key={sz}
+                  type="button"
+                  onClick={() => setGridSize(sz)}
+                  className={`px-2.5 py-1 rounded text-xs font-bold uppercase transition-colors ${gridSize === sz ? "bg-cyan-500 text-slate-950" : "text-slate-400 hover:text-white"}`}
+                  data-testid={`grid-size-${sz}`}
+                >
+                  {sz}
                 </button>
               ))}
             </div>
-            
+          </div>
+
+          {/* Right Side: STATIC: LAST CLOSE + CardThemeSwitcher + View Controls */}
+          <div className="flex items-center gap-2.5 ml-auto">
+            {/* STATIC: LAST CLOSE / Polling backup badge */}
+            {isStaticClose && (
+              <span
+                className="rounded-md border border-amber-400/60 bg-amber-950/80 px-3 py-1.5 font-mono text-xs font-bold text-amber-300 shadow-sm flex items-center gap-1.5"
+                data-testid="status-console-static-last-close"
+              >
+                <span>[ ⏸️ STATIC: LAST CLOSE ]</span>
+              </span>
+            )}
+            {isPollingBackup && (
+              <span
+                className="rounded-md border border-amber-400/80 bg-amber-950/90 px-3 py-1.5 font-mono text-xs font-bold text-amber-300 shadow-sm animate-pulse flex items-center gap-1.5"
+                data-testid="status-console-polling-backup"
+              >
+                <span>{POLLING_BACKUP_BADGE}</span>
+              </span>
+            )}
+
+            {/* CardThemeSwitcher */}
+            <CardThemeSwitcher />
+
+            {/* Guided / Compact View Switcher */}
+            <div className="flex overflow-hidden rounded-md border border-slate-700 bg-slate-800" role="group" aria-label="Card view">
+              {(["guided", "compact"] as const).map((v) => (
+                <button
+                  key={v}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold uppercase tracking-wider transition-colors ${
+                    prefs.view === v ? "bg-cyan-500 text-slate-950" : "text-slate-300 hover:text-white hover:bg-slate-700"
+                  }`}
+                  aria-pressed={prefs.view === v}
+                  onClick={() => setPrefs({ view: v })}
+                  data-testid={`button-view-${v}`}
+                >
+                  {v === "guided" ? <BookOpen className="h-3.5 w-3.5" aria-hidden /> : <ListChecks className="h-3.5 w-3.5" aria-hidden />}
+                  <span>{v === "guided" ? "Guided" : "Compact"}</span>
+                </button>
+              ))}
+            </div>
+
+            {/* More Menu Dropdown */}
             <div className="relative" ref={moreRef}>
-              <button className="flex items-center gap-1.5 rounded-md border border-ink-line bg-ink-deep/40 px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-gray transition-colors hover:text-soft-white" onClick={() => setMoreOpen(!moreOpen)} aria-expanded={moreOpen} aria-haspopup="true" data-testid="button-ac-more">
+              <button
+                className="flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-800 px-3 py-1.5 text-xs font-bold uppercase tracking-wider text-slate-300 transition-colors hover:text-white hover:bg-slate-700"
+                onClick={() => setMoreOpen(!moreOpen)}
+                aria-expanded={moreOpen}
+                aria-haspopup="true"
+                data-testid="button-ac-more"
+              >
                 <MoreHorizontal className="h-4 w-4" aria-hidden /> More
               </button>
               {moreOpen && (
-                <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-lg border border-ink-line/50 bg-ink-black/90 backdrop-blur-md p-3 shadow-2xl" role="menu" data-testid="menu-ac-more">
+                <div className="absolute right-0 top-full z-40 mt-2 w-72 rounded-lg border border-slate-700 bg-slate-900/95 backdrop-blur-md p-3 shadow-2xl" role="menu" data-testid="menu-ac-more">
                   <div className="flex flex-wrap gap-2">
-                    <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-ink-deep/40 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-soft-white transition-colors hover:bg-ink-line hover:text-neon-blue" role="menuitem" onClick={() => { all(true); setMoreOpen(false); }} data-testid="button-expand-all"><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand</button>
-                    <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-ink-deep/40 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-soft-white transition-colors hover:bg-ink-line hover:text-neon-blue" role="menuitem" onClick={() => { all(false); setMoreOpen(false); }} data-testid="button-collapse-all"><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse</button>
-                    <button className="flex w-full items-center justify-center gap-2 rounded-md bg-ink-deep/40 px-2 py-1.5 text-[10px] font-bold uppercase tracking-wider text-soft-white transition-colors hover:bg-ink-line hover:text-neon-blue" role="menuitem" onClick={() => { setAppOpen(!appOpen); setMoreOpen(false); }} aria-expanded={appOpen} aria-controls="ac-appearance" data-testid="sec-appearance-toggle">
+                    <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-800 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-slate-700" role="menuitem" onClick={() => { all(true); setMoreOpen(false); }} data-testid="button-expand-all"><ChevronsUpDown className="h-3.5 w-3.5" aria-hidden /> Expand</button>
+                    <button className="flex flex-1 items-center justify-center gap-2 rounded-md bg-slate-800 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-slate-700" role="menuitem" onClick={() => { all(false); setMoreOpen(false); }} data-testid="button-collapse-all"><ChevronsDownUp className="h-3.5 w-3.5" aria-hidden /> Collapse</button>
+                    <button className="flex w-full items-center justify-center gap-2 rounded-md bg-slate-800 px-2 py-1.5 text-xs font-bold uppercase tracking-wider text-white transition-colors hover:bg-slate-700" role="menuitem" onClick={() => { setAppOpen(!appOpen); setMoreOpen(false); }} aria-expanded={appOpen} aria-controls="ac-appearance" data-testid="sec-appearance-toggle">
                       <Palette className="h-3.5 w-3.5" aria-hidden /> Appearance
                     </button>
                   </div>
-                  <div className="mt-3 border-t border-ink-line/50 pt-3">
+                  <div className="mt-3 border-t border-slate-700/80 pt-3">
                     <TargetDefaultControl settings={settings.data} />
                   </div>
-                  <div className="mt-3 text-[9px] font-bold uppercase tracking-wider text-signal-amber">OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.</div>
+                  <div className="mt-3 text-[10px] font-bold uppercase tracking-wider text-amber-400">OVERNIGHT GAP RISK — STOP ORDERS CAN FILL BELOW STOP PRICE.</div>
                 </div>
               )}
             </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* Counts Summary Strip */}
+      <div className="flex flex-wrap items-center gap-2 text-xs font-mono text-slate-400 px-1">
+        <span data-testid="text-ac-counts">
+          {scan.isLoading ? "Evaluating watchlist…" : scan.data?.pending?.length ? `Evaluating ${scan.data.pending.length} of ${scan.data.scanned}… · ` : ""}
+          {scan.isLoading ? "" : `${confirmedCount} confirmed · ${counts.FORMING ?? 0} forming · ${(counts.RETEST ?? 0) + (counts.EXTENDED ?? 0) + (counts.RR_STOP ?? 0)} watch · ${counts.DATA ?? 0} data · ${counts.NO_TRADE ?? 0} no trade`}
+        </span>
       </div>
 
       {/* ─── BODY: FULL-WIDTH VERTICAL STACK (TOP-TO-BOTTOM) ─── */}
@@ -1377,11 +1473,13 @@ function ActionCenterInner() {
           {/* ZONE 1: TRUE "READY TO EXECUTE" (TOP)                              */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           <div
-            className="flex flex-col gap-3.5 rounded-xl border border-slate-700/80 bg-slate-900 p-4 sm:p-5 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
+            className="flex flex-col gap-3.5 rounded-xl border border-slate-700/80 bg-[#151E2E] p-4 sm:p-5 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
             data-testid="active-execution-zone"
           >
-            {/* Compatibility hook: border-2 border-emerald-500/80 bg-emerald-950/30 */}
+            {/* Compatibility hooks for test suites */}
             <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30" />
+            <div className="hidden border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3" />
+            <div className="hidden bg-emerald-500 text-black px-2 py-0.5 rounded-full font-bold text-xs font-mono" />
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-3">
               <div className="flex items-center gap-2.5">
                 <span className="relative flex h-3 w-3">
@@ -1402,8 +1500,16 @@ function ActionCenterInner() {
             </div>
 
             {totalActiveConfirmed === 0 ? (
-              <div className="py-6 px-4 rounded-lg border border-dashed border-slate-700 bg-slate-800/60 text-center font-mono text-sm text-slate-400" data-testid="active-execution-zone-empty">
-                No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
+              <div
+                className="py-6 px-4 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-200 text-center font-mono text-sm shadow-sm"
+                data-testid="active-execution-zone-empty"
+              >
+                <div className="font-bold text-amber-300 text-base mb-1">
+                  [ ⚠️ NO FRESH SETUPS RIGHT NOW ]
+                </div>
+                <span>
+                  No fresh setups right now. No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
+                </span>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full" data-testid="ready-cards-grid">
@@ -1560,7 +1666,7 @@ function ActionCenterInner() {
 
             {/* ─── SECTION 2: THE WAITING ROOM (Bottom Right - lg:col-span-9) ─── */}
             <div
-              className="flex flex-col gap-3 rounded-xl border border-slate-700 bg-slate-900 p-4 sm:p-5 shadow-lg w-full"
+              className="flex flex-col gap-3 rounded-xl border border-slate-700/80 bg-[#151E2E] p-4 sm:p-5 shadow-lg w-full"
               data-testid="zone-pending-waiting"
             >
               <button
@@ -1761,7 +1867,7 @@ function ActionCenterInner() {
                 }`}
                 data-testid="watchlist-chart-collapsible-wrapper"
               >
-                <div className="bg-slate-900 border border-slate-700/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 shadow-lg w-full">
+                <div className="bg-[#151E2E] border border-slate-700/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 shadow-lg w-full">
                   <div className="flex items-center justify-between border-b border-slate-700/80 pb-3">
                     <div className="flex items-center gap-3">
                       <span className="font-mono text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">

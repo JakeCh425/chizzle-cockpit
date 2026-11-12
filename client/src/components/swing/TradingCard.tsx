@@ -2026,7 +2026,7 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
           </button>
 
           <span
-            className="font-mono text-xl font-extrabold tracking-tight text-signal-green shrink-0"
+            className={`font-mono text-xl font-extrabold tracking-tight ${cardThemeCfg.headerText} shrink-0`}
             data-testid={`card-symbol-${d.symbol}`}
           >
             {d.symbol}

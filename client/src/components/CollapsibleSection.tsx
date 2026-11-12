@@ -85,7 +85,7 @@ export default function CollapsibleSection({
   action,
   defaultCollapsed = false,
   children,
-  containerClassName = "w-full rounded-xl border border-slate-800 bg-slate-900/90 shadow-md",
+  containerClassName = "w-full rounded-xl border border-slate-700/80 bg-[#151E2E] shadow-md",
   headerToneClassName = "",
 }: CollapsibleSectionProps) {
   const { collapsed, toggle, setCollapsed } = usePanelCollapsed(id, defaultCollapsed);
@@ -101,7 +101,7 @@ export default function CollapsibleSection({
       <div
         className={[
           "flex items-center justify-between gap-2 px-4 py-3 sm:px-5",
-          collapsed ? "" : "border-b border-slate-800",
+          collapsed ? "" : "border-b border-slate-700/80",
           headerToneClassName,
         ].join(" ")}
       >
@@ -114,11 +114,11 @@ export default function CollapsibleSection({
           title={collapsed ? `Expand ${title}` : `Collapse ${title}`}
         >
           {collapsed
-            ? <ChevronDown className="w-3.5 h-3.5 text-slate-gray shrink-0" />
-            : <ChevronUp className="w-3.5 h-3.5 text-slate-gray shrink-0" />}
-          <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white truncate">{title}</span>
+            ? <ChevronDown className="w-4 h-4 text-slate-400 shrink-0" />
+            : <ChevronUp className="w-4 h-4 text-slate-400 shrink-0" />}
+          <span className="text-sm font-semibold text-white uppercase tracking-wider truncate">{title}</span>
           {hint && (
-            <span className="text-[9px] font-mono uppercase tracking-wider text-slate-gray truncate">
+            <span className="text-xs font-semibold text-slate-300 uppercase tracking-wider truncate">
               {hint}
             </span>
           )}
@@ -138,10 +138,10 @@ export function LocalCollapsible({
   const [c, setC] = useState(defaultCollapsed);
   useEffect(() => { /* no-op */ }, []);
   return (
-    <div className="w-full rounded-xl border border-slate-800 bg-slate-900/90 shadow-md">
-      <button onClick={() => setC(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b border-slate-800">
-        {c ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
-        <span className="text-[11px] font-mono uppercase tracking-wider text-soft-white">{title}</span>
+    <div className="w-full rounded-xl border border-slate-700/80 bg-[#151E2E] shadow-md">
+      <button onClick={() => setC(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 border-b border-slate-700/80">
+        {c ? <ChevronDown className="w-4 h-4 text-slate-400" /> : <ChevronUp className="w-4 h-4 text-slate-400" />}
+        <span className="text-sm font-semibold text-white uppercase tracking-wider">{title}</span>
       </button>
       {!c && <div className="p-4 sm:p-5">{children}</div>}
     </div>

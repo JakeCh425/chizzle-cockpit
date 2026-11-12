@@ -214,20 +214,20 @@ export default function SwingScannerPanel() {
   });
 
   return (
-    <div className="rounded-lg border border-ink-line bg-ink-panel shadow-sm" data-testid="panel-swing-scanner">
+    <div className="rounded-lg border border-slate-700/80 bg-[#151E2E] shadow-sm" data-testid="panel-swing-scanner">
       {/* Header */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-ink-deep rounded-t-lg"
+        className="flex w-full items-center justify-between px-4 py-3 text-left hover:bg-white/5 rounded-t-lg"
         data-testid="button-toggle-swing-scanner"
       >
-        <div className="flex items-center gap-2">
-          <Radar className="h-4 w-4 text-neon-blue" />
-          <span className="text-sm font-medium text-soft-white">
+        <div className="flex items-center gap-2.5">
+          <Radar className="h-5 w-5 text-cyan-400" />
+          <h2 className="text-2xl font-extrabold tracking-tight text-white uppercase">
             Swing Scanner
-          </span>
-          <span className="text-xs text-slate-gray">
+          </h2>
+          <span className="text-sm font-semibold text-slate-300 hidden sm:inline">
             — one-tap scan across your ETF universe
           </span>
         </div>

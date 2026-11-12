@@ -224,9 +224,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPractice = Boolean(global?.isPracticeMode);
 
   return (
-    <div className="min-h-screen bg-slate-950 text-soft-white flex flex-col" data-testid="app-shell-root">
+    <div className="min-h-screen bg-[#0B1220] text-soft-white flex flex-col" data-testid="app-shell-root">
       {/* Header strip */}
-      <header className={`border-b backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-800 bg-slate-900/90"}`}>
+      <header className={`border-b border-slate-700 backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-700 bg-slate-900/90"}`}>
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
           <BrandMark settings={settings} />
 
@@ -234,40 +234,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav className="hidden xl:flex items-center gap-1.5 ml-2" data-testid="header-essential-nav">
             <Link
               href="/"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                 location === "/" || location === "/cockpit" || location === "/pipeline"
                   ? "bg-cyan-500/15 text-cyan-400 border border-cyan-400/40 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
               }`}
               data-testid="nav-header-dashboard"
             >
-              <Gauge className="w-3.5 h-3.5 text-cyan-400" />
+              <Gauge className="w-4 h-4 text-cyan-400" />
               <span>Dashboard</span>
             </Link>
 
             <Link
               href="/engine"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                 location === "/engine" || location === "/dashboard"
                   ? "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-400/40 shadow-[0_0_10px_rgba(217,70,239,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
               }`}
               data-testid="nav-header-wealth-studio"
             >
-              <LayoutDashboard className="w-3.5 h-3.5 text-fuchsia-400" />
+              <LayoutDashboard className="w-4 h-4 text-fuchsia-400" />
               <span>Wealth Studio</span>
             </Link>
 
             <Link
               href="/watchlist"
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
                 location === "/watchlist"
                   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-400/40 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
               }`}
               data-testid="nav-header-live-scanner"
             >
-              <ListChecks className="w-3.5 h-3.5 text-emerald-400" />
+              <ListChecks className="w-4 h-4 text-emerald-400" />
               <span>Live Scanner</span>
             </Link>
 

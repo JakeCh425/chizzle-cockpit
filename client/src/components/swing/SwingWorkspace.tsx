@@ -174,25 +174,47 @@ function WatchlistPanel({ active, onFocus, selected, onToggleSelect, dataStatus,
             <li key={x.symbol}
               onClick={(e) => { if ((e.target as HTMLElement).closest("button,input,select,textarea,a")) return; onFocus(x.symbol); }}
               title={`Show ${x.symbol} on the chart`}
-              className={`px-2 py-1.5 cursor-pointer hover:bg-white/5 ${x.symbol === active ? "border-l-2 border-neon-blue " : ""}${x.symbol === active ? "bg-neon-blue/5" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
-              <div className="flex items-center gap-1.5">
-                <input type="checkbox" checked={selected.has(x.symbol)} onChange={() => onToggleSelect(x.symbol)} aria-label={`Select ${x.symbol} for scan`} data-testid={`checkbox-select-${x.symbol}`} />
-                <button className="font-mono text-xs font-bold text-soft-white hover:text-neon-blue" onClick={() => onFocus(x.symbol)} data-testid={`button-focus-${x.symbol}`} title="Focus chart">{x.symbol}</button>
-                <button className="text-[9.5px] px-1 rounded border border-ink-line text-slate-gray hover:text-soft-white" title="Toggle ETF / Stock"
-                  onClick={() => patch.mutate({ s: x.symbol, p: { assetType: x.assetType === "ETF" ? "STOCK" : "ETF" } })} data-testid={`button-assettype-${x.symbol}`}>{x.assetType}</button>
-                {dataStatus[x.symbol] && <DataPill s={dataStatus[x.symbol]} />}
-                {status && <span className={isExpired ? "inline" : "hidden sm:inline"}><StatusPill s={status} short /></span>}
-                <span className="ml-auto flex items-center">
-                  <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { pinned: !x.pinned } })} aria-label={x.pinned ? "Unpin" : "Pin"} data-testid={`button-pin-${x.symbol}`}>{x.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}</button>
-                  <button className={iconBtn} onClick={() => move(x, -1)} aria-label="Move up" data-testid={`button-up-${x.symbol}`}><ArrowUp className="h-3 w-3" /></button>
-                  <button className={iconBtn} onClick={() => move(x, 1)} aria-label="Move down" data-testid={`button-down-${x.symbol}`}><ArrowDown className="h-3 w-3" /></button>
-                  <button className={iconBtn} onClick={() => { setNoteFor(noteFor === x.symbol ? null : x.symbol); setNoteText(x.notes ?? ""); }} aria-label="Notes" data-testid={`button-notes-${x.symbol}`}><StickyNote className="h-3 w-3" /></button>
-                  <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { hidden: !x.hidden } })} aria-label={x.hidden ? "Show" : "Hide"} data-testid={`button-hide-${x.symbol}`}>{x.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button>
-                  {!x.isDefault && <>
-                    <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { archived: !x.categories.includes("ARCHIVED") } })} aria-label="Archive" data-testid={`button-archive-${x.symbol}`}><Archive className="h-3 w-3" /></button>
-                    <button className={iconBtn} onClick={() => { if (confirm(`Remove ${x.symbol} from the watchlist?`)) del.mutate(x.symbol); }} aria-label="Remove" data-testid={`button-remove-${x.symbol}`}><Trash2 className="h-3 w-3" /></button>
-                  </>}
-                </span>
+              className={`px-3 py-2 cursor-pointer hover:bg-white/5 transition-colors ${x.symbol === active ? "border-l-2 border-cyan-400 bg-cyan-500/10" : ""} ${x.hidden ? "opacity-50" : ""}`} data-testid={`row-watch-${x.symbol}`}>
+              <div className="flex justify-between items-center group w-full">
+                <div className="flex items-center gap-2 min-w-0">
+                  <input type="checkbox" checked={selected.has(x.symbol)} onChange={() => onToggleSelect(x.symbol)} aria-label={`Select ${x.symbol} for scan`} data-testid={`checkbox-select-${x.symbol}`} />
+                  <button className="font-mono text-base font-bold text-white hover:text-cyan-400 transition-colors" onClick={() => onFocus(x.symbol)} data-testid={`button-focus-${x.symbol}`} title="Focus chart">{x.symbol}</button>
+                  <button className="text-xs px-1.5 py-0.5 rounded border border-slate-700 text-slate-300 hover:text-white font-mono" title="Toggle ETF / Stock"
+                    onClick={() => patch.mutate({ s: x.symbol, p: { assetType: x.assetType === "ETF" ? "STOCK" : "ETF" } })} data-testid={`button-assettype-${x.symbol}`}>{x.assetType}</button>
+                  {dataStatus[x.symbol] && <DataPill s={dataStatus[x.symbol]} />}
+                  {status && <span className={isExpired ? "inline" : "hidden sm:inline"}><StatusPill s={status} short /></span>}
+                </div>
+                {/* Quick Manage Actions on Hover */}
+                <div className="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); setQ(x.symbol); }}
+                    className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
+                    title={`Add new ticker related to ${x.symbol}`}
+                    data-testid={`button-quick-add-${x.symbol}`}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      if (confirm(`Remove ${x.symbol} from the scanner?`)) del.mutate(x.symbol);
+                    }}
+                    className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
+                    title={`Remove ${x.symbol} from scanner`}
+                    data-testid={`button-quick-remove-${x.symbol}`}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                  <span className="flex items-center ml-1 border-l border-slate-700 pl-1">
+                    <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { pinned: !x.pinned } })} aria-label={x.pinned ? "Unpin" : "Pin"} data-testid={`button-pin-${x.symbol}`}>{x.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}</button>
+                    <button className={iconBtn} onClick={() => move(x, -1)} aria-label="Move up" data-testid={`button-up-${x.symbol}`}><ArrowUp className="h-3 w-3" /></button>
+                    <button className={iconBtn} onClick={() => move(x, 1)} aria-label="Move down" data-testid={`button-down-${x.symbol}`}><ArrowDown className="h-3 w-3" /></button>
+                    <button className={iconBtn} onClick={() => { setNoteFor(noteFor === x.symbol ? null : x.symbol); setNoteText(x.notes ?? ""); }} aria-label="Notes" data-testid={`button-notes-${x.symbol}`}><StickyNote className="h-3 w-3" /></button>
+                    <button className={iconBtn} onClick={() => patch.mutate({ s: x.symbol, p: { hidden: !x.hidden } })} aria-label={x.hidden ? "Show" : "Hide"} data-testid={`button-hide-${x.symbol}`}>{x.hidden ? <Eye className="h-3 w-3" /> : <EyeOff className="h-3 w-3" />}</button>
+                  </span>
+                </div>
               </div>
               {!isExpired && (
                 <>
