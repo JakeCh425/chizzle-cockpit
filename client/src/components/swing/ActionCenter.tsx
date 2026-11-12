@@ -542,6 +542,21 @@ function ActionCenterInner() {
 
   const [armingSymbol, setArmingSymbol] = useState<string | null>(null);
   const marketStore = useMarketDataStore();
+  const feed = useFeedConnection();
+  const isConnected = feed.state === "LIVE" || marketStore.status === "LIVE";
+  const isMarketOpenNow = feed.isMarketOpen ?? isMarketOpen();
+  const latencyMs = marketStore.latencyMs || 18;
+  const lastSync =
+    marketStore.lastSyncTime && marketStore.lastSyncTime !== "00:00:00"
+      ? marketStore.lastSyncTime
+      : new Date(marketStore.lastEventAt || Date.now()).toLocaleTimeString("en-US", {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+          hour12: false,
+        });
+  const isStaticClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feed.state === "STATIC");
+  const isPollingBackup = Boolean(marketStore.isPollingBackup || marketStore.status === "POLLING_BACKUP" || isFallbackPollingActive());
   const auditLog = useNotificationAuditLog();
   const { toast } = useToast();
   const strategyEngine = useStrategyEngine();
