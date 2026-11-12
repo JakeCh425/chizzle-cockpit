@@ -50,9 +50,10 @@ describe("Institutional Brokerage Platform Overhaul & Quick Actions", () => {
     // Solid highly visible pill filter buttons
     expect(acSrc).toContain("bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm");
 
-    // High-contrast warning banner for no fresh setups
-    expect(acSrc).toContain("bg-amber-500/20 border border-amber-500/50 text-amber-200");
-    expect(acSrc).toContain("[ ⚠️ NO FRESH SETUPS RIGHT NOW ]");
+    // Sleek Radar/Scanning empty state for zero ready setups (no yellow/orange/red warnings)
+    expect(acSrc).toContain("border-2 border-dashed border-slate-800 bg-[#0B1220]/50 rounded-lg w-full");
+    expect(acSrc).toContain("NO ACTIVE EXECUTION TRIGGERS");
+    expect(acSrc).toContain("System is monitoring pending setups. Awaiting 1H candle confirmation.");
   });
 
   it("Task 3: Swing Scanner Quick Actions & Row Layout", () => {

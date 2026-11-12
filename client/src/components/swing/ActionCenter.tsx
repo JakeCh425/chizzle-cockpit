@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { motion } from "framer-motion";
 import { evaluateExecutionGating } from "@/lib/executionGating";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, RefreshCw, Settings, Sparkles, Trash2, X, Zap } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Radar, RefreshCw, Settings, Sparkles, Trash2, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
@@ -1516,14 +1516,15 @@ function ActionCenterInner() {
 
             {totalActiveConfirmed === 0 ? (
               <div
-                className="py-6 px-4 rounded-lg bg-amber-500/20 border border-amber-500/50 text-amber-200 text-center font-mono text-sm shadow-sm"
+                className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-800 bg-[#0B1220]/50 rounded-lg w-full"
                 data-testid="active-execution-zone-empty"
               >
-                <div className="font-bold text-amber-300 text-base mb-1">
-                  [ ⚠️ NO FRESH SETUPS RIGHT NOW ]
-                </div>
-                <span>
-                  No fresh setups right now. No confirmed trades awaiting execution. Setups currently forming or awaiting trigger validation are listed below.
+                <Radar className="w-8 h-8 text-slate-600 mb-4 animate-pulse" />
+                <span className="text-sm font-mono font-bold tracking-[0.2em] text-slate-500 uppercase mb-2">
+                  NO ACTIVE EXECUTION TRIGGERS
+                </span>
+                <span className="text-xs font-sans text-slate-600">
+                  System is monitoring pending setups. Awaiting 1H candle confirmation.
                 </span>
               </div>
             ) : (
