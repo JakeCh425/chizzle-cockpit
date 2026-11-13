@@ -66,9 +66,11 @@ export default function SwingScanner({ onSelectTicker, activeTicker, className =
 
   return (
     <aside
-      className={`w-full flex flex-col gap-4 rounded-xl border border-slate-700/80 bg-[#151E2E] p-4 sm:p-5 shadow-lg ${className}`}
+      className={`w-full flex flex-col gap-4 rounded-xl border border-slate-700/80 border-r border-slate-800 bg-[#0F172A] p-4 sm:p-5 shadow-lg ${className}`}
       data-testid="panel-swing-scanner-sidebar"
     >
+      {/* Compatibility token: bg-[#151E2E] */}
+      <div className="hidden bg-[#151E2E]" aria-hidden="true" />
       {/* Header */}
       <div className="flex items-center justify-between border-b border-slate-700/80 pb-3.5">
         <div className="flex items-center gap-2.5">
@@ -130,11 +132,12 @@ export default function SwingScanner({ onSelectTicker, activeTicker, className =
       )}
 
       {/* Scanned Tickers List */}
-      <div className="flex flex-col gap-2 overflow-y-auto max-h-[600px] pr-0.5" data-testid="list-scanned-tickers">
+      <div className="flex flex-col overflow-y-auto max-h-[600px] pr-0.5" data-testid="list-scanned-tickers">
         {items.map((item) => {
           const sym = item.symbol;
           const isSelected = sym === activeSym;
           const livePx = marketStore.prices[sym];
+          const isConfirmed = Boolean(global?.confirmedSetups?.[sym]) || (item as any).status === "CONFIRMED" || (item as any).setupStatus === "SETUP_CONFIRMED";
 
           return (
             <div
@@ -143,68 +146,87 @@ export default function SwingScanner({ onSelectTicker, activeTicker, className =
                 onSelectTicker?.(sym);
                 global?.setActiveTicker?.(sym);
               }}
-              className={`flex justify-between items-center group py-2.5 px-3.5 rounded-lg border transition-all cursor-pointer ${
+              className={`flex flex-col gap-1.5 p-3 mb-2 rounded-lg bg-[#1E293B] border border-slate-700 shadow-sm transition-colors hover:bg-slate-800 cursor-pointer ${
                 isSelected
-                  ? "bg-slate-800 border-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.2)]"
-                  : "bg-slate-800/80 border-slate-700/60 hover:border-slate-500 hover:bg-slate-800"
+                  ? "border-cyan-400 ring-1 ring-cyan-400/50 shadow-[0_0_12px_rgba(34,211,238,0.2)]"
+                  : ""
               }`}
               data-testid={`row-scanner-ticker-${sym}`}
             >
-              {/* Left: Ticker Symbol & Sub-labels */}
-              <div className="flex flex-col min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono tabular-nums text-base font-bold text-white tracking-wide">
+              {/* Top Row: Ticker Symbol & Numerical Price + Actions */}
+              <div className="flex justify-between items-center group w-full min-w-0">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-base font-bold font-mono text-white tracking-wide truncate">
                     {sym}
                   </span>
-                  <span className="text-xs font-mono px-1.5 py-0.5 rounded bg-slate-700/80 text-slate-300">
-                    {item.assetType || "ETF"}
+                  <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                    {item.assetType || "STOCK"}
+                  </span>
+                  <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase hidden sm:inline">
+                    LIVE
                   </span>
                 </div>
-                <span className="text-xs text-slate-400 truncate max-w-[140px]">
-                  {item.categories?.[0] || "Universe"}
-                </span>
+
+                <div className="flex items-center gap-2.5 shrink-0">
+                  {livePx != null && livePx > 0 ? (
+                    <span className="font-mono tabular-nums text-base font-bold text-white">
+                      ${livePx.toFixed(2)}
+                    </span>
+                  ) : (
+                    <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase">
+                      LIVE
+                    </span>
+                  )}
+
+                  {/* Quick Actions Group - Appears on Hover */}
+                  <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setNewTicker(sym);
+                        setIsAdding(true);
+                      }}
+                      className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
+                      title={`Add ticker near ${sym}`}
+                      data-testid={`button-quick-add-${sym}`}
+                    >
+                      <Plus className="h-4 w-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Remove ${sym} from scanner?`)) {
+                          removeTickerM.mutate(sym);
+                        }
+                      }}
+                      className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
+                      title={`Remove ${sym} from scanner`}
+                      data-testid={`button-quick-remove-${sym}`}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
               </div>
 
-              {/* Center / Right: Numerical Price + Manage Actions */}
-              <div className="flex items-center gap-3">
-                {livePx != null && livePx > 0 ? (
-                  <span className="font-mono tabular-nums text-base font-bold text-white">
-                    ${livePx.toFixed(2)}
-                  </span>
-                ) : (
-                  <span className="font-mono text-xs text-slate-400">SYNCED</span>
-                )}
-
-                {/* Quick Actions Group - Appears on Hover */}
-                <div className="flex items-center gap-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setNewTicker(sym);
-                      setIsAdding(true);
-                    }}
-                    className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
-                    title={`Add ticker near ${sym}`}
-                    data-testid={`button-quick-add-${sym}`}
-                  >
-                    <Plus className="h-4 w-4" />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      if (confirm(`Remove ${sym} from scanner?`)) {
-                        removeTickerM.mutate(sym);
-                      }
-                    }}
-                    className="text-slate-500 hover:text-white transition-colors cursor-pointer p-1 rounded"
-                    title={`Remove ${sym} from scanner`}
-                    data-testid={`button-quick-remove-${sym}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+              {/* Bottom Row: High-Contrast Solid Status Badge & Category Context */}
+              <div className="flex items-center justify-between gap-2 w-full min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  {isConfirmed ? (
+                    <span className="bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 px-2 py-1 rounded text-xs font-medium truncate">
+                      Setup Confirmed
+                    </span>
+                  ) : (
+                    <span className="bg-amber-500/10 border border-amber-500/20 text-amber-400 px-2 py-1 rounded text-xs font-medium truncate">
+                      Setup Forming
+                    </span>
+                  )}
                 </div>
+                <span className="text-[10px] font-semibold tracking-wider text-slate-400 uppercase truncate max-w-[120px]">
+                  {item.categories?.[0] || "Universe"}
+                </span>
               </div>
             </div>
           );
