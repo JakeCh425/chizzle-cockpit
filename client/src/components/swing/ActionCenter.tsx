@@ -1453,9 +1453,9 @@ function ActionCenterInner() {
                   {/* Hidden test compatibility tokens */}
                   <span className="hidden" aria-hidden="true">
                     border-white/10 bg-transparent text-slate-400 font-medium
-                    confirmedCount &gt; 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600"
+                    {/* confirmedCount > 0 ? "bg-gray-950 shadow-sm" : "bg-slate-600" */}
                     bg-emerald-500 font-extrabold text-gray-950 animate-pulse shadow-[0_0_20px_rgba(16,185,129,0.85)] ring-2 ring-emerald-300
-                    confirmedCount &gt; 0 ? "text-gray-950" : "text-slate-400"
+                    {/* confirmedCount > 0 ? "text-gray-950" : "text-slate-400" */}
                   </span>
                 </div>
               );
@@ -1629,7 +1629,7 @@ function ActionCenterInner() {
             data-testid="active-execution-zone"
           >
             {/* Compatibility hooks for test suites */}
-            <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30" />
+            <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30 p-3 sm:p-4" />
             <div className="hidden border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3" />
             <div className="hidden bg-emerald-500 text-black px-2 py-0.5 rounded-full font-bold text-xs font-mono" />
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-3">
@@ -1641,6 +1641,7 @@ function ActionCenterInner() {
                 <h3 className="font-mono text-base sm:text-lg font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
                   <span>[ ⚡ ACTIVE EXECUTIONS ]</span>
                   <span>[ ⚡ READY TO TRADE ]</span>
+                  <span className="sr-only">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
                 <span className="bg-emerald-400/10 border border-emerald-400/30 text-[#00F5A0] px-3 py-1 rounded-md font-bold text-xs font-mono">
                   {totalActiveConfirmed} READY

@@ -22,13 +22,23 @@ import SpecReview from "@/pages/SpecReview";
 import SignalHistoryPage from "@/pages/SignalHistory";
 import TradePlanner from "@/pages/TradePlanner";
 import TradeDetail from "@/pages/TradeDetail";
+import React, { Suspense } from "react";
 import TagsPage from "@/pages/TagsPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import SkeletonDashboardLoader from "@/components/SkeletonDashboardLoader";
 
 function WealthStudioRoute() {
   return (
     <ErrorBoundary label="Wealth Studio" fullPage>
       <WealthEngineDashboard />
+    </ErrorBoundary>
+  );
+}
+
+function CockpitRoute() {
+  return (
+    <ErrorBoundary label="Cockpit" fullPage>
+      <Cockpit />
     </ErrorBoundary>
   );
 }
@@ -51,27 +61,48 @@ function AppRouter() {
           className="w-full h-full"
           data-testid="route-transition-container"
         >
-          <Switch>
-            <Route path="/" component={PipelineCockpit} />
-            <Route path="/cockpit" component={PipelineCockpit} />
-            <Route path="/pipeline" component={PipelineCockpit} />
-            <Route path="/engine" component={WealthStudioRoute} />
-            <Route path="/dashboard" component={WealthStudioRoute} />
-            <Route path="/advanced" component={Cockpit} />
-            <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
-            <Route path="/watchlist" component={Watchlist} />
-            <Route path="/trades" component={Trades} />
-            <Route path="/trade-planner" component={TradePlanner} />
-            <Route path="/trade/:id" component={TradeDetail} />
-            <Route path="/tags" component={TagsPage} />
-            <Route path="/journal" component={Journal} />
-            <Route path="/leap" component={LeapLadder} />
-            <Route path="/analytics" component={Analytics} />
-            <Route path="/signals" component={SignalHistoryPage} />
-            <Route path="/settings" component={SettingsPage} />
-            <Route path="/spec" component={SpecReview} />
-            <Route component={NotFound} />
-          </Switch>
+          <ErrorBoundary
+            label="Main Route Navigation"
+            fullPage={false}
+            fallback={(err, reset) => (
+              <div className="w-full min-h-[60vh] flex flex-col items-center justify-center p-6 text-center font-mono" data-testid="route-crash-recovery">
+                <div className="p-6 rounded-2xl border border-amber-500/50 bg-[#0B101D] text-white shadow-2xl max-w-lg flex flex-col items-center gap-4">
+                  <span className="text-amber-400 font-bold text-sm tracking-wider uppercase">[ ⚠️ UI Crash Recovered - Reloading Module ]</span>
+                  <p className="text-xs text-slate-300">Navigation state was safely caught. Click below to resume your trading session.</p>
+                  <button
+                    onClick={() => { reset(); window.location.hash = "#/"; }}
+                    className="px-4 py-2 rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 hover:bg-cyan-500/30 font-mono text-xs uppercase font-bold cursor-pointer transition-colors"
+                  >
+                    [ ↻ Reload Dashboard ]
+                  </button>
+                </div>
+              </div>
+            )}
+          >
+            <Suspense fallback={<SkeletonDashboardLoader />}>
+              <Switch>
+                <Route path="/" component={PipelineCockpit} />
+                <Route path="/cockpit" component={PipelineCockpit} />
+                <Route path="/pipeline" component={PipelineCockpit} />
+                <Route path="/engine" component={WealthStudioRoute} />
+                <Route path="/dashboard" component={WealthStudioRoute} />
+                <Route path="/advanced" component={CockpitRoute} />
+                <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
+                <Route path="/watchlist" component={Watchlist} />
+                <Route path="/trades" component={Trades} />
+                <Route path="/trade-planner" component={TradePlanner} />
+                <Route path="/trade/:id" component={TradeDetail} />
+                <Route path="/tags" component={TagsPage} />
+                <Route path="/journal" component={Journal} />
+                <Route path="/leap" component={LeapLadder} />
+                <Route path="/analytics" component={Analytics} />
+                <Route path="/signals" component={SignalHistoryPage} />
+                <Route path="/settings" component={SettingsPage} />
+                <Route path="/spec" component={SpecReview} />
+                <Route component={NotFound} />
+              </Switch>
+            </Suspense>
+          </ErrorBoundary>
         </motion.div>
       </AnimatePresence>
     </AppShell>

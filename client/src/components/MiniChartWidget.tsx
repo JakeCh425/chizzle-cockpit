@@ -13,7 +13,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { LineChart, Line, ResponsiveContainer, YAxis, Tooltip, CartesianGrid, ReferenceLine } from "recharts";
 import { Maximize2 } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { computeSMAs, computeSignal, getAScore, type SignalColor } from "@/lib/sma";
@@ -35,6 +35,9 @@ interface Props {
   /** Click handler — fired when the user clicks the expand affordance, the
    *  A-score badge, or the chart area. Use this to open the full-chart modal. */
   onExpand?: (symbol: string, interval: Interval) => void;
+  entryPrice?: number;
+  stopLoss?: number;
+  target1?: number;
 }
 
 // Sensible foreground refresh per interval (matches the server-side cache TTL).
@@ -104,10 +107,16 @@ const ChartView = memo(function ChartView({
   rows,
   height,
   visible,
+  entryPrice,
+  stopLoss,
+  target1,
 }: {
   rows: ChartRow[];
   height: number;
   visible: SmaVisibility;
+  entryPrice?: number;
+  stopLoss?: number;
+  target1?: number;
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -135,6 +144,33 @@ const ChartView = memo(function ChartView({
           <Line type="monotone" dataKey="sma20" stroke={SMA_COLORS.sma20} strokeWidth={1} dot={false} isAnimationActive={false} connectNulls />
         )}
         <Line type="monotone" dataKey="price" stroke="hsl(var(--soft-white))" strokeWidth={1.5} dot={false} isAnimationActive={false} />
+        {entryPrice != null && entryPrice > 0 && (
+          <ReferenceLine
+            y={entryPrice}
+            stroke="#06b6d4"
+            strokeDasharray="3 3"
+            strokeWidth={1.5}
+            label={{ value: `Entry $${entryPrice.toFixed(2)}`, fill: "#06b6d4", fontSize: 10, position: "insideTopLeft" }}
+          />
+        )}
+        {stopLoss != null && stopLoss > 0 && (
+          <ReferenceLine
+            y={stopLoss}
+            stroke="#f43f5e"
+            strokeDasharray="3 3"
+            strokeWidth={1.5}
+            label={{ value: `Stop $${stopLoss.toFixed(2)}`, fill: "#f43f5e", fontSize: 10, position: "insideBottomLeft" }}
+          />
+        )}
+        {target1 != null && target1 > 0 && (
+          <ReferenceLine
+            y={target1}
+            stroke="#10b981"
+            strokeDasharray="3 3"
+            strokeWidth={1.5}
+            label={{ value: `Target $${target1.toFixed(2)}`, fill: "#10b981", fontSize: 10, position: "insideTopRight" }}
+          />
+        )}
       </LineChart>
     </ResponsiveContainer>
   );
@@ -228,6 +264,9 @@ export default function MiniChartWidget({
   height = 120,
   editableTicker = true,
   onExpand,
+  entryPrice,
+  stopLoss,
+  target1,
 }: Props) {
   const [symbol, setSymbol] = useState(ticker.toUpperCase());
   const [input, setInput] = useState(symbol);
@@ -493,7 +532,14 @@ export default function MiniChartWidget({
         )}
         {rows.length > 0 && (
           <>
-            <ChartView rows={rows} height={height} visible={visible} />
+            <ChartView
+              rows={rows}
+              height={height}
+              visible={visible}
+              entryPrice={entryPrice}
+              stopLoss={stopLoss}
+              target1={target1}
+            />
             <SmaFloatingLabels data={labelData} visible={visible} show={hovering} />
           </>
         )}
