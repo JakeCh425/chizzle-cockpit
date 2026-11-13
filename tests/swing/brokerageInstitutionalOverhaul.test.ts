@@ -119,4 +119,38 @@ describe("Institutional Brokerage Platform Overhaul & Quick Actions", () => {
     expect(acSrc).toContain("[ ⏳ Too High (+");
     expect(acSrc).toContain("[ 🎯 Testing 20-SMA Support (");
   });
+
+  it("Task 6: Strict Error Boundary, Obsidian Palette, Cyber Terminal Typography & Two-Bucket Hierarchy", () => {
+    // Error Boundary wrapping ActionCenter
+    expect(acSrc).toContain("class ActionCenterErrorBoundary");
+    expect(acSrc).toContain("<ActionCenterErrorBoundary>");
+    expect(acSrc).toContain('data-testid="action-center-error-boundary"');
+
+    // Properly initialized isPractice state variable at top level
+    expect(acSrc).toContain("const isPractice = Boolean(global?.isPracticeMode ?? localPracticeMode);");
+
+    // Mode Toggle: [ 🧪 SYSTEM MODE: LIVE / PRACTICE ]
+    expect(acSrc).toContain('data-testid="button-actioncenter-system-mode"');
+    expect(acSrc).toContain("[ 🧪 SYSTEM MODE: PRACTICE ]");
+    expect(acSrc).toContain("[ 🧪 SYSTEM MODE: LIVE ]");
+    expect(telemetrySrc).toContain("[ 🧪 SYSTEM MODE: PRACTICE ]");
+    expect(telemetrySrc).toContain("[ 🧪 SYSTEM MODE: LIVE ]");
+
+    // Two distinct buckets: [ ⚡ ACTIVE EXECUTIONS ] and [ ⏳ PENDING SETUPS ]
+    expect(acSrc).toContain("[ ⚡ ACTIVE EXECUTIONS ]");
+    expect(acSrc).toContain("[ ⏳ PENDING SETUPS ]");
+
+    // Human-readable labels & AI coaching
+    expect(acSrc).toContain("Rule Met: 1H Green Bounce Off Moving Average");
+    expect(acSrc).toContain("Too High — Wait for Pullback to");
+
+    // Beginner Practice Drill: Simulate 1H bounce
+    expect(acSrc).toContain("[ ⚡ SIMULATE 1H BOUNCE ]");
+    expect(acSrc).toContain("[ ✓ Log Practice Swing ]");
+
+    // Obsidian Palette & Large Typography
+    expect(acSrc).toContain("bg-[#050810]");
+    expect(acSrc).toContain("bg-[#0B101D]");
+    expect(acSrc).toContain("text-3xl font-black tracking-tight text-white");
+  });
 });

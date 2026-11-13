@@ -125,7 +125,8 @@ export default function UnifiedTelemetryStrip() {
           title="Toggle Practice Sandbox Paper Trading Mode"
         >
           <Beaker className={`h-3.5 w-3.5 ${isPractice ? "text-[#FFB800]" : "text-slate-500"}`} />
-          <span>{isPractice ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+          <span>{isPractice ? "[ 🧪 SYSTEM MODE: PRACTICE ]" : "[ 🧪 SYSTEM MODE: LIVE ]"}</span>
+          <span className="sr-only">{isPractice ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
         </button>
       </div>
 

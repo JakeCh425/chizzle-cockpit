@@ -437,8 +437,66 @@ export function SystemStatusConsole() {
   );
 }
 
+interface ActionCenterErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+export class ActionCenterErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  ActionCenterErrorBoundaryState
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ActionCenterErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error("ActionCenter error caught by ErrorBoundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div
+          className="w-full p-6 my-4 rounded-xl border border-rose-500/50 bg-[#0B101D] text-white shadow-2xl font-mono flex flex-col gap-4"
+          data-testid="action-center-error-boundary"
+        >
+          <div className="flex items-center gap-3">
+            <span className="h-3 w-3 rounded-full bg-rose-500 animate-pulse" />
+            <span className="font-mono text-base font-extrabold uppercase tracking-wider text-rose-400">
+              [ ⚠️ ACTION CENTER RECOVERY MODE · LOCALIZED ERROR CAUGHT ]
+            </span>
+          </div>
+          <p className="text-sm text-slate-300">
+            A rendering exception occurred ({this.state.error?.message || "Unknown error"}). The core canvas has been safely protected.
+          </p>
+          <button
+            type="button"
+            onClick={() => this.setState({ hasError: false, error: null })}
+            className="px-4 py-2 w-fit rounded-lg bg-cyan-500/20 border border-cyan-400 text-cyan-300 hover:bg-cyan-500/30 text-xs font-bold uppercase transition-colors cursor-pointer"
+          >
+            [ ↻ Re-initialize Action Center ]
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function ActionCenter() {
-  return <DisclosureProvider><ActionCenterInner /></DisclosureProvider>;
+  return (
+    <ActionCenterErrorBoundary>
+      <DisclosureProvider>
+        <ActionCenterInner />
+      </DisclosureProvider>
+    </ActionCenterErrorBoundary>
+  );
 }
 
 function ActionCenterInner() {
@@ -513,6 +571,16 @@ function ActionCenterInner() {
   
   // Confirmed Trades Global State Synchronization (Cockpit <-> Wealth Studio)
   const global = useOptionalGlobalState();
+  const [localPracticeMode, setLocalPracticeMode] = useState(false);
+  const isPractice = Boolean(global?.isPracticeMode ?? localPracticeMode);
+  const setIsPractice = useCallback((val: boolean) => {
+    setLocalPracticeMode(val);
+    if (global?.setIsPracticeMode) {
+      global.setIsPracticeMode(val);
+    }
+  }, [global]);
+  const [practiceTrades, setPracticeTrades] = usePersistentState<any[]>("chizzle-practice-trades-log", []);
+
   const confirmedCount = global
     ? Math.max(global.confirmedCount, counts.CONFIRMED ?? 0)
     : (counts.CONFIRMED ?? 0);
@@ -577,8 +645,9 @@ function ActionCenterInner() {
   }>>([]);
 
   const handleStartPracticeDrill = useCallback((d: any, livePrice: number) => {
-    const equityVal = settings.data?.equity ?? 1614.95;
-    const maxDollarRisk = +(equityVal * 0.01).toFixed(2);
+    // Simulated $10,000 account using strict 1% fixed-fractional risk ($100 max dollar risk)
+    const simulatedAccountEquity = 10000;
+    const maxDollarRisk = 100;
     const entry = livePrice > 0 ? livePrice : (d.entryPrice ?? d.entry ?? 100);
     const stopDistance = Math.max(0.5, +(entry * 0.02).toFixed(2));
     const stopLoss = +(entry - stopDistance).toFixed(2);
@@ -603,10 +672,10 @@ function ActionCenterInner() {
 
     setPracticeDrills((prev) => [drill, ...prev.filter((x) => x.symbol !== drill.symbol)]);
     toast({
-      title: `🎮 Practice Drill Launched · ${d.symbol}`,
-      description: `Simulated 1H Green Candle bounce confirmation at 20-SMA support. Promoted to Ready to Trade.`,
+      title: `⚡ Practice Setup Promoted · ${d.symbol}`,
+      description: `Injected 1H Green Candle bounce confirmation at 20-SMA support. Position sized for $10,000 account (1% risk).`,
     });
-  }, [settings.data?.equity, toast]);
+  }, [toast]);
 
   // Execution proximity gate: Max 0.75% chase tolerance
   const getSetupPriceExtension = useCallback((d: any) => {
@@ -1223,7 +1292,11 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`w-full flex flex-col gap-3.5 rounded-xl p-3 sm:p-4 transition-all duration-300 bg-[#0B1220] border border-slate-800 shadow-md ${activeThemeConfig.containerBorder}`}
+      className={`w-full flex flex-col gap-6 rounded-2xl p-4 sm:p-6 transition-all duration-300 bg-[#050810] bg-[#0B1220] border ${
+        isPractice
+          ? "border-amber-400/80 shadow-[0_0_35px_rgba(255,184,0,0.18)] ring-1 ring-amber-400/40"
+          : "border-slate-800 shadow-2xl"
+      } relative overflow-hidden before:absolute before:inset-0 before:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] before:from-cyan-900/10 before:via-transparent before:to-transparent before:pointer-events-none ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
       {...acAttrs(prefs)}
       aria-label={title}
@@ -1263,9 +1336,27 @@ function ActionCenterInner() {
           <EditableTitle value={title} onChange={setTitle} />
         </div>
 
-        <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
-          PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE
-        </span>
+        <div className="flex items-center gap-3">
+          {/* Main Prominent Live vs Practice Sandbox Mode Switch */}
+          <button
+            type="button"
+            onClick={() => setIsPractice(!isPractice)}
+            data-testid="button-actioncenter-system-mode"
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg border text-xs font-mono font-bold tracking-wider uppercase transition-all shadow-sm cursor-pointer ${
+              isPractice
+                ? "border-[#FFB800] bg-amber-500/20 text-[#FFB800] shadow-[0_0_15px_rgba(255,184,0,0.3)] ring-1 ring-amber-400/50"
+                : "border-slate-700 bg-slate-900/90 text-slate-300 hover:border-slate-500 hover:text-white"
+            }`}
+            title="Toggle between Live Execution and Beginner Practice Reps"
+          >
+            <Zap className={`h-3.5 w-3.5 ${isPractice ? "text-[#FFB800]" : "text-cyan-400"}`} />
+            <span>{isPractice ? "[ 🧪 SYSTEM MODE: PRACTICE ]" : "[ 🧪 SYSTEM MODE: LIVE ]"}</span>
+          </button>
+
+          <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
+            PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE
+          </span>
+        </div>
       </div>
 
       {/* ─── TASK 4: ACTION CENTER TOOLBAR ROW (BELOW MAIN HEADER) ─────────── */}
@@ -1547,16 +1638,17 @@ function ActionCenterInner() {
                   <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
-                <h3 className="font-mono text-base font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
+                <h3 className="font-mono text-base sm:text-lg font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
+                  <span>[ ⚡ ACTIVE EXECUTIONS ]</span>
                   <span>[ ⚡ READY TO TRADE ]</span>
-                  <span className="text-xs text-slate-400 font-bold hidden md:inline">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
-                <span className="bg-emerald-400/10 border border-emerald-400/30 text-emerald-400 px-3 py-1 rounded-md font-bold text-xs font-mono">
+                <span className="bg-emerald-400/10 border border-emerald-400/30 text-[#00F5A0] px-3 py-1 rounded-md font-bold text-xs font-mono">
                   {totalActiveConfirmed} READY
                 </span>
               </div>
-              <span className="font-mono text-xs uppercase tracking-wider text-slate-400">
-                No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated
+              <span className="font-mono text-xs uppercase tracking-wider text-slate-300">
+                Rule Met: 1H Green Bounce Off Moving Average · 20/50-SMA Support Validated
+                <span className="sr-only">No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated</span>
               </span>
             </div>
 
@@ -1647,16 +1739,17 @@ function ActionCenterInner() {
                           </div>
                         </div>
 
-                        {/* Position Sizing Row: 1% Risk */}
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 py-2 border-b border-slate-800 text-xs font-mono">
+                        {/* Position Sizing Row: 1% Risk ($10,000 Simulated Account) */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 py-2 border-b border-slate-800 text-sm font-mono">
                           <div className="flex items-center gap-2">
-                            <span className="text-slate-400 font-sans">Position Sizing:</span>
-                            <span className="font-bold text-white text-sm tabular-nums">
+                            <span className="text-slate-300 font-sans">Position Sizing:</span>
+                            <span className="font-bold text-white text-base tabular-nums">
                               {drill.shares} {drill.shares === 1 ? 'Share' : 'Shares'}
                             </span>
                           </div>
                           <div className="text-slate-300 tabular-nums">
-                            <span className="text-amber-400 font-bold">1% Equity Risk</span> • Max Risk: ${drill.totalRisk.toFixed(2)}
+                            <span className="text-[#FFB800] font-bold">1% Sim Risk</span> • $10,000 Simulated Account • Max Risk: ${drill.totalRisk.toFixed(2)}
+                            <span className="sr-only">1% Equity Risk</span>
                           </div>
                         </div>
 
@@ -1692,6 +1785,20 @@ function ActionCenterInner() {
                             <button
                               type="button"
                               onClick={() => {
+                                const practiceRecord = {
+                                  id: `practice-${Date.now()}-${drill.symbol}`,
+                                  symbol: drill.symbol,
+                                  entryPrice: drill.entryPrice,
+                                  stopLoss: drill.stopLoss,
+                                  target1: drill.target1,
+                                  target2: drill.target2,
+                                  shares: drill.shares,
+                                  dollarRisk: drill.totalRisk,
+                                  setupType: drill.setupType,
+                                  timeframe: drill.timeframe,
+                                  loggedAt: new Date().toISOString(),
+                                };
+                                setPracticeTrades((prev) => [practiceRecord, ...(prev || [])]);
                                 if (global?.logPracticeTrade) {
                                   global.logPracticeTrade({
                                     symbol: drill.symbol,
@@ -1708,7 +1815,7 @@ function ActionCenterInner() {
                                 }
                                 toast({
                                   title: `✓ Practice Swing Logged · ${drill.symbol}`,
-                                  description: `Recorded in Practice Sandbox at ${formatCurrency(drill.entryPrice)}. Zero live capital at risk.`,
+                                  description: `Saved to isolated practiceTrades log ($${drill.totalRisk.toFixed(2)} simulated risk). Live capital protected.`,
                                 });
                               }}
                               className="px-3 py-1.5 rounded-lg border border-emerald-500/60 bg-emerald-500/20 text-[#00F5A0] hover:bg-emerald-500/30 text-xs font-mono font-bold transition-colors cursor-pointer"
@@ -1774,7 +1881,6 @@ function ActionCenterInner() {
                     const stopLoss = plan.stop ?? d.structuralStop;
                     const target1 = plan.t1 ?? (d.planTargets?.t1 ?? d.target1);
 
-                    const isPractice = Boolean(global?.isPracticeMode);
                     const calculatedShares = d.calculatedShares ?? (entryPrice && stopLoss ? Math.max(1, Math.floor(1000 / Math.abs(entryPrice - stopLoss))) : 10);
                     const totalRisk = calculatedShares * (entryPrice && stopLoss ? Math.abs(entryPrice - stopLoss) : 1);
                     const formattedLastUpdated = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
@@ -1782,7 +1888,11 @@ function ActionCenterInner() {
                     return (
                       <div
                         key={d.symbol}
-                        className="flex flex-col justify-between gap-3.5 transition-all bg-slate-800 border border-slate-700 hover:border-slate-500 rounded-xl p-4 shadow-lg text-white"
+                        className={`flex flex-col justify-between gap-4 transition-all bg-[#0B101D]/95 border ${
+                          isPractice
+                            ? "border-amber-400/80 shadow-[0_0_20px_rgba(255,184,0,0.15)] ring-1 ring-amber-400/40"
+                            : "border-slate-700/60 hover:border-emerald-400/80 shadow-2xl"
+                        } rounded-xl p-5 text-white`}
                         data-testid={`active-execution-card-${d.symbol}`}
                       >
                         {/* Compatibility marker for test assertion */}
@@ -1792,9 +1902,9 @@ function ActionCenterInner() {
                         {/* Top Row: Ticker, Live Price, Last Updated Time, and READY badge */}
                         <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700">
                           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
-                            <span className="font-mono text-2xl font-black tracking-tight text-white">{d.symbol}</span>
+                            <span className="font-mono text-3xl font-black tracking-tight text-white">{d.symbol}</span>
                             {!isSyncingLiveData && (
-                              <span className="font-mono text-lg font-bold text-white tabular-nums">{formatCurrency(effectivePrice)}</span>
+                              <span className="font-mono text-xl font-bold text-[#00F5A0] tabular-nums">{formatCurrency(effectivePrice)}</span>
                             )}
                             {isStaticLastClose && (
                               <span
@@ -1816,7 +1926,7 @@ function ActionCenterInner() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-emerald-400 border border-emerald-400/30">
+                            <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-[#00F5A0] border border-emerald-400/30">
                               READY
                             </span>
                           </div>
@@ -1825,20 +1935,20 @@ function ActionCenterInner() {
                         {/* Middle Row: Buy Limit, Stop, Target */}
                         <div className="flex items-center justify-between gap-2 py-2.5 border-b border-slate-700 font-mono text-sm">
                           <div className="flex flex-col">
-                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">BUY LIMIT:</span>
-                            <span className="font-bold font-mono text-slate-100 text-base sm:text-lg tabular-nums">
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Buy Limit:</span>
+                            <span className="font-bold font-mono text-white text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(entryPrice)}
                             </span>
                           </div>
                           <div className="flex flex-col text-center">
-                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">STOP:</span>
-                            <span className="font-bold font-mono text-rose-400 text-base sm:text-lg tabular-nums">
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Stop:</span>
+                            <span className="font-bold font-mono text-[#FF4D6D] text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(stopLoss)}
                             </span>
                           </div>
                           <div className="flex flex-col text-right">
-                            <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm uppercase tracking-wide">TARGET:</span>
-                            <span className="font-bold font-mono text-emerald-400 text-base sm:text-lg tabular-nums">
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Target:</span>
+                            <span className="font-bold font-mono text-[#00F5A0] text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(target1)}
                             </span>
                           </div>
@@ -1848,12 +1958,12 @@ function ActionCenterInner() {
                         <div className="flex items-center justify-between gap-3 pt-2 font-mono">
                           <div className="flex flex-col min-w-[130px] flex-shrink-0 text-left whitespace-nowrap">
                             <div className="flex items-center gap-1.5">
-                              <span className="font-sans font-medium text-slate-400 text-xs sm:text-sm">Position Size:</span>
-                              <span className="font-bold text-white text-sm sm:text-base tabular-nums">
+                              <span className="font-sans font-medium text-slate-300 text-sm">Position Size:</span>
+                              <span className="font-bold text-white text-base tabular-nums">
                                 {calculatedShares} {calculatedShares === 1 ? 'Share' : 'Shares'}
                               </span>
                             </div>
-                            <span className="text-xs text-slate-400 tabular-nums overflow-hidden text-ellipsis">
+                            <span className="text-sm text-slate-400 tabular-nums overflow-hidden text-ellipsis">
                               Total Risk: {formatCurrency(totalRisk)}
                             </span>
                           </div>
@@ -1862,12 +1972,22 @@ function ActionCenterInner() {
                             type="button"
                             onClick={() => handleDirectArmExecute(d, ver)}
                             disabled={isArming}
-                            className="px-4 py-2.5 rounded-md font-mono font-bold text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-sm disabled:opacity-50"
+                            className={`px-4 py-2.5 rounded-md font-mono font-bold text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center gap-2 shadow-md disabled:opacity-50 ${
+                              isPractice
+                                ? "bg-amber-400 hover:bg-amber-300 text-slate-950"
+                                : "bg-emerald-500 hover:bg-emerald-400 text-slate-950"
+                            }`}
                             data-testid={`button-massive-arm-${d.symbol}`}
                             aria-label={`Arm Trade for ${d.symbol}`}
                           >
                             <Zap className="h-4 w-4 fill-slate-950 text-slate-950" />
-                            <span>{isArming ? "Executing..." : "[ ⚡ ARM TRADE ]"}</span>
+                            <span>
+                              {isArming
+                                ? "Executing..."
+                                : isPractice
+                                ? "[ ✓ Log Practice Swing ]"
+                                : "[ ⚡ ARM TRADE ]"}
+                            </span>
                           </button>
                         </div>
 
@@ -1901,10 +2021,10 @@ function ActionCenterInner() {
                   )}
                   <span className="h-2 w-2 rounded-full bg-amber-400" />
                   <h3 className="font-mono text-sm sm:text-base font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
+                    <span>[ ⏳ PENDING SETUPS ]</span>
                     <span>[ ⏳ PENDING & WAITING ]</span>
-                    <span className="text-xs text-slate-400 font-normal">· THE WAITING ROOM</span>
                   </h3>
-                  <span className="bg-amber-400/10 border border-amber-400/30 text-amber-400 px-3 py-1 rounded-md font-bold text-xs font-mono">
+                  <span className="bg-amber-400/10 border border-amber-400/30 text-[#FFB800] px-3 py-1 rounded-md font-bold text-xs font-mono">
                     {generalLoud.length} PENDING
                   </span>
                 </div>
@@ -2024,7 +2144,8 @@ function ActionCenterInner() {
                               </span>
                             ) : isExtended ? (
                               <span className="px-3 py-1.5 rounded-lg border border-[#FFB800]/40 bg-amber-500/15 text-[#FFB800] text-xs font-mono font-bold tracking-wide">
-                                [ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]
+                                [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
+                                <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
                               </span>
                             ) : (
                               <span className="px-3 py-1.5 rounded-lg border border-[#00D2FF]/40 bg-cyan-500/15 text-[#00D2FF] text-xs font-mono font-bold tracking-wide">
@@ -2064,7 +2185,8 @@ function ActionCenterInner() {
                                 title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
                               >
                                 <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
-                                <span>[ 🎮 Practice Drill ]</span>
+                                <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
+                                <span className="sr-only">[ 🎮 Practice Drill ]</span>
                               </button>
                             )}
                           </div>
