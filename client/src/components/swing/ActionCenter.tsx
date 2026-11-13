@@ -392,7 +392,7 @@ export function SystemStatusConsole() {
           />
           <span className="text-slate-400">WebSocket:</span>
           <strong className={isConnected && !isPollingBackup ? "text-emerald-400 font-bold" : isPollingBackup ? "text-amber-300 font-bold" : "text-amber-300 font-bold"}>
-            {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : (isConnected ? "CONNECTED" : "DISCONNECTED")}
+            {isPollingBackup ? "RECONNECTING" : isConnected ? "CONNECTED" : "DISCONNECTED"}
           </strong>
         </span>
         <span className="text-slate-700">|</span>
@@ -561,6 +561,52 @@ function ActionCenterInner() {
   const { toast } = useToast();
   const strategyEngine = useStrategyEngine();
   const storeActiveSetups = useTradeSetupStore((s) => s.activeExecutionSetups);
+
+  // Beginner Practice Simulator state
+  const [practiceDrills, setPracticeDrills] = useState<Array<{
+    symbol: string;
+    entryPrice: number;
+    stopLoss: number;
+    target1: number;
+    target2: number;
+    shares: number;
+    totalRisk: number;
+    riskPct: number;
+    setupType: string;
+    timeframe: string;
+  }>>([]);
+
+  const handleStartPracticeDrill = useCallback((d: any, livePrice: number) => {
+    const equityVal = settings.data?.equity ?? 1614.95;
+    const maxDollarRisk = +(equityVal * 0.01).toFixed(2);
+    const entry = livePrice > 0 ? livePrice : (d.entryPrice ?? d.entry ?? 100);
+    const stopDistance = Math.max(0.5, +(entry * 0.02).toFixed(2));
+    const stopLoss = +(entry - stopDistance).toFixed(2);
+    const riskPerShare = Math.max(0.01, entry - stopLoss);
+    const calculatedShares = Math.max(1, Math.floor(maxDollarRisk / riskPerShare));
+    const target1 = +(entry + 1.5 * riskPerShare).toFixed(2);
+    const target2 = +(entry + 2.0 * riskPerShare).toFixed(2);
+    const totalRisk = +(calculatedShares * riskPerShare).toFixed(2);
+
+    const drill = {
+      symbol: d.symbol.toUpperCase(),
+      entryPrice: entry,
+      stopLoss,
+      target1,
+      target2,
+      shares: calculatedShares,
+      totalRisk,
+      riskPct: 1.0,
+      setupType: "4H 20-SMA Pullback (Simulated 1H Bounce)",
+      timeframe: "1H",
+    };
+
+    setPracticeDrills((prev) => [drill, ...prev.filter((x) => x.symbol !== drill.symbol)]);
+    toast({
+      title: `🎮 Practice Drill Launched · ${d.symbol}`,
+      description: `Simulated 1H Green Candle bounce confirmation at 20-SMA support. Promoted to Ready to Trade.`,
+    });
+  }, [settings.data?.equity, toast]);
 
   // Execution proximity gate: Max 0.75% chase tolerance
   const getSetupPriceExtension = useCallback((d: any) => {
@@ -990,7 +1036,7 @@ function ActionCenterInner() {
 
   const remainingConfirmedRows = (readySetups.length > 0 ? readySetups : confirmedRows).filter((d) => !heroSymSet.has(d.symbol));
   const validHeroTrades = heroTrades.filter((t) => !pendingSetups.some((p) => p.symbol === t.symbol));
-  const totalActiveConfirmed = validHeroTrades.length + remainingConfirmedRows.length;
+  const totalActiveConfirmed = validHeroTrades.length + remainingConfirmedRows.length + practiceDrills.length;
 
   const handleHeroArmOrExecute = async (trade: ConfirmedHeroTrade) => {
     try {
@@ -1549,6 +1595,149 @@ function ActionCenterInner() {
                     </motion.div>
                   ))}
 
+                  {/* Practice Execution Cards from Beginner Practice Simulator */}
+                  {practiceDrills.map((drill) => (
+                    <motion.div
+                      key={`practice-${drill.symbol}`}
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.2 }}
+                      className="w-full"
+                    >
+                      <div
+                        className="flex flex-col justify-between gap-3.5 transition-all bg-[#0D1322]/95 border-2 border-[#FFB800] rounded-xl p-4 sm:p-5 shadow-[0_0_20px_rgba(255,184,0,0.15)] text-white"
+                        data-testid={`practice-execution-card-${drill.symbol}`}
+                      >
+                        {/* Top Row: Ticker, Simulated Price, Timestamp, Badge */}
+                        <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-800">
+                          <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
+                            <span className="font-mono text-2xl font-black tracking-tight text-white">{drill.symbol}</span>
+                            <span className="font-mono text-xl font-bold text-[#00F5A0] tabular-nums">{formatCurrency(drill.entryPrice)}</span>
+                            <div className="flex items-center gap-1.5 text-xs text-amber-400 font-mono shrink-0">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+                              <span>1H Bounce Confirmed</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-amber-400/20 text-[#FFB800] border border-[#FFB800]/50 shadow-[0_0_10px_rgba(255,184,0,0.2)]">
+                              PRACTICE DRILL
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Middle Row: Entry, Stop Loss (1.0R), Target 1 (1.5R) */}
+                        <div className="grid grid-cols-3 gap-2 py-2.5 border-b border-slate-800 font-mono text-sm">
+                          <div className="flex flex-col">
+                            <span className="font-sans font-medium text-slate-400 text-xs uppercase tracking-wide">Buy Limit:</span>
+                            <span className="font-bold font-mono text-white text-base sm:text-lg tabular-nums">
+                              {formatCurrency(drill.entryPrice)}
+                            </span>
+                          </div>
+                          <div className="flex flex-col text-center">
+                            <span className="font-sans font-medium text-slate-400 text-xs uppercase tracking-wide">Stop (1.0R):</span>
+                            <span className="font-bold font-mono text-[#FF4D6D] text-base sm:text-lg tabular-nums">
+                              {formatCurrency(drill.stopLoss)}
+                            </span>
+                          </div>
+                          <div className="flex flex-col text-right">
+                            <span className="font-sans font-medium text-slate-400 text-xs uppercase tracking-wide">Target 1 (1.5R):</span>
+                            <span className="font-bold font-mono text-[#00F5A0] text-base sm:text-lg tabular-nums">
+                              {formatCurrency(drill.target1)}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Position Sizing Row: 1% Risk */}
+                        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 py-2 border-b border-slate-800 text-xs font-mono">
+                          <div className="flex items-center gap-2">
+                            <span className="text-slate-400 font-sans">Position Sizing:</span>
+                            <span className="font-bold text-white text-sm tabular-nums">
+                              {drill.shares} {drill.shares === 1 ? 'Share' : 'Shares'}
+                            </span>
+                          </div>
+                          <div className="text-slate-300 tabular-nums">
+                            <span className="text-amber-400 font-bold">1% Equity Risk</span> • Max Risk: ${drill.totalRisk.toFixed(2)}
+                          </div>
+                        </div>
+
+                        {/* Bottom Actions */}
+                        <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const ticketText = [
+                                `FIDELITY PRACTICE SWING TICKET`,
+                                `Symbol: ${drill.symbol}`,
+                                `Action: Buy Limit`,
+                                `Limit Price: $${drill.entryPrice.toFixed(2)}`,
+                                `Shares: ${drill.shares}`,
+                                `Stop Loss: $${drill.stopLoss.toFixed(2)} (1.0R)`,
+                                `Target 1: $${drill.target1.toFixed(2)} (1.5R)`,
+                                `Target 2: $${drill.target2.toFixed(2)} (2.0R)`,
+                                `Account Risk: 1% ($${drill.totalRisk.toFixed(2)})`,
+                              ].join("\n");
+                              navigator.clipboard?.writeText(ticketText);
+                              toast({
+                                title: "📋 Fidelity Ticket Copied",
+                                description: `Copied practice order ticket for ${drill.symbol} to clipboard.`,
+                              });
+                            }}
+                            className="px-3 py-1.5 rounded-lg border border-slate-700 hover:border-slate-500 bg-slate-900 text-slate-200 hover:text-white text-xs font-mono font-bold transition-colors cursor-pointer"
+                            data-testid={`button-copy-fidelity-practice-${drill.symbol}`}
+                          >
+                            [ 📋 Copy Fidelity Practice Ticket ]
+                          </button>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (global?.logPracticeTrade) {
+                                  global.logPracticeTrade({
+                                    symbol: drill.symbol,
+                                    entryPrice: drill.entryPrice,
+                                    stopLoss: drill.stopLoss,
+                                    target1: drill.target1,
+                                    target2: drill.target2,
+                                    riskReward: 1.5,
+                                    shares: drill.shares,
+                                    dollarRisk: drill.totalRisk,
+                                    setupType: drill.setupType,
+                                    timeframe: drill.timeframe,
+                                  });
+                                }
+                                toast({
+                                  title: `✓ Practice Swing Logged · ${drill.symbol}`,
+                                  description: `Recorded in Practice Sandbox at ${formatCurrency(drill.entryPrice)}. Zero live capital at risk.`,
+                                });
+                              }}
+                              className="px-3 py-1.5 rounded-lg border border-emerald-500/60 bg-emerald-500/20 text-[#00F5A0] hover:bg-emerald-500/30 text-xs font-mono font-bold transition-colors cursor-pointer"
+                              data-testid={`button-log-practice-drill-${drill.symbol}`}
+                            >
+                              [ ✓ Log Practice Swing ]
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPracticeDrills((prev) => prev.filter((x) => x.symbol !== drill.symbol));
+                                toast({
+                                  title: "Drill Reset",
+                                  description: `Practice drill for ${drill.symbol} dismissed.`,
+                                });
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-800 text-xs font-mono font-bold transition-colors cursor-pointer"
+                              data-testid={`button-reset-practice-drill-${drill.symbol}`}
+                              title="Dismiss practice drill"
+                            >
+                              [ ✕ Reset ]
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+
                   {/* Confirmed Setup Cards from Swing Scanner in side-by-side grid */}
                   {confirmedRows.map((d) => {
                     if (heroSymSet.has(d.symbol)) return null;
@@ -1606,6 +1795,17 @@ function ActionCenterInner() {
                             <span className="font-mono text-2xl font-black tracking-tight text-white">{d.symbol}</span>
                             {!isSyncingLiveData && (
                               <span className="font-mono text-lg font-bold text-white tabular-nums">{formatCurrency(effectivePrice)}</span>
+                            )}
+                            {isStaticLastClose && (
+                              <span
+                                className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300"
+                                data-testid={`badge-exec-static-last-close-${d.symbol}`}
+                              >
+                                [ ⏸️ STATIC: LAST CLOSE ]
+                              </span>
+                            )}
+                            {isSyncingLiveData && (
+                              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
                             )}
                             <div
                               className="flex items-center gap-1.5 text-xs text-slate-400 font-mono shrink-0"
@@ -1792,39 +1992,48 @@ function ActionCenterInner() {
                             global?.setActiveTicker?.(d.symbol);
                             marketStore.setActiveTicker?.(d.symbol);
                           }}
-                          className={`flex flex-col lg:flex-row lg:items-center justify-between gap-3 py-3.5 px-4 my-1.5 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 hover:border-slate-500 transition-all rounded-lg cursor-pointer font-mono ${
-                            selectedTicker === d.symbol ? "bg-slate-800 border-l-4 border-l-blue-400 shadow-md" : ""
+                          className={`p-4 mb-3 bg-[#0D1322] hover:bg-[#11192C] border border-slate-800 hover:border-cyan-500/50 rounded-xl flex flex-col xl:flex-row xl:items-center justify-between gap-4 transition-all font-mono cursor-pointer shadow-md ${
+                            selectedTicker === d.symbol ? "border-l-4 border-l-cyan-400 bg-[#11192C]" : ""
                           }`}
                           data-testid={`waiting-row-${d.symbol}`}
                         >
                           <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
-                          <div className="flex items-center gap-3 shrink-0 flex-wrap">
-                            <span className="font-bold text-white text-base sm:text-lg font-mono">{d.symbol}</span>
-                            <span className="text-slate-600">|</span>
-                            <span className="text-white font-mono tabular-nums text-base sm:text-lg font-bold">
+
+                          {/* Left: Asset Ticker, Live Price, Timestamp */}
+                          <div className="flex items-center gap-3 sm:gap-4 shrink-0 flex-wrap">
+                            <span className="font-mono text-xl sm:text-2xl font-black tracking-tight text-white">{d.symbol}</span>
+                            <span className="text-slate-700 hidden sm:inline">|</span>
+                            <span className="text-slate-100 font-mono tabular-nums text-lg sm:text-xl font-bold">
                               {formatCurrency(effectivePrice)}
                             </span>
-                            <span className="text-slate-600">|</span>
+                            <span className="text-slate-700 hidden sm:inline">|</span>
                             <div
-                              className="flex items-center gap-1.5 text-xs text-slate-400 font-mono"
+                              className="flex items-center gap-1.5 text-xs text-slate-400 font-mono shrink-0"
                               data-testid={`waiting-row-timestamp-${d.symbol}`}
                             >
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                               <span>Updated {rowTimestamp} CT</span>
                             </div>
-                            <span className="text-slate-600">|</span>
-                            <span
-                              className={`text-sm font-medium ${
-                                isExtended
-                                  ? "text-amber-400"
-                                  : d.hasHardBlock || d.isStandbyDay
-                                  ? "text-slate-400"
-                                  : "text-blue-400"
-                              }`}
-                            >
-                              {blockedReason}
-                            </span>
                           </div>
+
+                          {/* Center: Plain-English Status Badge */}
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {isHardBlock ? (
+                              <span className="px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-500/15 text-[#FF4D6D] text-xs font-mono font-bold tracking-wide">
+                                [ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]
+                              </span>
+                            ) : isExtended ? (
+                              <span className="px-3 py-1.5 rounded-lg border border-[#FFB800]/40 bg-amber-500/15 text-[#FFB800] text-xs font-mono font-bold tracking-wide">
+                                [ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]
+                              </span>
+                            ) : (
+                              <span className="px-3 py-1.5 rounded-lg border border-[#00D2FF]/40 bg-cyan-500/15 text-[#00D2FF] text-xs font-mono font-bold tracking-wide">
+                                [ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]
+                              </span>
+                            )}
+                          </div>
+
+                          {/* Right: AI Coach Pill & Beginner Practice Drill Button */}
                           <div className="flex items-center gap-2.5 flex-wrap">
                             {isExtended && (
                               <div
@@ -1834,12 +2043,30 @@ function ActionCenterInner() {
                                 <span>{extendedBadgeText}</span>
                               </div>
                             )}
+
                             <div
                               className="bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2"
                               data-testid={`badge-waiting-ai-tip-${d.symbol}`}
                             >
                               <span>{aiTip}</span>
                             </div>
+
+                            {/* Beginner Practice Simulator Drill Trigger */}
+                            {isPractice && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartPracticeDrill(d, effectivePrice);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
+                                data-testid={`button-practice-drill-${d.symbol}`}
+                                title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
+                              >
+                                <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
+                                <span>[ 🎮 Practice Drill ]</span>
+                              </button>
+                            )}
                           </div>
                         </div>
                       );
@@ -2099,6 +2326,14 @@ function ActionCenterInner() {
                 }}
               />
               <PlanRefreshBar settings={settings.data} />
+              <StepByStepActionChecklist
+                symbol="SPY"
+                triggerPrice={580}
+                stopLossPrice={570}
+                target1Price={595}
+                currentPrice={580}
+              />
+              <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
             </div>
 
             {dlgDecision && (

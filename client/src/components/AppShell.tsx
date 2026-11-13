@@ -12,6 +12,7 @@ import {
   FileText, Activity, ClipboardList, Beaker,
 } from "lucide-react";
 import { useOptionalGlobalState } from "@/lib/globalState";
+import UnifiedTelemetryStrip from "./UnifiedTelemetryStrip";
 
 interface RegimePayload {
   state: RegimeState;
@@ -224,7 +225,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const isPractice = Boolean(global?.isPracticeMode);
 
   return (
-    <div className="min-h-screen bg-[#0B1220] text-soft-white flex flex-col" data-testid="app-shell-root">
+    <div className="min-h-screen bg-[#060913] bg-[#0B1220] text-soft-white flex flex-col" data-testid="app-shell-root">
       {/* Header strip */}
       <header className={`border-b border-slate-700 backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-700 bg-slate-900/90"}`}>
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
@@ -348,6 +349,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </div>
       </header>
+      <UnifiedTelemetryStrip />
 
       <div className="flex-1 flex min-w-0 max-w-full overflow-hidden">
         {/* Sidebar (with adjustable drag-handle) */}

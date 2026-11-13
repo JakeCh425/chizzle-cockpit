@@ -10,6 +10,7 @@ describe("Institutional Brokerage Platform Overhaul & Quick Actions", () => {
   const swingWsPath = path.resolve(rootDir, "client/src/components/swing/SwingWorkspace.tsx");
   const appShellPath = path.resolve(rootDir, "client/src/components/AppShell.tsx");
   const collapsiblePath = path.resolve(rootDir, "client/src/components/CollapsibleSection.tsx");
+  const telemetryPath = path.resolve(rootDir, "client/src/components/UnifiedTelemetryStrip.tsx");
 
   const acSrc = fs.readFileSync(acPath, "utf-8");
   const wsSrc = fs.readFileSync(wsPath, "utf-8");
@@ -17,6 +18,7 @@ describe("Institutional Brokerage Platform Overhaul & Quick Actions", () => {
   const swingWsSrc = fs.readFileSync(swingWsPath, "utf-8");
   const appShellSrc = fs.readFileSync(appShellPath, "utf-8");
   const collapsibleSrc = fs.readFileSync(collapsiblePath, "utf-8");
+  const telemetrySrc = fs.readFileSync(telemetryPath, "utf-8");
 
   it("Task 1: Enforces Institutional Typography & Header Hierarchy", () => {
     // ActionCenter main title upgraded to true page header
@@ -86,5 +88,35 @@ describe("Institutional Brokerage Platform Overhaul & Quick Actions", () => {
     expect(acSrc).toContain('data-testid="status-console-static-last-close"');
     expect(acSrc).toContain("<CardThemeSwitcher />");
     expect(acSrc).toContain('data-testid="grid-size-toggle"');
+  });
+
+  it("Task 5: Unified Telemetry Strip, Beginner Practice Simulator & Plain-English Rows", () => {
+    // AppShell mounts UnifiedTelemetryStrip
+    expect(appShellSrc).toContain("<UnifiedTelemetryStrip />");
+
+    // UnifiedTelemetryStrip contains single-row layout with Market state, feed status, sync, practice switch & account metrics
+    expect(telemetrySrc).toContain('data-testid="unified-telemetry-strip"');
+    expect(telemetrySrc).toContain('data-testid="telemetry-market-state"');
+    expect(telemetrySrc).toContain('data-testid="telemetry-feed-status"');
+    expect(telemetrySrc).toContain('data-testid="button-telemetry-sync"');
+    expect(telemetrySrc).toContain('data-testid="button-telemetry-practice-mode"');
+    expect(telemetrySrc).toContain("Equity");
+    expect(telemetrySrc).toContain("Daily P&L");
+    expect(telemetrySrc).toContain("Open Risk");
+
+    // Beginner Practice Drill Simulator in ActionCenter
+    expect(acSrc).toContain("handleStartPracticeDrill");
+    expect(acSrc).toContain("button-practice-drill-");
+    expect(acSrc).toContain("practice-execution-card-");
+    expect(acSrc).toContain("PRACTICE DRILL");
+    expect(acSrc).toContain("button-copy-fidelity-practice-");
+    expect(acSrc).toContain("button-log-practice-drill-");
+    expect(acSrc).toContain("button-reset-practice-drill-");
+    expect(acSrc).toContain("1% Equity Risk");
+
+    // Plain-English beginner status badges in Pending Zone
+    expect(acSrc).toContain("[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]");
+    expect(acSrc).toContain("[ ⏳ Too High (+");
+    expect(acSrc).toContain("[ 🎯 Testing 20-SMA Support (");
   });
 });

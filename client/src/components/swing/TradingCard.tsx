@@ -2102,6 +2102,22 @@ export function InlineTradingCard(props: InlineTradingCardProps) {
               [ MOMENTUM SETUP: 10-SMA ]
             </span>
           )}
+          {isStaticLastClose && (
+            <span
+              className="rounded-full border border-amber-400 bg-gray-900 px-2 py-0.5 font-mono text-[9px] font-bold text-amber-300 shrink-0"
+              data-testid={`badge-static-last-close-${d.symbol}`}
+            >
+              [ ⏸️ STATIC: LAST CLOSE ]
+            </span>
+          )}
+          {isSyncingLiveData && (
+            <span
+              className="inline-flex items-center gap-1 text-[9px] font-mono text-cyan-300"
+              data-testid={`spinner-connecting-${d.symbol}`}
+            >
+              <RefreshCw className="h-3 w-3 animate-spin" />
+            </span>
+          )}
           {isExtendedRunUp ? (
             <span
               data-testid={`badge-expired-extended-${d.symbol}`}
