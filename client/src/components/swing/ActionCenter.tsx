@@ -491,13 +491,21 @@ export class ActionCenterErrorBoundary extends React.Component<
 
 // ─── PendingRow Sub-Component (Task 2 & Task 4) ─────────────────────────────
 interface PendingRowProps {
-  setup: SwingDecision & { projectedEntry?: number; stopLoss?: number; allocatedCapital?: number };
+  setup: SwingDecision & {
+    ticker?: string;
+    livePrice?: number;
+    projectedEntry?: number;
+    stopLoss?: number;
+    allocatedCapital?: number;
+    status?: string;
+  };
   d?: SwingDecision;
   effectivePrice: number;
   rowTimestamp: string;
   selectedTicker: string;
   onSelectTicker: (sym: string) => void;
   onUpdateCapital: (symbol: string, capital: number) => void;
+  onPassSetup?: (ticker: string) => void;
   isPractice: boolean;
   onStartPracticeDrill: (d: SwingDecision, price: number) => void;
   getSetupPriceExtension: (d: any) => any;
@@ -511,6 +519,7 @@ function PendingRow({
   selectedTicker,
   onSelectTicker,
   onUpdateCapital,
+  onPassSetup,
   isPractice,
   onStartPracticeDrill,
   getSetupPriceExtension,
@@ -531,11 +540,11 @@ function PendingRow({
   const targetSma =
     (d as any).sma20 ??
     (d.structureLevels?.sma20 ??
-      (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
+      (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 0));
   const sma50Val =
     (d as any).sma50 ??
     (d.structureLevels?.sma50 ??
-      (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
+      (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 0));
 
   const distancePercent =
     targetSma > 0 && effectivePrice > 0
@@ -558,50 +567,57 @@ function PendingRow({
     aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
   }
 
-  // Task 3: Dynamic Live-Math Engine Hookup
+  const absDistance = Math.abs(distancePercent);
+  const isImminent = absDistance < 0.5;
+  const isFar = absDistance > 2.0;
+  const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
+
+  // Task 1: Fix Fatal Math Bug (Dynamic Entry)
+  const entryPrice = setup.projectedEntry || setup.livePrice;
+
+  // Task 1, 2, 3: Dynamic Live-Math Engine Hookup
   const math = useMemo(() => {
-    const projectedEntry = setup.projectedEntry ?? (targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : 100));
-    const stopLoss = setup.stopLoss ?? (d.structuralStop ?? +(projectedEntry * 0.98).toFixed(2));
+    if (entryPrice <= 0) return null;
 
-    const shares = projectedEntry > 0 ? Math.max(1, Math.floor(customCapital / projectedEntry)) : 1;
-    const actualCapitalDeployed = shares * projectedEntry;
-    const riskPerShare = projectedEntry - stopLoss;
-    const absRiskPerShare = Math.max(0.01, Math.abs(riskPerShare));
-    const totalRisk = shares * absRiskPerShare;
+    const stopLoss = setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2);
+    const riskPerShare = entryPrice - setup.stopLoss;
+    const shares = Math.floor(customCapital / entryPrice);
+    const actualCapitalDeployed = shares * entryPrice;
+    const totalRisk = shares * riskPerShare;
 
-    const target1_5R = projectedEntry + (absRiskPerShare * 1.5);
-    const profit1_5R = totalRisk * 1.5;
+    const profit1_5 = totalRisk * 1.5;
+    const roi1_5 = (shares * entryPrice > 0) ? (profit1_5 / (shares * entryPrice)) * 100 : 0;
 
-    const target2_0R = projectedEntry + (absRiskPerShare * 2.0);
-    const profit2_0R = totalRisk * 2.0;
+    const profit2_0 = totalRisk * 2.0;
+    const roi2_0 = (shares * entryPrice > 0) ? (profit2_0 / (shares * entryPrice)) * 100 : 0;
 
-    const target3_0R = projectedEntry + (absRiskPerShare * 3.0);
-    const profit3_0R = totalRisk * 3.0;
+    const profit3_0 = totalRisk * 3.0;
+    const roi3_0 = (shares * entryPrice > 0) ? (profit3_0 / (shares * entryPrice)) * 100 : 0;
 
-    const absDistance = Math.abs(distancePercent);
-    const isImminent = absDistance < 0.5;
-    const isFar = absDistance > 2.0;
-    const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
+    const target1_5R = entryPrice + (riskPerShare * 1.5);
+    const target2_0R = entryPrice + (riskPerShare * 2.0);
+    const target3_0R = entryPrice + (riskPerShare * 3.0);
 
     return {
-      projectedEntry,
+      entryPrice,
       stopLoss,
       shares,
       actualCapitalDeployed,
-      riskPerShare: absRiskPerShare,
+      riskPerShare,
       totalRisk,
       target1_5R,
-      profit1_5R,
+      profit1_5,
+      roi1_5,
       target2_0R,
-      profit2_0R,
+      profit2_0,
+      roi2_0,
       target3_0R,
-      profit3_0R,
-      absDistance,
-      isImminent,
-      isFar,
-      progressWidth,
+      profit3_0,
+      roi3_0,
     };
-  }, [setup.projectedEntry, setup.stopLoss, d.structuralStop, targetSma, effectivePrice, customCapital, distancePercent]);
+  }, [customCapital, entryPrice, setup.stopLoss]);
+
+  if (entryPrice <= 0 || !math) return null;
 
   return (
     <div
@@ -637,21 +653,21 @@ function PendingRow({
         {/* Proximity Metric & Progress Bar */}
         <div className="flex items-center justify-between gap-2 mt-1">
           <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">Proximity:</span>
-          <span className={`font-mono text-xs font-bold tabular-nums ${math.isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
-            {math.absDistance.toFixed(1)}% TO ENTRY
+          <span className={`font-mono text-xs font-bold tabular-nums ${isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
+            {absDistance.toFixed(1)}% TO ENTRY
           </span>
         </div>
 
         <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
           <div
             className={`h-full transition-all duration-300 rounded-full ${
-              math.isImminent
+              isImminent
                 ? "bg-amber-400 shadow-[0_0_8px_#fbbf24]"
-                : math.isFar
+                : isFar
                 ? "bg-slate-700"
                 : "bg-amber-500/60"
             }`}
-            style={{ width: `${math.progressWidth}%` }}
+            style={{ width: `${progressWidth}%` }}
           />
         </div>
       </div>
@@ -669,9 +685,8 @@ function PendingRow({
                 value={customCapital}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
-                  const val = Math.max(1, Number(e.target.value));
-                  setCustomCapital(val);
-                  onUpdateCapital(d.symbol, val);
+                  setCustomCapital(Number(e.target.value));
+                  onUpdateCapital?.(d.symbol, Number(e.target.value));
                 }}
                 className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 outline-none px-2 py-1 rounded text-cyan-400 font-mono font-bold w-24 text-right transition-colors"
                 data-testid={`input-capital-${d.symbol}`}
@@ -688,7 +703,7 @@ function PendingRow({
         <div className="flex items-center justify-between gap-3 flex-wrap pt-0.5">
           <div className="flex items-center gap-1.5">
             <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">ENTRY:</span>
-            <span className="text-base font-mono tabular-nums font-bold text-white">${math.projectedEntry.toFixed(2)}</span>
+            <span className="text-base font-mono tabular-nums font-bold text-white">${math.entryPrice.toFixed(2)}</span>
           </div>
 
           <div className="flex items-center gap-1.5">
@@ -705,31 +720,39 @@ function PendingRow({
       <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
         <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">1.5R Target</span>
         <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
-          +${math.profit1_5R.toFixed(2)}
-        </span>
+        <div className="text-emerald-400 font-mono text-xs">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
       </div>
 
       {/* Col 4: 2.0R Target */}
       <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
         <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">2.0R Target</span>
         <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
-          +${math.profit2_0R.toFixed(2)}
-        </span>
+        <div className="text-emerald-400 font-mono text-xs">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 5: 3.0R Target */}
       <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
         <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">3.0R Target</span>
         <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
-          +${math.profit3_0R.toFixed(2)}
-        </span>
+        <div className="text-emerald-400 font-mono text-xs">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
       </div>
 
-      {/* Col 6: AI Insights Action & Practice Simulator Trigger */}
+      {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}
       <div className="flex items-center gap-2 shrink-0 justify-end">
+        {/* Pass / Move to Watchlist Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPassSetup?.(setup.ticker || d.symbol);
+          }}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors text-xs font-mono font-medium cursor-pointer shadow-sm shrink-0"
+          data-testid={`button-pass-setup-${d.symbol}`}
+          title={`Pass on ${d.symbol} and move to Passed Watchlist`}
+        >
+          <span>[ ⨯ Pass & Watch ]</span>
+        </button>
+
         {/* Clean Hover Tooltip (Lucide Info Icon) */}
         <div
           className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
@@ -958,6 +981,31 @@ function ActionCenterInner() {
   const { toast } = useToast();
   const strategyEngine = useStrategyEngine();
   const storeActiveSetups = useTradeSetupStore((s) => s.activeExecutionSetups);
+
+  // Task 4: Passed / Ignored Setups State (Watchlist & Passed)
+  const [passedTickers, setPassedTickers] = usePersistentState<string[]>(
+    "ac-passed-tickers",
+    []
+  );
+  const [isPassedWatchlistOpen, setIsPassedWatchlistOpen] = useState(false);
+
+  const handlePassSetup = useCallback((ticker: string) => {
+    if (!ticker) return;
+    setPassedTickers((prev) => Array.from(new Set([...(prev || []), ticker])));
+    toast({
+      title: "Ticker Passed & Moved to Watchlist",
+      description: `${ticker} marked as IGNORED and moved to [ 👁️ DEFAULT WATCHLIST & PASSED ].`,
+    });
+  }, [setPassedTickers, toast]);
+
+  const handleRestoreSetup = useCallback((ticker: string) => {
+    if (!ticker) return;
+    setPassedTickers((prev) => (prev || []).filter((t) => t !== ticker));
+    toast({
+      title: "Ticker Restored",
+      description: `${ticker} restored to Pending Setups.`,
+    });
+  }, [setPassedTickers, toast]);
 
   // Beginner Practice Simulator state
   const [practiceDrills, setPracticeDrills] = useState<Array<{
@@ -1269,13 +1317,24 @@ function ActionCenterInner() {
   const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
 
+  // Task 4: Passed / Ignored Setups Exclusion & Watchlist
+  const setupsWithIgnored = useMemo(() => {
+    return setups.map((s) => {
+      if (passedTickers.includes(s.symbol) || (s as any).status === "IGNORED") {
+        return { ...s, status: "IGNORED" as any, setupStatus: "IGNORED" as any };
+      }
+      return s;
+    });
+  }, [setups, passedTickers]);
+
   // Task 2: Merge the "Pending & Waiting" Bucket
   // Mutual exclusivity: if a ticker is in pendingSetups, it absolutely cannot render in readySetups
-  const pendingSetups = setups.filter((d) => !confirmedSymSet.has(d.symbol));
+  const pendingSetups = setups.filter((setup) => !confirmedSymSet.has(setup.symbol) && setup.status !== 'IGNORED' && !passedTickers.includes(setup.symbol));
   const pendingWaitingSetups = setups.filter(
-    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol)
+    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol) && (d as any).status !== 'IGNORED' && !passedTickers.includes(d.symbol)
   );
-  const generalLoud = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol));
+  const generalLoud = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol) && (d as any).status !== 'IGNORED' && !passedTickers.includes(d.symbol));
+  const passedSetups = setups.filter((setup) => setup.status === 'IGNORED' || passedTickers.includes(setup.symbol));
   // Backward compatibility hook: const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 
   // Clean up frozen ready snapshots when tickers are no longer ready
@@ -2445,12 +2504,6 @@ function ActionCenterInner() {
                   <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
                     {/* pendingSetups / generalLoud mapping */}
                     {generalLoud.map((d) => {
-                      const setup = {
-                        ...d,
-                        allocatedCapital: tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital,
-                        projectedEntry: (d as any).sma20 ?? (d.structureLevels?.sma20 ?? 100),
-                        stopLoss: d.structuralStop ?? ((d as any).sma20 ? (d as any).sma20 * 0.98 : 98),
-                      };
                       const liveQuote = prices?.[d.symbol];
                       const effectivePrice =
                         marketStore.prices[d.symbol] ??
@@ -2458,6 +2511,23 @@ function ActionCenterInner() {
                         liveQuote?.price ??
                         d.currentPrice ??
                         0;
+                      const targetSma =
+                        (d as any).sma20 ??
+                        (d.structureLevels?.sma20 ??
+                          (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 0));
+                      const entryPrice = targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : (d.entryPrice ?? 0));
+                      const stopLoss = d.structuralStop && d.structuralStop < entryPrice
+                        ? d.structuralStop
+                        : +(entryPrice * 0.98).toFixed(2);
+
+                      const setup = {
+                        ...d,
+                        ticker: d.symbol,
+                        allocatedCapital: tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital,
+                        livePrice: effectivePrice,
+                        projectedEntry: entryPrice,
+                        stopLoss: stopLoss,
+                      };
                       const rowTimestamp = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
 
                       return (
@@ -2474,6 +2544,7 @@ function ActionCenterInner() {
                             marketStore.setActiveTicker?.(sym);
                           }}
                           onUpdateCapital={handleUpdateCapital}
+                          onPassSetup={handlePassSetup}
                           isPractice={isPractice}
                           onStartPracticeDrill={handleStartPracticeDrill}
                           getSetupPriceExtension={getSetupPriceExtension}
@@ -2677,6 +2748,94 @@ function ActionCenterInner() {
                     <AppearanceControls prefs={prefs} set={setPrefs} />
                   </div>
                   <CardStyleSection />
+                </div>
+              )}
+            </div>
+
+            {/* ═════════════════════════════════════════════════════════════════ */}
+            {/* ZONE 4: DEFAULT WATCHLIST & PASSED SETUPS (BOTTOM COLLAPSIBLE)     */}
+            {/* ═════════════════════════════════════════════════════════════════ */}
+            <div className="w-full flex flex-col gap-2 pt-2 border-t border-slate-800/60" data-testid="section-passed-watchlist">
+              <button
+                type="button"
+                onClick={() => setIsPassedWatchlistOpen((prev) => !prev)}
+                className="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-900 border border-slate-700/80 hover:border-slate-600 text-white transition-all font-mono text-sm font-bold uppercase tracking-wider cursor-pointer shadow-md"
+                data-testid="button-toggle-passed-watchlist"
+                aria-expanded={isPassedWatchlistOpen}
+                aria-label={isPassedWatchlistOpen ? "Collapse Default Watchlist & Passed" : "Expand Default Watchlist & Passed"}
+              >
+                <div className="flex items-center gap-2">
+                  {isPassedWatchlistOpen ? (
+                    <ChevronDown className="h-4 w-4 text-slate-400" />
+                  ) : (
+                    <ChevronRight className="h-4 w-4 text-slate-400" />
+                  )}
+                  <span>[ 👁️ DEFAULT WATCHLIST & PASSED ]</span>
+                </div>
+                <span className="text-xs text-slate-400 font-normal">
+                  {passedSetups.length} discarded / passed tickers · {isPassedWatchlistOpen ? "expanded" : "collapsed"}
+                </span>
+              </button>
+
+              {isPassedWatchlistOpen && (
+                <div
+                  className="bg-[#151E2E] border border-slate-700/80 rounded-xl p-4 sm:p-5 flex flex-col gap-3 shadow-lg w-full"
+                  data-testid="passed-setups-list"
+                >
+                  <div className="flex items-center justify-between border-b border-slate-700/80 pb-2">
+                    <span className="font-mono text-xs uppercase tracking-wider text-slate-400">
+                      Archived / Discarded Tickers (Excluded from Pending Setups)
+                    </span>
+                    <span className="font-mono text-xs text-slate-500">
+                      Click Restore to re-arm in Pending Setups
+                    </span>
+                  </div>
+
+                  {passedSetups.length === 0 ? (
+                    <div className="text-slate-500 font-mono text-xs py-6 text-center border border-dashed border-slate-800 rounded-lg">
+                      No passed setups. Click [ ⨯ Pass & Watch ] on any pending row to move it here.
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                      {passedSetups.map((s) => {
+                        const liveQuote = prices?.[s.symbol];
+                        const effPrice =
+                          marketStore.prices[s.symbol] ??
+                          global?.livePrices?.[s.symbol] ??
+                          liveQuote?.price ??
+                          s.currentPrice ??
+                          0;
+                        return (
+                          <div
+                            key={s.symbol}
+                            className="flex items-center justify-between p-3 rounded-lg bg-slate-900/90 border border-slate-800 font-mono text-xs shadow-sm hover:border-slate-700 transition-colors"
+                            data-testid={`passed-row-${s.symbol}`}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              <span className="font-bold text-white text-sm bg-slate-800 px-2 py-0.5 rounded border border-slate-700">
+                                {s.symbol}
+                              </span>
+                              <span className="text-slate-300 font-mono font-bold">
+                                {formatCurrency(effPrice)}
+                              </span>
+                              <span className="text-[10px] text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 uppercase font-semibold">
+                                PASSED
+                              </span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleRestoreSetup(s.symbol)}
+                              className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-cyan-400 hover:text-cyan-300 text-xs font-mono font-bold border border-slate-700 transition-colors cursor-pointer"
+                              title={`Restore ${s.symbol} to Pending Setups`}
+                              data-testid={`button-restore-passed-${s.symbol}`}
+                            >
+                              [ ↩ Restore ]
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
