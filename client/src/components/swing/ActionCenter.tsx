@@ -541,6 +541,9 @@ function ActionCenterInner() {
     totalRisk: number;
   }>>(new Map());
 
+  // Task 1: Standard capital allocation per trade for dynamic position sizing & profit math
+  const standardCapital = 1000; // e.g., $1,000 per trade
+
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
   const moreRef = useRef<HTMLDivElement | null>(null);
@@ -2179,23 +2182,26 @@ function ActionCenterInner() {
 
                       const rowTimestamp = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
 
-                      // Task 1 & 2 Live Math Calculations (Memoized values)
+                      // Task 1: Dynamic Position Sizing & Profit Math
+                      const projectedEntry = targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : 100);
+                      const stopLoss = d.structuralStop ?? +(projectedEntry * 0.98).toFixed(2);
+                      const shares = projectedEntry > 0 ? Math.max(1, Math.floor(standardCapital / projectedEntry)) : 1;
+                      const capitalDeployed = +(shares * projectedEntry).toFixed(2);
+                      const riskPerShare = Math.max(0.01, Math.abs(projectedEntry - stopLoss));
+                      const totalRisk = +(shares * riskPerShare).toFixed(2);
+                      const profit1_5R = +(totalRisk * 1.5).toFixed(2);
+                      const profit2_0R = +(totalRisk * 2.0).toFixed(2);
+                      const profit3_0R = +(totalRisk * 3.0).toFixed(2);
+
+                      const target1_5R = +(projectedEntry + (riskPerShare * 1.5)).toFixed(2);
+                      const target2_0R = +(projectedEntry + (riskPerShare * 2.0)).toFixed(2);
+                      const target3_0R = +(projectedEntry + (riskPerShare * 3.0)).toFixed(2);
+
+                      // Proximity calculations
                       const absDistance = Math.abs(distancePercent);
                       const isImminent = absDistance < 0.5;
                       const isFar = absDistance > 2.0;
                       const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
-
-                      // Dynamic Live-Math Target Engine (Task 2)
-                      // Risk = Entry - StopLoss
-                      // Target 1.5R = Entry + (Risk * 1.5)
-                      // Target 2.0R = Entry + (Risk * 2.0)
-                      // Target 3.0R = Entry + (Risk * 3.0)
-                      const entryVal = targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : 100);
-                      const stopVal = d.structuralStop ?? +(entryVal * 0.98).toFixed(2);
-                      const riskVal = Math.max(0.01, Math.abs(entryVal - stopVal));
-                      const t1_5R = +(entryVal + (riskVal * 1.5)).toFixed(2);
-                      const t2_0R = +(entryVal + (riskVal * 2.0)).toFixed(2);
-                      const t3_0R = +(entryVal + (riskVal * 3.0)).toFixed(2);
 
                       return (
                         <div
@@ -2205,125 +2211,42 @@ function ActionCenterInner() {
                             global?.setActiveTicker?.(d.symbol);
                             marketStore.setActiveTicker?.(d.symbol);
                           }}
-                          className={`mb-3 bg-[#151E2E] hover:bg-[#1a2538] border border-slate-800 hover:border-amber-500/50 rounded-xl flex flex-col md:flex-row items-stretch transition-all font-mono cursor-pointer shadow-md overflow-hidden ${
-                            selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1a2538]" : ""
+                          className={`grid grid-cols-1 lg:grid-cols-[200px_1fr_1fr_auto] gap-6 items-center p-4 mb-3 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border border-slate-800 hover:border-amber-500/50 rounded-xl font-mono cursor-pointer shadow-md ${
+                            selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
                           }`}
                           data-testid={`waiting-row-${d.symbol}`}
                         >
                           <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
 
-                          {/* Task 1: Ticker Block (Solid distinct background on left edge) */}
-                          <div className="bg-slate-800 border-l-4 border-amber-500 w-20 flex justify-center py-3 text-lg font-black text-white shrink-0 items-center">
-                            <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
-                          </div>
-
-                          {/* Data Container */}
-                          <div className="flex-1 flex flex-col justify-between gap-2.5 p-3 sm:p-4 min-w-0">
-                            {/* Top Strip: Live Price, Proximity Metric, Timestamp, and AI Hover Tooltip */}
-                            <div className="flex items-center justify-between gap-3 flex-wrap">
-                              <div className="flex items-center gap-3 sm:gap-4 shrink-0 flex-wrap">
-                                <span className="text-slate-100 font-mono tabular-nums text-lg sm:text-xl font-bold">
+                          {/* Zone 1: The Asset & Live Data (Left Column) */}
+                          <div className="flex flex-col gap-1.5 min-w-0">
+                            <div className="flex items-center gap-3">
+                              <div className="bg-slate-800 border-l-4 border-amber-500 w-20 flex justify-center py-2 text-lg font-black text-white shrink-0 items-center rounded">
+                                <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
+                              </div>
+                              <div className="flex flex-col">
+                                <span className="text-slate-100 font-mono tabular-nums text-lg font-bold leading-tight">
                                   {formatCurrency(effectivePrice)}
                                 </span>
-                                <span className="text-slate-700 hidden sm:inline">|</span>
-
-                                {/* Task 1: Proximity Metric */}
-                                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded bg-slate-900 border border-slate-700 font-mono font-bold text-xs sm:text-sm">
-                                  <span className={isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}>
-                                    {absDistance.toFixed(1)}% TO ENTRY
-                                  </span>
-                                </div>
-                                <span className="text-slate-700 hidden sm:inline">|</span>
-
-                                {/* Timestamp */}
                                 <div
-                                  className="flex items-center gap-1.5 text-xs text-slate-400 font-mono shrink-0"
+                                  className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0"
                                   data-testid={`waiting-row-timestamp-${d.symbol}`}
                                 >
                                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                   <span>Updated {rowTimestamp} CT</span>
                                 </div>
                               </div>
-
-                              {/* Action & Info Tooltip */}
-                              <div className="flex items-center gap-2.5 flex-wrap">
-                                {/* Clean Hover Tooltip (Lucide Info Icon) — removes long text clutter from default view */}
-                                <div
-                                  className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
-                                  data-testid={`badge-waiting-ai-tip-${d.symbol}`}
-                                  title={aiTip}
-                                >
-                                  <Info className="w-4 h-4 text-cyan-400 shrink-0" />
-                                  <span className="text-slate-400 font-semibold text-xs hidden sm:inline">AI Analysis</span>
-
-                                  {/* Sleek Tooltip Popover on Hover */}
-                                  <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tip:flex flex-col gap-1.5 z-40 w-80 p-3 rounded-xl bg-slate-950 border border-slate-700 shadow-2xl text-xs text-slate-200 pointer-events-none">
-                                    <div className="font-bold text-white flex items-center gap-1.5">
-                                      <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                                      <span>AI Quantitative Diagnosis</span>
-                                    </div>
-                                    <div className="text-slate-300">{aiTip}</div>
-                                    <div className="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
-                                      {isHardBlock ? (
-                                        <span>[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]</span>
-                                      ) : isExtended ? (
-                                        <span>
-                                          [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
-                                          <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
-                                        </span>
-                                      ) : (
-                                        <span>[ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]</span>
-                                      )}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {/* Beginner Practice Simulator Drill Trigger */}
-                                {isPractice && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleStartPracticeDrill(d, effectivePrice);
-                                    }}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
-                                    data-testid={`button-practice-drill-${d.symbol}`}
-                                    title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
-                                  >
-                                    <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
-                                    <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
-                                    <span className="sr-only">[ 🎮 Practice Drill ]</span>
-                                  </button>
-                                )}
-                              </div>
                             </div>
 
-                            {/* Task 2: Dynamic Live-Math Target Engine (Horizontal Flex Row) */}
-                            <div className="flex items-center justify-between gap-3 font-mono tabular-nums text-sm font-bold flex-wrap py-2 px-3 rounded-lg bg-slate-900/60 border border-slate-800/80">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-sans text-xs uppercase font-medium">Entry:</span>
-                                <span className="text-white">${entryVal.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-sans text-xs uppercase font-medium">Stop:</span>
-                                <span className="text-signal-red text-[#FF4D6D]">${stopVal.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-sans text-xs uppercase font-medium">1.5R:</span>
-                                <span className="text-signal-green text-[#00F5A0]">${t1_5R.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-sans text-xs uppercase font-medium">2.0R:</span>
-                                <span className="text-signal-green text-[#00F5A0]">${t2_0R.toFixed(2)}</span>
-                              </div>
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-slate-400 font-sans text-xs uppercase font-medium">3.0R:</span>
-                                <span className="text-signal-green text-[#00F5A0]">${t3_0R.toFixed(2)}</span>
-                              </div>
+                            {/* Proximity Metric & Progress Bar */}
+                            <div className="flex items-center justify-between gap-2 mt-0.5">
+                              <span className="text-[10px] uppercase font-semibold text-slate-400">Proximity:</span>
+                              <span className={`font-mono text-xs font-bold tabular-nums ${isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
+                                {absDistance.toFixed(1)}% TO ENTRY
+                              </span>
                             </div>
 
-                            {/* Task 1: Proximity Bar (Progress Bar under the row) */}
-                            <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
+                            <div className="w-full bg-slate-800/90 rounded-full h-1 overflow-hidden">
                               <div
                                 className={`h-full transition-all duration-300 rounded-full ${
                                   isImminent
@@ -2335,17 +2258,112 @@ function ActionCenterInner() {
                                 style={{ width: `${progressWidth}%` }}
                               />
                             </div>
+                          </div>
 
-                            {/* Hidden compatibility markers for test suites */}
-                            {isExtended && (
-                              <div
-                                className="hidden"
-                                data-testid={`badge-extended-await-retest-${d.symbol}`}
-                              >
-                                <span>{extendedBadgeText}</span>
+                          {/* Zone 2: The Core Plan & Risk (Middle Column) */}
+                          <div className="flex flex-col gap-1 min-w-0">
+                            <div className="text-xs text-slate-400 font-mono tabular-nums leading-none">
+                              <span>Shares: <span className="text-slate-200 font-bold">{shares}</span> | Capital: <span className="text-slate-200 font-bold">${capitalDeployed.toFixed(2)}</span></span>
+                            </div>
+                            <div className="text-sm font-bold text-white font-mono tabular-nums leading-none mt-0.5">
+                              <span>ENTRY: ${projectedEntry.toFixed(2)}</span>
+                            </div>
+                            <div className="text-sm text-signal-red text-rose-400 font-mono tabular-nums leading-none">
+                              <span>STOP: ${stopLoss.toFixed(2)} <span className="text-xs text-rose-400 font-semibold">(Risk: -${totalRisk.toFixed(2)})</span></span>
+                            </div>
+                          </div>
+
+                          {/* Zone 3: The Profit Targets (Right Column) */}
+                          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+                            {/* 1.5R Target */}
+                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
+                              <span className="text-[10px] text-slate-500 uppercase font-semibold">1.5R Target</span>
+                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target1_5R.toFixed(2)}</span>
+                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
+                                +${profit1_5R.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {/* 2.0R Target */}
+                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
+                              <span className="text-[10px] text-slate-500 uppercase font-semibold">2.0R Target</span>
+                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target2_0R.toFixed(2)}</span>
+                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
+                                +${profit2_0R.toFixed(2)}
+                              </span>
+                            </div>
+
+                            {/* 3.0R Target */}
+                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
+                              <span className="text-[10px] text-slate-500 uppercase font-semibold">3.0R Target</span>
+                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target3_0R.toFixed(2)}</span>
+                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
+                                +${profit3_0R.toFixed(2)}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* Column 4: Actions & AI Analysis Tooltip */}
+                          <div className="flex items-center gap-2 shrink-0 justify-end">
+                            {/* Clean Hover Tooltip (Lucide Info Icon) — removes long text clutter from default view */}
+                            <div
+                              className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
+                              data-testid={`badge-waiting-ai-tip-${d.symbol}`}
+                              title={aiTip}
+                            >
+                              <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+                              <span className="text-slate-400 font-semibold text-xs hidden xl:inline">AI Analysis</span>
+
+                              {/* Sleek Tooltip Popover on Hover */}
+                              <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tip:flex flex-col gap-1.5 z-40 w-80 p-3 rounded-xl bg-slate-950 border border-slate-700 shadow-2xl text-xs text-slate-200 pointer-events-none">
+                                <div className="font-bold text-white flex items-center gap-1.5">
+                                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+                                  <span>AI Quantitative Diagnosis</span>
+                                </div>
+                                <div className="text-slate-300">{aiTip}</div>
+                                <div className="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
+                                  {isHardBlock ? (
+                                    <span>[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]</span>
+                                  ) : isExtended ? (
+                                    <span>
+                                      [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
+                                      <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
+                                    </span>
+                                  ) : (
+                                    <span>[ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]</span>
+                                  )}
+                                </div>
                               </div>
+                            </div>
+
+                            {/* Beginner Practice Simulator Drill Trigger */}
+                            {isPractice && (
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleStartPracticeDrill(d, effectivePrice);
+                                }}
+                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
+                                data-testid={`button-practice-drill-${d.symbol}`}
+                                title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
+                              >
+                                <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
+                                <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
+                                <span className="sr-only">[ 🎮 Practice Drill ]</span>
+                              </button>
                             )}
                           </div>
+
+                          {/* Hidden compatibility markers for test suites */}
+                          {isExtended && (
+                            <div
+                              className="hidden"
+                              data-testid={`badge-extended-await-retest-${d.symbol}`}
+                            >
+                              <span>{extendedBadgeText}</span>
+                            </div>
+                          )}
                         </div>
                       );
                     })}
