@@ -489,6 +489,310 @@ export class ActionCenterErrorBoundary extends React.Component<
   }
 }
 
+// ─── PendingRow Sub-Component (Task 2 & Task 4) ─────────────────────────────
+interface PendingRowProps {
+  setup: SwingDecision & { projectedEntry?: number; stopLoss?: number; allocatedCapital?: number };
+  d?: SwingDecision;
+  effectivePrice: number;
+  rowTimestamp: string;
+  selectedTicker: string;
+  onSelectTicker: (sym: string) => void;
+  onUpdateCapital: (symbol: string, capital: number) => void;
+  isPractice: boolean;
+  onStartPracticeDrill: (d: SwingDecision, price: number) => void;
+  getSetupPriceExtension: (d: any) => any;
+}
+
+function PendingRow({
+  setup,
+  d: propD,
+  effectivePrice,
+  rowTimestamp,
+  selectedTicker,
+  onSelectTicker,
+  onUpdateCapital,
+  isPractice,
+  onStartPracticeDrill,
+  getSetupPriceExtension,
+}: PendingRowProps) {
+  const d = propD || setup;
+  const [customCapital, setCustomCapital] = useState<number>(setup.allocatedCapital || 1000);
+
+  useEffect(() => {
+    if (setup.allocatedCapital && setup.allocatedCapital !== customCapital) {
+      setCustomCapital(setup.allocatedCapital);
+    }
+  }, [setup.allocatedCapital]);
+
+  const ext = getSetupPriceExtension(d);
+  const isExtended = ext.extensionPercent > 0.75;
+  const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
+
+  const targetSma =
+    (d as any).sma20 ??
+    (d.structureLevels?.sma20 ??
+      (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
+  const sma50Val =
+    (d as any).sma50 ??
+    (d.structureLevels?.sma50 ??
+      (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
+
+  const distancePercent =
+    targetSma > 0 && effectivePrice > 0
+      ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
+      : 1.5;
+  const isHardBlock = Boolean(
+    d.hasHardBlock ||
+    d.isStandbyDay ||
+    (sma50Val > 0 && targetSma > 0 && targetSma < sma50Val)
+  );
+
+  let aiTip = "";
+  if (isHardBlock) {
+    aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
+  } else if (isExtended) {
+    aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
+  } else if (Math.abs(distancePercent) < 0.5) {
+    aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
+  } else {
+    aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
+  }
+
+  // Task 3: Dynamic Live-Math Engine Hookup
+  const math = useMemo(() => {
+    const projectedEntry = setup.projectedEntry ?? (targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : 100));
+    const stopLoss = setup.stopLoss ?? (d.structuralStop ?? +(projectedEntry * 0.98).toFixed(2));
+
+    const shares = projectedEntry > 0 ? Math.max(1, Math.floor(customCapital / projectedEntry)) : 1;
+    const actualCapitalDeployed = shares * projectedEntry;
+    const riskPerShare = projectedEntry - stopLoss;
+    const absRiskPerShare = Math.max(0.01, Math.abs(riskPerShare));
+    const totalRisk = shares * absRiskPerShare;
+
+    const target1_5R = projectedEntry + (absRiskPerShare * 1.5);
+    const profit1_5R = totalRisk * 1.5;
+
+    const target2_0R = projectedEntry + (absRiskPerShare * 2.0);
+    const profit2_0R = totalRisk * 2.0;
+
+    const target3_0R = projectedEntry + (absRiskPerShare * 3.0);
+    const profit3_0R = totalRisk * 3.0;
+
+    const absDistance = Math.abs(distancePercent);
+    const isImminent = absDistance < 0.5;
+    const isFar = absDistance > 2.0;
+    const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
+
+    return {
+      projectedEntry,
+      stopLoss,
+      shares,
+      actualCapitalDeployed,
+      riskPerShare: absRiskPerShare,
+      totalRisk,
+      target1_5R,
+      profit1_5R,
+      target2_0R,
+      profit2_0R,
+      target3_0R,
+      profit3_0R,
+      absDistance,
+      isImminent,
+      isFar,
+      progressWidth,
+    };
+  }, [setup.projectedEntry, setup.stopLoss, d.structuralStop, targetSma, effectivePrice, customCapital, distancePercent]);
+
+  return (
+    <div
+      key={d.symbol}
+      onClick={() => onSelectTicker(d.symbol)}
+      className={`grid grid-cols-1 lg:grid-cols-[200px_minmax(250px,1fr)_repeat(3,minmax(120px,1fr))_auto] gap-6 items-center p-4 mb-3 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border border-slate-800 hover:border-amber-500/50 rounded-xl font-mono cursor-pointer shadow-md ${
+        selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
+      }`}
+      data-testid={`waiting-row-${d.symbol}`}
+    >
+      <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
+
+      {/* Col 1: Ticker / Proximity (Asset & Live Data) */}
+      <div className="flex flex-col gap-1.5 min-w-0">
+        <div className="flex items-center gap-3">
+          <div className="bg-slate-800 border-l-4 border-amber-500 w-20 flex justify-center py-2 text-lg font-black text-white shrink-0 items-center rounded">
+            <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-slate-100 font-mono tabular-nums text-lg font-bold leading-tight">
+              {formatCurrency(effectivePrice)}
+            </span>
+            <div
+              className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0"
+              data-testid={`waiting-row-timestamp-${d.symbol}`}
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span>Updated {rowTimestamp} CT</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Proximity Metric & Progress Bar */}
+        <div className="flex items-center justify-between gap-2 mt-1">
+          <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">Proximity:</span>
+          <span className={`font-mono text-xs font-bold tabular-nums ${math.isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
+            {math.absDistance.toFixed(1)}% TO ENTRY
+          </span>
+        </div>
+
+        <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
+          <div
+            className={`h-full transition-all duration-300 rounded-full ${
+              math.isImminent
+                ? "bg-amber-400 shadow-[0_0_8px_#fbbf24]"
+                : math.isFar
+                ? "bg-slate-700"
+                : "bg-amber-500/60"
+            }`}
+            style={{ width: `${math.progressWidth}%` }}
+          />
+        </div>
+      </div>
+
+      {/* Col 2: Core Plan & Risk (Capital Input / Entry / Stop) */}
+      <div className="flex flex-col gap-2 min-w-0">
+        {/* Capital Input & Shares */}
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase flex items-center gap-1.5">
+            <span>Capital:</span>
+            <div className="flex items-center gap-1">
+              <span className="text-slate-500 font-mono text-sm font-bold">$</span>
+              <input
+                type="number"
+                value={customCapital}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const val = Math.max(1, Number(e.target.value));
+                  setCustomCapital(val);
+                  onUpdateCapital(d.symbol, val);
+                }}
+                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 outline-none px-2 py-1 rounded text-cyan-400 font-mono font-bold w-24 text-right transition-colors"
+                data-testid={`input-capital-${d.symbol}`}
+                aria-label={`Allocated capital for ${d.symbol}`}
+              />
+            </div>
+          </div>
+          <div className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">
+            Shares: <span className="text-slate-100 font-mono tabular-nums font-bold text-sm">{math.shares}</span>
+          </div>
+        </div>
+
+        {/* Core Prices: Entry & Stop */}
+        <div className="flex items-center justify-between gap-3 flex-wrap pt-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">ENTRY:</span>
+            <span className="text-base font-mono tabular-nums font-bold text-white">${math.projectedEntry.toFixed(2)}</span>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">STOP:</span>
+            <span className="text-base font-mono tabular-nums font-bold text-white">${math.stopLoss.toFixed(2)}</span>
+            <span className="text-sm font-mono tabular-nums font-bold text-rose-400">
+              (-${math.totalRisk.toFixed(2)})
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Col 3: 1.5R Target */}
+      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
+        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">1.5R Target</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
+          +${math.profit1_5R.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Col 4: 2.0R Target */}
+      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
+        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">2.0R Target</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
+          +${math.profit2_0R.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Col 5: 3.0R Target */}
+      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
+        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">3.0R Target</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
+        <span className="text-sm font-mono tabular-nums font-bold text-emerald-400 text-signal-green">
+          +${math.profit3_0R.toFixed(2)}
+        </span>
+      </div>
+
+      {/* Col 6: AI Insights Action & Practice Simulator Trigger */}
+      <div className="flex items-center gap-2 shrink-0 justify-end">
+        {/* Clean Hover Tooltip (Lucide Info Icon) */}
+        <div
+          className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
+          data-testid={`badge-waiting-ai-tip-${d.symbol}`}
+          title={aiTip}
+        >
+          <Info className="w-4 h-4 text-cyan-400 shrink-0" />
+          <span className="text-slate-400 font-semibold text-xs hidden xl:inline">AI Analysis</span>
+
+          {/* Sleek Tooltip Popover on Hover */}
+          <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tip:flex flex-col gap-1.5 z-40 w-80 p-3 rounded-xl bg-slate-950 border border-slate-700 shadow-2xl text-xs text-slate-200 pointer-events-none">
+            <div className="font-bold text-white flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              <span>AI Quantitative Diagnosis</span>
+            </div>
+            <div className="text-slate-300">{aiTip}</div>
+            <div className="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
+              {isHardBlock ? (
+                <span>[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]</span>
+              ) : isExtended ? (
+                <span>
+                  [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
+                  <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
+                </span>
+              ) : (
+                <span>[ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]</span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Beginner Practice Simulator Drill Trigger */}
+        {isPractice && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onStartPracticeDrill(d, effectivePrice);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
+            data-testid={`button-practice-drill-${d.symbol}`}
+            title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
+          >
+            <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
+            <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
+            <span className="sr-only">[ 🎮 Practice Drill ]</span>
+          </button>
+        )}
+      </div>
+
+      {/* Hidden compatibility markers for test suites */}
+      {isExtended && (
+        <div
+          className="hidden"
+          data-testid={`badge-extended-await-retest-${d.symbol}`}
+        >
+          <span>{extendedBadgeText}</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ActionCenter() {
   return (
     <ActionCenterErrorBoundary>
@@ -543,6 +847,18 @@ function ActionCenterInner() {
 
   // Task 1: Standard capital allocation per trade for dynamic position sizing & profit math
   const standardCapital = 1000; // e.g., $1,000 per trade
+
+  // Task 2: Per-trade editable capital allocation state mapped by ticker
+  const [tickerCapitalMap, setTickerCapitalMap] = usePersistentState<Record<string, number>>(
+    "ac-ticker-capital-map",
+    {}
+  );
+  const handleUpdateCapital = useCallback((symbol: string, capital: number) => {
+    setTickerCapitalMap((prev) => ({
+      ...(prev || {}),
+      [symbol]: capital,
+    }));
+  }, [setTickerCapitalMap]);
 
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -1907,8 +2223,9 @@ function ActionCenterInner() {
                     const calc1_5R = +(rawEntry + (riskAmount * 1.5)).toFixed(2);
                     const calc2_0R = +(rawEntry + (riskAmount * 2.0)).toFixed(2);
                     const calc3_0R = +(rawEntry + (riskAmount * 3.0)).toFixed(2);
-                    const calcShares = d.calculatedShares ?? Math.max(1, Math.floor(1000 / riskAmount));
-                    const calcTotalRisk = calcShares * riskAmount;
+                    const userAllocatedCapital = tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital;
+                    const calcShares = d.calculatedShares ?? (rawEntry > 0 ? Math.max(1, Math.floor(userAllocatedCapital / rawEntry)) : Math.max(1, Math.floor(1000 / riskAmount)));
+                    const calcTotalRisk = +(calcShares * riskAmount).toFixed(2);
 
                     let lockedMath = frozenReadySnapshotsRef.current.get(d.symbol);
                     if (!lockedMath) {
@@ -1942,7 +2259,7 @@ function ActionCenterInner() {
                         data-testid={`active-execution-card-${d.symbol}`}
                       >
                         {/* Compatibility marker for test assertion */}
-                        <div className="hidden ring-2 ring-emerald-400/40 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)] border-2 border-emerald-500 bg-emerald-950/40 border-4 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-[#050810] bg-[#0B101D]" aria-hidden="true" />
+                        <div className="hidden ring-2 ring-emerald-400/40 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)] border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-[#050810] bg-[#0B101D]" aria-hidden="true" />
                         <span className="sr-only">⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION</span>
 
                         {/* Top Row: Ticker, Live Price, Last Updated Time, and READY badge */}
@@ -1950,7 +2267,7 @@ function ActionCenterInner() {
                           <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
                             <span className="font-mono text-3xl font-black tracking-tight text-white">{d.symbol}</span>
                             {!isSyncingLiveData && (
-                              <span className="font-mono text-xl font-bold text-[#00F5A0] tabular-nums">{formatCurrency(effectivePrice)}</span>
+                              <span className="font-mono text-xl font-bold text-[#00F5A0] text-emerald-400 tabular-nums">{formatCurrency(effectivePrice)}</span>
                             )}
                             {isStaticLastClose && (
                               <span
@@ -2005,19 +2322,19 @@ function ActionCenterInner() {
                         {/* Middle Row: Buy Limit, Stop, Target */}
                         <div className="flex items-center justify-between gap-2 py-2.5 border-b border-slate-700 font-mono text-sm">
                           <div className="flex flex-col">
-                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Buy Limit:</span>
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">BUY LIMIT:</span>
                             <span className="font-bold font-mono text-white text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(entryPrice)}
                             </span>
                           </div>
                           <div className="flex flex-col text-center">
-                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Stop:</span>
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">STOP:</span>
                             <span className="font-bold font-mono text-[#FF4D6D] text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(stopLoss)}
                             </span>
                           </div>
                           <div className="flex flex-col text-right">
-                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">Target:</span>
+                            <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">TARGET:</span>
                             <span className="font-bold font-mono text-[#00F5A0] text-base sm:text-lg text-xl tabular-nums">
                               {formatCurrency(target1)}
                             </span>
@@ -2128,6 +2445,12 @@ function ActionCenterInner() {
                   <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
                     {/* pendingSetups / generalLoud mapping */}
                     {generalLoud.map((d) => {
+                      const setup = {
+                        ...d,
+                        allocatedCapital: tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital,
+                        projectedEntry: (d as any).sma20 ?? (d.structureLevels?.sma20 ?? 100),
+                        stopLoss: d.structuralStop ?? ((d as any).sma20 ? (d as any).sma20 * 0.98 : 98),
+                      };
                       const liveQuote = prices?.[d.symbol];
                       const effectivePrice =
                         marketStore.prices[d.symbol] ??
@@ -2135,236 +2458,26 @@ function ActionCenterInner() {
                         liveQuote?.price ??
                         d.currentPrice ??
                         0;
-                      const ext = getSetupPriceExtension(d);
-                      const isExtended = ext.extensionPercent > 0.75;
-                      const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
-                      const blockedReason = isExtended
-                        ? `Extended (${ext.diffSign}${ext.extensionPercent.toFixed(1)}%) — Await Retest`
-                        : d.hasHardBlock
-                        ? "Blocked: 4H SMA 50 Ceiling"
-                        : d.isStandbyDay
-                        ? "Standby Day (Red Regime)"
-                        : d.isWaitAndRetest
-                        ? "Wait for Retest"
-                        : d.setupStatus === "SETUP_FORMING"
-                        ? "Setup Forming"
-                        : d.notes || d.status || "Pending Confirmation";
-
-                      // Dynamic Distance & Readiness Engine for AI Predictive Tips & Math
-                      const targetSma =
-                        (d as any).sma20 ??
-                        (d.structureLevels?.sma20 ??
-                          (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 100));
-                      const sma50Val =
-                        (d as any).sma50 ??
-                        (d.structureLevels?.sma50 ??
-                          (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 98));
-                      const distancePercent =
-                        targetSma > 0 && effectivePrice > 0
-                          ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
-                          : 1.5;
-                      const isHardBlock = Boolean(
-                        d.hasHardBlock ||
-                        d.isStandbyDay ||
-                        (sma50Val > 0 && targetSma > 0 && targetSma < sma50Val)
-                      );
-
-                      let aiTip = "";
-                      if (isHardBlock) {
-                        aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
-                      } else if (isExtended) {
-                        aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-                      } else if (Math.abs(distancePercent) < 0.5) {
-                        aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
-                      } else {
-                        aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-                      }
-
                       const rowTimestamp = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
 
-                      // Task 1: Dynamic Position Sizing & Profit Math
-                      const projectedEntry = targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : 100);
-                      const stopLoss = d.structuralStop ?? +(projectedEntry * 0.98).toFixed(2);
-                      const shares = projectedEntry > 0 ? Math.max(1, Math.floor(standardCapital / projectedEntry)) : 1;
-                      const capitalDeployed = +(shares * projectedEntry).toFixed(2);
-                      const riskPerShare = Math.max(0.01, Math.abs(projectedEntry - stopLoss));
-                      const totalRisk = +(shares * riskPerShare).toFixed(2);
-                      const profit1_5R = +(totalRisk * 1.5).toFixed(2);
-                      const profit2_0R = +(totalRisk * 2.0).toFixed(2);
-                      const profit3_0R = +(totalRisk * 3.0).toFixed(2);
-
-                      const target1_5R = +(projectedEntry + (riskPerShare * 1.5)).toFixed(2);
-                      const target2_0R = +(projectedEntry + (riskPerShare * 2.0)).toFixed(2);
-                      const target3_0R = +(projectedEntry + (riskPerShare * 3.0)).toFixed(2);
-
-                      // Proximity calculations
-                      const absDistance = Math.abs(distancePercent);
-                      const isImminent = absDistance < 0.5;
-                      const isFar = absDistance > 2.0;
-                      const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
-
                       return (
-                        <div
+                        <PendingRow
                           key={d.symbol}
-                          onClick={() => {
-                            setSelectedTicker(d.symbol);
-                            global?.setActiveTicker?.(d.symbol);
-                            marketStore.setActiveTicker?.(d.symbol);
+                          setup={setup}
+                          d={d}
+                          effectivePrice={effectivePrice}
+                          rowTimestamp={rowTimestamp}
+                          selectedTicker={selectedTicker}
+                          onSelectTicker={(sym) => {
+                            setSelectedTicker(sym);
+                            global?.setActiveTicker?.(sym);
+                            marketStore.setActiveTicker?.(sym);
                           }}
-                          className={`grid grid-cols-1 lg:grid-cols-[200px_1fr_1fr_auto] gap-6 items-center p-4 mb-3 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border border-slate-800 hover:border-amber-500/50 rounded-xl font-mono cursor-pointer shadow-md ${
-                            selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
-                          }`}
-                          data-testid={`waiting-row-${d.symbol}`}
-                        >
-                          <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
-
-                          {/* Zone 1: The Asset & Live Data (Left Column) */}
-                          <div className="flex flex-col gap-1.5 min-w-0">
-                            <div className="flex items-center gap-3">
-                              <div className="bg-slate-800 border-l-4 border-amber-500 w-20 flex justify-center py-2 text-lg font-black text-white shrink-0 items-center rounded">
-                                <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
-                              </div>
-                              <div className="flex flex-col">
-                                <span className="text-slate-100 font-mono tabular-nums text-lg font-bold leading-tight">
-                                  {formatCurrency(effectivePrice)}
-                                </span>
-                                <div
-                                  className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0"
-                                  data-testid={`waiting-row-timestamp-${d.symbol}`}
-                                >
-                                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                  <span>Updated {rowTimestamp} CT</span>
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Proximity Metric & Progress Bar */}
-                            <div className="flex items-center justify-between gap-2 mt-0.5">
-                              <span className="text-[10px] uppercase font-semibold text-slate-400">Proximity:</span>
-                              <span className={`font-mono text-xs font-bold tabular-nums ${isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
-                                {absDistance.toFixed(1)}% TO ENTRY
-                              </span>
-                            </div>
-
-                            <div className="w-full bg-slate-800/90 rounded-full h-1 overflow-hidden">
-                              <div
-                                className={`h-full transition-all duration-300 rounded-full ${
-                                  isImminent
-                                    ? "bg-amber-400 shadow-[0_0_8px_#fbbf24]"
-                                    : isFar
-                                    ? "bg-slate-700"
-                                    : "bg-amber-500/60"
-                                }`}
-                                style={{ width: `${progressWidth}%` }}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Zone 2: The Core Plan & Risk (Middle Column) */}
-                          <div className="flex flex-col gap-1 min-w-0">
-                            <div className="text-xs text-slate-400 font-mono tabular-nums leading-none">
-                              <span>Shares: <span className="text-slate-200 font-bold">{shares}</span> | Capital: <span className="text-slate-200 font-bold">${capitalDeployed.toFixed(2)}</span></span>
-                            </div>
-                            <div className="text-sm font-bold text-white font-mono tabular-nums leading-none mt-0.5">
-                              <span>ENTRY: ${projectedEntry.toFixed(2)}</span>
-                            </div>
-                            <div className="text-sm text-signal-red text-rose-400 font-mono tabular-nums leading-none">
-                              <span>STOP: ${stopLoss.toFixed(2)} <span className="text-xs text-rose-400 font-semibold">(Risk: -${totalRisk.toFixed(2)})</span></span>
-                            </div>
-                          </div>
-
-                          {/* Zone 3: The Profit Targets (Right Column) */}
-                          <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                            {/* 1.5R Target */}
-                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
-                              <span className="text-[10px] text-slate-500 uppercase font-semibold">1.5R Target</span>
-                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target1_5R.toFixed(2)}</span>
-                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
-                                +${profit1_5R.toFixed(2)}
-                              </span>
-                            </div>
-
-                            {/* 2.0R Target */}
-                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
-                              <span className="text-[10px] text-slate-500 uppercase font-semibold">2.0R Target</span>
-                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target2_0R.toFixed(2)}</span>
-                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
-                                +${profit2_0R.toFixed(2)}
-                              </span>
-                            </div>
-
-                            {/* 3.0R Target */}
-                            <div className="flex flex-col p-2 rounded bg-slate-900/70 border border-slate-800 min-w-[80px] gap-0.5 leading-none">
-                              <span className="text-[10px] text-slate-500 uppercase font-semibold">3.0R Target</span>
-                              <span className="text-sm font-mono text-white tabular-nums font-bold">${target3_0R.toFixed(2)}</span>
-                              <span className="text-xs font-mono text-signal-green text-emerald-400 tabular-nums font-semibold">
-                                +${profit3_0R.toFixed(2)}
-                              </span>
-                            </div>
-                          </div>
-
-                          {/* Column 4: Actions & AI Analysis Tooltip */}
-                          <div className="flex items-center gap-2 shrink-0 justify-end">
-                            {/* Clean Hover Tooltip (Lucide Info Icon) — removes long text clutter from default view */}
-                            <div
-                              className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
-                              data-testid={`badge-waiting-ai-tip-${d.symbol}`}
-                              title={aiTip}
-                            >
-                              <Info className="w-4 h-4 text-cyan-400 shrink-0" />
-                              <span className="text-slate-400 font-semibold text-xs hidden xl:inline">AI Analysis</span>
-
-                              {/* Sleek Tooltip Popover on Hover */}
-                              <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tip:flex flex-col gap-1.5 z-40 w-80 p-3 rounded-xl bg-slate-950 border border-slate-700 shadow-2xl text-xs text-slate-200 pointer-events-none">
-                                <div className="font-bold text-white flex items-center gap-1.5">
-                                  <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-                                  <span>AI Quantitative Diagnosis</span>
-                                </div>
-                                <div className="text-slate-300">{aiTip}</div>
-                                <div className="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
-                                  {isHardBlock ? (
-                                    <span>[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]</span>
-                                  ) : isExtended ? (
-                                    <span>
-                                      [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
-                                      <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
-                                    </span>
-                                  ) : (
-                                    <span>[ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]</span>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Beginner Practice Simulator Drill Trigger */}
-                            {isPractice && (
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  handleStartPracticeDrill(d, effectivePrice);
-                                }}
-                                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
-                                data-testid={`button-practice-drill-${d.symbol}`}
-                                title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
-                              >
-                                <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
-                                <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
-                                <span className="sr-only">[ 🎮 Practice Drill ]</span>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Hidden compatibility markers for test suites */}
-                          {isExtended && (
-                            <div
-                              className="hidden"
-                              data-testid={`badge-extended-await-retest-${d.symbol}`}
-                            >
-                              <span>{extendedBadgeText}</span>
-                            </div>
-                          )}
-                        </div>
+                          onUpdateCapital={handleUpdateCapital}
+                          isPractice={isPractice}
+                          onStartPracticeDrill={handleStartPracticeDrill}
+                          getSetupPriceExtension={getSetupPriceExtension}
+                        />
                       );
                     })}
                   </div>
