@@ -90,7 +90,46 @@ export function PendingRow({
   }, [effectivePrice, entryPrice]);
 
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
+  const isReadyToTrade = d.setupStatus === "READY_TO_TRADE";
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
+
+  // Standardized 4-tier Proximity Progression: Cold (>3%) -> Monitoring (1.5-3%) -> Imminent (<1.5%) -> Ready
+  const readinessColors = useMemo(() => {
+    if (isReadyToTrade) {
+      return {
+        label: "READY",
+        capsule: "bg-emerald-500 shadow-[0_0_15px_#10b981]",
+        border: "border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]",
+        tickerAccent: "border-emerald-500",
+        text: "text-emerald-400",
+      };
+    }
+    if (proximity < 1.5) {
+      return {
+        label: "IMMINENT",
+        capsule: "bg-amber-400 animate-pulse shadow-[0_0_10px_#fbbf24]",
+        border: "border-amber-400/70",
+        tickerAccent: "border-amber-400",
+        text: "text-amber-400",
+      };
+    }
+    if (proximity <= 3.0) {
+      return {
+        label: "MONITORING",
+        capsule: "bg-cyan-600",
+        border: "border-cyan-600/60",
+        tickerAccent: "border-cyan-600",
+        text: "text-cyan-400",
+      };
+    }
+    return {
+      label: "COLD",
+      capsule: "bg-slate-700",
+      border: "border-slate-700",
+      tickerAccent: "border-slate-700",
+      text: "text-slate-400",
+    };
+  }, [isReadyToTrade, proximity]);
 
   // Dynamic Live-Math Engine Hookup
   const math = useMemo(() => {
@@ -140,7 +179,7 @@ export function PendingRow({
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(260px,1fr)_repeat(3,minmax(130px,1fr))_auto] gap-6 items-center p-5 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border border-slate-800 hover:border-amber-500/50 rounded-xl font-mono cursor-pointer shadow-md ${
+      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(260px,1fr)_repeat(3,minmax(130px,1fr))_auto] gap-6 items-center p-5 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border ${readinessColors.border} rounded-xl font-mono cursor-pointer shadow-md ${
         selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
@@ -150,7 +189,7 @@ export function PendingRow({
       {/* Col 1: Ticker & Proximity Capsule (Visual Radar) */}
       <div className="flex flex-col gap-2.5 min-w-0">
         <div className="flex items-center gap-3">
-          <div className="bg-slate-800 border-l-4 border-amber-500 px-3 py-2 flex justify-center items-center shrink-0 rounded">
+          <div className={`bg-slate-800 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
             <span className="text-2xl font-black font-sans text-white tracking-widest">{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
@@ -170,10 +209,14 @@ export function PendingRow({
           </div>
         </div>
 
-        {/* Anti-Falling Knife Status Badge */}
-        {isAwaiting1HBounce && (
+        {/* Anti-Falling Knife Status Badge or Standardized Readiness Status */}
+        {isAwaiting1HBounce ? (
           <div className="text-[11px] font-mono font-bold tracking-wider uppercase" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
             <span className="text-amber-400">⚠️ ENTRY ZONE: AWAITING 1H BOUNCE</span>
+          </div>
+        ) : (
+          <div className={`text-[11px] font-mono font-bold tracking-wider uppercase ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
+            <span>{readinessColors.label}</span>
           </div>
         )}
 
@@ -181,17 +224,11 @@ export function PendingRow({
         <div className="flex items-center gap-2.5 w-full" data-testid={`proximity-capsule-${d.symbol}`}>
           <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700 relative">
             <div
-              className={`h-full rounded-full transition-all duration-700 ${
-                proximity > 2
-                  ? "bg-blue-900"
-                  : proximity > 0.5
-                  ? "bg-cyan-500 shadow-[0_0_10px_#06b6d4]"
-                  : "bg-amber-400 shadow-[0_0_12px_#fbbf24] animate-pulse"
-              }`}
+              className={`h-full rounded-full transition-all duration-700 ${readinessColors.capsule}`}
               style={{ width: `${Math.max(0, Math.min(100, 100 - proximity * 10))}%` }}
             />
           </div>
-          <span className="text-xs font-mono font-bold text-white tabular-nums shrink-0">
+          <span className={`text-xs font-mono font-bold tabular-nums shrink-0 ${readinessColors.text}`}>
             {proximity.toFixed(1)}%
           </span>
         </div>

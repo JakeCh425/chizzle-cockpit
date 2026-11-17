@@ -39,6 +39,7 @@ import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE, POLLING_BACKUP_BADGE } from "@/lib/useMarketDataStore";
 import { useFeedConnection, isMarketOpen, isFallbackPollingActive } from "@/lib/priceFeed";
+import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
 import { useToast } from "@/hooks/use-toast";
@@ -354,6 +355,7 @@ function EditableTitle({ value, onChange }: { value: string; onChange: (v: strin
 export function SystemStatusConsole() {
   const marketStore = useMarketDataStore();
   const feed = useFeedConnection();
+  const { usingBackup: pipelineUsingBackup } = useMarketDataPipeline();
   const isConnected = feed.state === "LIVE" || marketStore.status === "LIVE";
   const isMarketOpenNow = feed.isMarketOpen ?? isMarketOpen();
   const latencyMs = marketStore.latencyMs || 18;
@@ -368,6 +370,7 @@ export function SystemStatusConsole() {
         });
   const isStaticClose = Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC" || feed.state === "STATIC");
   const isPollingBackup = Boolean(marketStore.isPollingBackup || marketStore.status === "POLLING_BACKUP" || isFallbackPollingActive());
+  const usingBackup = Boolean(pipelineUsingBackup || isPollingBackup);
 
   return (
     <div
@@ -416,6 +419,12 @@ export function SystemStatusConsole() {
       </div>
 
       <div className="flex items-center gap-2">
+        <span
+          className={usingBackup ? "text-amber-500 font-bold" : "text-emerald-500 font-bold"}
+          data-testid="status-console-data-source"
+        >
+          {usingBackup ? "DATA: BACKUP" : "DATA: PRIMARY"}
+        </span>
         {isPollingBackup && (
           <span
             className="rounded border border-amber-400/80 bg-amber-950/90 px-2 py-0.5 font-mono text-[10px] font-bold text-amber-300 shadow-[0_0_10px_rgba(245,158,11,0.4)] ring-1 ring-amber-400/50 animate-pulse"
@@ -1029,6 +1038,24 @@ function ActionCenterInner() {
     });
   }, [setups, passedTickers]);
 
+  const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+  const sortSnapshotRef = useRef<{
+    order: string[];
+    lastSortedAt: number;
+    imminentSet: Set<string>;
+  }>({ order: [], lastSortedAt: 0, imminentSet: new Set() });
+
+  const getStaticProximityForSetup = useCallback((item: any) => {
+    const anchorPx = (item as any).last4HClose ?? item.currentPrice ?? 0;
+    const tgtSma =
+      (item as any).sma20 ??
+      (item.structureLevels?.sma20 ??
+        (anchorPx > 0 ? +(anchorPx * 0.985).toFixed(2) : 0));
+    const entryPrice = tgtSma > 0 ? tgtSma : (anchorPx > 0 ? anchorPx : (item.entryPrice ?? 0));
+    if (entryPrice <= 0 || anchorPx <= 0) return 999;
+    return Math.abs((anchorPx - entryPrice) / entryPrice) * 100;
+  }, []);
+
   const getProximityForSetup = useCallback((item: any) => {
     const liveQuote = prices?.[item.symbol];
     const livePrice =
@@ -1043,26 +1070,94 @@ function ActionCenterInner() {
         (livePrice > 0 ? +(livePrice * 0.985).toFixed(2) : 0));
     const entryPrice = tgtSma > 0 ? tgtSma : (livePrice > 0 ? livePrice : (item.entryPrice ?? 0));
     if (entryPrice <= 0) return 999;
-    const proximity = Math.abs((livePrice - entryPrice) / entryPrice) * 100;
-    return proximity;
+    return Math.abs((livePrice - entryPrice) / entryPrice) * 100;
   }, [prices, marketStore.prices, global?.livePrices]);
 
-  // Task 2: Merge the "Pending & Waiting" Bucket & Auto-Rank ascending by proximity
-  // Mutual exclusivity: if a ticker is in pendingSetups, it absolutely cannot render in readySetups
+  const rawPendingSetups = useMemo(() => {
+    return setups.filter(
+      (setup) =>
+        !confirmedSymSet.has(setup.symbol) &&
+        setup.status !== "IGNORED" &&
+        (setup as any).status !== "WATCHLIST_ONLY" &&
+        !passedTickers.includes(setup.symbol)
+    );
+  }, [setups, confirmedSymSet, passedTickers]);
+
+  const pendingWaitingSetups = useMemo(() => {
+    return setups.filter(
+      (d) =>
+        !confirmedSymSet.has(d.symbol) &&
+        !lockedSyms.has(d.symbol) &&
+        (d as any).status !== "IGNORED" &&
+        (d as any).status !== "WATCHLIST_ONLY" &&
+        !passedTickers.includes(d.symbol)
+    );
+  }, [setups, confirmedSymSet, lockedSyms, passedTickers]);
+
+  const rawPendingWaiting = useMemo(() => {
+    return pendingWaitingSetups.length > 0
+      ? pendingWaitingSetups
+      : loud.filter(
+          (d) =>
+            !confirmedSymSet.has(d.symbol) &&
+            (d as any).status !== "IGNORED" &&
+            (d as any).status !== "WATCHLIST_ONLY" &&
+            !passedTickers.includes(d.symbol)
+        );
+  }, [pendingWaitingSetups, loud, confirmedSymSet, passedTickers]);
+
+  // Track which tickers have breached the < 1.0% Imminent Zone threshold
+  const imminentTickers = new Set<string>();
+  for (const item of rawPendingWaiting) {
+    if (getProximityForSetup(item) < 1.0) {
+      imminentTickers.add(item.symbol);
+    }
+  }
+  const imminentTickersKey = Array.from(imminentTickers).sort().join(",");
+  const rawPendingSymbolsKey = rawPendingWaiting.map((d) => d.symbol).sort().join(",");
+
+  // Snapshot & Threshold Sorting Engine: decouples live WebSocket ticks from array sorting
+  const cachedOrderMap = useMemo(() => {
+    const now = Date.now();
+    const snap = sortSnapshotRef.current;
+    const isFourHoursElapsed = now - snap.lastSortedAt >= FOUR_HOURS_MS;
+    const hasNewImminentBreach = Array.from(imminentTickers).some((sym) => !snap.imminentSet.has(sym));
+    const orderSet = new Set(snap.order);
+    const hasNewSymbols = rawPendingWaiting.some((d) => !orderSet.has(d.symbol));
+
+    if (snap.order.length === 0 || isFourHoursElapsed || hasNewImminentBreach || hasNewSymbols) {
+      // Sort with pinned High Priority group (< 1.0% proximity) at the top, then static anchor proximity
+      const sorted = [...rawPendingWaiting].sort((a, b) => {
+        const aImminent = imminentTickers.has(a.symbol) ? 0 : 1;
+        const bImminent = imminentTickers.has(b.symbol) ? 0 : 1;
+        if (aImminent !== bImminent) return aImminent - bImminent;
+        return getStaticProximityForSetup(a) - getStaticProximityForSetup(b);
+      });
+      snap.order = sorted.map((d) => d.symbol);
+      snap.lastSortedAt = now;
+      snap.imminentSet = new Set(imminentTickers);
+    }
+
+    const indexMap = new Map<string, number>();
+    snap.order.forEach((sym, idx) => indexMap.set(sym, idx));
+    return indexMap;
+  }, [rawPendingSymbolsKey, imminentTickersKey, getStaticProximityForSetup]);
+
   const pendingSetups = useMemo(() => {
-    return setups
-      .filter((setup) => !confirmedSymSet.has(setup.symbol) && setup.status !== 'IGNORED' && (setup as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(setup.symbol))
-      .sort((a, b) => getProximityForSetup(a) - getProximityForSetup(b));
-  }, [setups, confirmedSymSet, passedTickers, getProximityForSetup]);
+    return [...rawPendingSetups].sort((a, b) => {
+      const ia = cachedOrderMap.get(a.symbol) ?? 9999;
+      const ib = cachedOrderMap.get(b.symbol) ?? 9999;
+      return ia - ib;
+    });
+  }, [rawPendingSetups, cachedOrderMap]);
 
-  const pendingWaitingSetups = setups.filter(
-    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol) && (d as any).status !== 'IGNORED' && (d as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(d.symbol)
-  );
-
-  const rawPendingWaiting = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol) && (d as any).status !== 'IGNORED' && (d as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(d.symbol));
   const generalLoud = useMemo(() => {
-    return [...rawPendingWaiting].sort((a, b) => getProximityForSetup(a) - getProximityForSetup(b));
-  }, [rawPendingWaiting, getProximityForSetup]);
+    return [...rawPendingWaiting].sort((a, b) => {
+      const ia = cachedOrderMap.get(a.symbol) ?? 9999;
+      const ib = cachedOrderMap.get(b.symbol) ?? 9999;
+      return ia - ib;
+    });
+  }, [rawPendingWaiting, cachedOrderMap]);
 
   const deepStandbyRows = useMemo(() => {
     return generalLoud.filter((d) => getProximityForSetup(d) > 3.0);

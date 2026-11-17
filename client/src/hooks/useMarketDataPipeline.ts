@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback, useState } from "react";
 import { globalStore, useMarketDataStore, type MarketTick } from "@/lib/useMarketDataStore";
 import { isMarketOpen } from "@/lib/priceFeed";
 
@@ -198,20 +198,91 @@ export const marketDataPipeline = MarketDataPipelineManager.getInstance();
  */
 export function useMarketDataPipeline(watchlist?: string[]) {
   const store = useMarketDataStore();
+  const [usingBackup, setUsingBackup] = useState(false);
+  const backupTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const stopBackup = useCallback(() => {
+    if (backupTimerRef.current) {
+      clearInterval(backupTimerRef.current);
+      backupTimerRef.current = null;
+    }
+    setUsingBackup(false);
+    globalStore.setPollingBackup(false);
+  }, []);
+
+  const connectBackup = useCallback(() => {
+    setUsingBackup(true);
+    globalStore.setPollingBackup(true);
+    if (backupTimerRef.current) return;
+
+    const pollBackupOnce = async () => {
+      try {
+        const res = await fetch("/api/prices");
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (payload && typeof payload === "object") {
+          for (const tick of Object.values(payload)) {
+            if (tick) marketDataPipeline.handleIncomingTick(tick);
+          }
+        }
+      } catch {
+        // Silently catch backup polling errors
+      }
+    };
+
+    void pollBackupOnce();
+    backupTimerRef.current = setInterval(() => {
+      void pollBackupOnce();
+    }, 5000);
+  }, []);
 
   useEffect(() => {
-    marketDataPipeline.connect();
+    let failoverTimeout: ReturnType<typeof setTimeout> | null = null;
+
+    // Step 1: Default strictly to primary WebSocket connection with 3000ms failover timeout
+    try {
+      marketDataPipeline.connect();
+    } catch {
+      connectBackup();
+    }
+
+    failoverTimeout = setTimeout(() => {
+      if (!marketDataPipeline.isConnected()) {
+        connectBackup();
+      }
+    }, 3000);
+
+    const unsub = marketDataPipeline.addListener(() => {
+      if (marketDataPipeline.isConnected()) {
+        if (failoverTimeout) {
+          clearTimeout(failoverTimeout);
+          failoverTimeout = null;
+        }
+        stopBackup();
+      }
+    });
 
     const handleFocus = () => {
       if (!marketDataPipeline.isConnected()) {
-        marketDataPipeline.connect();
+        try {
+          marketDataPipeline.connect();
+        } catch {
+          connectBackup();
+        }
       }
     };
     window.addEventListener("focus", handleFocus);
+
     return () => {
+      if (failoverTimeout) clearTimeout(failoverTimeout);
+      if (backupTimerRef.current) {
+        clearInterval(backupTimerRef.current);
+        backupTimerRef.current = null;
+      }
+      unsub();
       window.removeEventListener("focus", handleFocus);
     };
-  }, []);
+  }, [connectBackup, stopBackup]);
 
   useEffect(() => {
     if (watchlist && watchlist.length > 0) {
@@ -225,6 +296,7 @@ export function useMarketDataPipeline(watchlist?: string[]) {
 
   return {
     isConnected: marketDataPipeline.isConnected(),
+    usingBackup,
     tickers: store.tickers,
     prices: store.prices,
     activeTicker: store.activeTicker,
