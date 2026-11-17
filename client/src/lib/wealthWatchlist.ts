@@ -6,13 +6,14 @@
 export type DashboardTheme = "cyber-neon" | "stealth" | "arctic" | "sunset-orange" | "neon-grape" | "mint-matrix";
 
 export interface WatchlistItem {
+  id?: string;
   symbol: string;
   name: string;
   price: number;
   change: number;
   changePct: number;
   sparkline: number[];
-  status: "Ready" | "Awaiting Close" | "Forming" | "Retest";
+  status: "Ready" | "READY_TO_TRADE" | "Awaiting Close" | "Forming" | "Retest" | "Signal Expired" | string;
   setupType: string;
   buyTarget: number;
   stopLoss: number;
@@ -22,6 +23,12 @@ export interface WatchlistItem {
   atr: number;
   t2: number;
   t3: number;
+  badge?: string;
+  structureLevels?: any;
+  resistanceZone?: any;
+  ema10?: number;
+  sma10?: number;
+  tacticalGuidance?: string;
   exchange?: string;
   sector?: string;
   todayOpen?: number;
@@ -29,6 +36,7 @@ export interface WatchlistItem {
   todayLow?: number;
   volume?: string;
   avgVolume30D?: string;
+  [key: string]: any;
 }
 
 export const DEFAULT_WATCHLIST: WatchlistItem[] = [

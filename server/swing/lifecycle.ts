@@ -19,6 +19,8 @@ import { detectAll, LOOKBACK_4H, type Detection } from "./detectors";
 import { buildPlan, stopTooWideAdvice, type Plan } from "./planMath";
 import { cardVisible, earlyTriggerAllowed, gradeReady } from "./grading";
 import { dailyRegime, weeklyRegime, type DailyState, type WeeklyState } from "./regime";
+import { getGlobalPracticeMode, setGlobalPracticeMode } from "./practiceMode";
+export { getGlobalPracticeMode, setGlobalPracticeMode };
 
 export const DATA_MISMATCH_PCT = 0.15;
 export const QUOTE_FRESH_SEC = 20 * 60;          // LIVE tolerance for the free (≈15-min) vendor feed
@@ -496,16 +498,26 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
   }
 
   // ── Mode gate + grade (§D, §J) ─────────────────────────────────────────────
+  const isPractice = Boolean(s.practiceMode || getGlobalPracticeMode());
   const g = gradeReady({ signalMode: s.signalMode, userMode: s.userMode, settings: s, weekly: c.weekly.regime,
     daily: c.dailyS.regime, dailyImproving: c.dailyS.improving, setupType: det.type, earlyTrigger: early, volume: det.volume });
-  if (!g.ok) {
+  if (!g.ok && !isPractice) {
     d.cardGrade = "NO_TRADE"; d.riskLabel = g.riskLabel; d.suggestedShares = 0;
     d.failedRules.push(...g.reasons);
     d.whyNotReady = [...g.reasons, `The ${SETUP_NAME[det.type]} itself passed — the ${s.signalMode} mode rules block it.`];
     d.nextAction = `${s.signalMode} mode: no practice entry on ${sym}. ${g.reasons[0]}.`;
     return out("NO_TRADE", { earlyTrigger: early });
   }
-  d.cardGrade = g.grade; d.riskLabel = g.riskLabel;
+  if (isPractice) {
+    d.cardGrade = "A";
+    d.riskLabel = "PRACTICE DRILL — 1H MOMENTUM";
+    (d as any).flag = "PRACTICE";
+    (d as any).isPractice = true;
+    (d as any).practiceMode = true;
+  } else {
+    d.cardGrade = g.grade;
+    d.riskLabel = g.riskLabel;
+  }
   d.passedRules.push(...g.passed, `not extended (${fx(ex.pct)}% / ${fx(ex.atr)} ATR above ${extRefLabel})`, `R:R to T1 ${fx(plan.rrT1)} ≥ ${s.minRrT1}`);
   d.whyNotReady = [];
   d.whyThisPrinted.push(`plan: entry ${fx(plan.entry)} · stop ${fx(plan.stop)} · T1 ${fx(plan.t1)} · T2 ${fx(plan.t2)}`, GAP_RISK_WARNING);
@@ -543,7 +555,12 @@ function evalDetection(det: Detection, c: Ctx): Candidate {
     return out("BLOCKED_DATA_MISMATCH", { earlyTrigger: early });
   }
 
-  d.nextAction = "Practice plan is available. Review entry, stop, targets, and risk.";
+  d.nextAction = isPractice ? "Practice plan is available (1H momentum). Review entry, stop, targets, and risk." : "Practice plan is available. Review entry, stop, targets, and risk.";
+  if (isPractice) {
+    (d as any).flag = "PRACTICE";
+    (d as any).isPractice = true;
+    (d as any).practiceMode = true;
+  }
   return out("READY_TO_TRADE", { earlyTrigger: early });
 }
 
@@ -729,7 +746,8 @@ export function evaluate(E: EvalInput): EvalResult {
   let dataStatus: DataStatus = mm.mismatch ? "MISMATCH" : mm.verified && fresh ? "LIVE" : "DELAYED";
   const health = dataHealthOf(E, sym, closed1h, closed4h, closedDaily, mm);
   if (dataRulesV2()) dataStatus = health.status;
-  if (closed4h.length < MIN_CLOSED_4H || price == null) { dataStatus = "ERROR"; health.reason = `Not enough closed bars (${closed4h.length} 4H) or no price — the feed returned incomplete data.`; }
+  const isPracticeEarly = Boolean(s.practiceMode || getGlobalPracticeMode());
+  if ((closed4h.length < MIN_CLOSED_4H && !isPracticeEarly) || price == null) { dataStatus = "ERROR"; health.reason = `Not enough closed bars (${closed4h.length} 4H) or no price — the feed returned incomplete data.`; }
 
   // 2 · Regime
   const weekly = weeklyRegime(daily, E.now);
@@ -763,6 +781,41 @@ export function evaluate(E: EvalInput): EvalResult {
     return finish(c, primary, candidates, detections);
   }
 
+  const isPracticeMode = Boolean(s.practiceMode || getGlobalPracticeMode());
+  const practice1h = closed1h.length >= 10 ? closed1h : h1;
+  if (!primary && isPracticeMode && practice1h.length >= 5) {
+    const last1h = practice1h[practice1h.length - 1];
+    const closes = practice1h.map((b) => b.c);
+    const sma10 = sma(closes, Math.min(10, practice1h.length));
+    const isGreen = last1h.c >= last1h.o;
+    const aboveSma10 = sma10 != null && last1h.c >= sma10;
+    if (isGreen && aboveSma10) {
+      const d = blank(c);
+      d.setupType = "RECLAIM_MOMENTUM_CONTINUATION";
+      d.setupStatus = "READY_TO_TRADE";
+      d.cardGrade = "A";
+      d.riskLabel = "PRACTICE DRILL — 1H MOMENTUM";
+      (d as any).flag = "PRACTICE";
+      (d as any).isPractice = true;
+      (d as any).practiceMode = true;
+      const entry = +(last1h.c).toFixed(2);
+      const stop = +(last1h.l * 0.985).toFixed(2);
+      const risk = +(entry - stop).toFixed(2);
+      d.originalTrigger = entry;
+      d.structuralStop = stop;
+      d.target1 = +(entry + 1.5 * risk).toFixed(2);
+      d.target2 = +(entry + 2.0 * risk).toFixed(2);
+      d.rewardRiskT1 = 1.5;
+      d.rewardRiskT2 = 2.0;
+      d.passedRules = ["PRACTICE: 1H candle closed green", `PRACTICE: 1H price >= 10 SMA ($${sma10.toFixed(2)})`];
+      d.whyNotReady = [];
+      d.nextAction = `Practice plan is available for ${sym} (1H momentum). Review entry, stop, targets, and risk.`;
+      d.suggestedShares = Math.max(1, Math.floor(1000 / entry));
+      d.whyThisPrinted = [`PRACTICE DRILL: 1H momentum > 10 SMA ($${sma10.toFixed(2)}) and green close`];
+      return finish(c, d, [], detections);
+    }
+  }
+
   // NO_TRADE — never silent: name the missing ingredient, levels and next condition.
   const d = blank(c);
   const hidden = candidates.filter((x) => !x.visible);
@@ -781,6 +834,12 @@ export function evaluate(E: EvalInput): EvalResult {
 }
 
 function finish(c: Ctx, d: SwingDecision, candidates: Candidate[], detections: Detection[]): EvalResult {
+  const isPracticeMode = Boolean(c.s.practiceMode || getGlobalPracticeMode());
+  if (isPracticeMode) {
+    (d as any).flag = "PRACTICE";
+    (d as any).isPractice = true;
+    (d as any).practiceMode = true;
+  }
   if (!d.nextAction) d.nextAction = `Re-check ${c.sym} on the next closed 1H bar.`;
   if (c.weekly.reclaimForming && !d.whyThisPrinted.some((x) => x.includes("WEEKLY RECLAIM FORMING")))
     d.whyThisPrinted.push("WEEKLY RECLAIM FORMING — confirms only after the Friday RTH close");

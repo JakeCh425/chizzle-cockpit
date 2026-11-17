@@ -26,7 +26,7 @@ export async function swingGet<T>(path: string, timeoutMs: number = 8000): Promi
 /**
  * Resilient historical bar-fetching utility with:
  * 1. Strict 8-second AbortController network timeout.
- * 2. Multi-tier fallback to TwelveData / cached local bars when Polygon/Alpaca fails.
+ * 2. Multi-tier fallback to TwelveData / cached local bars when primary feed fails.
  * 3. Never leaves the canvas in a permanent loading state.
  */
 export async function fetchBarsWithFallback(
@@ -177,6 +177,7 @@ export function useSwingDecision(symbol: string | null | undefined, scope: "CURR
     staleTime: 60_000,
     // Non-LIVE data re-checks every minute so the card upgrades/downgrades in place when fresh data returns.
     refetchInterval: (q) => { const st = (q.state.data as any)?.decision?.dataStatus; return st && st !== "LIVE" ? 60_000 : 5 * 60_000; },
+    refetchOnWindowFocus: true,
     retry: 1, retryDelay: 1500,
     // Same symbol, new history scope: keep showing the last decision while it loads.
     placeholderData: (prev, prevQuery) => (prevQuery?.queryKey?.[1] === (symbol ?? "") ? prev : undefined),

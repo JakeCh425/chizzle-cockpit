@@ -9,10 +9,12 @@ export interface SmaStyle {
 }
 
 export interface SmaSettings {
-  sma10: SmaStyle;
+  sma10?: SmaStyle;
   sma20: SmaStyle;
   sma50: SmaStyle;
   sma200: SmaStyle;
+  smaFastPeriod?: number;
+  smaSlowPeriod?: number;
   showVolume?: boolean;
   showAtr?: boolean;
   showRibbon?: boolean;

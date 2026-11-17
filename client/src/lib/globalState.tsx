@@ -26,11 +26,12 @@ export { DEFAULT_WATCHLIST, type WatchlistItem, type DashboardTheme, marketDataS
 export type { MarketDataState, MarketTick, LastValidTick, SetupAlertState };
 
 export interface ActiveTickerData {
+  id?: string;
   symbol: string;
   price: number;
   change: number;
   changePct: number;
-  status: "Ready" | "Awaiting Close" | "Forming" | "Retest" | string;
+  status: "Ready" | "READY_TO_TRADE" | "Awaiting Close" | "Forming" | "Retest" | "Signal Expired" | string;
   setupType: string;
   buyTarget: number;
   stopLoss: number;
@@ -46,6 +47,13 @@ export interface ActiveTickerData {
   t2: number;
   t3: number;
   receivedAt: number;
+  badge?: string;
+  structureLevels?: any;
+  resistanceZone?: any;
+  ema10?: number;
+  sma10?: number;
+  tacticalGuidance?: string;
+  [key: string]: any;
 }
 
 export interface PracticeTradeRecord {
@@ -56,7 +64,7 @@ export interface PracticeTradeRecord {
   target1: number;
   target2?: number;
   target3?: number;
-  riskReward: number;
+  riskReward?: number;
   shares?: number;
   dollarRisk?: number;
   capitalCommitted?: number;
@@ -83,7 +91,7 @@ export interface GlobalStateContextType {
   activeTickerData: ActiveTickerData;
   activePrice: number;
   livePrices: Record<string, number>;
-  isBadTick: (symbol: string, price: number) => boolean;
+  isBadTick: (symbol: string, price: number, referencePrice?: number) => boolean;
   isMarketOpen: boolean;
   isDelayed: boolean;
   isReconnecting: boolean;
@@ -539,8 +547,8 @@ export function GlobalStateProvider({ children }: { children: React.ReactNode })
 
   // Outlier / Bad Tick Validator (5% threshold with sandbox against verified livePrices only)
   const isBadTick = useCallback(
-    (symbol: string, newPrice: number): boolean => {
-      const current = livePrices[symbol];
+    (symbol: string, newPrice: number, referencePrice?: number): boolean => {
+      const current = referencePrice ?? livePrices[symbol];
       return marketDataStore.isBadTick(symbol, newPrice, current) || checkBadTick(symbol, newPrice, current);
     },
     [livePrices]

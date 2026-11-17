@@ -77,6 +77,9 @@ export interface SwingDecision {
 
   userMode: UserMode;
   signalMode: SignalMode;
+  practiceMode?: boolean;
+  flag?: "PRACTICE" | string;
+  isPractice?: boolean;
 
   weeklyRegime: WeeklyRegime;
   weeklyReclaimForming: boolean;  // current-week green candle, not yet Friday RTH close
@@ -156,6 +159,12 @@ export interface SwingDecision {
 
   /** 10-period simple moving average on 1H closes. */
   sma10?: number | null;
+  sma20?: number | null;
+  sma50?: number | null;
+  hasHardBlock?: boolean;
+  isStandbyDay?: boolean;
+  hasClosed1HReversal?: boolean;
+  testedLine?: string | null;
   /** Mechanical 10-SMA rule status. */
   sma10Status?: "HOLDING_ABOVE_10_SMA" | "BELOW_10_SMA" | null;
   /** Target provenance (additive, metadata only): the pivot-high resistance levels above entry that the
@@ -344,6 +353,9 @@ export function readinessLabel(score: number, s: SetupStatus): string {
 export interface SwingSettings {
   userMode: UserMode;
   signalMode: SignalMode;
+  practiceMode?: boolean;
+  flag?: "PRACTICE" | string;
+  isPractice?: boolean;
   showFormingCards: boolean;
   showWatchCards: boolean;
   showLowQualityForming?: boolean; // Disciplined: show low-quality forming cards anyway
@@ -456,6 +468,7 @@ export interface ChartOverlay { markers: ChartMarker[]; levels: ChartLevel[]; zo
 export const DEFAULT_SWING_SETTINGS: SwingSettings = {
   userMode: "LEARN",
   signalMode: "FLEXIBLE",
+  practiceMode: false,
   showFormingCards: true,
   showWatchCards: true,
   showLowQualityForming: false,

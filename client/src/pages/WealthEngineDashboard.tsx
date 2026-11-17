@@ -836,6 +836,8 @@ export function LiveTradingChart({
     };
   }, [candles, fullBufferCloses, livePrice, candleWidth, minPrice, priceRange]);
 
+  const sma20Price = (item as any)?.sma20Price ?? latestSma20;
+
   const makeSmaPath = (pts: Array<{ x: number; y: number }>) => {
     if (pts.length === 0) return "";
     return pts.map((p, idx) => `${idx === 0 ? "M" : "L"} ${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(" ");
@@ -1158,7 +1160,7 @@ export function LiveTradingChart({
           <div
             data-testid="hud-setup-status-pill"
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-mono font-bold tracking-wider uppercase border shadow-sm ${
-              (item?.status ?? "Ready") === "Ready"
+              (item?.status ?? "Ready") === "Ready" || item?.status === "READY_TO_TRADE"
                 ? "bg-emerald-500/15 text-emerald-300 border-emerald-500/30"
                 : "bg-cyan-500/15 text-cyan-300 border-cyan-500/30"
             }`}
@@ -1576,7 +1578,7 @@ export function LiveTradingChart({
             </span>
             <span
               className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                (item?.status ?? "Ready") === "Ready"
+                (item?.status ?? "Ready") === "Ready" || item?.status === "READY_TO_TRADE"
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-400/40"
                   : "bg-cyan-500/20 text-cyan-300 border border-cyan-400/40"
               }`}
@@ -2853,7 +2855,7 @@ export default function WealthEngineDashboard() {
   // Dynamic Trade Proximity Meter Calculation
   const sma20Price = +(currentPrice * 0.985).toFixed(2);
   const proximityPct = Math.abs(currentPrice - sma20Price) / currentPrice * 100;
-  const is1HGreenAboveSupport = (activeItem?.status === "Ready") || ((activeTickerData?.changePct ?? activeItem?.changePct ?? 0) >= 0);
+  const is1HGreenAboveSupport = (activeItem?.status === "Ready" || activeItem?.status === "READY_TO_TRADE") || ((activeTickerData?.changePct ?? activeItem?.changePct ?? 0) >= 0);
   const isVolumeElevated = true; // tracking >1.2x avg benchmark
 
   // Candle Setup Confirmation Hook
@@ -2874,7 +2876,7 @@ export default function WealthEngineDashboard() {
     atr: activeItem?.atr ?? activeTickerData?.atr,
     proximityPct,
     changePct: activeTickerData?.changePct ?? activeItem?.changePct ?? 0,
-    candleConfirmation: (activeItem?.status === "Ready" || activeTickerData?.status === "Ready") ? true : undefined,
+    candleConfirmation: (activeItem?.status === "Ready" || activeItem?.status === "READY_TO_TRADE" || activeTickerData?.status === "Ready" || activeTickerData?.status === "READY_TO_TRADE") ? true : undefined,
   });
   const {
     isTradeConfirmed,
@@ -2984,7 +2986,9 @@ export default function WealthEngineDashboard() {
   // When top of the hour strikes AND candle closes green above SMA support (or setup status is Ready)
   const isTradeReady =
     (activeItem?.status === "Ready" ||
+      activeItem?.status === "READY_TO_TRADE" ||
       activeTickerData?.status === "Ready" ||
+      activeTickerData?.status === "READY_TO_TRADE" ||
       (isTradeConfirmed && is1HGreenAboveSupport)) &&
     isWithinChaseBuffer;
   const isSetupReady = isTradeReady;
@@ -3298,7 +3302,7 @@ export default function WealthEngineDashboard() {
               {(watchlist || []).map((item) => {
                 if (!item) return null;
                 const isSelected = item.symbol === activeSymbol;
-                const isReadyStatus = item.status === "Ready";
+                const isReadyStatus = item.status === "Ready" || item.status === "READY_TO_TRADE";
                 const isFormingStatus = item.status === "Forming" || item.status === "Awaiting Close";
                 const dotColorClass = isReadyStatus
                   ? "bg-emerald-400 shadow-[0_0_6px_#34D399]"
@@ -3449,7 +3453,7 @@ export default function WealthEngineDashboard() {
                 placeholder="Search/Add Symbol..."
                 aria-label="Search/Add Symbol"
                 maxLength={6}
-                className="flex-1 px-2.5 py-1 rounded bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold border border-gray-700 text-xs font-mono tracking-wider uppercase focus:outline-none focus:border-cyan-400"
+                className="flex-1 px-2.5 py-1 rounded bg-gray-900 border border-gray-700 text-white placeholder-gray-400 font-mono font-bold text-xs tracking-wider uppercase focus:outline-none focus:border-cyan-400 /* bg-yellow-400 text-gray-900 placeholder-gray-700 font-bold */"
               />
               <button
                 type="submit"
@@ -3503,7 +3507,7 @@ export default function WealthEngineDashboard() {
                       <div className="flex items-center gap-1.5">
                         <span
                           className={`h-2 w-2 rounded-full flex-shrink-0 ${
-                            item.status === "Ready"
+                            item.status === "Ready" || item.status === "READY_TO_TRADE"
                               ? "bg-emerald-400 shadow-[0_0_6px_#34D399]"
                               : item.status === "Forming" || item.status === "Awaiting Close"
                               ? "bg-amber-400 shadow-[0_0_6px_#FBBF24]"
@@ -3515,7 +3519,7 @@ export default function WealthEngineDashboard() {
                         </span>
                         <span
                           className={`text-[8.5px] px-1.5 py-0.5 rounded font-mono font-semibold uppercase ${
-                            item.status === "Ready"
+                            item.status === "Ready" || item.status === "READY_TO_TRADE"
                               ? "bg-emerald-500/20 text-emerald-400"
                               : item.status === "Awaiting Close"
                               ? "bg-amber-500/20 text-amber-400"
@@ -5106,7 +5110,7 @@ export default function WealthEngineDashboard() {
                         entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
                         stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
                         target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
-                        is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready")}
+                        is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready" || activeItem?.status === "READY_TO_TRADE")}
                         isArmed={isTradeReady}
                       />
 
@@ -5208,7 +5212,7 @@ export default function WealthEngineDashboard() {
                   entryPrice={activeTickerData?.symbol === activeTicker ? (activeTickerData?.buyTarget ?? entryPriceVal) : entryPriceVal}
                   stopLoss={activeTickerData?.symbol === activeTicker ? (activeTickerData?.stopLoss ?? stopLossVal) : stopLossVal}
                   target1={activeTickerData?.symbol === activeTicker ? (activeTickerData?.target1 ?? t1Val) : t1Val}
-                  is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready")}
+                  is1hClosed={Boolean(isTradeConfirmed || is1HGreenAboveSupport || activeItem?.status === "Ready" || activeItem?.status === "READY_TO_TRADE")}
                   isArmed={isTradeReady}
                 />
 

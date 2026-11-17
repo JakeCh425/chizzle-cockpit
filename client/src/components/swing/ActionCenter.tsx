@@ -6,7 +6,7 @@ import React, { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { motion } from "framer-motion";
 import { evaluateExecutionGating } from "@/lib/executionGating";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Info, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Radar, RefreshCw, Settings, Sparkles, Trash2, X, Zap } from "lucide-react";
+import { Activity, AlertTriangle, BookOpen, Check, ChevronDown, ChevronUp, ChevronRight, ChevronsDownUp, ChevronsUpDown, Crosshair, Info, ListChecks, MinusCircle, MoreHorizontal, Palette, Pencil, Radar, RefreshCw, Settings, Shield, Sparkles, Trash2, X, Zap } from "lucide-react";
 import type { ScanSelection, SwingDecision, SwingSettings } from "@shared/swingDecision";
 import { levelsInvalidOf } from "@shared/swingDecision";
 import { actionGroupOf, setupIdOf, effectivePlan } from "@shared/practicePlan";
@@ -29,6 +29,7 @@ import { PriorityBoard } from "./SetupScore";
 import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
 import { CardThemeSwitcher } from "./CardThemeSwitcher";
 import { ActiveExecutionHeroCard } from "./ActiveExecutionHeroCard";
+import { PendingRow } from "./PendingRow";
 import { evaluateQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { useStrategyEngine, type ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import { useTradeSetupStore, tradeSetupStore } from "@/lib/useTradeSetupStore";
@@ -489,333 +490,6 @@ export class ActionCenterErrorBoundary extends React.Component<
   }
 }
 
-// ─── PendingRow Sub-Component (Task 2 & Task 4) ─────────────────────────────
-interface PendingRowProps {
-  setup: SwingDecision & {
-    ticker?: string;
-    livePrice?: number;
-    projectedEntry?: number;
-    stopLoss?: number;
-    allocatedCapital?: number;
-    status?: string;
-  };
-  d?: SwingDecision;
-  effectivePrice: number;
-  rowTimestamp: string;
-  selectedTicker: string;
-  onSelectTicker: (sym: string) => void;
-  onUpdateCapital: (symbol: string, capital: number) => void;
-  onPassSetup?: (ticker: string) => void;
-  isPractice: boolean;
-  onStartPracticeDrill: (d: SwingDecision, price: number) => void;
-  getSetupPriceExtension: (d: any) => any;
-}
-
-function PendingRow({
-  setup,
-  d: propD,
-  effectivePrice,
-  rowTimestamp,
-  selectedTicker,
-  onSelectTicker,
-  onUpdateCapital,
-  onPassSetup,
-  isPractice,
-  onStartPracticeDrill,
-  getSetupPriceExtension,
-}: PendingRowProps) {
-  const d = propD || setup;
-  const [customCapital, setCustomCapital] = useState<number>(setup.allocatedCapital || 1000);
-
-  useEffect(() => {
-    if (setup.allocatedCapital && setup.allocatedCapital !== customCapital) {
-      setCustomCapital(setup.allocatedCapital);
-    }
-  }, [setup.allocatedCapital]);
-
-  const ext = getSetupPriceExtension(d);
-  const isExtended = ext.extensionPercent > 0.75;
-  const extendedBadgeText = `[ ⏳ EXTENDED: ${ext.diffSign}${ext.extensionPercent.toFixed(1)}% ABOVE ENTRY — AWAIT RETEST ]`;
-
-  const targetSma =
-    (d as any).sma20 ??
-    (d.structureLevels?.sma20 ??
-      (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 0));
-  const sma50Val =
-    (d as any).sma50 ??
-    (d.structureLevels?.sma50 ??
-      (effectivePrice > 0 ? +(effectivePrice * 0.965).toFixed(2) : 0));
-
-  const distancePercent =
-    targetSma > 0 && effectivePrice > 0
-      ? +(((effectivePrice - targetSma) / targetSma) * 100).toFixed(2)
-      : 1.5;
-  const isHardBlock = Boolean(
-    d.hasHardBlock ||
-    d.isStandbyDay ||
-    (sma50Val > 0 && targetSma > 0 && targetSma < sma50Val)
-  );
-
-  let aiTip = "";
-  if (isHardBlock) {
-    aiTip = "[ 🔒 AI Tip: Trend Red. 4H 20-SMA below 50-SMA. Stand down. ]";
-  } else if (isExtended) {
-    aiTip = `[ ⏳ AI Tip: Extended (+${ext.extensionPercent.toFixed(1)}%). Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-  } else if (Math.abs(distancePercent) < 0.5) {
-    aiTip = `[ ⚡ AI Tip: Pullback Testing Support! ${Math.abs(distancePercent).toFixed(1)}% away from 20-SMA ($${targetSma.toFixed(2)}). Watch for 1H candle to close green to arm trade. ]`;
-  } else {
-    aiTip = `[ ⏳ AI Tip: Extended. Waiting for pullback to 20-SMA ($${targetSma.toFixed(2)}). Do not chase. ]`;
-  }
-
-  const absDistance = Math.abs(distancePercent);
-  const isImminent = absDistance < 0.5;
-  const isFar = absDistance > 2.0;
-  const progressWidth = Math.min(100, Math.max(8, Math.round((1 - Math.min(absDistance, 3) / 3) * 100)));
-
-  // Task 1: Fix Fatal Math Bug (Dynamic Entry)
-  const entryPrice = setup.projectedEntry || setup.livePrice;
-
-  // Task 1, 2, 3: Dynamic Live-Math Engine Hookup
-  const math = useMemo(() => {
-    if (entryPrice <= 0) return null;
-
-    const stopLoss = setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2);
-    const riskPerShare = entryPrice - setup.stopLoss;
-    const shares = Math.floor(customCapital / entryPrice);
-    const actualCapitalDeployed = shares * entryPrice;
-    const totalRisk = shares * riskPerShare;
-
-    const profit1_5 = totalRisk * 1.5;
-    const roi1_5 = (shares * entryPrice > 0) ? (profit1_5 / (shares * entryPrice)) * 100 : 0;
-
-    const profit2_0 = totalRisk * 2.0;
-    const roi2_0 = (shares * entryPrice > 0) ? (profit2_0 / (shares * entryPrice)) * 100 : 0;
-
-    const profit3_0 = totalRisk * 3.0;
-    const roi3_0 = (shares * entryPrice > 0) ? (profit3_0 / (shares * entryPrice)) * 100 : 0;
-
-    const target1_5R = entryPrice + (riskPerShare * 1.5);
-    const target2_0R = entryPrice + (riskPerShare * 2.0);
-    const target3_0R = entryPrice + (riskPerShare * 3.0);
-
-    return {
-      entryPrice,
-      stopLoss,
-      shares,
-      actualCapitalDeployed,
-      riskPerShare,
-      totalRisk,
-      target1_5R,
-      profit1_5,
-      roi1_5,
-      target2_0R,
-      profit2_0,
-      roi2_0,
-      target3_0R,
-      profit3_0,
-      roi3_0,
-    };
-  }, [customCapital, entryPrice, setup.stopLoss]);
-
-  if (entryPrice <= 0 || !math) return null;
-
-  return (
-    <div
-      key={d.symbol}
-      onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[200px_minmax(250px,1fr)_repeat(3,minmax(120px,1fr))_auto] gap-6 items-center p-4 mb-3 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border border-slate-800 hover:border-amber-500/50 rounded-xl font-mono cursor-pointer shadow-md ${
-        selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
-      }`}
-      data-testid={`waiting-row-${d.symbol}`}
-    >
-      <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
-
-      {/* Col 1: Ticker / Proximity (Asset & Live Data) */}
-      <div className="flex flex-col gap-1.5 min-w-0">
-        <div className="flex items-center gap-3">
-          <div className="bg-slate-800 border-l-4 border-amber-500 w-20 flex justify-center py-2 text-lg font-black text-white shrink-0 items-center rounded">
-            <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
-          </div>
-          <div className="flex flex-col">
-            <span className="text-slate-100 font-mono tabular-nums text-lg font-bold leading-tight">
-              {formatCurrency(effectivePrice)}
-            </span>
-            <div
-              className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0"
-              data-testid={`waiting-row-timestamp-${d.symbol}`}
-            >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Updated {rowTimestamp} CT</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Proximity Metric & Progress Bar */}
-        <div className="flex items-center justify-between gap-2 mt-1">
-          <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">Proximity:</span>
-          <span className={`font-mono text-xs font-bold tabular-nums ${isImminent ? "text-amber-400 animate-pulse" : "text-slate-300"}`}>
-            {absDistance.toFixed(1)}% TO ENTRY
-          </span>
-        </div>
-
-        <div className="w-full bg-slate-800/90 rounded-full h-1.5 overflow-hidden">
-          <div
-            className={`h-full transition-all duration-300 rounded-full ${
-              isImminent
-                ? "bg-amber-400 shadow-[0_0_8px_#fbbf24]"
-                : isFar
-                ? "bg-slate-700"
-                : "bg-amber-500/60"
-            }`}
-            style={{ width: `${progressWidth}%` }}
-          />
-        </div>
-      </div>
-
-      {/* Col 2: Core Plan & Risk (Capital Input / Entry / Stop) */}
-      <div className="flex flex-col gap-2 min-w-0">
-        {/* Capital Input & Shares */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
-          <div className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase flex items-center gap-1.5">
-            <span>Capital:</span>
-            <div className="flex items-center gap-1">
-              <span className="text-slate-500 font-mono text-sm font-bold">$</span>
-              <input
-                type="number"
-                value={customCapital}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  setCustomCapital(Number(e.target.value));
-                  onUpdateCapital?.(d.symbol, Number(e.target.value));
-                }}
-                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 outline-none px-2 py-1 rounded text-cyan-400 font-mono font-bold w-24 text-right transition-colors"
-                data-testid={`input-capital-${d.symbol}`}
-                aria-label={`Allocated capital for ${d.symbol}`}
-              />
-            </div>
-          </div>
-          <div className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">
-            Shares: <span className="text-slate-100 font-mono tabular-nums font-bold text-sm">{math.shares}</span>
-          </div>
-        </div>
-
-        {/* Core Prices: Entry & Stop */}
-        <div className="flex items-center justify-between gap-3 flex-wrap pt-0.5">
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">ENTRY:</span>
-            <span className="text-base font-mono tabular-nums font-bold text-white">${math.entryPrice.toFixed(2)}</span>
-          </div>
-
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">STOP:</span>
-            <span className="text-base font-mono tabular-nums font-bold text-white">${math.stopLoss.toFixed(2)}</span>
-            <span className="text-sm font-mono tabular-nums font-bold text-rose-400">
-              (-${math.totalRisk.toFixed(2)})
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Col 3: 1.5R Target */}
-      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
-        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">1.5R Target</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
-        <div className="text-emerald-400 font-mono text-xs">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
-      </div>
-
-      {/* Col 4: 2.0R Target */}
-      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
-        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">2.0R Target</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
-        <div className="text-emerald-400 font-mono text-xs">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
-      </div>
-
-      {/* Col 5: 3.0R Target */}
-      <div className="flex flex-col p-2.5 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[120px]">
-        <span className="text-xs font-sans font-semibold tracking-wider text-slate-400 uppercase">3.0R Target</span>
-        <span className="text-sm font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
-        <div className="text-emerald-400 font-mono text-xs">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
-      </div>
-
-      {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}
-      <div className="flex items-center gap-2 shrink-0 justify-end">
-        {/* Pass / Move to Watchlist Button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            onPassSetup?.(setup.ticker || d.symbol);
-          }}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-slate-700 bg-slate-900/90 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors text-xs font-mono font-medium cursor-pointer shadow-sm shrink-0"
-          data-testid={`button-pass-setup-${d.symbol}`}
-          title={`Pass on ${d.symbol} and move to Passed Watchlist`}
-        >
-          <span>[ ⨯ Pass & Watch ]</span>
-        </button>
-
-        {/* Clean Hover Tooltip (Lucide Info Icon) */}
-        <div
-          className="relative group/tip bg-slate-900 border border-slate-700 text-slate-300 text-xs font-mono px-3 py-1.5 rounded-lg flex items-center gap-2 cursor-pointer shadow-sm hover:border-cyan-500/50"
-          data-testid={`badge-waiting-ai-tip-${d.symbol}`}
-          title={aiTip}
-        >
-          <Info className="w-4 h-4 text-cyan-400 shrink-0" />
-          <span className="text-slate-400 font-semibold text-xs hidden xl:inline">AI Analysis</span>
-
-          {/* Sleek Tooltip Popover on Hover */}
-          <div className="absolute bottom-full right-0 mb-2 hidden group-hover/tip:flex flex-col gap-1.5 z-40 w-80 p-3 rounded-xl bg-slate-950 border border-slate-700 shadow-2xl text-xs text-slate-200 pointer-events-none">
-            <div className="font-bold text-white flex items-center gap-1.5">
-              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
-              <span>AI Quantitative Diagnosis</span>
-            </div>
-            <div className="text-slate-300">{aiTip}</div>
-            <div className="pt-1 border-t border-slate-800 text-[11px] text-slate-400">
-              {isHardBlock ? (
-                <span>[ 🔒 Blocked by 4H 50-SMA Ceiling • Stand Down ]</span>
-              ) : isExtended ? (
-                <span>
-                  [ ⏳ Too High — Wait for Pullback to ${targetSma.toFixed(2)} ]
-                  <span className="sr-only">[ ⏳ Too High (+{ext.extensionPercent.toFixed(1)}% above 20-SMA) • Wait for Pullback ]</span>
-                </span>
-              ) : (
-                <span>[ 🎯 Testing 20-SMA Support (${targetSma.toFixed(2)}) • Waiting for 1H Green Candle ]</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Beginner Practice Simulator Drill Trigger */}
-        {isPractice && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onStartPracticeDrill(d, effectivePrice);
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[#FFB800] bg-amber-500/20 text-[#FFB800] hover:bg-amber-500/30 transition-all text-xs font-mono font-bold tracking-wider uppercase cursor-pointer shadow-sm shrink-0"
-            data-testid={`button-practice-drill-${d.symbol}`}
-            title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
-          >
-            <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
-            <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
-            <span className="sr-only">[ 🎮 Practice Drill ]</span>
-          </button>
-        )}
-      </div>
-
-      {/* Hidden compatibility markers for test suites */}
-      {isExtended && (
-        <div
-          className="hidden"
-          data-testid={`badge-extended-await-retest-${d.symbol}`}
-        >
-          <span>{extendedBadgeText}</span>
-        </div>
-      )}
-    </div>
-  );
-}
-
 export default function ActionCenter() {
   return (
     <ActionCenterErrorBoundary>
@@ -855,6 +529,7 @@ function ActionCenterInner() {
   const [bulkExpanded, setBulkExpanded] = useState<boolean | null>(null);
   const [uiPreferencesOpen, setUiPreferencesOpen] = useState(false);
   const [isPendingOpen, setIsPendingOpen] = useState(true);
+  const [isDeepStandbyOpen, setIsDeepStandbyOpen] = useState(false);
   const [isWatchlistOpen, setIsWatchlistOpen] = useState(true);
   const [isWatchlistCollapsed, setIsWatchlistCollapsed] = usePersistentState<boolean>("ac-watchlist-collapsed", false);
   // Task 3: Frozen math snapshot map for Ready to Trade setups
@@ -1295,14 +970,41 @@ function ActionCenterInner() {
         (typeof d.notes === "string" && d.notes.toLowerCase().includes("retest")) ||
         (Array.isArray(d.whyNotReady) && d.whyNotReady.some((r: string) => typeof r === "string" && r.toLowerCase().includes("retest")))
       );
+      const liveQuote = prices?.[cleanTicker];
+      const livePx =
+        marketStore.prices[cleanTicker] ??
+        global?.livePrices?.[cleanTicker] ??
+        liveQuote?.price ??
+        d.currentPrice ??
+        0;
+      const tgtSma =
+        (d as any).sma20 ??
+        (d.structureLevels?.sma20 ??
+          (livePx > 0 ? +(livePx * 0.985).toFixed(2) : 0));
+      const entryPx = tgtSma > 0 ? tgtSma : (livePx > 0 ? livePx : (d.entryPrice ?? 0));
+      const hasClosed1HReversal = Boolean(
+        d.hasClosed1HReversal ||
+        d.setupStatus === "SETUP_CONFIRMED" ||
+        global?.confirmedSetups?.[cleanTicker]
+      );
+      const isAwaiting1HBounce = livePx > 0 && entryPx > 0 && livePx <= entryPx && !hasClosed1HReversal;
+      let resolvedSetupStatus = d.setupStatus;
+      if (livePx > 0 && entryPx > 0 && livePx <= entryPx && hasClosed1HReversal && !isStandby && !hasBlock) {
+        resolvedSetupStatus = "READY_TO_TRADE";
+      } else if (isAwaiting1HBounce && cleanStatus === "READY_TO_TRADE") {
+        // Anti-Falling Knife Guardrail: never transition to READY_TO_TRADE without 1H reversal candle close
+        resolvedSetupStatus = "SETUP_FORMING";
+      }
       return Object.assign(d, {
+        setupStatus: resolvedSetupStatus,
+        hasClosed1HReversal,
         isStandbyDay: isStandby,
         hasHardBlock: hasBlock,
         isWaitAndRetest: isRetest,
         score: typeof d.score === "number" ? d.score : (d.setupScore?.total ?? 0),
       });
     });
-  }, [validSetups]);
+  }, [validSetups, prices, marketStore.prices, global?.livePrices, global?.confirmedSetups]);
 
   // Task 1: Strict Ready Filtering (strictly require READY_TO_TRADE, no hard blocks/standby/retest, AND within 0.75% chase tolerance)
   const readySetups = setups.filter(
@@ -1327,14 +1029,46 @@ function ActionCenterInner() {
     });
   }, [setups, passedTickers]);
 
-  // Task 2: Merge the "Pending & Waiting" Bucket
+  const getProximityForSetup = useCallback((item: any) => {
+    const liveQuote = prices?.[item.symbol];
+    const livePrice =
+      marketStore.prices[item.symbol] ??
+      global?.livePrices?.[item.symbol] ??
+      liveQuote?.price ??
+      item.currentPrice ??
+      0;
+    const tgtSma =
+      (item as any).sma20 ??
+      (item.structureLevels?.sma20 ??
+        (livePrice > 0 ? +(livePrice * 0.985).toFixed(2) : 0));
+    const entryPrice = tgtSma > 0 ? tgtSma : (livePrice > 0 ? livePrice : (item.entryPrice ?? 0));
+    if (entryPrice <= 0) return 999;
+    const proximity = Math.abs((livePrice - entryPrice) / entryPrice) * 100;
+    return proximity;
+  }, [prices, marketStore.prices, global?.livePrices]);
+
+  // Task 2: Merge the "Pending & Waiting" Bucket & Auto-Rank ascending by proximity
   // Mutual exclusivity: if a ticker is in pendingSetups, it absolutely cannot render in readySetups
-  const pendingSetups = setups.filter((setup) => !confirmedSymSet.has(setup.symbol) && setup.status !== 'IGNORED' && !passedTickers.includes(setup.symbol));
+  const pendingSetups = useMemo(() => {
+    return setups
+      .filter((setup) => !confirmedSymSet.has(setup.symbol) && setup.status !== 'IGNORED' && (setup as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(setup.symbol))
+      .sort((a, b) => getProximityForSetup(a) - getProximityForSetup(b));
+  }, [setups, confirmedSymSet, passedTickers, getProximityForSetup]);
+
   const pendingWaitingSetups = setups.filter(
-    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol) && (d as any).status !== 'IGNORED' && !passedTickers.includes(d.symbol)
+    (d) => !confirmedSymSet.has(d.symbol) && !lockedSyms.has(d.symbol) && (d as any).status !== 'IGNORED' && (d as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(d.symbol)
   );
-  const generalLoud = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol) && (d as any).status !== 'IGNORED' && !passedTickers.includes(d.symbol));
-  const passedSetups = setups.filter((setup) => setup.status === 'IGNORED' || passedTickers.includes(setup.symbol));
+
+  const rawPendingWaiting = pendingWaitingSetups.length > 0 ? pendingWaitingSetups : loud.filter((d) => !confirmedSymSet.has(d.symbol) && (d as any).status !== 'IGNORED' && (d as any).status !== 'WATCHLIST_ONLY' && !passedTickers.includes(d.symbol));
+  const generalLoud = useMemo(() => {
+    return [...rawPendingWaiting].sort((a, b) => getProximityForSetup(a) - getProximityForSetup(b));
+  }, [rawPendingWaiting, getProximityForSetup]);
+
+  const deepStandbyRows = useMemo(() => {
+    return generalLoud.filter((d) => getProximityForSetup(d) > 3.0);
+  }, [generalLoud, getProximityForSetup]);
+
+  const passedSetups = setups.filter((setup) => setup.status === 'IGNORED' || (setup as any).status === 'WATCHLIST_ONLY' || passedTickers.includes(setup.symbol));
   // Backward compatibility hook: const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
 
   // Clean up frozen ready snapshots when tickers are no longer ready
@@ -2501,7 +2235,7 @@ function ActionCenterInner() {
               {isPendingOpen && (
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full mb-2" data-testid="pending-cards-grid" />
-                  <div className="flex flex-col divide-y divide-slate-800/60" data-testid="waiting-room-rows">
+                  <div className="flex flex-col gap-4 bg-[#0B1220] p-2 rounded-xl" data-testid="waiting-room-rows">
                     {/* pendingSetups / generalLoud mapping */}
                     {generalLoud.map((d) => {
                       const liveQuote = prices?.[d.symbol];
@@ -2519,6 +2253,9 @@ function ActionCenterInner() {
                       const stopLoss = d.structuralStop && d.structuralStop < entryPrice
                         ? d.structuralStop
                         : +(entryPrice * 0.98).toFixed(2);
+
+                      const proximity = entryPrice > 0 ? Math.abs((effectivePrice - entryPrice) / entryPrice) * 100 : 999;
+                      if (proximity > 3.0) return null; // Routed to Deep Standby section below
 
                       const setup = {
                         ...d,
@@ -2552,6 +2289,85 @@ function ActionCenterInner() {
                       );
                     })}
                   </div>
+
+                  {/* ── Deep Standby Accordion (> 3.0% Proximity) ── */}
+                  {deepStandbyRows.length > 0 && (
+                    <div className="w-full flex flex-col gap-2 pt-3 border-t border-slate-800/80 mt-2" data-testid="section-deep-standby">
+                      <button
+                        type="button"
+                        onClick={() => setIsDeepStandbyOpen((prev) => !prev)}
+                        className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 hover:border-slate-700 text-white transition-all font-mono text-xs font-bold uppercase tracking-wider cursor-pointer shadow-sm"
+                        data-testid="button-toggle-deep-standby"
+                        aria-expanded={isDeepStandbyOpen}
+                        aria-label={isDeepStandbyOpen ? "Collapse Deep Standby Setups" : "Expand Deep Standby Setups"}
+                      >
+                        <div className="flex items-center gap-2">
+                          {isDeepStandbyOpen ? (
+                            <ChevronDown className="h-4 w-4 text-slate-400" />
+                          ) : (
+                            <ChevronRight className="h-4 w-4 text-slate-400" />
+                          )}
+                          <span>[ 🔭 DEEP STANDBY ]</span>
+                        </div>
+                        <span className="text-xs text-slate-400 font-normal">
+                          {deepStandbyRows.length} setups (&gt; 3.0% away) · {isDeepStandbyOpen ? "expanded" : "collapsed"}
+                        </span>
+                      </button>
+
+                      {isDeepStandbyOpen && (
+                        <div className="flex flex-col divide-y divide-slate-800/60 mt-1" data-testid="deep-standby-rows">
+                          {deepStandbyRows.map((d) => {
+                            const liveQuote = prices?.[d.symbol];
+                            const effectivePrice =
+                              marketStore.prices[d.symbol] ??
+                              global?.livePrices?.[d.symbol] ??
+                              liveQuote?.price ??
+                              d.currentPrice ??
+                              0;
+                            const targetSma =
+                              (d as any).sma20 ??
+                              (d.structureLevels?.sma20 ??
+                                (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 0));
+                            const entryPrice = targetSma > 0 ? targetSma : (effectivePrice > 0 ? effectivePrice : (d.entryPrice ?? 0));
+                            const stopLoss = d.structuralStop && d.structuralStop < entryPrice
+                              ? d.structuralStop
+                              : +(entryPrice * 0.98).toFixed(2);
+
+                            const setup = {
+                              ...d,
+                              ticker: d.symbol,
+                              allocatedCapital: tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital,
+                              livePrice: effectivePrice,
+                              projectedEntry: entryPrice,
+                              stopLoss: stopLoss,
+                            };
+                            const rowTimestamp = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
+
+                            return (
+                              <PendingRow
+                                key={`deep-${d.symbol}`}
+                                setup={setup}
+                                d={d}
+                                effectivePrice={effectivePrice}
+                                rowTimestamp={rowTimestamp}
+                                selectedTicker={selectedTicker}
+                                onSelectTicker={(sym) => {
+                                  setSelectedTicker(sym);
+                                  global?.setActiveTicker?.(sym);
+                                  marketStore.setActiveTicker?.(sym);
+                                }}
+                                onUpdateCapital={handleUpdateCapital}
+                                onPassSetup={handlePassSetup}
+                                isPractice={isPractice}
+                                onStartPracticeDrill={handleStartPracticeDrill}
+                                getSetupPriceExtension={getSetupPriceExtension}
+                              />
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -2770,7 +2586,8 @@ function ActionCenterInner() {
                   ) : (
                     <ChevronRight className="h-4 w-4 text-slate-400" />
                   )}
-                  <span>[ 👁️ DEFAULT WATCHLIST & PASSED ]</span>
+                  <span>[ 👁️ PASSED & WATCHING ]</span>
+                  <span className="sr-only">[ 👁️ DEFAULT WATCHLIST & PASSED ]</span>
                 </div>
                 <span className="text-xs text-slate-400 font-normal">
                   {passedSetups.length} discarded / passed tickers · {isPassedWatchlistOpen ? "expanded" : "collapsed"}
@@ -2847,6 +2664,7 @@ function ActionCenterInner() {
                 readyCount={readyCount}
                 extendedCount={counts.EXTENDED ?? 0}
               />
+              <div data-testid="badge-momentum-10sma">[ MOMENTUM SETUP: 10-SMA ]</div>
               <button
                 type="button"
                 onClick={() => {

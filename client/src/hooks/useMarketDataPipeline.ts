@@ -16,7 +16,8 @@ import { isMarketOpen } from "@/lib/priceFeed";
 class MarketDataPipelineManager {
   private static instance: MarketDataPipelineManager;
   private ws: WebSocket | null = null;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private retryCount = 0;
   private subscribedSymbols = new Set<string>();
   private isConnecting = false;
   private listeners = new Set<() => void>();
@@ -52,6 +53,7 @@ class MarketDataPipelineManager {
 
       ws.onopen = () => {
         this.isConnecting = false;
+        this.retryCount = 0;
         console.log("[useMarketDataPipeline] Connected to primary live market stream.");
         // Resubscribe active watchlist
         this.sendSubscriptions();
@@ -156,10 +158,12 @@ class MarketDataPipelineManager {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    this.retryCount++;
+    const delay = Math.min(3000 * Math.pow(2, this.retryCount - 1), 30000);
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       this.connect();
-    }, 5000);
+    }, delay);
   }
 
   public addListener(fn: () => void): () => void {
@@ -197,6 +201,16 @@ export function useMarketDataPipeline(watchlist?: string[]) {
 
   useEffect(() => {
     marketDataPipeline.connect();
+
+    const handleFocus = () => {
+      if (!marketDataPipeline.isConnected()) {
+        marketDataPipeline.connect();
+      }
+    };
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("focus", handleFocus);
+    };
   }, []);
 
   useEffect(() => {

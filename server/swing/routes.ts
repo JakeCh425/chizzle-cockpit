@@ -22,6 +22,8 @@ import { listVersions, planContext, saveVersion, selectVersion, selectedVersions
 import { ENTRY_METHODS, STOP_METHODS, TARGET_METHODS } from "@shared/practicePlan";
 import { addItem, patchItem, removeItem, resolveSymbol, restoreDefaults, riskNote, WatchlistError, yahooSearch } from "./universe";
 
+import { getGlobalPracticeMode, setGlobalPracticeMode } from "./practiceMode";
+
 const SELECTIONS: ScanSelection[] = ["DEFAULT", "DEFAULT_PLUS_CUSTOM", "ETFS", "STOCKS", "SEMICONDUCTOR", "BROAD_MARKET", "CUSTOM_SELECTION"];
 export { JOURNAL_ACTIONS };
 
@@ -63,6 +65,12 @@ export function registerSwingRoutes(app: Express) {
   startReadyAlerts();   // Ready-now notifications (server-side status transition → in-app + Telegram)      // Section R4 — informational price alerts, every 60s (no-op when none are active)
 
   app.get("/api/swing/status", wrap(async () => ({ enabled: isUnifiedSwingEnabled(), banner: PRACTICE_BANNER })));
+  app.get("/api/swing/practice-mode", wrap(async () => ({ ok: true, practiceMode: getGlobalPracticeMode() })));
+  app.post("/api/swing/practice-mode", wrap(async (req) => {
+    const { practiceMode } = z.object({ practiceMode: z.boolean() }).parse(req.body ?? {});
+    setGlobalPracticeMode(practiceMode);
+    return { ok: true, practiceMode: getGlobalPracticeMode() };
+  }));
 
   app.get("/api/swing/settings", wrap(async () => loadSettings()));
   app.put("/api/swing/settings", wrap(async (req) => saveSettings(settingsPatchSchema.parse(req.body ?? {}))));

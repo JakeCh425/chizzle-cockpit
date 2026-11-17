@@ -11,18 +11,21 @@
 
 export const MECHANICAL_WATCHLIST = ["SMH", "QQQ", "SPY", "PLTR", "AVGO", "MRVL"];
 
-export async function runMechanicalScan(symbols: string[] = MECHANICAL_WATCHLIST): Promise<MechanicalScanResult[]> {
+export { getGlobalPracticeMode, setGlobalPracticeMode } from "./swing/practiceMode";
+import { getGlobalPracticeMode } from "./swing/practiceMode";
+
+export async function runMechanicalScan(symbols: string[] = MECHANICAL_WATCHLIST, practiceMode?: boolean): Promise<MechanicalScanResult[]> {
   const { fetch1H } = await import("./swing/feed");
   const results: MechanicalScanResult[] = [];
   for (const sym of symbols) {
     try {
       const barsRes = await fetch1H(sym).catch(() => ({ bars: [] }));
       const bars = barsRes?.bars ?? [];
-      const evaluated = evaluateMechanicalSMABars(sym, bars);
+      const evaluated = evaluateMechanicalSMABars(sym, bars, practiceMode);
       scanCache.set(sym.toUpperCase(), evaluated);
       results.push(evaluated);
     } catch {
-      const fallback = scanCache.get(sym.toUpperCase()) ?? evaluateMechanicalSMABars(sym, []);
+      const fallback = scanCache.get(sym.toUpperCase()) ?? evaluateMechanicalSMABars(sym, [], practiceMode);
       results.push(fallback);
     }
   }
@@ -54,6 +57,9 @@ export interface MechanicalScanResult {
   atr14_1h: number;
   subtext: string;
   updatedAt: string;
+  flag?: "PRACTICE" | string;
+  isPractice?: boolean;
+  practiceMode?: boolean;
 }
 
 export interface BarData {
@@ -108,7 +114,8 @@ export function resample1HTo4H(bars1H: BarData[]): BarData[] {
 /**
  * Pure evaluation function matching the exact quantitative logic of the scanner
  */
-export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): MechanicalScanResult {
+export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[], practiceModeParam?: boolean): MechanicalScanResult {
+  const isPractice = practiceModeParam !== undefined ? practiceModeParam : getGlobalPracticeMode();
   const cleanTicker = ticker.trim().toUpperCase();
   const nowIso = new Date().toISOString();
 
@@ -119,8 +126,8 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
       status: "STANDBY_DAY (Red Regime)",
       actionable: false,
       price: lastPrice,
-      regime4H: "Bearish",
-      is4hBullish: false,
+      regime4H: isPractice ? "Bullish" : "Bearish",
+      is4hBullish: isPractice ? true : false,
       testedLine: null,
       testedPrice: null,
       entryPrice: null,
@@ -133,6 +140,7 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
       atr14_1h: 0,
       subtext: "Insufficient historical bars to compute 50 SMA.",
       updatedAt: nowIso,
+      ...(isPractice ? { flag: "PRACTICE", isPractice: true, practiceMode: true } : {}),
     };
   }
 
@@ -152,7 +160,7 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
   const curr1H = bars1H[bars1H.length - 1];
   const is4hBullish = sma20_4h > sma50_4h;
 
-  if (!is4hBullish) {
+  if (!is4hBullish && !isPractice) {
     return {
       ticker: cleanTicker,
       status: "STANDBY_DAY (Red Regime)",
@@ -191,6 +199,9 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
   const reclaimed50 = touched50 && close > sma50_1h;
   const reclaimedSma = isGreenCandle && (reclaimed10 || reclaimed20 || reclaimed50);
 
+  // In practice mode, 1H momentum > 10-SMA and 1H candle closure purely qualifies:
+  const practiceEligible = isPractice && (isGreenCandle && close >= sma10_1h);
+
   let status: MechanicalStatus;
   let actionable = false;
   let testedLine: "10_SMA" | "20_SMA" | "50_SMA" | null = null;
@@ -200,7 +211,7 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
   let riskPerShare: number | null = null;
   let subtext = "";
 
-  if (touchedSma && reclaimedSma) {
+  if ((touchedSma && reclaimedSma) || practiceEligible) {
     status = "CONFIRMED BOUNCE";
     actionable = true;
 
@@ -224,7 +235,11 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
     // Take Profit = Strict 2:1 R:R target
     takeProfit2R = +(entry + 2.0 * riskPerShare).toFixed(2);
 
-    subtext = `Reclaimed ${testedLine.replace("_", " ")} ($${testedPrice.toFixed(2)}) green. 2:1 R:R target: $${takeProfit2R.toFixed(2)}.`;
+    if (isPractice && !is4hBullish) {
+      subtext = `[PRACTICE] 4H ceiling bypassed. 1H momentum > 10 SMA ($${sma10_1h.toFixed(2)}) closed green. 2:1 R:R target: $${takeProfit2R.toFixed(2)}.`;
+    } else {
+      subtext = `Reclaimed ${testedLine.replace("_", " ")} ($${testedPrice.toFixed(2)}) green. 2:1 R:R target: $${takeProfit2R.toFixed(2)}.`;
+    }
   } else if (touchedSma && !reclaimedSma) {
     status = "TESTING SMA (Wait for Close)";
     actionable = false;
@@ -244,8 +259,8 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
     status,
     actionable,
     price: +(close).toFixed(2),
-    regime4H: "Bullish",
-    is4hBullish: true,
+    regime4H: is4hBullish ? "Bullish" : (isPractice ? "Bullish" : "Bearish"),
+    is4hBullish: isPractice ? true : is4hBullish,
     testedLine,
     testedPrice,
     entryPrice: actionable ? +(close).toFixed(2) : null,
@@ -258,6 +273,7 @@ export function evaluateMechanicalSMABars(ticker: string, bars1H: BarData[]): Me
     atr14_1h,
     subtext,
     updatedAt: nowIso,
+    ...(isPractice ? { flag: "PRACTICE", isPractice: true, practiceMode: true } : {}),
   };
 }
 

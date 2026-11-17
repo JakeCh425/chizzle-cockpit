@@ -29,6 +29,7 @@ const nowSec = () => Math.floor(Date.now() / 1000);
 export const settingsPatchSchema = z.object({
   userMode: z.enum(USER_MODES).optional(),
   signalMode: z.enum(SIGNAL_MODES).optional(),
+  practiceMode: z.boolean().optional(),
   showFormingCards: z.boolean().optional(), showWatchCards: z.boolean().optional(), showLowQualityForming: z.boolean().optional(),
   allowCountertrend: z.boolean().optional(), requireVolume: z.boolean().optional(),
   requireWeeklyAlignment: z.boolean().optional(), requireDailyAlignment: z.boolean().optional(),

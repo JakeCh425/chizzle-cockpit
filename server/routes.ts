@@ -3571,11 +3571,26 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
       getMechanicalScanResults,
       syncExternalScanResults,
       MECHANICAL_WATCHLIST,
+      getGlobalPracticeMode,
+      setGlobalPracticeMode,
     } = await import("./mechanicalSmaScanner");
+
+    app.get("/api/swing/practice-mode", (_req, res) => {
+      res.json({ ok: true, practiceMode: getGlobalPracticeMode() });
+    });
+
+    app.post("/api/swing/practice-mode", (req, res) => {
+      const pm = Boolean(req.body?.practiceMode);
+      setGlobalPracticeMode(pm);
+      res.json({ ok: true, practiceMode: getGlobalPracticeMode() });
+    });
 
     app.get("/api/swing/mechanical-scan", async (req, res) => {
       try {
         const force = req.query.force === "true" || req.query.force === "1";
+        const practiceModeParam = req.query.practiceMode !== undefined
+          ? req.query.practiceMode === "true" || req.query.practiceMode === "1"
+          : undefined;
         const watchlistParam = typeof req.query.watchlist === "string"
           ? req.query.watchlist.split(",").map((s) => s.trim().toUpperCase()).filter(Boolean)
           : undefined;
@@ -3584,14 +3599,15 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
         let results = getMechanicalScanResults(targetList);
         const hasUnscanned = results.some((r) => r.price === 0 || r.subtext === "Awaiting initial scan.");
 
-        if (force || hasUnscanned) {
-          results = await runMechanicalScan(targetList);
+        if (force || hasUnscanned || practiceModeParam !== undefined) {
+          results = await runMechanicalScan(targetList, practiceModeParam);
         }
 
         res.json({
           ok: true,
           timestamp: new Date().toISOString(),
           watchlist: targetList,
+          practiceMode: practiceModeParam !== undefined ? practiceModeParam : getGlobalPracticeMode(),
           results,
         });
       } catch (err: any) {

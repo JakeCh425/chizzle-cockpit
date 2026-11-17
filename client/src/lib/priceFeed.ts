@@ -443,8 +443,8 @@ function handleWsDisconnect() {
   }
 
   wsRetryCount++;
-  // Exponential backoff: 1s, 2s, 4s, 8s max
-  const delay = Math.min(1000 * Math.pow(2, wsRetryCount - 1), 8000);
+  // Exponential backoff starting at 3s: 3s, 6s, 12s, 24s, 30s max
+  const delay = Math.min(3000 * Math.pow(2, wsRetryCount - 1), 30000);
   console.info(`[priceFeed] WebSocket disconnected. Attempting reconnect in ${delay}ms (retry #${wsRetryCount})`);
 
   marketDataStore.setStatus("RECONNECTING");
@@ -753,6 +753,26 @@ export function ensurePriceFeed() {
 
   // Periodically check for market open/close transitions (every 10 seconds)
   setInterval(checkMarketHoursFeedMode, 10000);
+
+  // Force morning / wake-from-sleep data sync & reconnect when user focuses the tab
+  if (typeof window !== "undefined") {
+    const handleMorningSync = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      if (isMarketOpen()) {
+        if (!ws || ws.readyState !== WebSocket.OPEN) {
+          reconnectPriceFeed();
+        } else {
+          fallbackPollOnce();
+        }
+      } else {
+        void fetchLastOfficialClose();
+      }
+    };
+    window.addEventListener("focus", handleMorningSync);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleMorningSync);
+    }
+  }
 }
 
 export function subscribe(l: Listener): () => void {

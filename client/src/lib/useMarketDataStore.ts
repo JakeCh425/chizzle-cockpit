@@ -1104,7 +1104,7 @@ export function useMarketStatus() {
 /**
  * ─── Dual-Source Stable Live Ticker Engine: MarketDataDistributor ───────────
  * Root pipeline managing:
- *   - Tier-1 WebSocket: Persistent Polygon.io/Alpaca v2 connection with 20s heartbeat ping
+ *   - Tier-1 WebSocket: Persistent Polygon.io/Primary v2 connection with 20s heartbeat ping
  *   - Auto-reconnect with exponential backoff (2s, 4s, 8s)
  *   - Tier-2 Instant Fallback: REST 3-second snapshot loop (/quotes?symbols=... or /api/prices)
  *     without blanking current prices in useMarketDataStore
