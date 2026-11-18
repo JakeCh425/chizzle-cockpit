@@ -8,7 +8,6 @@ import type { ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
 import { ScaleOutRLadder } from "./ScaleOutRLadder";
 import { StepByStepActionChecklist } from "./StepByStepActionChecklist";
 import MiniChartWidget from "@/components/MiniChartWidget";
-import { useTerminalTheme } from "@/lib/terminalTheme";
 
 export interface ActiveExecutionHeroCardProps {
   trade: ConfirmedHeroTrade;
@@ -26,7 +25,6 @@ export function ActiveExecutionHeroCard({
   bulkExpanded,
 }: ActiveExecutionHeroCardProps) {
   const { toast } = useToast();
-  const { cardThemeClasses } = useTerminalTheme();
   const global = useOptionalGlobalState();
   const marketStore = useMarketDataStore();
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
@@ -206,7 +204,7 @@ export function ActiveExecutionHeroCard({
 
   return (
     <div
-      className={`relative w-full ${cardThemeClasses} hover:border-slate-500 rounded-xl p-4 shadow-lg mb-3 transition-colors backdrop-blur-md animate-in fade-in ${className}`}
+      className={`relative w-full terminal-card-surface border hover:border-slate-500 rounded-xl p-4 shadow-lg mb-3 transition-colors backdrop-blur-md animate-in fade-in ${className}`}
       data-testid={`active-execution-hero-card-${trade.symbol}`}
     >
       {/* ── 3-ROW HIGH-CONTRAST INSTITUTIONAL CARD TILE ── */}
