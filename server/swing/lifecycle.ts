@@ -149,6 +149,10 @@ interface Ctx {
 
 function blank(c: Ctx): SwingDecision {
   const { E, s } = c;
+  const closes4h = c.closed4h.map((b) => b.c);
+  const closesDaily = c.closedDaily.map((b) => b.c);
+  const sma20Val = closes4h.length >= 20 ? r2(sma(closes4h, 20)!) : c.dailyS.sma20;
+  const sma50Val = closes4h.length >= 50 ? r2(sma(closes4h, 50)!) : (closesDaily.length >= 50 ? r2(sma(closesDaily, 50)!) : null);
   return {
     symbol: c.sym, exchange: E.exchange, currentPrice: c.price == null ? null : r2(c.price),
     quoteTimestamp: iso(E.quote?.ts ?? c.h1[c.h1.length - 1]?.t ?? null),
@@ -171,6 +175,8 @@ function blank(c: Ctx): SwingDecision {
     evaluatedAt: iso(E.now)!,
     dataHealth: c.health,
     sma10: null,
+    sma20: sma20Val,
+    sma50: sma50Val,
     sma10Status: null,
   };
 }

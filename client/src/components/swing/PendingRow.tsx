@@ -3,6 +3,14 @@ import { motion } from "framer-motion";
 import { Activity, Shield, Crosshair, Info, Sparkles, Zap } from "lucide-react";
 import type { SwingDecision } from "@shared/swingDecision";
 import { formatCurrency } from "./AIExecutionEngine";
+import { useTerminalTheme } from "@/lib/terminalTheme";
+
+const getCapsuleColor = (prox: number) => {
+  if (prox <= 0.5) return "bg-amber-400 shadow-[0_0_12px_#fbbf24] animate-pulse"; // Trigger Zone
+  if (prox <= 1.5) return "bg-emerald-500 shadow-[0_0_10px_#10b981]"; // Ready Zone
+  if (prox <= 3.0) return "bg-cyan-500"; // Monitoring
+  return "bg-slate-700"; // Cold
+};
 
 export interface PendingRowProps {
   setup: SwingDecision & {
@@ -53,6 +61,10 @@ export function PendingRow({
 
   const targetSma =
     (d as any).sma20 ??
+    d.entryPrice ??
+    d.currentTrigger ??
+    d.originalTrigger ??
+    d.supportZone?.high ??
     ((d.structureLevels as any)?.sma20 ??
       (effectivePrice > 0 ? +(effectivePrice * 0.985).toFixed(2) : 0));
   const sma50Val =
@@ -89,43 +101,37 @@ export function PendingRow({
     return Math.abs((effectivePrice - entryPrice) / entryPrice) * 100;
   }, [effectivePrice, entryPrice]);
 
+  const { cardThemeClasses } = useTerminalTheme();
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
   const isReadyToTrade = d.setupStatus === "READY_TO_TRADE";
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
 
-  // Dynamic Proximity Capsule Colors: >2.5% Slate | 1.0-2.5% Cyan | <1.0% Amber Pulse | <0.2% or Ready Emerald
+  // Hardcoded Tailwind class mapping matching getCapsuleColor thresholds
+  const capsuleColorClass = getCapsuleColor(proximity);
   const readinessColors = useMemo(() => {
-    if (isReadyToTrade || proximity < 0.2) {
+    if (proximity <= 0.5) {
       return {
-        label: isReadyToTrade ? "READY" : "TRIGGER ZONE",
-        capsule: "bg-emerald-500 shadow-[0_0_15px_#10b981]",
-        border: "border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]",
-        tickerAccent: "border-emerald-500",
-        text: "text-emerald-400",
-      };
-    }
-    if (proximity < 1.0) {
-      return {
-        label: "IMMINENT",
-        capsule: "bg-amber-400 animate-pulse shadow-[0_0_10px_#fbbf24]",
-        border: "border-amber-400/70",
+        label: "TRIGGER ZONE",
         tickerAccent: "border-amber-400",
         text: "text-amber-400",
       };
     }
-    if (proximity <= 2.5) {
+    if (isReadyToTrade || proximity <= 1.5) {
+      return {
+        label: isReadyToTrade ? "READY" : "READY ZONE",
+        tickerAccent: "border-emerald-500",
+        text: "text-emerald-400",
+      };
+    }
+    if (proximity <= 3.0) {
       return {
         label: "MONITORING",
-        capsule: "bg-cyan-600",
-        border: "border-cyan-600/60",
-        tickerAccent: "border-cyan-600",
+        tickerAccent: "border-cyan-500",
         text: "text-cyan-400",
       };
     }
     return {
       label: "COLD",
-      capsule: "bg-slate-700",
-      border: "border-slate-700",
       tickerAccent: "border-slate-700",
       text: "text-slate-400",
     };
@@ -179,8 +185,8 @@ export function PendingRow({
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border ${readinessColors.border} rounded-xl font-mono cursor-pointer shadow-md ${
-        selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
+      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 ${cardThemeClasses} hover:border-slate-500/70 transition-colors rounded-xl cursor-pointer shadow-md ${
+        selectedTicker === d.symbol ? "ring-1 ring-cyan-400" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
     >
@@ -224,7 +230,7 @@ export function PendingRow({
         <div className="flex items-center gap-2.5 w-full" data-testid={`proximity-capsule-${d.symbol}`}>
           <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700 relative">
             <div
-              className={`h-full rounded-full transition-all duration-700 ${readinessColors.capsule}`}
+              className={`h-full rounded-full transition-all duration-700 ${capsuleColorClass}`}
               style={{ width: `${Math.max(0, Math.min(100, 100 - proximity * 10))}%` }}
             />
           </div>
@@ -250,7 +256,7 @@ export function PendingRow({
                   setCustomCapital(Number(e.target.value));
                   onUpdateCapital?.(d.symbol, Number(e.target.value));
                 }}
-                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 text-cyan-400 font-mono text-right w-24 rounded px-2 py-1 outline-none transition-colors"
+                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 text-cyan-400 font-mono tabular-nums text-right w-24 rounded px-2 py-1 outline-none transition-colors"
                 data-testid={`input-capital-${d.symbol}`}
                 aria-label={`Allocated capital for ${d.symbol}`}
               />

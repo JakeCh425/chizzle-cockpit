@@ -119,6 +119,7 @@ import { GlobalStateProvider } from "@/lib/globalState";
 import { purgeStaleLocalStorageOnBoot } from "@/lib/useMarketDataStore";
 import { UniversalTradeModal } from "@/components/UniversalTradeModal";
 import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
+import { TerminalThemeProvider } from "@/lib/terminalTheme";
 
 function MarketDataPipelineRoot() {
   useMarketDataPipeline();
@@ -137,15 +138,17 @@ function App() {
     <ErrorBoundary label="Application Root" fullPage>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <GlobalStateProvider>
-            <Toaster />
-            <WakeSyncRoot />
-            <MarketDataPipelineRoot />
-            <UniversalTradeModal />
-            <Router hook={useHashLocation}>
-              <AppRouter />
-            </Router>
-          </GlobalStateProvider>
+          <TerminalThemeProvider>
+            <GlobalStateProvider>
+              <Toaster />
+              <WakeSyncRoot />
+              <MarketDataPipelineRoot />
+              <UniversalTradeModal />
+              <Router hook={useHashLocation}>
+                <AppRouter />
+              </Router>
+            </GlobalStateProvider>
+          </TerminalThemeProvider>
         </TooltipProvider>
       </QueryClientProvider>
     </ErrorBoundary>

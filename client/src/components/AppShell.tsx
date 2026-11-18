@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import UnifiedTelemetryStrip from "./UnifiedTelemetryStrip";
+import { useTerminalTheme } from "@/lib/terminalTheme";
 
 interface RegimePayload {
   state: RegimeState;
@@ -223,9 +224,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const global = useOptionalGlobalState();
   const isPractice = Boolean(global?.isPracticeMode);
+  const { appBgClasses, fontFamilyCss, textScaleClass } = useTerminalTheme();
 
   return (
-    <div className="min-h-screen bg-[#060913] bg-[#0B1220] text-soft-white flex flex-col" data-testid="app-shell-root">
+    <div
+      className={`min-h-screen ${appBgClasses} ${textScaleClass} text-soft-white flex flex-col transition-all duration-300`}
+      style={{ fontFamily: fontFamilyCss }}
+      data-testid="app-shell-root"
+    >
       {/* Header strip */}
       <header className={`border-b border-slate-700 backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-700 bg-slate-900/90"}`}>
         <div className="px-4 md:px-6 h-14 flex items-center gap-4">
