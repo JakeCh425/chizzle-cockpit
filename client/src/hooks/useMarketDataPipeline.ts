@@ -181,6 +181,24 @@ class MarketDataPipelineManager {
     return Boolean(this.ws && this.ws.readyState === WebSocket.OPEN);
   }
 
+  public reconnect(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.retryCount = 0;
+    this.isConnecting = false;
+    if (this.ws) {
+      try {
+        this.ws.onclose = null;
+        this.ws.onerror = null;
+        this.ws.close();
+      } catch {}
+      this.ws = null;
+    }
+    this.connect();
+  }
+
   /**
    * State Wiping on Selection:
    * When switching active tickers in Wealth Studio or expanding a card, immediately execute a state cleanup
@@ -262,16 +280,46 @@ export function useMarketDataPipeline(watchlist?: string[]) {
       }
     });
 
+    const fetchLatestRestQuotes = async () => {
+      try {
+        const res = await fetch("/api/prices");
+        if (!res.ok) return;
+        const payload = await res.json();
+        if (payload && typeof payload === "object") {
+          for (const tick of Object.values(payload)) {
+            if (tick) marketDataPipeline.handleIncomingTick(tick);
+          }
+        }
+      } catch {
+        // Ignore transient REST wake-up fetch errors
+      }
+    };
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== "undefined" && document.visibilityState === "visible") {
+        // Tab Wake-Up Sync: reconnect WebSocket AND force immediate REST quote re-fetch
+        try {
+          marketDataPipeline.reconnect();
+        } catch {
+          connectBackup();
+        }
+        void fetchLatestRestQuotes();
+      }
+    };
+
     const handleFocus = () => {
       if (!marketDataPipeline.isConnected()) {
         try {
-          marketDataPipeline.connect();
+          marketDataPipeline.reconnect();
         } catch {
           connectBackup();
         }
       }
+      void fetchLatestRestQuotes();
     };
+
     window.addEventListener("focus", handleFocus);
+    window.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
       if (failoverTimeout) clearTimeout(failoverTimeout);
@@ -281,6 +329,7 @@ export function useMarketDataPipeline(watchlist?: string[]) {
       }
       unsub();
       window.removeEventListener("focus", handleFocus);
+      window.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [connectBackup, stopBackup]);
 

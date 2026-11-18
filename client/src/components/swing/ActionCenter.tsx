@@ -499,6 +499,14 @@ export class ActionCenterErrorBoundary extends React.Component<
   }
 }
 
+const INSTITUTIONAL_BG_THEMES = {
+  "cyber-obsidian":
+    "bg-[#050505] bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.1),rgba(255,255,255,0))]",
+  "midnight-matrix":
+    "bg-[#0B1220] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:24px_24px]",
+} as const;
+type InstitutionalBgTheme = keyof typeof INSTITUTIONAL_BG_THEMES;
+
 export default function ActionCenter() {
   return (
     <ActionCenterErrorBoundary>
@@ -530,6 +538,7 @@ function ActionCenterInner() {
   const all = useDisclosureAll();
   const [alertsOpen, setAlertsOpen] = useDisclosure("alerts", true);
   const [boxOpen, setBoxOpen] = usePersistentState<boolean>("ac-box-open", true);
+  const [bgTheme, setBgTheme] = usePersistentState<InstitutionalBgTheme>("chizzle.ac.bgTheme", "midnight-matrix");
   const [appOpen, setAppOpen] = useDisclosure("appearance", false);
   const [savedTitle, setTitle] = usePersistentState<string>("ac-title", DEFAULT_TITLE);
   const title = (savedTitle ?? "").toString().trim() || DEFAULT_TITLE;
@@ -1038,7 +1047,7 @@ function ActionCenterInner() {
     });
   }, [setups, passedTickers]);
 
-  const FOUR_HOURS_MS = 4 * 60 * 60 * 1000;
+  const FIVE_MINUTES_MS = 5 * 60 * 1000;
   const sortSnapshotRef = useRef<{
     order: string[];
     lastSortedAt: number;
@@ -1106,27 +1115,27 @@ function ActionCenterInner() {
         );
   }, [pendingWaitingSetups, loud, confirmedSymSet, passedTickers]);
 
-  // Track which tickers have breached the < 1.0% Imminent Zone threshold
+  // Track which tickers have crossed the < 1.5% threshold
   const imminentTickers = new Set<string>();
   for (const item of rawPendingWaiting) {
-    if (getProximityForSetup(item) < 1.0) {
+    if (getProximityForSetup(item) < 1.5) {
       imminentTickers.add(item.symbol);
     }
   }
   const imminentTickersKey = Array.from(imminentTickers).sort().join(",");
   const rawPendingSymbolsKey = rawPendingWaiting.map((d) => d.symbol).sort().join(",");
 
-  // Snapshot & Threshold Sorting Engine: decouples live WebSocket ticks from array sorting
+  // Snapshot & Threshold Sorting Engine: re-sorts only on < 1.5% threshold crossing or every 5 minutes
   const cachedOrderMap = useMemo(() => {
     const now = Date.now();
     const snap = sortSnapshotRef.current;
-    const isFourHoursElapsed = now - snap.lastSortedAt >= FOUR_HOURS_MS;
-    const hasNewImminentBreach = Array.from(imminentTickers).some((sym) => !snap.imminentSet.has(sym));
+    const isFiveMinutesElapsed = now - snap.lastSortedAt >= FIVE_MINUTES_MS;
+    const hasNewThresholdBreach = Array.from(imminentTickers).some((sym) => !snap.imminentSet.has(sym));
     const orderSet = new Set(snap.order);
     const hasNewSymbols = rawPendingWaiting.some((d) => !orderSet.has(d.symbol));
 
-    if (snap.order.length === 0 || isFourHoursElapsed || hasNewImminentBreach || hasNewSymbols) {
-      // Sort with pinned High Priority group (< 1.0% proximity) at the top, then static anchor proximity
+    if (snap.order.length === 0 || isFiveMinutesElapsed || hasNewThresholdBreach || hasNewSymbols) {
+      // Sort with pinned High Priority group (< 1.5% proximity) at the top, then static anchor proximity
       const sorted = [...rawPendingWaiting].sort((a, b) => {
         const aImminent = imminentTickers.has(a.symbol) ? 0 : 1;
         const bImminent = imminentTickers.has(b.symbol) ? 0 : 1;
@@ -1518,12 +1527,13 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`w-full flex flex-col gap-6 rounded-2xl p-4 sm:p-6 transition-all duration-300 bg-[#050810] bg-[#0B1220] border ${
+      className={`w-full flex flex-col gap-6 rounded-2xl p-4 sm:p-6 transition-all duration-300 ${INSTITUTIONAL_BG_THEMES[bgTheme]} border ${
         isPractice
           ? "border-amber-400/80 shadow-[0_0_35px_rgba(255,184,0,0.18)] ring-1 ring-amber-400/40"
           : "border-slate-800 shadow-2xl"
-      } relative overflow-hidden before:absolute before:inset-0 before:bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] before:from-cyan-900/10 before:via-transparent before:to-transparent before:pointer-events-none ${activeThemeConfig.containerBorder}`}
+      } relative overflow-hidden ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
+      data-bg-theme={bgTheme}
       {...acAttrs(prefs)}
       aria-label={title}
       data-testid="action-center"
@@ -1563,6 +1573,18 @@ function ActionCenterInner() {
         </div>
 
         <div className="flex items-center gap-3">
+          {/* Institutional Background Theme Toggle (Cyber Obsidian / Midnight Matrix) */}
+          <button
+            type="button"
+            onClick={() => setBgTheme(bgTheme === "cyber-obsidian" ? "midnight-matrix" : "cyber-obsidian")}
+            data-testid="button-toggle-bg-theme"
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-900/90 hover:border-slate-500 text-xs font-mono font-bold text-slate-300 hover:text-white transition-all shadow-sm cursor-pointer"
+            title="Toggle Institutional Background Theme (Cyber Obsidian / Midnight Matrix)"
+          >
+            <Palette className="h-3.5 w-3.5 text-cyan-400" />
+            <span>{bgTheme === "cyber-obsidian" ? "Cyber Obsidian" : "Midnight Matrix"}</span>
+          </button>
+
           {/* Main Prominent Live vs Practice Sandbox Mode Switch */}
           <button
             type="button"
@@ -2330,7 +2352,7 @@ function ActionCenterInner() {
               {isPendingOpen && (
                 <div className="flex flex-col gap-1 mt-2">
                   <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full mb-2" data-testid="pending-cards-grid" />
-                  <div className="flex flex-col gap-4 bg-[#0B1220] p-2 rounded-xl" data-testid="waiting-room-rows">
+                  <div className="flex flex-col gap-4 bg-transparent p-2 rounded-xl" data-testid="waiting-room-rows">
                     {/* pendingSetups / generalLoud mapping */}
                     {generalLoud.map((d) => {
                       const liveQuote = prices?.[d.symbol];

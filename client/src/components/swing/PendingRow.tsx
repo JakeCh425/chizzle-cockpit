@@ -93,18 +93,18 @@ export function PendingRow({
   const isReadyToTrade = d.setupStatus === "READY_TO_TRADE";
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
 
-  // Standardized 4-tier Proximity Progression: Cold (>3%) -> Monitoring (1.5-3%) -> Imminent (<1.5%) -> Ready
+  // Dynamic Proximity Capsule Colors: >2.5% Slate | 1.0-2.5% Cyan | <1.0% Amber Pulse | <0.2% or Ready Emerald
   const readinessColors = useMemo(() => {
-    if (isReadyToTrade) {
+    if (isReadyToTrade || proximity < 0.2) {
       return {
-        label: "READY",
+        label: isReadyToTrade ? "READY" : "TRIGGER ZONE",
         capsule: "bg-emerald-500 shadow-[0_0_15px_#10b981]",
         border: "border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.2)]",
         tickerAccent: "border-emerald-500",
         text: "text-emerald-400",
       };
     }
-    if (proximity < 1.5) {
+    if (proximity < 1.0) {
       return {
         label: "IMMINENT",
         capsule: "bg-amber-400 animate-pulse shadow-[0_0_10px_#fbbf24]",
@@ -113,7 +113,7 @@ export function PendingRow({
         text: "text-amber-400",
       };
     }
-    if (proximity <= 3.0) {
+    if (proximity <= 2.5) {
       return {
         label: "MONITORING",
         capsule: "bg-cyan-600",
@@ -179,7 +179,7 @@ export function PendingRow({
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(260px,1fr)_repeat(3,minmax(130px,1fr))_auto] gap-6 items-center p-5 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border ${readinessColors.border} rounded-xl font-mono cursor-pointer shadow-md ${
+      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#151E2E] hover:bg-[#1A2333] transition-colors border ${readinessColors.border} rounded-xl font-mono cursor-pointer shadow-md ${
         selectedTicker === d.symbol ? "ring-1 ring-cyan-400 bg-[#1A2333]" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
@@ -190,7 +190,7 @@ export function PendingRow({
       <div className="flex flex-col gap-2.5 min-w-0">
         <div className="flex items-center gap-3">
           <div className={`bg-slate-800 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
-            <span className="text-2xl font-black font-sans text-white tracking-widest">{d.symbol}</span>
+            <span className="text-2xl lg:text-3xl font-black font-sans text-white tracking-widest">{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
@@ -285,33 +285,33 @@ export function PendingRow({
       </div>
 
       {/* Col 3: 1.5R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[130px]">
+      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
           <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">1.5R Target</span>
         </div>
-        <span className="text-base font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
-        <div className="text-emerald-400 text-base font-mono tabular-nums">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
+        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
+        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
       </div>
 
       {/* Col 4: 2.0R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[130px]">
+      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
           <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">2.0R Target</span>
         </div>
-        <span className="text-base font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
-        <div className="text-emerald-400 text-base font-mono tabular-nums">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
+        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
+        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 5: 3.0R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[130px]">
+      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
           <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
           <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">3.0R Target</span>
         </div>
-        <span className="text-base font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
-        <div className="text-emerald-400 text-base font-mono tabular-nums">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
+        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
+        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}
