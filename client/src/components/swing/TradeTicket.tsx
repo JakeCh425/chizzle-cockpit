@@ -41,16 +41,16 @@ export function ticketRows(d: SwingDecision, v: PlanVersion | null = null) {
 function StateLine({ d }: { d: SwingDecision }) {
   if (d.setupStatus === "SETUP_FORMING" || d.setupStatus === "SETUP_CONFIRMED") {
     const tf = d.setupStatus === "SETUP_CONFIRMED" ? "1H" : (d.setupTimeframe === "1H" ? "1H" : "4H");
-    return <div className="text-[10.5px] font-mono font-bold text-yellow-600 dark:text-yellow-300" data-testid={`ticket-state-${d.symbol}`}>{d.setupStatus === "SETUP_FORMING" ? "SETUP FORMING" : "SETUP CONFIRMED"} — WAIT FOR {tf} BAR CLOSE.</div>;
+    return <div className="text-sm font-mono font-bold text-yellow-600 dark:text-yellow-300" data-testid={`ticket-state-${d.symbol}`}>{d.setupStatus === "SETUP_FORMING" ? "SETUP FORMING" : "SETUP CONFIRMED"} — WAIT FOR {tf} BAR CLOSE.</div>;
   }
   if (d.setupStatus === "SIGNAL_EXPIRED") {
-    return <div className="text-[10.5px] font-mono" data-testid={`ticket-state-${d.symbol}`}><span className="font-bold text-slate-gray">SIGNAL EXPIRED — OLD SETUP{d.setupTimestamp ? ` FROM ${new Date(d.setupTimestamp).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).toUpperCase()}` : ""}.</span> <span className="text-slate-gray">Levels below are history only — wait for a new setup.</span></div>;
+    return <div className="text-sm font-mono" data-testid={`ticket-state-${d.symbol}`}><span className="font-bold text-slate-300">SIGNAL EXPIRED — OLD SETUP{d.setupTimestamp ? ` FROM ${new Date(d.setupTimestamp).toLocaleDateString("en-US", { timeZone: "America/Chicago", month: "short", day: "numeric" }).toUpperCase()}` : ""}.</span> <span className="text-slate-400">Levels below are history only — wait for a new setup.</span></div>;
   }
   if (d.setupStatus === "WATCH_EXTENDED") {
     return (
-      <div className="text-[10.5px] font-mono" data-testid={`ticket-state-${d.symbol}`}>
+      <div className="text-sm font-mono" data-testid={`ticket-state-${d.symbol}`}>
         <span className="font-bold text-orange-600 dark:text-orange-300">WATCH — EXTENDED / AWAIT RETEST.</span>{" "}
-        <span className="text-slate-gray">Original trigger {$(d.originalTrigger)} · {d.extensionPercentAboveTrigger != null ? `${d.extensionPercentAboveTrigger.toFixed(1)}%` : "—"} above · {d.extensionAtr != null ? `${d.extensionAtr.toFixed(2)} ATR` : "—"} · retest zone {d.retestLevel ? `${$(d.retestLevel.low)}–${$(d.retestLevel.high)}` : "—"} · needs a closed bullish 1H from the retest zone for a new plan.</span>
+        <span className="text-slate-400">Original trigger {$(d.originalTrigger)} · {d.extensionPercentAboveTrigger != null ? `${d.extensionPercentAboveTrigger.toFixed(1)}%` : "—"} above · {d.extensionAtr != null ? `${d.extensionAtr.toFixed(2)} ATR` : "—"} · retest zone {d.retestLevel ? `${$(d.retestLevel.low)}–${$(d.retestLevel.high)}` : "—"} · needs a closed bullish 1H from the retest zone for a new plan.</span>
       </div>
     );
   }
@@ -80,48 +80,48 @@ function Ticket({ d, firing: engineFiring, active, onFocus, onHover, ver }: { d:
       className={`rounded border px-2.5 py-2 cursor-pointer transition-colors ${firing ? "border-emerald-500/70 bg-emerald-500/[0.07] hover:bg-emerald-500/[0.12]" : notTradeable ? "border-amber-500/60 bg-amber-500/[0.06] hover:bg-amber-500/[0.1]" : "border-ink-line bg-ink-deep/60 hover:border-neon-blue/50"} ${active ? "ring-1 ring-neon-blue/60" : ""}`}
       data-testid={`ticket-${d.symbol}`}
     >
-      <div className="flex flex-wrap items-center gap-2 mb-1.5">
-        <span className="font-mono font-bold text-[13px] text-soft-white">{d.symbol}</span>
-        <span className={`px-1.5 rounded border text-[10px] font-mono ${notTradeable ? "border-amber-500/60 text-amber-600 dark:text-amber-300" : STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`} data-testid={`ticket-status-${d.symbol}`}>{firing ? "ENGINES FIRING · " : ""}{statusLabel(d.setupStatus)}</span>
-        {d.setupType && <span className="text-[10.5px] text-slate-gray font-mono">{d.setupType.replace(/_/g, " ")}</span>}
-        {ver && <span className="px-1.5 rounded border border-dashed border-neon-blue/70 text-neon-blue text-[10px] font-mono" data-testid={`ticket-version-${d.symbol}`}>PRACTICE PLAN v{ver.version} — USER-ADJUSTED</span>}
-        <span className="ml-auto text-[10.5px] font-mono text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>
+      <div className="flex flex-wrap items-center gap-2.5 mb-2">
+        <span className="font-mono font-bold text-lg text-soft-white">{d.symbol}</span>
+        <span className={`px-2 py-0.5 rounded border text-xs font-mono font-semibold ${notTradeable ? "border-amber-500/60 text-amber-600 dark:text-amber-300" : STATUS_TONE[d.setupStatus] ?? "border-ink-line"}`} data-testid={`ticket-status-${d.symbol}`}>{firing ? "ENGINES FIRING · " : ""}{statusLabel(d.setupStatus)}</span>
+        {d.setupType && <span className="text-xs text-slate-gray font-mono">{d.setupType.replace(/_/g, " ")}</span>}
+        {ver && <span className="px-2 py-0.5 rounded border border-dashed border-neon-blue/70 text-neon-blue text-xs font-mono" data-testid={`ticket-version-${d.symbol}`}>PRACTICE PLAN v{ver.version} — USER-ADJUSTED</span>}
+        <span className="ml-auto text-sm font-mono tabular-nums text-slate-gray" data-testid={`ticket-size-${d.symbol}`}>
           {ver ? `≈ ${ver.result.shares} sh · ${$(ver.result.totalRisk)} practice risk` : d.suggestedShares != null ? `≈ ${d.suggestedShares} sh · ${$(d.maxDollarRisk)} max risk` : `${$(d.maxDollarRisk)} max risk`}
         </span>
         {canEditPlan(d) && (
-          <button className="inline-flex items-center gap-1 rounded border border-neon-blue/60 px-1.5 text-[10.5px] font-mono text-neon-blue hover:bg-neon-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
+          <button className="inline-flex items-center gap-1 rounded border border-neon-blue/60 px-2 py-0.5 text-xs font-mono text-neon-blue hover:bg-neon-blue/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
             onClick={(e) => { e.stopPropagation(); openPlanEditor(d.symbol); }} data-testid={`button-ticket-edit-${d.symbol}`}>
-            <Pencil className="h-3 w-3" aria-hidden /> Edit Practice Plan
+            <Pencil className="h-3.5 w-3.5" aria-hidden /> Edit Practice Plan
           </button>
         )}
         {active && <LiveTickerCornerBadge symbol={d.symbol} compact />}
       </div>
-      <div className="space-y-1 mb-1.5">
+      <div className="space-y-1.5 mb-2">
         <StateLine d={d} />
-        {notTradeable && <div className="text-[10.5px] font-mono" data-testid={`ticket-fresh-${d.symbol}`}><span className="font-bold text-amber-600 dark:text-amber-300">{f.displayStatus}.</span>{" "}
+        {notTradeable && <div className="text-sm font-mono" data-testid={`ticket-fresh-${d.symbol}`}><span className="font-bold text-amber-600 dark:text-amber-300">{f.displayStatus}.</span>{" "}
           <span className="text-slate-gray">Live R:R {f.liveRr != null ? `${f.liveRr.toFixed(2)}R` : "—"} (planned {f.plannedRr.toFixed(1)}R) · live risk/share ${f.liveRiskPerShare.toFixed(2)} (was ${f.plannedRiskPerShare.toFixed(2)}){f.resetConditionText ? ` · resets when: ${f.resetConditionText}` : ""}.</span></div>}
         <DataVerifyBlock d={d} />
         {unverified && <ReferenceOnlyTag />}
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {rows.map((x) => (
-          <div key={x.id} className="rounded border bg-[#050a13] px-2 py-1" style={{ borderColor: `${x.tone}66` }} data-testid={`ticket-${d.symbol}-${x.id}`}>
-            <div className="flex items-center text-[9.5px] uppercase tracking-wide font-mono" style={{ color: x.tone }}>
+          <div key={x.id} className="rounded border bg-[#050a13] px-3 py-2" style={{ borderColor: `${x.tone}66` }} data-testid={`ticket-${d.symbol}-${x.id}`}>
+            <div className="flex items-center text-xs uppercase tracking-wide font-mono font-bold" style={{ color: x.tone }}>
               {x.k}
               {alertable && lvl[x.id]?.price != null && (
                 <button className="ml-auto rounded p-0.5 text-[#94a3b8] hover:text-[#38bdf8] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-neon-blue"
                   onClick={(e) => { e.stopPropagation(); openAlertDialog({ symbol: d.symbol, type: lvl[x.id].type, level: lvl[x.id].price, levelHigh: null, context: `ticket ${x.id}` }); }}
                   aria-label={`Set price alert at ${x.k} ${x.v}`} title={`Set price alert at ${x.k}`} data-testid={`button-ticket-alert-${d.symbol}-${x.id}`}>
-                  <Bell className="h-3 w-3" aria-hidden />
+                  <Bell className="h-3.5 w-3.5" aria-hidden />
                 </button>
               )}
             </div>
-            <div className="font-mono font-bold text-[14px]" style={{ color: "#f1f5f9" }}>{x.v}</div>
-            {x.sub && <div className="text-[9.5px] leading-tight" style={{ color: "#94a3b8" }}>{x.sub}</div>}
+            <div className="font-mono tabular-nums font-bold text-lg" style={{ color: "#f1f5f9" }}>{x.v}</div>
+            {x.sub && <div className="text-xs leading-snug" style={{ color: "#94a3b8" }}>{x.sub}</div>}
           </div>
         ))}
       </div>
-      <div className="mt-1.5 text-[10.5px]" style={{ color: firing ? "#6ee7b7" : "#cbd5e1" }} data-testid={`ticket-next-${d.symbol}`}>
+      <div className="mt-2 text-sm" style={{ color: firing ? "#6ee7b7" : "#cbd5e1" }} data-testid={`ticket-next-${d.symbol}`}>
         {firing ? "Setup confirmed on closed bars — if you practice it, place the order yourself in your broker. " : notTradeable ? "Not tradeable yet — don't chase. " : d.setupStatus === "SIGNAL_EXPIRED" ? "Expired — not a trade. " : "Potential trade — not ready yet. "}
         <span className="text-slate-gray">{notTradeable ? (f.aiTip ?? d.nextAction) : d.nextAction}</span>
       </div>

@@ -3,7 +3,7 @@
 // ENABLE_UNIFIED_SWING_ENGINE is on (or ?unified=1). Every block reads the same
 // SwingDecision. Analysis / practice only — there is no broker button anywhere.
 import { useLiveStatusLabel } from "@/lib/liveStatus";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useEffect, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowDown, ArrowUp, Archive, Eye, EyeOff, Pin, PinOff, RefreshCw, RotateCcw, StickyNote, Trash2, Plus } from "lucide-react";
 import CollapsibleSection from "@/components/CollapsibleSection";
@@ -25,7 +25,13 @@ import { activeVersion, effectivePlan, takePendingFocus, useSelectedPlans } from
 import { alertLevelsFor, useAlerts } from "@/lib/alerts";
 import { openTradeFor as lockedTradeFor, useSwingTrades } from "@/lib/swingTrades";
 import { DataStatusBanner } from "./DataStatus";
-import SwingChart, { ExpiredExplainer, type Tf } from "./SwingChart";
+import { ExpiredExplainer, type Tf } from "./SwingChart";
+const SwingChart = lazy(() => import("./SwingChart"));
+import { useTerminalTheme, ENGINE_BG_CLASSES, type EngineBgOption } from "@/lib/terminalTheme";
+import { SetupLifecycleHUD } from "./SetupLifecycleHUD";
+import { useSwingMath } from "@/hooks/useSwingMath";
+import { FidelityExecutionGuide } from "@/components/FidelityExecutionGuide";
+import { useLiveQuote } from "@/lib/useLivePrices";
 import TradeSummaryPanel, { BrokerStep } from "./TradeSummaryPanel";
 import { buildTradeSummary } from "@shared/tradeSummary";
 import { useOptionalGlobalState, marketDataStore, globalStore } from "@/lib/globalState";
@@ -573,8 +579,9 @@ function SettingsPanel() {
 }
 
 // ─── Workspace ───────────────────────────────────────────────────────────────
-export default function SwingWorkspace() {
+function SwingWorkspaceInner() {
   const statusLabel = useLiveStatusLabel();
+  const { engineBg, setEngineBg } = useTerminalTheme();
   const [active, setActive] = usePersistentState<string>("swing-active-symbol", "SMH");
   const [tf, setTf] = usePersistentState<Tf>("swing-tf", "4H");
   const [scope, setScope] = usePersistentState<"CURRENT" | "LAST5" | "ALL">("swing-history-scope", "LAST5");
@@ -595,9 +602,14 @@ export default function SwingWorkspace() {
   const lockedTrades = useSwingTrades();
   const settings = useQuery<SwingSettings>({ queryKey: ["/api/swing/settings"], queryFn: () => swingGet("/api/swing/settings") });
   const global = useOptionalGlobalState();
+  const { toast } = useToast();
+  const liveQuote = useLiveQuote(active);
+  const [funnelCapital, setFunnelCapital] = useState<number>(1000);
   const rawD = dec.data?.decision;
   const d = rawD && rawD.symbol === active ? rawD : undefined;
   const v = rawD && rawD.symbol === active ? dec.data?.verdict : undefined;
+  const livePriceResolved = liveQuote.price ?? global?.livePrices?.[active] ?? d?.currentPrice ?? 0;
+  const swingMath = useSwingMath(d, livePriceResolved, funnelCapital);
 
   const { dataStatus, statusBy } = useMemo(() => {
     const ds: Record<string, string> = {}, st: Record<string, SwingDecision["setupStatus"]> = {};
@@ -643,13 +655,44 @@ export default function SwingWorkspace() {
   const onMarker = (m: ChartMarker) => { setMarker(m); setTimeout(() => whyRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }), 50); };
   const toggleSel = (s: string) => setSelected((prev) => { const n = new Set(prev); n.has(s) ? n.delete(s) : n.add(s); return n; });
 
+  const elevatedSurfaceClass =
+    engineBg === "contrast-dark"
+      ? "bg-[var(--bg-surface-elevated)] border border-slate-800 rounded-xl p-4"
+      : ENGINE_BG_CLASSES[engineBg];
+
   return (
-    <div className="w-full space-y-4" data-testid="swing-workspace">
-      <div className="flex flex-wrap items-center gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-2 py-1 text-[10.5px] font-mono text-signal-amber" role="note" data-testid="banner-practice">
-        <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
+    <div className={`w-full space-y-4 transition-colors duration-200 ${elevatedSurfaceClass}`} data-testid="swing-workspace" data-engine-bg={engineBg}>
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-3 py-1.5 text-xs font-mono text-signal-amber" role="note" data-testid="banner-practice">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
+        </div>
+        <select
+          value={engineBg}
+          onChange={(e) => setEngineBg(e.target.value as EngineBgOption)}
+          aria-label="Unified Swing Engine Panel Background"
+          data-testid="select-swing-engine-bg"
+          className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-xs font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+        >
+          <option value="contrast-dark">Panel BG: Elevated Dark</option>
+          <option value="inherit">Panel BG: Match App</option>
+          <option value="ice-blue-pro">Panel BG: Ice Blue Pro</option>
+          <option value="bloomberg-classic">Panel BG: Bloomberg</option>
+          <option value="emerald-core">Panel BG: Emerald Core</option>
+          <option value="ultraviolet">Panel BG: Ultraviolet</option>
+        </select>
       </div>
+
+      {/* ══ ZONE 1 (TOP): Unified Setup Lifecycle HUD + Live Price + Status ══ */}
+      <SetupLifecycleHUD
+        symbol={active}
+        livePrice={swingMath.livePrice}
+        entryPrice={swingMath.entryPrice}
+        setupStatus={d?.setupStatus}
+      />
+
       <DataStatusBanner decisions={(scan.data?.rows ?? []).map((r) => r.decision)} />
       <TradeTicketBar loading={dec.isLoading || scan.isLoading} firing={firing} focused={d} active={active} onFocus={focus} onHover={setHoverSym} plans={plans.data?.selected} />
+
       <div className="grid gap-4 lg:grid-cols-[minmax(280px,340px)_1fr] w-full">
         <div className="space-y-4 min-w-0 w-full">
           <CollapsibleSection id="swing-watchlist" title="Watchlist" hint={DEFAULT_UNIVERSE_LABEL}>
@@ -659,12 +702,124 @@ export default function SwingWorkspace() {
             <ScannerPanel req={req} setReq={setReq} selected={selected} onFocus={focus} active={active} />
           </CollapsibleSection>
         </div>
+
         <div className="space-y-4 min-w-0 w-full">
+          {/* ══ ZONE 2 (MIDDLE): Multi-Timeframe Learning Chart ══ */}
           <div data-testid="swing-chart-anchor" style={{ scrollMarginTop: 72 }} />
           <CollapsibleSection id="swing-chart" title="Multi-Timeframe Learning Chart" hint={active}>
-            {dec.error && <div className="text-[11px] text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
-            <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} alertLevels={alertLevelsFor(alertsQ.data?.alerts, active)} lockedPlan={!!(active ? lockedTradeFor(lockedTrades.data?.trades, active) : null)} />
+            {dec.error && <div className="text-sm text-rose-300 mb-1" role="alert">{(dec.error as Error).message.replace(/^\d{3}: /, "")}</div>}
+            <Suspense fallback={<div className="h-[340px] flex items-center justify-center font-mono text-sm text-slate-400">Loading Multi-Timeframe Chart…</div>}>
+              <SwingChart symbol={active} decision={d} tf={tf} onTf={setTf} scope={scope} onScope={setScope} intradayLearningMode={settings.data?.intradayLearningMode} onMarker={onMarker} selectedMarkerId={marker?.id} highlight={hoverSym === active} userPlan={activeVersion(d, plans.data?.selected)} alertLevels={alertLevelsFor(alertsQ.data?.alerts, active)} lockedPlan={!!(active ? lockedTradeFor(lockedTrades.data?.trades, active) : null)} />
+            </Suspense>
           </CollapsibleSection>
+
+          {/* ══ ZONE 3 (BOTTOM): Next Action Module (Pending Math Grid vs 1-Click Fidelity Ticket) ══ */}
+          <div
+            className="flex flex-col gap-4 p-4 rounded-xl bg-[#151E2E] border border-slate-800 shadow-lg"
+            data-testid={`unified-next-action-${active}`}
+          >
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-2.5">
+              <span className="text-xs font-mono font-bold uppercase tracking-widest text-cyan-400">
+                NEXT ACTION MODULE · {active}
+              </span>
+              <span className={`text-xs font-mono font-bold uppercase tracking-wider ${swingMath.readiness.textClass}`}>
+                {d?.setupStatus === "READY_TO_TRADE" ? "READY TO TRADE — EXECUTION TICKET UNLOCKED" : `${swingMath.readiness.label} · DYNAMIC SIZING`}
+              </span>
+            </div>
+
+            {d?.setupStatus === "READY_TO_TRADE" && swingMath.math ? (
+              <div className="flex flex-col gap-3" data-testid={`unified-ready-fidelity-ticket-${active}`}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums text-sm font-bold">
+                    <span className="text-emerald-400">BUY LIMIT: <strong className="text-white">${swingMath.math.entryPrice.toFixed(2)}</strong> ({swingMath.math.shares} sh)</span>
+                    <span className="text-rose-400">SELL STOP: <strong className="text-white">${swingMath.math.stopLoss.toFixed(2)}</strong></span>
+                    <span className="text-cyan-400">T1 (1.5R): <strong className="text-white">${swingMath.math.target1_5R.toFixed(2)}</strong></span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const m = swingMath.math!;
+                      const text = [
+                        `FIDELITY ORDER TICKET — ${active}`,
+                        `BUY LIMIT ${m.shares} sh @ $${m.entryPrice.toFixed(2)}`,
+                        `SELL STOP: $${m.stopLoss.toFixed(2)}`,
+                        `SELL LIMIT T1: $${m.target1_5R.toFixed(2)}`,
+                      ].join("\n");
+                      navigator.clipboard?.writeText(text).catch(() => {});
+                      toast({ title: `Fidelity Ticket Copied — ${active}`, description: `Buy ${m.shares} sh @ $${m.entryPrice.toFixed(2)}` });
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-500 text-white font-bold py-2 px-5 rounded-md shadow-md transition-all cursor-pointer text-sm"
+                  >
+                    Copy Fidelity Ticket
+                  </button>
+                </div>
+                <FidelityExecutionGuide
+                  ticker={active}
+                  entryPrice={swingMath.math.entryPrice}
+                  stopLoss={swingMath.math.stopLoss}
+                  target1={swingMath.math.target1_5R}
+                  target2={swingMath.math.target2_0R}
+                  calculatedShares={swingMath.math.shares}
+                  isOpen={true}
+                  onClose={() => {}}
+                  className="!static !w-full !max-w-full"
+                />
+              </div>
+            ) : swingMath.math ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 font-mono" data-testid={`unified-pending-math-grid-${active}`}>
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <label htmlFor="unified-capital-input" className="text-xs font-bold text-slate-400 uppercase tracking-widest">
+                    CAPITAL
+                  </label>
+                  <div className="flex items-center gap-1">
+                    <span className="text-slate-400 font-bold">$</span>
+                    <input
+                      id="unified-capital-input"
+                      type="number"
+                      min="1"
+                      step="100"
+                      value={funnelCapital}
+                      onChange={(e) => setFunnelCapital(Math.max(1, Math.floor(Number(e.target.value))))}
+                      className="w-full bg-slate-900 border border-slate-700 rounded px-2 py-1 text-cyan-400 font-mono tabular-nums font-bold text-base focus:border-cyan-500 outline-none"
+                    />
+                  </div>
+                  <span className="text-xs text-slate-400 tabular-nums">{swingMath.math.shares} Shares</span>
+                </div>
+
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ENTRY</span>
+                  <span className="text-lg font-bold text-cyan-400 tabular-nums">${swingMath.math.entryPrice.toFixed(2)}</span>
+                  <span className="text-xs text-slate-400 tabular-nums">Proximity: {swingMath.proximity.toFixed(1)}%</span>
+                </div>
+
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">STOP LOSS</span>
+                  <span className="text-lg font-bold text-white tabular-nums">${swingMath.math.stopLoss.toFixed(2)}</span>
+                  <span className="text-xs font-bold text-rose-400 tabular-nums">-${swingMath.math.totalRisk.toFixed(2)}</span>
+                </div>
+
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">1.5R TARGET</span>
+                  <span className="text-lg font-bold text-white tabular-nums">${swingMath.math.target1_5R.toFixed(2)}</span>
+                  <span className="text-xs font-bold text-emerald-400 tabular-nums">+${swingMath.math.profit1_5.toFixed(2)}</span>
+                </div>
+
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">2.0R TARGET</span>
+                  <span className="text-lg font-bold text-white tabular-nums">${swingMath.math.target2_0R.toFixed(2)}</span>
+                  <span className="text-xs font-bold text-emerald-400 tabular-nums">+${swingMath.math.profit2_0.toFixed(2)}</span>
+                </div>
+
+                <div className="flex flex-col gap-1 p-3 rounded-lg bg-[#0B1220] border border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">3.0R TARGET</span>
+                  <span className="text-lg font-bold text-white tabular-nums">${swingMath.math.target3_0R.toFixed(2)}</span>
+                  <span className="text-xs font-bold text-emerald-400 tabular-nums">+${swingMath.math.profit3_0.toFixed(2)}</span>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm font-mono text-slate-400">Waiting for setup levels on {active}…</div>
+            )}
+          </div>
           <CollapsibleSection id="swing-practice" title="Can I Practice This Setup?" hint={d ? statusLabel(d.setupStatus) : undefined}>
             {d && v ? <PracticeCard d={d} v={v} /> : <div className="text-xs text-slate-gray">{dec.isLoading ? "Evaluating the shared decision…" : "No decision yet."}</div>}
           </CollapsibleSection>
@@ -692,3 +847,6 @@ export default function SwingWorkspace() {
     </div>
   );
 }
+
+export const SwingWorkspace = memo(SwingWorkspaceInner);
+export default SwingWorkspace;

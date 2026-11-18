@@ -3,14 +3,11 @@ import { motion } from "framer-motion";
 import { Activity, Shield, Crosshair, Info, Sparkles, Zap } from "lucide-react";
 import type { SwingDecision } from "@shared/swingDecision";
 import { formatCurrency } from "./AIExecutionEngine";
-import { useTerminalTheme } from "@/lib/terminalTheme";
-
-const getCapsuleColor = (prox: number) => {
-  if (prox <= 0.5) return "bg-amber-400 shadow-[0_0_12px_#fbbf24] animate-pulse"; // Trigger Zone
-  if (prox <= 1.5) return "bg-emerald-500 shadow-[0_0_10px_#10b981]"; // Ready Zone
-  if (prox <= 3.0) return "bg-cyan-500"; // Monitoring
-  return "bg-slate-700"; // Cold
-};
+import {
+  getCapsuleColor,
+  getReadinessTier,
+  computeSwingPositionMath,
+} from "@/hooks/useSwingMath";
 
 export interface PendingRowProps {
   setup: SwingDecision & {
@@ -101,83 +98,30 @@ export function PendingRow({
     return Math.abs((effectivePrice - entryPrice) / entryPrice) * 100;
   }, [effectivePrice, entryPrice]);
 
-  const { cardThemeClasses } = useTerminalTheme();
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
-  const isReadyToTrade = d.setupStatus === "READY_TO_TRADE";
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
 
-  // Hardcoded Tailwind class mapping matching getCapsuleColor thresholds
+  // Shared readiness tier & capsule classes from useSwingMath
   const capsuleColorClass = getCapsuleColor(proximity);
   const readinessColors = useMemo(() => {
-    if (proximity <= 0.5) {
-      return {
-        label: "TRIGGER ZONE",
-        tickerAccent: "border-amber-400",
-        text: "text-amber-400",
-      };
-    }
-    if (isReadyToTrade || proximity <= 1.5) {
-      return {
-        label: isReadyToTrade ? "READY" : "READY ZONE",
-        tickerAccent: "border-emerald-500",
-        text: "text-emerald-400",
-      };
-    }
-    if (proximity <= 3.0) {
-      return {
-        label: "MONITORING",
-        tickerAccent: "border-cyan-500",
-        text: "text-cyan-400",
-      };
-    }
+    const tier = getReadinessTier(proximity, d.setupStatus);
     return {
-      label: "COLD",
-      tickerAccent: "border-slate-700",
-      text: "text-slate-400",
+      label: tier.label,
+      tickerAccent: tier.tickerAccentClass,
+      text: tier.textClass,
     };
-  }, [isReadyToTrade, proximity]);
+  }, [d.setupStatus, proximity]);
 
-  // Dynamic Live-Math Engine Hookup
-  const math = useMemo(() => {
-    if (entryPrice <= 0) return null;
-
-    const stopLoss = setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2);
-    const riskPerShare = entryPrice - stopLoss;
-    const shares = Math.floor(customCapital / entryPrice);
-    const actualCapitalDeployed = shares * entryPrice;
-    const totalRisk = shares * riskPerShare;
-
-    const profit1_5 = totalRisk * 1.5;
-    const roi1_5 = (shares * entryPrice > 0) ? (profit1_5 / (shares * entryPrice)) * 100 : 0;
-
-    const profit2_0 = totalRisk * 2.0;
-    const roi2_0 = (shares * entryPrice > 0) ? (profit2_0 / (shares * entryPrice)) * 100 : 0;
-
-    const profit3_0 = totalRisk * 3.0;
-    const roi3_0 = (shares * entryPrice > 0) ? (profit3_0 / (shares * entryPrice)) * 100 : 0;
-
-    const target1_5R = entryPrice + (riskPerShare * 1.5);
-    const target2_0R = entryPrice + (riskPerShare * 2.0);
-    const target3_0R = entryPrice + (riskPerShare * 3.0);
-
-    return {
-      entryPrice,
-      stopLoss,
-      shares,
-      actualCapitalDeployed,
-      riskPerShare,
-      totalRisk,
-      target1_5R,
-      profit1_5,
-      roi1_5,
-      target2_0R,
-      profit2_0,
-      roi2_0,
-      target3_0R,
-      profit3_0,
-      roi3_0,
-    };
-  }, [customCapital, entryPrice, setup.stopLoss]);
+  // Shared Live-Math Engine Hookup
+  const math = useMemo(
+    () =>
+      computeSwingPositionMath({
+        entryPrice,
+        stopLoss: setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2),
+        capital: customCapital,
+      }),
+    [customCapital, entryPrice, setup.stopLoss]
+  );
 
   if (entryPrice <= 0 || !math) return null;
 
@@ -185,7 +129,7 @@ export function PendingRow({
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 ${cardThemeClasses} hover:border-slate-500/70 transition-colors rounded-xl cursor-pointer shadow-md ${
+      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 terminal-card-surface border hover:border-slate-500/70 transition-colors rounded-xl cursor-pointer shadow-md ${
         selectedTicker === d.symbol ? "ring-1 ring-cyan-400" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
@@ -196,17 +140,17 @@ export function PendingRow({
       <div className="flex flex-col gap-2.5 min-w-0">
         <div className="flex items-center gap-3">
           <div className={`bg-slate-800 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
-            <span className="text-2xl lg:text-3xl font-black font-sans text-white tracking-widest">{d.symbol}</span>
+            <span className="text-2xl lg:text-3xl font-black tracking-widest text-white">{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
-              <Activity className="w-3.5 h-3.5 text-cyan-400 shrink-0" />
-              <span className="text-slate-100 font-mono tabular-nums text-lg font-bold leading-tight">
+              <Activity className="w-4 h-4 text-cyan-400 shrink-0" />
+              <span className="text-slate-100 font-mono tabular-nums text-xl font-bold leading-tight">
                 {formatCurrency(effectivePrice)}
               </span>
             </div>
             <div
-              className="flex items-center gap-1 text-[10px] text-slate-400 font-mono shrink-0"
+              className="flex items-center gap-1 text-xs text-slate-400 font-mono shrink-0"
               data-testid={`waiting-row-timestamp-${d.symbol}`}
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -217,11 +161,11 @@ export function PendingRow({
 
         {/* Anti-Falling Knife Status Badge or Standardized Readiness Status */}
         {isAwaiting1HBounce ? (
-          <div className="text-[11px] font-mono font-bold tracking-wider uppercase" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
+          <div className="text-xs font-mono font-bold tracking-wider uppercase" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
             <span className="text-amber-400">⚠️ ENTRY ZONE: AWAITING 1H BOUNCE</span>
           </div>
         ) : (
-          <div className={`text-[11px] font-mono font-bold tracking-wider uppercase ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
+          <div className={`text-xs font-mono font-bold tracking-wider uppercase ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
             <span>{readinessColors.label}</span>
           </div>
         )}
@@ -234,7 +178,7 @@ export function PendingRow({
               style={{ width: `${Math.max(0, Math.min(100, 100 - proximity * 10))}%` }}
             />
           </div>
-          <span className={`text-xs font-mono font-bold tabular-nums shrink-0 ${readinessColors.text}`}>
+          <span className={`text-sm font-mono font-bold tabular-nums shrink-0 ${readinessColors.text}`}>
             {proximity.toFixed(1)}%
           </span>
         </div>
@@ -245,9 +189,9 @@ export function PendingRow({
         {/* Capital Input & Shares */}
         <div className="flex items-center justify-between gap-2 flex-wrap">
           <div className="flex items-center gap-2">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">CAPITAL</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">CAPITAL</span>
             <div className="flex items-center gap-1">
-              <span className="text-slate-500 font-mono text-sm font-bold">$</span>
+              <span className="text-slate-400 font-mono text-base font-bold">$</span>
               <input
                 type="number"
                 value={customCapital}
@@ -256,33 +200,33 @@ export function PendingRow({
                   setCustomCapital(Number(e.target.value));
                   onUpdateCapital?.(d.symbol, Number(e.target.value));
                 }}
-                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 text-cyan-400 font-mono tabular-nums text-right w-24 rounded px-2 py-1 outline-none transition-colors"
+                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 text-cyan-400 font-mono tabular-nums text-base font-bold text-right w-24 rounded px-2 py-1 outline-none transition-colors"
                 data-testid={`input-capital-${d.symbol}`}
                 aria-label={`Allocated capital for ${d.symbol}`}
               />
             </div>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">SHARES</span>
-            <span className="text-slate-100 font-mono tabular-nums font-bold text-base">{math.shares}</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">SHARES</span>
+            <span className="text-slate-100 font-mono tabular-nums font-bold text-lg">{math.shares}</span>
           </div>
         </div>
 
         {/* Core Prices: Entry & Stop */}
         <div className="flex items-center justify-between gap-4 flex-wrap pt-0.5">
           <div className="flex flex-col gap-0.5">
-            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">ENTRY</span>
+            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ENTRY</span>
             <span className="text-lg font-mono tabular-nums font-bold text-cyan-400">${math.entryPrice.toFixed(2)}</span>
           </div>
 
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1">
-              <Shield className="w-3 h-3 text-rose-400 shrink-0" />
-              <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">STOP</span>
+              <Shield className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">STOP</span>
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-base font-mono tabular-nums font-bold text-white">${math.stopLoss.toFixed(2)}</span>
-              <span className="text-sm font-mono tabular-nums font-bold text-rose-400">
+              <span className="text-lg font-mono tabular-nums font-bold text-white">${math.stopLoss.toFixed(2)}</span>
+              <span className="text-base font-mono tabular-nums font-bold text-rose-400">
                 (-${math.totalRisk.toFixed(2)})
               </span>
             </div>
@@ -293,31 +237,31 @@ export function PendingRow({
       {/* Col 3: 1.5R Target */}
       <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
-          <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">1.5R Target</span>
+          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">1.5R Target</span>
         </div>
-        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
-        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
       </div>
 
       {/* Col 4: 2.0R Target */}
       <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
-          <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">2.0R Target</span>
+          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">2.0R Target</span>
         </div>
-        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
-        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 5: 3.0R Target */}
       <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
         <div className="flex items-center gap-1">
-          <Crosshair className="w-3 h-3 text-slate-400 shrink-0" />
-          <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest">3.0R Target</span>
+          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">3.0R Target</span>
         </div>
-        <span className="text-base lg:text-lg font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
-        <div className="text-sm font-mono tabular-nums text-emerald-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}

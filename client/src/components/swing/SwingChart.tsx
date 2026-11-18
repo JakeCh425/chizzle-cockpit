@@ -4,7 +4,7 @@
 // are plain visual overlays. Analysis / practice only.
 import { useLiveStatusLabel } from "@/lib/liveStatus";
 import { Palette, Settings } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AreaSeries, CandlestickSeries, HistogramSeries, LineSeries, LineStyle, createChart, createSeriesMarkers,
@@ -142,7 +142,7 @@ export interface SwingChartProps {
   lockedPlan?: boolean;
 }
 
-export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan, alertLevels, lockedPlan }: SwingChartProps) {
+function SwingChartInner({ symbol: symbolProp, decision, tf, onTf, scope, onScope, intradayLearningMode, onMarker, selectedMarkerId, highlight, userPlan, alertLevels, lockedPlan }: SwingChartProps) {
   const statusLabel = useLiveStatusLabel();
   const symbol = (symbolProp || decision?.symbol || "").toUpperCase() || undefined;
   const liveQuoteStatus = useLiveQuote(symbol);
@@ -466,7 +466,8 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       return vals.map((v, i) => {
         if (ctxSeries) {
           const j = ctxSeries.idx.get(data[i].t);
-          if (j != null && ctxSeries.sr[key]?.[j] != null) return ctxSeries.sr[key][j];
+          const srRecord = ctxSeries.sr as unknown as Record<string, (number | null)[] | undefined>;
+          if (j != null && srRecord[key]?.[j] != null) return srRecord[key]![j];
         }
         return v;
       });
@@ -493,7 +494,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
       const width = smaWidths[m.key] || DEFAULT_SMA_WIDTHS[m.key] || 2;
       const sr = chart.addSeries(LineSeries, {
         color,
-        lineWidth: width,
+        lineWidth: Math.min(4, Math.max(1, Math.round(width))) as 1 | 2 | 3 | 4,
         priceLineVisible: false,
         lastValueVisible: false,
         crosshairMarkerVisible: true,
@@ -918,8 +919,8 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
   const priorClose = liveQuoteStatus.quote?.prevClose ?? (b?.bars && b.bars.length > 1 ? b.bars[0].c : null);
   const computedChange = priorClose != null && priorClose > 0 ? rawPrice - priorClose : 0;
   const priceChange = liveQuoteStatus.quote?.change ?? computedChange;
-  const effectivePct = liveQuoteStatus.quote?.changePercent != null
-    ? liveQuoteStatus.quote.changePercent
+  const effectivePct = liveQuoteStatus.quote?.changePct != null
+    ? liveQuoteStatus.quote.changePct
     : (priorClose != null && priorClose > 0 ? (computedChange / priorClose) * 100 : 0);
   const priceChangePercent = `${effectivePct >= 0 ? "+" : ""}${effectivePct.toFixed(2)}`;
 
@@ -934,7 +935,7 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     entryPrice: effectiveEntry,
     stopLossPrice: effectiveStop,
   });
-  const effectiveShares = userPlan?.result.shares ?? decision?.shares ?? chartSizer.calculatedShares;
+  const effectiveShares = userPlan?.result.shares ?? decision?.suggestedShares ?? chartSizer.calculatedShares;
 
   const lastBarClose = b?.bars && b.bars.length > 0 ? b.bars[b.bars.length - 1].c : null;
   const executionTrigger = useExecutionTriggers(
@@ -1603,6 +1604,9 @@ export default function SwingChart({ symbol: symbolProp, decision, tf, onTf, sco
     </div>
   );
 }
+
+export const SwingChart = memo(SwingChartInner);
+export default SwingChart;
 
 /** Why a card shows Signal Expired, and when it can reset. */
 export function ExpiredExplainer({ d }: { d: SwingDecision }) {

@@ -165,6 +165,7 @@ export interface SwingDecision {
   isStandbyDay?: boolean;
   hasClosed1HReversal?: boolean;
   testedLine?: string | null;
+  notes?: string;
   /** Mechanical 10-SMA rule status. */
   sma10Status?: "HOLDING_ABOVE_10_SMA" | "BELOW_10_SMA" | null;
   /** Target provenance (additive, metadata only): the pivot-high resistance levels above entry that the

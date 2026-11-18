@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import UnifiedTelemetryStrip from "./UnifiedTelemetryStrip";
-import { useTerminalTheme } from "@/lib/terminalTheme";
 
 interface RegimePayload {
   state: RegimeState;
@@ -224,50 +223,48 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const global = useOptionalGlobalState();
   const isPractice = Boolean(global?.isPracticeMode);
-  const { appBgClasses, fontFamilyCss, textScaleClass } = useTerminalTheme();
 
   return (
     <div
-      className={`min-h-screen ${appBgClasses} ${textScaleClass} text-soft-white flex flex-col transition-all duration-300`}
-      style={{ fontFamily: fontFamilyCss }}
+      className="min-h-screen terminal-app-root flex flex-col transition-colors duration-200"
       data-testid="app-shell-root"
     >
-      {/* Header strip */}
+      {/* Header strip (SaaS-Grade Enlarged) */}
       <header className={`border-b border-slate-700 backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-700 bg-slate-900/90"}`}>
-        <div className="px-4 md:px-6 h-14 flex items-center gap-4">
+        <div className="h-16 py-3 px-6 flex items-center gap-4">
           <BrandMark settings={settings} />
 
           {/* Header (Essential Tools): Dashboard, Wealth Studio, Live Scanner & Mega-Menu */}
-          <nav className="hidden xl:flex items-center gap-1.5 ml-2" data-testid="header-essential-nav">
+          <nav className="hidden xl:flex items-center gap-2 ml-2" data-testid="header-essential-nav">
             <Link
               href="/"
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
                 location === "/" || location === "/cockpit" || location === "/pipeline"
                   ? "bg-cyan-500/15 text-cyan-400 border border-cyan-400/40 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
               }`}
               data-testid="nav-header-dashboard"
             >
-              <Gauge className="w-4 h-4 text-cyan-400" />
+              <Gauge className="w-5 h-5 text-cyan-400" />
               <span>Dashboard</span>
             </Link>
 
             <Link
               href="/engine"
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
                 location === "/engine" || location === "/dashboard"
                   ? "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-400/40 shadow-[0_0_10px_rgba(217,70,239,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
               }`}
               data-testid="nav-header-wealth-studio"
             >
-              <LayoutDashboard className="w-4 h-4 text-fuchsia-400" />
+              <LayoutDashboard className="w-5 h-5 text-fuchsia-400" />
               <span>Wealth Studio</span>
             </Link>
 
             <Link
               href="/watchlist"
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-sm font-mono font-bold uppercase tracking-wider transition-all duration-200 cursor-pointer ${
+              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
                 location === "/watchlist"
                   ? "bg-emerald-500/15 text-emerald-400 border border-emerald-400/40 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
                   : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"

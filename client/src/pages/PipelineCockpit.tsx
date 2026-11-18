@@ -12,7 +12,7 @@
 // CRITICAL: lanes are always mounted, hidden via CSS. This keeps input focus
 // stable inside TradeCheckPanel and prevents remount-loss on collapse toggles.
 
-import { useState, useEffect } from "react";
+import { Suspense, lazy, useState, useEffect } from "react";
 import { Link, useLocation } from "wouter";
 import { Wrench } from "lucide-react";
 import PnLHeader from "@/components/PnLHeader";
@@ -26,7 +26,7 @@ import CollapsibleSection from "@/components/CollapsibleSection";
 import { CockpitTickerProvider } from "@/components/CockpitTickerContext";
 import DoTodayCard from "@/components/DoTodayCard";
 import SyncClock from "@/components/SyncClock";
-import SwingWorkspace from "@/components/swing/SwingWorkspace";
+const SwingWorkspace = lazy(() => import("@/components/swing/SwingWorkspace"));
 import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import ActionCenter from "@/components/swing/ActionCenter";
 import ReadyNow from "@/components/swing/ReadyNow";
@@ -98,7 +98,9 @@ export default function PipelineCockpit() {
           <>
             <CollapsibleSection id="unified-swing" title="Unified Swing Engine" hint={DEFAULT_UNIVERSE_HINT}>
               <ErrorBoundary label="Unified Swing Engine">
-                <SwingWorkspace />
+                <Suspense fallback={<div className="p-6 font-mono text-sm text-slate-400">Loading Unified Swing Engine…</div>}>
+                  <SwingWorkspace />
+                </Suspense>
               </ErrorBoundary>
             </CollapsibleSection>
           </>

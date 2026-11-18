@@ -49,6 +49,169 @@
   --card-badge-text: #A7F3D0;
 }
 
+/* ============================================================
+ * ZERO-LAG NATIVE CSS TERMINAL THEME ENGINE (9 BRIGHT THEMES)
+ * Mutates <html> data-theme / CSS vars directly with 0 re-renders
+ * ============================================================ */
+:root,
+[data-theme="ice-blue-pro"] {
+  --term-bg: #060d1f;
+  --term-bg-image: radial-gradient(ellipse 80% 70% at 50% -15%, rgba(0, 242, 254, 0.16), transparent 70%);
+  --term-surface: #0b1630;
+  --bg-surface-elevated: #091229;
+  --term-border: #1e3a5f;
+  --term-text: #f8fafc;
+  --term-muted: #93c5fd;
+  --term-accent: #00f2fe;
+}
+
+[data-theme="neon-cyber"] {
+  --term-bg: #000000;
+  --term-bg-image: radial-gradient(ellipse 75% 60% at 50% -10%, rgba(255, 0, 255, 0.14), rgba(0, 255, 255, 0.06) 60%, transparent);
+  --term-surface: #0a0a0f;
+  --bg-surface-elevated: #0d0d16;
+  --term-border: #d946ef;
+  --term-text: #ffffff;
+  --term-muted: #67e8f9;
+  --term-accent: #00ffff;
+}
+
+[data-theme="bloomberg-classic"] {
+  --term-bg: #1e1e1e;
+  --term-bg-image: none;
+  --term-surface: #252526;
+  --bg-surface-elevated: #171718;
+  --term-border: #404040;
+  --term-text: #ffffff;
+  --term-muted: #fbbf24;
+  --term-accent: #ffb000;
+}
+
+[data-theme="daylight-trader"] {
+  --term-bg: #ffffff;
+  --term-bg-image: none;
+  --term-surface: #f8fafc;
+  --bg-surface-elevated: #f1f5f9;
+  --term-border: #cbd5e1;
+  --term-text: #1e293b;
+  --term-muted: #475569;
+  --term-accent: #0284c7;
+}
+
+[data-theme="daylight-trader"] .terminal-app-root .text-white,
+[data-theme="daylight-trader"] .terminal-app-root .text-soft-white,
+[data-theme="daylight-trader"] .terminal-app-root .text-slate-100,
+[data-theme="daylight-trader"] .terminal-app-root .text-slate-200 {
+  color: #1e293b;
+}
+
+[data-theme="daylight-trader"] .terminal-app-root .text-slate-300,
+[data-theme="daylight-trader"] .terminal-app-root .text-slate-400 {
+  color: #475569;
+}
+
+[data-theme="solarized-dark"] {
+  --term-bg: #002b36;
+  --term-bg-image: none;
+  --term-surface: #073642;
+  --bg-surface-elevated: #00212b;
+  --term-border: #2aa198;
+  --term-text: #fdf6e3;
+  --term-muted: #93a1a1;
+  --term-accent: #b58900;
+}
+
+[data-theme="crimson-forge"] {
+  --term-bg: #111115;
+  --term-bg-image: radial-gradient(ellipse 70% 60% at 50% 0%, rgba(255, 0, 60, 0.14), transparent 70%);
+  --term-surface: #18181f;
+  --bg-surface-elevated: #0b0b0e;
+  --term-border: #ff003c;
+  --term-text: #ffffff;
+  --term-muted: #fda4af;
+  --term-accent: #ff003c;
+}
+
+[data-theme="emerald-core"] {
+  --term-bg: #03120b;
+  --term-bg-image: radial-gradient(ellipse 75% 65% at 50% 0%, rgba(16, 255, 136, 0.14), transparent 70%);
+  --term-surface: #071e13;
+  --bg-surface-elevated: #020c07;
+  --term-border: #10b981;
+  --term-text: #ecfdf5;
+  --term-muted: #6ee7b7;
+  --term-accent: #10ff88;
+}
+
+[data-theme="ultraviolet"] {
+  --term-bg: #0e0821;
+  --term-bg-image: radial-gradient(ellipse 80% 70% at 50% -10%, rgba(168, 85, 247, 0.2), transparent 70%);
+  --term-surface: #170e33;
+  --bg-surface-elevated: #090517;
+  --term-border: #a855f7;
+  --term-text: #faf5ff;
+  --term-muted: #67e8f9;
+  --term-accent: #22d3ee;
+}
+
+[data-theme="high-contrast-terminal"] {
+  --term-bg: #000000;
+  --term-bg-image: none;
+  --term-surface: #050505;
+  --bg-surface-elevated: #0a0a0a;
+  --term-border: #00ff00;
+  --term-text: #00ff00;
+  --term-muted: #4ade80;
+  --term-accent: #00ff00;
+}
+
+[data-theme="high-contrast-terminal"] .terminal-app-root {
+  font-size: 1.125rem;
+}
+
+[data-card-surface="solid"] {
+  --card-surface-bg: var(--term-surface, #151E2E);
+  --card-surface-border: var(--term-border, #1e293b);
+  --card-surface-backdrop: none;
+  --card-surface-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+}
+
+[data-card-surface="glass"] {
+  --card-surface-bg: rgba(15, 23, 42, 0.45);
+  --card-surface-border: rgba(51, 65, 85, 0.55);
+  --card-surface-backdrop: blur(12px);
+  --card-surface-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+}
+
+[data-card-surface="oled"] {
+  --card-surface-bg: #000000;
+  --card-surface-border: #334155;
+  --card-surface-backdrop: none;
+  --card-surface-shadow: none;
+}
+
+[data-card-surface="neon"] {
+  --card-surface-bg: #0B1220;
+  --card-surface-border: #164e63;
+  --card-surface-backdrop: none;
+  --card-surface-shadow: 0 0 15px rgba(8, 145, 178, 0.14);
+}
+
+.terminal-app-root {
+  background-color: var(--term-bg, #060d1f);
+  background-image: var(--term-bg-image, none);
+  color: var(--term-text, #f8fafc);
+  font-family: var(--term-font-family, 'Inter', system-ui, -apple-system, sans-serif);
+  font-size: var(--term-font-size, 1rem);
+}
+
+.terminal-card-surface {
+  background-color: var(--card-surface-bg, #151E2E);
+  border-color: var(--card-surface-border, #1e293b);
+  backdrop-filter: var(--card-surface-backdrop, none);
+  box-shadow: var(--card-surface-shadow, none);
+}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;

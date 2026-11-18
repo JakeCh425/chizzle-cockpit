@@ -40,6 +40,7 @@ import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE, POLLING_BACKUP_BADGE } from "@/lib/useMarketDataStore";
 import { useFeedConnection, isMarketOpen, isFallbackPollingActive } from "@/lib/priceFeed";
 import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
+import { getProximityForSetup as sharedGetProximity } from "@/hooks/useSwingMath";
 import {
   useTerminalTheme,
   APP_BACKGROUNDS,
@@ -48,6 +49,7 @@ import {
   type CardSurfaceId,
   type FontFamilyOption,
   type TextScaleOption,
+  type EngineBgOption,
 } from "@/lib/terminalTheme";
 import { useSetupScanner } from "@/hooks/useSetupScanner";
 import { useNotificationAuditLog } from "@/hooks/useNotificationAuditLog";
@@ -529,6 +531,94 @@ function resolveSetupEntryPrice(d: any, refPrice: number): number {
   return refPrice > 0 ? +(refPrice * 0.985).toFixed(2) : 0;
 }
 
+const TerminalCustomizationBar = React.memo(function TerminalCustomizationBar() {
+  const {
+    appBg,
+    setAppBg,
+    cardTheme,
+    setCardTheme,
+    fontFamily,
+    setFontFamily,
+    textScale,
+    setTextScale,
+    engineBg,
+    setEngineBg,
+  } = useTerminalTheme();
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950/70" data-testid="terminal-customization-bar">
+      <Palette className="h-4 w-4 text-cyan-400 shrink-0" />
+      <select
+        value={appBg}
+        onChange={(e) => setAppBg(e.target.value as AppBgId)}
+        aria-label="App Theme"
+        data-testid="select-app-bg"
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+      >
+        {APP_BACKGROUNDS.map((bg) => (
+          <option key={bg.id} value={bg.id}>
+            Theme: {bg.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={cardTheme}
+        onChange={(e) => setCardTheme(e.target.value as CardSurfaceId)}
+        aria-label="Card Surface Theme"
+        data-testid="select-card-surface"
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+      >
+        {CARD_SURFACES.map((c) => (
+          <option key={c.id} value={c.id}>
+            Card: {c.label}
+          </option>
+        ))}
+      </select>
+
+      <select
+        value={engineBg}
+        onChange={(e) => setEngineBg(e.target.value as EngineBgOption)}
+        aria-label="Unified Swing Engine Background"
+        data-testid="select-engine-bg"
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+      >
+        <option value="contrast-dark">Engine: Contrast Dark</option>
+        <option value="inherit">Engine: Match App</option>
+        <option value="ice-blue-pro">Engine: Ice Blue Pro</option>
+        <option value="bloomberg-classic">Engine: Bloomberg</option>
+        <option value="emerald-core">Engine: Emerald Core</option>
+        <option value="ultraviolet">Engine: Ultraviolet</option>
+      </select>
+
+      <select
+        value={fontFamily}
+        onChange={(e) => setFontFamily(e.target.value as FontFamilyOption)}
+        aria-label="Global Font Family"
+        data-testid="select-font-family"
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+      >
+        <option value="Inter">Font: Inter</option>
+        <option value="Roboto">Font: Roboto</option>
+        <option value="Arial">Font: Arial</option>
+        <option value="Segoe UI">Font: Segoe UI</option>
+      </select>
+
+      <select
+        value={textScale}
+        onChange={(e) => setTextScale(e.target.value as TextScaleOption)}
+        aria-label="Global Text Scale"
+        data-testid="select-text-scale"
+        className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-sm font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
+      >
+        <option value="compact">Scale: Compact</option>
+        <option value="standard">Scale: Standard</option>
+        <option value="large">Scale: Large</option>
+      </select>
+    </div>
+  );
+});
+
 export default function ActionCenter() {
   return (
     <ActionCenterErrorBoundary>
@@ -560,18 +650,6 @@ function ActionCenterInner() {
   const all = useDisclosureAll();
   const [alertsOpen, setAlertsOpen] = useDisclosure("alerts", true);
   const [boxOpen, setBoxOpen] = usePersistentState<boolean>("ac-box-open", true);
-  const {
-    appBg,
-    setAppBg,
-    appBgClasses,
-    cardTheme,
-    setCardTheme,
-    cardThemeClasses,
-    fontFamily,
-    setFontFamily,
-    textScale,
-    setTextScale,
-  } = useTerminalTheme();
   const [appOpen, setAppOpen] = useDisclosure("appearance", false);
   const [savedTitle, setTitle] = usePersistentState<string>("ac-title", DEFAULT_TITLE);
   const title = (savedTitle ?? "").toString().trim() || DEFAULT_TITLE;
@@ -1098,9 +1176,7 @@ function ActionCenterInner() {
       liveQuote?.price ??
       item.currentPrice ??
       0;
-    const entryPrice = resolveSetupEntryPrice(item, livePrice);
-    if (entryPrice <= 0) return 999;
-    return Math.abs((livePrice - entryPrice) / entryPrice) * 100;
+    return sharedGetProximity(item, livePrice);
   }, [prices, marketStore.prices, global?.livePrices]);
 
   const rawPendingSetups = useMemo(() => {
@@ -1548,14 +1624,12 @@ function ActionCenterInner() {
   return (
     <LiveCtx.Provider value={scan.data?.livePermission ?? null}>
     <section
-      className={`w-full flex flex-col gap-6 rounded-2xl p-4 sm:p-6 transition-all duration-300 ${appBgClasses} border ${
+      className={`w-full flex flex-col gap-6 rounded-2xl p-4 sm:p-6 transition-colors duration-200 terminal-app-root border ${
         isPractice
           ? "border-amber-400/80 shadow-[0_0_35px_rgba(255,184,0,0.18)] ring-1 ring-amber-400/40"
           : "border-slate-800 shadow-2xl"
       } relative overflow-hidden ${activeThemeConfig.containerBorder}`}
       data-cyber-theme={cyberTheme}
-      data-bg-theme={appBg}
-      data-card-theme={cardTheme}
       {...acAttrs(prefs)}
       aria-label={title}
       data-testid="action-center"
@@ -1571,7 +1645,7 @@ function ActionCenterInner() {
           {/* Master Action Center Collapse Toggle */}
           <button
             type="button"
-            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-xs font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
+            className="flex items-center gap-1.5 rounded-lg border border-slate-700 bg-slate-900 hover:bg-slate-800 px-3 py-1.5 text-sm font-mono font-bold text-slate-200 transition-colors shadow-sm cursor-pointer"
             onClick={() => setBoxOpen(!boxOpen)}
             aria-expanded={boxOpen}
             aria-controls="ac-body"
@@ -1595,62 +1669,7 @@ function ActionCenterInner() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {/* Customization Engine: 9 Backgrounds, 4 Card Surfaces, Font Family, Text Scale */}
-          <div className="flex flex-wrap items-center gap-2 px-2.5 py-1 rounded-lg border border-slate-800 bg-slate-950/70" data-testid="terminal-customization-bar">
-            <Palette className="h-3.5 w-3.5 text-cyan-400 shrink-0" />
-            <select
-              value={appBg}
-              onChange={(e) => setAppBg(e.target.value as AppBgId)}
-              aria-label="App Background Theme"
-              data-testid="select-app-bg"
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
-            >
-              {APP_BACKGROUNDS.map((bg) => (
-                <option key={bg.id} value={bg.id}>
-                  BG: {bg.label}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={cardTheme}
-              onChange={(e) => setCardTheme(e.target.value as CardSurfaceId)}
-              aria-label="Card Surface Theme"
-              data-testid="select-card-surface"
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
-            >
-              {CARD_SURFACES.map((c) => (
-                <option key={c.id} value={c.id}>
-                  Card: {c.label}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={fontFamily}
-              onChange={(e) => setFontFamily(e.target.value as FontFamilyOption)}
-              aria-label="Global Font Family"
-              data-testid="select-font-family"
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
-            >
-              <option value="Inter">Font: Inter</option>
-              <option value="Roboto">Font: Roboto</option>
-              <option value="Arial">Font: Arial</option>
-              <option value="Segoe UI">Font: Segoe UI</option>
-            </select>
-
-            <select
-              value={textScale}
-              onChange={(e) => setTextScale(e.target.value as TextScaleOption)}
-              aria-label="Global Text Scale"
-              data-testid="select-text-scale"
-              className="bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs font-mono text-slate-200 focus:border-cyan-500 outline-none cursor-pointer"
-            >
-              <option value="compact">Scale: Compact</option>
-              <option value="standard">Scale: Standard</option>
-              <option value="large">Scale: Large</option>
-            </select>
-          </div>
+          <TerminalCustomizationBar />
 
           {/* Main Prominent Live vs Practice Sandbox Mode Switch */}
           <button
@@ -2228,7 +2247,7 @@ function ActionCenterInner() {
                     return (
                       <div
                         key={d.symbol}
-                        className={`flex flex-col justify-between gap-4 transition-all ${cardThemeClasses} border-l-4 border-l-emerald-500 ${
+                        className={`flex flex-col justify-between gap-4 transition-all terminal-card-surface border border-l-4 border-l-emerald-500 ${
                           isPractice
                             ? "border-amber-400/80 shadow-[0_0_20px_rgba(255,184,0,0.15)] ring-1 ring-amber-400/40"
                             : "hover:border-emerald-400/80 shadow-2xl"
