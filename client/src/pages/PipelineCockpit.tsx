@@ -29,9 +29,7 @@ import SyncClock from "@/components/SyncClock";
 const SwingWorkspace = lazy(() => import("@/components/swing/SwingWorkspace"));
 import { UnifiedSwingMount } from "@/components/swing/SwingConsistency";
 import ActionCenter from "@/components/swing/ActionCenter";
-import ReadyNow from "@/components/swing/ReadyNow";
 import { DEFAULT_UNIVERSE_HINT } from "@shared/swingDecision";
-import { PlanEditorHost } from "@/components/swing/PlanEditor";
 import { AlertDialogHost } from "@/components/swing/PriceAlerts";
 import { TradeDialogHost } from "@/components/swing/ArmTrade";
 import { MyTrades } from "@/components/swing/MyTrades";
@@ -63,20 +61,15 @@ export default function PipelineCockpit() {
     <div className="w-full space-y-6">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
-      {/* READY NOW — only when a decision is ready; hidden otherwise. Same scan as the Action Center. */}
-      <UnifiedSwingMount>
-        {() => <ErrorBoundary label="Ready now"><ReadyNow /></ErrorBoundary>}
-      </UnifiedSwingMount>
 
       {/* 2. "What should I do today?" — plain-English translation of
            existing regime + scanner outputs. No new signals. */}
       <SyncClock />
-      {/* Section R5 — Action Center: Ready > Confirmed > Forming > Watch, directly under P&L. */}
+      {/* Section R5 — Action Center: strictly [ READY TO TRADE ] + [ PENDING SETUPS ] */}
       <UnifiedSwingMount>
         {() => (
           <ErrorBoundary label="Action Center">
             <ActionCenter />
-            <PlanEditorHost />
             <AlertDialogHost />
             <TradeDialogHost />
           </ErrorBoundary>

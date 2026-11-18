@@ -40,7 +40,10 @@ import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE, POLLING_BACKUP_BADGE } from "@/lib/useMarketDataStore";
 import { useFeedConnection, isMarketOpen, isFallbackPollingActive } from "@/lib/priceFeed";
 import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
-import { getProximityForSetup as sharedGetProximity } from "@/hooks/useSwingMath";
+import {
+  getProximityForSetup as sharedGetProximity,
+  computeSwingPositionMath,
+} from "@/hooks/useSwingMath";
 import {
   useTerminalTheme,
   APP_BACKGROUNDS,
@@ -640,36 +643,42 @@ interface ReadyExecutionCardProps {
 
 function ReadyExecutionCard({
   d,
-  ver,
   isPractice,
   isSyncingLiveData,
-  isStaticLastClose,
   effectivePrice,
-  formattedLastUpdated,
   entryPrice,
   stopLossPrice,
-  target1Price,
   target1_5R,
   target2_0R,
   target3_0R,
   shares,
-  isArming,
-  onConfirmExecute,
 }: ReadyExecutionCardProps) {
   const [isArmed, setIsArmed] = useState(false);
   const [copiedTicket, setCopiedTicket] = useState(false);
   const { toast } = useToast();
 
-  const totalRisk = shares * (entryPrice - stopLossPrice);
-  const profit1_5 = shares * (target1Price - entryPrice);
-  const roiPercent = shares * entryPrice > 0 ? (profit1_5 / (shares * entryPrice)) * 100 : 0;
+  // Single Source of Truth Math
+  const riskPerShare = Math.max(0.01, entryPrice - stopLossPrice);
+  const totalRisk = shares * riskPerShare;
+  const t1 = +(entryPrice + riskPerShare * 1.5).toFixed(2);
+  const t2 = +(entryPrice + riskPerShare * 2.0).toFixed(2);
+  const t3 = +(entryPrice + riskPerShare * 3.0).toFixed(2);
+
+  const profit1_5 = shares * (t1 - entryPrice);
+  const roi1_5 = shares * entryPrice > 0 ? (profit1_5 / (shares * entryPrice)) * 100 : 0;
+
+  const profit2_0 = shares * (t2 - entryPrice);
+  const roi2_0 = shares * entryPrice > 0 ? (profit2_0 / (shares * entryPrice)) * 100 : 0;
+
+  const profit3_0 = shares * (t3 - entryPrice);
+  const roi3_0 = shares * entryPrice > 0 ? (profit3_0 / (shares * entryPrice)) * 100 : 0;
 
   const handleCopyTicket = () => {
     const ticketText = [
       `FIDELITY ORDER TICKET — ${d.symbol}`,
-      `Step 1 (Initial Position): BUY LIMIT: ${shares} shares @ $${entryPrice.toFixed(2)}`,
-      `Step 2 (OCO Bracket): SELL OCO BRACKET: Target @ $${target1Price.toFixed(2)} | Stop Loss @ $${stopLossPrice.toFixed(2)}`,
-      `Projected Profit: +$${profit1_5.toFixed(2)} (+${roiPercent.toFixed(1)}%) | Max Risk: -$${totalRisk.toFixed(2)}`,
+      `Step 1: BUY LIMIT — ${shares} shares @ $${entryPrice.toFixed(2)}`,
+      `Step 2: OCO BRACKET — Sell Limit @ $${t1.toFixed(2)} / Stop Loss @ $${stopLossPrice.toFixed(2)}`,
+      `1.5R: +$${profit1_5.toFixed(2)} (+${roi1_5.toFixed(1)}%) | Max Risk: -$${totalRisk.toFixed(2)}`,
     ].join("\n");
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(ticketText).catch(() => {});
@@ -678,7 +687,7 @@ function ReadyExecutionCard({
     setTimeout(() => setCopiedTicket(false), 1800);
     toast({
       title: `Fidelity Ticket Copied — ${d.symbol}`,
-      description: `BUY LIMIT ${shares} sh @ $${entryPrice.toFixed(2)} | Target $${target1Price.toFixed(2)} | Stop $${stopLossPrice.toFixed(2)}`,
+      description: `BUY LIMIT ${shares} sh @ $${entryPrice.toFixed(2)} | Target $${t1.toFixed(2)} | Stop $${stopLossPrice.toFixed(2)}`,
     });
   };
 
@@ -691,218 +700,150 @@ function ReadyExecutionCard({
       } rounded-xl p-5 text-white`}
       data-testid={`active-execution-card-${d.symbol}`}
     >
-      {/* Compatibility marker for test assertion */}
-      <div className="hidden ring-2 ring-emerald-400/40 animate-pulse shadow-[0_0_15px_rgba(16,185,129,0.5)] border-2 border-emerald-500 bg-emerald-950/40 border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.4)] bg-[#050810] bg-[#0B101D]" aria-hidden="true" />
-      <span className="sr-only">⚠️ REAL TRADE SETUP READY — AWAITING EXECUTION</span>
-
-      {/* Top Row: Ticker, Live Price, Last Updated Time, and READY badge */}
-      <div className="flex items-center justify-between gap-2 pb-3 border-b border-slate-700">
-        <div className="flex items-center gap-2.5 sm:gap-3 flex-wrap min-w-0">
+      {/* Header: Ticker Symbol, Live Price (real time), and Entry Price */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-800">
+        <div className="flex flex-wrap items-center gap-3 min-w-0">
           <span className="font-mono text-3xl font-black tracking-tight text-white">{d.symbol}</span>
-          {!isSyncingLiveData && (
-            <span className="font-mono text-xl font-bold text-[#00F5A0] text-emerald-400 tabular-nums">
+          {!isSyncingLiveData ? (
+            <span className="font-mono text-xl font-bold text-emerald-400 tabular-nums">
               {formatCurrency(effectivePrice)}
             </span>
+          ) : (
+            <div className="h-5 bg-slate-800 rounded w-24 animate-pulse" />
           )}
-          {isStaticLastClose && (
-            <span
-              className="rounded border border-amber-400/50 bg-amber-950/60 px-2 py-0.5 font-mono text-xs font-bold text-amber-300"
-              data-testid={`badge-exec-static-last-close-${d.symbol}`}
-            >
-              [ ⏸️ STATIC: LAST CLOSE ]
-            </span>
-          )}
-          {isSyncingLiveData && (
-            <div className="h-4 bg-gray-700 rounded w-24 animate-pulse"></div>
-          )}
-          <div
-            className="flex items-center gap-1.5 text-xs text-slate-400 font-mono shrink-0"
-            data-testid={`ready-card-timestamp-${d.symbol}`}
-          >
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-            <span>Updated {formattedLastUpdated} CT</span>
-          </div>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-emerald-400 text-[#00F5A0] border border-emerald-400/30">
-            READY
+          <span className="text-sm font-mono tabular-nums text-slate-400">
+            Entry: <strong className="text-cyan-400">{formatCurrency(entryPrice)}</strong>
           </span>
         </div>
-      </div>
 
-      {/* Dynamic Live-Math Target Engine (R-Multiples Horizontal Flex Row) */}
-      <div className="flex items-center justify-between gap-2 py-2 px-3 rounded-lg bg-slate-900/80 border border-slate-700/80 font-mono tabular-nums text-sm font-bold flex-wrap">
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400 font-sans text-xs uppercase font-medium">Entry:</span>
-          <span className="text-white">${entryPrice.toFixed(2)}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400 font-sans text-xs uppercase font-medium">Stop:</span>
-          <span className="text-signal-red text-[#FF4D6D]">${stopLossPrice.toFixed(2)}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400 font-sans text-xs uppercase font-medium">1.5R:</span>
-          <span className="text-signal-green text-[#00F5A0]">${target1_5R.toFixed(2)}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400 font-sans text-xs uppercase font-medium">2.0R:</span>
-          <span className="text-signal-green text-[#00F5A0]">${target2_0R.toFixed(2)}</span>
-        </div>
-        <div className="flex items-center gap-1">
-          <span className="text-slate-400 font-sans text-xs uppercase font-medium">3.0R:</span>
-          <span className="text-signal-green text-[#00F5A0]">${target3_0R.toFixed(2)}</span>
-        </div>
-      </div>
-
-      {/* Middle Row: Buy Limit, Stop, Target + ROI Profit Injection */}
-      <div className="flex items-start justify-between gap-2 py-2.5 border-b border-slate-700 font-mono text-sm">
-        <div className="flex flex-col">
-          <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">BUY LIMIT:</span>
-          <span className="font-bold font-mono text-white text-base sm:text-lg text-xl tabular-nums">
-            {formatCurrency(entryPrice)}
-          </span>
-        </div>
-        <div className="flex flex-col text-center">
-          <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">STOP:</span>
-          <span className="font-bold font-mono text-[#FF4D6D] text-base sm:text-lg text-xl tabular-nums">
-            {formatCurrency(stopLossPrice)}
-          </span>
-        </div>
-        <div className="flex flex-col text-right">
-          <span className="font-sans font-medium text-slate-300 text-sm uppercase tracking-wide">TARGET:</span>
-          <span className="font-bold font-mono text-[#00F5A0] text-base sm:text-lg text-xl tabular-nums">
-            {formatCurrency(target1Price)}
-          </span>
-          <div
-            className="text-emerald-400 font-mono tabular-nums text-sm mt-1"
-            data-testid={`ready-card-roi-${d.symbol}`}
-          >
-            +${profit1_5.toFixed(2)} (+{roiPercent.toFixed(1)}%)
-          </div>
-        </div>
-      </div>
-
-      {/* Position Size (Shares) and Total Risk ($) */}
-      <div className="flex items-center justify-between gap-3 pt-1 font-mono text-xs">
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="font-sans font-medium text-slate-300 text-sm">Position Size:</span>
-          <span className="font-bold text-white text-base tabular-nums">
-            {shares} {shares === 1 ? "Share" : "Shares"}
-          </span>
-          <span className="text-xs text-slate-400 font-mono ml-2">1% Equity Risk</span>
-        </div>
-        <span className="text-sm text-slate-400 tabular-nums overflow-hidden text-ellipsis">
-          Total Risk: {formatCurrency(totalRisk)}
+        <span className="px-3 py-1 text-xs font-mono font-bold uppercase rounded-md bg-emerald-400/10 text-emerald-400 border border-emerald-400/30 shrink-0">
+          READY
         </span>
       </div>
 
-      <div className="text-xs font-mono text-emerald-400/90 flex items-center gap-1.5">
-        <Check className="w-3.5 h-3.5" />
-        <span>Rule Met: 1H Green Bounce Off Moving Average</span>
-      </div>
+      {/* Core Row: Entry Limit, Stop Loss (with dollar risk), Target 1.5R (+$XX / +X%), Shares */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-2 font-mono tabular-nums">
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Entry Limit</span>
+          <span className="text-xl font-bold text-white">{formatCurrency(entryPrice)}</span>
+        </div>
 
-      {/* ARM TRADE Toggle Button */}
-      <div className="w-full pt-2">
-        <button
-          type="button"
-          onClick={() => setIsArmed((prev) => !prev)}
-          className={`w-full px-4 py-2.5 rounded-md font-mono font-bold text-sm sm:text-base uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 ${
-            isArmed
-              ? "bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600"
-              : isPractice
-              ? "bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-lg hover:shadow-[0_0_15px_rgba(251,191,36,0.4)]"
-              : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg hover:shadow-[0_0_15px_rgba(52,211,153,0.4)]"
-          }`}
-          data-testid={`button-massive-arm-${d.symbol}`}
-          aria-expanded={isArmed}
-          aria-label={isArmed ? `Cancel or close ticket for ${d.symbol}` : `Arm Trade for ${d.symbol}`}
-        >
-          {!isArmed && <Zap className="h-4 w-4 fill-slate-950 text-slate-950" />}
-          <span>
-            {isArmed
-              ? "CANCEL / CLOSE TICKET"
-              : isPractice
-              ? "[ ✓ Log Practice Swing ]"
-              : "[ ⚡ ARM TRADE ]"}
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stop Loss</span>
+          <span className="text-xl font-bold text-rose-400">{formatCurrency(stopLossPrice)}</span>
+          <span className="text-sm text-rose-400 font-bold">-${totalRisk.toFixed(2)}</span>
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Target 1.5R</span>
+          <span className="text-xl font-bold text-emerald-400">{formatCurrency(t1)}</span>
+          <span className="text-sm text-emerald-400 font-bold" data-testid={`ready-card-roi-${d.symbol}`}>
+            +${profit1_5.toFixed(2)} (+{roi1_5.toFixed(1)}%)
           </span>
-        </button>
+        </div>
+
+        <div className="flex flex-col gap-0.5">
+          <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Shares</span>
+          <span className="text-xl font-bold text-white">{shares}</span>
+          <span className="text-xs text-slate-400">1.5R / 2R / 3R</span>
+        </div>
       </div>
 
-      {/* Expandable Inline Execution Drawer (Fidelity Ticket + ROI Mirror) */}
+      {/* Action Toggle: [ ARM TRADE / DETAILS ] <-> [ Close Details ] (No Popup Modal) */}
+      <button
+        type="button"
+        onClick={() => setIsArmed((prev) => !prev)}
+        className={`w-full px-4 py-2.5 rounded-md font-mono font-bold text-sm sm:text-base uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 ${
+          isArmed
+            ? "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600"
+            : isPractice
+            ? "bg-amber-400 hover:bg-amber-300 text-slate-950 shadow-lg"
+            : "bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-lg hover:shadow-[0_0_15px_rgba(52,211,153,0.4)]"
+        }`}
+        data-testid={`button-massive-arm-${d.symbol}`}
+        aria-expanded={isArmed}
+      >
+        {!isArmed && <Zap className="h-4 w-4 fill-slate-950 text-slate-950" />}
+        <span>{isArmed ? "[ Close Details ]" : "[ ARM TRADE / DETAILS ]"}</span>
+      </button>
+
+      {/* Expandable Bottom Details Drawer */}
       {isArmed && (
         <div
-          className="mt-4 p-4 bg-slate-900/50 border border-slate-700 rounded-lg flex flex-col gap-4"
+          className="border-t border-slate-700 mt-4 pt-4 flex flex-col gap-4"
           data-testid={`execution-drawer-${d.symbol}`}
         >
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-2">
-            <span className="text-xs font-mono font-bold uppercase tracking-widest text-cyan-400">
-              FIDELITY BROKER EXECUTION TICKET · {d.symbol}
-            </span>
+          {/* 1. All 3 Targets with Exact Returns */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono tabular-nums">
+            <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">1.5R Target</span>
+              <span className="text-lg font-bold text-white">${t1.toFixed(2)}</span>
+              <span className="text-sm font-bold text-emerald-400">
+                +${profit1_5.toFixed(2)} (+{roi1_5.toFixed(1)}%)
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">2.0R Target</span>
+              <span className="text-lg font-bold text-white">${t2.toFixed(2)}</span>
+              <span className="text-sm font-bold text-emerald-400">
+                +${profit2_0.toFixed(2)} (+{roi2_0.toFixed(1)}%)
+              </span>
+            </div>
+
+            <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
+              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">3.0R Target</span>
+              <span className="text-lg font-bold text-white">${t3.toFixed(2)}</span>
+              <span className="text-sm font-bold text-emerald-400">
+                +${profit3_0.toFixed(2)} (+{roi3_0.toFixed(1)}%)
+              </span>
+            </div>
+          </div>
+
+          {/* 2. Simple Fidelity Order Steps */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-sm">
+            <div className="border-l-2 border-emerald-500 pl-3 py-1.5 bg-[#0B1220] rounded-r flex flex-col gap-0.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+                Step 1 · BUY LIMIT
+              </span>
+              <span className="text-white font-bold tabular-nums">
+                {shares} shares @ ${entryPrice.toFixed(2)}
+              </span>
+            </div>
+
+            <div className="border-l-2 border-cyan-500 pl-3 py-1.5 bg-[#0B1220] rounded-r flex flex-col gap-0.5">
+              <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                Step 2 · OCO BRACKET
+              </span>
+              <span className="text-white font-bold tabular-nums">
+                Sell Limit @ ${t1.toFixed(2)} / Stop Loss @ ${stopLossPrice.toFixed(2)}
+              </span>
+            </div>
+          </div>
+
+          {/* 3. [ Copy Ticket ] and [ Close Details ] */}
+          <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
             <button
               type="button"
               onClick={handleCopyTicket}
               data-testid={`button-copy-ticket-${d.symbol}`}
-              className="inline-flex items-center gap-1.5 px-3 py-1 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold transition-colors cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
             >
               {copiedTicket ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedTicket ? "Copied!" : "Copy Ticket"}</span>
+              <span>{copiedTicket ? "Copied!" : "[ Copy Ticket ]"}</span>
             </button>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-sm">
-            {/* Step 1: Initial Position */}
-            <div className="border-l-2 border-emerald-500 pl-3 py-1 bg-slate-950/60 rounded-r flex flex-col gap-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
-                Step 1 · Initial Position
-              </span>
-              <span className="text-white font-bold tabular-nums">
-                BUY LIMIT: {shares} shares @ ${entryPrice.toFixed(2)}
-              </span>
-            </div>
-
-            {/* Step 2: OCO Bracket */}
-            <div className="border-l-2 border-cyan-500 pl-3 py-1 bg-slate-950/60 rounded-r flex flex-col gap-1">
-              <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
-                Step 2 · OCO Bracket
-              </span>
-              <span className="text-white font-bold tabular-nums">
-                SELL OCO BRACKET: Target @ ${target1Price.toFixed(2)} | Stop Loss @ ${stopLossPrice.toFixed(2)}
-              </span>
-            </div>
-          </div>
-
-          {/* Mirrored ROI & Risk Telemetry + Confirm Action */}
-          <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-800">
-            <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums text-sm">
-              <div>
-                <span className="text-slate-400 text-xs uppercase">Projected Profit:</span>
-                <div className="text-emerald-400 font-mono text-sm mt-1">
-                  +${profit1_5.toFixed(2)} (+{roiPercent.toFixed(1)}%)
-                </div>
-              </div>
-              <div>
-                <span className="text-slate-400 text-xs uppercase">Max Dollar Risk:</span>
-                <div className="text-rose-400 font-mono text-sm mt-1">
-                  -${totalRisk.toFixed(2)}
-                </div>
-              </div>
-            </div>
 
             <button
               type="button"
-              onClick={() => onConfirmExecute(d, ver)}
-              disabled={isArming}
-              className="px-4 py-2 rounded bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-mono font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer disabled:opacity-50"
-              data-testid={`button-confirm-execute-${d.symbol}`}
+              onClick={() => setIsArmed(false)}
+              className="px-4 py-2 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-600 text-xs font-mono font-bold uppercase tracking-wider transition-colors cursor-pointer"
+              data-testid={`button-close-details-${d.symbol}`}
             >
-              {isArming ? "Logging..." : isPractice ? "Confirm Practice Log" : "Confirm & Log Trade"}
+              [ Close Details ]
             </button>
           </div>
         </div>
       )}
-
-      {/* Hidden sidebar for test assertion compatibility */}
-      <div data-testid={`ai-context-sidebar-${d.symbol}`} className="hidden" aria-hidden="true" />
     </div>
   );
 }
@@ -2500,30 +2441,30 @@ function ActionCenterInner() {
                     const globalPrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
                     const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
 
-                    // Task 3: Lock dynamic math snapshot once Ready to Trade
-                    const rawEntry = plan.entry ?? d.entryPrice ?? (effectivePrice > 0 ? effectivePrice : 100);
-                    const rawStop = plan.stop ?? d.structuralStop ?? +(rawEntry * 0.98).toFixed(2);
-                    const riskAmount = Math.max(0.01, Math.abs(rawEntry - rawStop));
-                    const calc1_5R = +(rawEntry + (riskAmount * 1.5)).toFixed(2);
-                    const calc2_0R = +(rawEntry + (riskAmount * 2.0)).toFixed(2);
-                    const calc3_0R = +(rawEntry + (riskAmount * 3.0)).toFixed(2);
+                    // Single Source of Truth Math (shared with PendingRow & SwingWorkspace)
+                    const rawEntry = (d as any).projectedEntry ?? plan.entry ?? d.entryPrice ?? (effectivePrice > 0 ? effectivePrice : 100);
+                    const rawStop = (d as any).stopLoss ?? plan.stop ?? d.structuralStop ?? +(rawEntry * 0.98).toFixed(2);
                     const userAllocatedCapital = tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital;
-                    const calcShares = d.calculatedShares ?? (rawEntry > 0 ? Math.max(1, Math.floor(userAllocatedCapital / rawEntry)) : Math.max(1, Math.floor(1000 / riskAmount)));
-                    const calcTotalRisk = +(calcShares * riskAmount).toFixed(2);
+                    const sharedCalc = computeSwingPositionMath({
+                      entryPrice: rawEntry,
+                      stopLoss: rawStop,
+                      capital: userAllocatedCapital,
+                    });
 
                     let lockedMath = frozenReadySnapshotsRef.current.get(d.symbol);
-                    if (!lockedMath) {
+                    if (!lockedMath && sharedCalc) {
                       lockedMath = {
-                        entryPrice: rawEntry,
-                        stopLoss: rawStop,
-                        target1_5R: calc1_5R,
-                        target2_0R: calc2_0R,
-                        target3_0R: calc3_0R,
-                        calculatedShares: calcShares,
-                        totalRisk: calcTotalRisk,
+                        entryPrice: sharedCalc.entryPrice,
+                        stopLoss: sharedCalc.stopLoss,
+                        target1_5R: +sharedCalc.target1_5R.toFixed(2),
+                        target2_0R: +sharedCalc.target2_0R.toFixed(2),
+                        target3_0R: +sharedCalc.target3_0R.toFixed(2),
+                        calculatedShares: sharedCalc.shares,
+                        totalRisk: +sharedCalc.totalRisk.toFixed(2),
                       };
                       frozenReadySnapshotsRef.current.set(d.symbol, lockedMath);
                     }
+                    if (!lockedMath) return null;
 
                     const entryPrice = lockedMath.entryPrice;
                     const stopLoss = lockedMath.stopLoss;

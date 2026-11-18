@@ -240,23 +240,8 @@ export function computeTargetLevels(
     t3R = null;
   }
 
-  // Structural Resistance Clamping: if enabled and an overhead resistance level sits between entry and target 1,
-  // clamp Target 1 to sit just below this structural resistance line (e.g. $354.47 -> $353.90) to preserve high win-rate expectancy.
-  let isClampedToResistance = false;
-  if (options?.clampToResistance && options.resistancePrice != null && activeEntry != null) {
-    const res = options.resistancePrice;
-    if (res > activeEntry && (t1 == null || res < t1)) {
-      const offset = options.clampOffset ?? (res === 354.47 ? 0.57 : 0.50);
-      const clamped = Math.round((res - offset) * 100) / 100;
-      if (clamped > activeEntry) {
-        t1 = clamped;
-        isClampedToResistance = true;
-        if (activeRisk != null && activeRisk > 0) {
-          t1R = Math.round(((t1 - activeEntry) / activeRisk) * 10) / 10;
-        }
-      }
-    }
-  }
+  // Single Source of Truth: Targets remain strictly aligned to 1.5R / 2.0R / 3.0R without resistance clamping overrides.
+  const isClampedToResistance = false;
 
   // Extended runner targets (4R, 5R, 6R)
   const t4 = activeEntry != null && activeRisk != null && activeRisk > 0
