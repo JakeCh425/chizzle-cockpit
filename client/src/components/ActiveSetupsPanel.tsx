@@ -3,6 +3,7 @@
 // /api/active-setups. Never auto-clears; only user archive removes an entry.
 
 import React, { useState, useEffect } from "react";
+import { Link } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -300,7 +301,7 @@ export default function ActiveSetupsPanel() {
               </div>
               <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
                 <button onClick={goToScanLane} className="flex items-center gap-2 rounded-md border border-neon-blue/50 bg-neon-blue/10 px-4 py-2 text-xs font-medium text-neon-blue transition-colors hover:bg-neon-blue/20"><Search className="h-4 w-4" /> Run Scan</button>
-                <a href="/#/watchlist" className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep px-4 py-2 text-xs font-medium text-soft-white transition-colors hover:border-neon-blue hover:text-neon-blue"><Eye className="h-4 w-4" /> Open Watchlist</a>
+                <Link href="/watchlist" className="flex items-center gap-2 rounded-md border border-ink-line bg-ink-deep px-4 py-2 text-xs font-medium text-soft-white transition-colors hover:border-neon-blue hover:text-neon-blue"><Eye className="h-4 w-4" /> Open Watchlist</Link>
               </div>
             </div>
           ) : (

@@ -236,139 +236,130 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const global = useOptionalGlobalState();
   const isPractice = Boolean(global?.isPracticeMode);
 
+  const macroBadgeLabel =
+    storeMacro === "GO"
+      ? "RISK-ON"
+      : storeMacro === "STAND_DOWN"
+      ? "STAND-DOWN"
+      : "SELECTIVE";
+
+  const isLiveNow = isMarketOpen(now) && feedState === "LIVE";
+
   return (
     <div
-      className="min-h-screen terminal-app-root flex flex-col transition-colors duration-200"
+      className="min-h-screen bg-[#06080D] text-slate-100 flex flex-col"
       data-testid="app-shell-root"
     >
-      {/* Header strip (SaaS-Grade Enlarged) */}
-      <header className={`border-b border-slate-700 backdrop-blur sticky top-0 z-30 transition-colors ${isPractice ? "border-amber-500/40 bg-slate-900/95 shadow-[0_2px_15px_rgba(245,158,11,0.15)]" : "border-slate-700 bg-slate-900/90"}`}>
-        <div className="h-16 py-3 px-6 flex items-center gap-4">
-          <BrandMark settings={settings} />
-
-          {/* Header (Essential Tools): Dashboard, Wealth Studio, Live Scanner & Mega-Menu */}
-          <nav className="hidden xl:flex items-center gap-2 ml-2" data-testid="header-essential-nav">
+      {/* Bloomberg / Prop-Firm Persistent Top Telemetry Bar */}
+      <header className="h-10 bg-[#05070B] border-b border-slate-800/90 sticky top-0 z-30 font-mono tabular-nums">
+        <div className="h-full px-3 sm:px-4 flex items-center justify-between gap-3">
+          {/* Left: Compact Brand + Instant Workspace Tabs */}
+          <div className="flex items-center gap-3 min-w-0 h-full">
             <Link
               href="/"
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
-                location === "/" || location === "/cockpit" || location === "/pipeline"
-                  ? "bg-cyan-500/15 text-cyan-400 border border-cyan-400/40 shadow-[0_0_10px_rgba(34,211,238,0.2)]"
-                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
-              }`}
-              data-testid="nav-header-dashboard"
+              className="flex items-center gap-1.5 font-black tracking-tight text-sm text-white shrink-0 cursor-pointer"
+              data-testid="dashboard-brand-logo"
             >
-              <Gauge className="w-5 h-5 text-cyan-400" />
-              <span>Dashboard</span>
+              <CandlestickIcon color="#00F5A0" className="h-4 w-2.5 inline-block" />
+              <span className="hidden sm:inline">CHIZZLE</span>
             </Link>
 
-            <Link
-              href="/engine"
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
-                location === "/engine" || location === "/dashboard"
-                  ? "bg-fuchsia-500/15 text-fuchsia-400 border border-fuchsia-400/40 shadow-[0_0_10px_rgba(217,70,239,0.2)]"
-                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
-              }`}
-              data-testid="nav-header-wealth-studio"
-            >
-              <LayoutDashboard className="w-5 h-5 text-fuchsia-400" />
-              <span>Wealth Studio</span>
-            </Link>
-
-            <Link
-              href="/watchlist"
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-lg text-lg font-bold tracking-wide transition-all duration-200 cursor-pointer ${
-                location === "/watchlist"
-                  ? "bg-emerald-500/15 text-emerald-400 border border-emerald-400/40 shadow-[0_0_10px_rgba(52,211,153,0.2)]"
-                  : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
-              }`}
-              data-testid="nav-header-live-scanner"
-            >
-              <ListChecks className="w-4 h-4 text-emerald-400" />
-              <span>Live Scanner</span>
-            </Link>
-
-            {/* Mega-Menu Integration for complex trading layouts */}
-            <MegaMenu />
-          </nav>
-
-          <div
-            data-testid="text-regime-effective"
-            className={`hidden md:flex items-center gap-2 px-2.5 py-1 border ${regimeColor} text-[11px] font-display tracking-wider uppercase rounded-sm`}
-          >
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-current heartbeat" />
-            {regimeLabel(regime)}
+            <nav className="flex items-center h-full gap-1 sm:gap-2 overflow-x-auto" data-testid="header-essential-nav">
+              {[
+                { href: "/", match: (l: string) => l === "/" || l === "/cockpit" || l === "/pipeline", label: "COCKPIT", testId: "nav-header-dashboard" },
+                { href: "/engine", match: (l: string) => l === "/engine" || l === "/dashboard", label: "WEALTH STUDIO", testId: "nav-header-wealth-studio" },
+                { href: "/watchlist", match: (l: string) => l === "/watchlist", label: "WATCHLIST", testId: "nav-header-live-scanner" },
+                { href: "/trades", match: (l: string) => l === "/trades", label: "TRADES", testId: "nav-header-trades" },
+                { href: "/journal", match: (l: string) => l === "/journal", label: "JOURNAL", testId: "nav-header-journal" },
+              ].map((tab) => {
+                const active = tab.match(location);
+                return (
+                  <Link
+                    key={tab.href}
+                    href={tab.href}
+                    data-testid={tab.testId}
+                    className={`h-full flex items-center px-2 text-[11px] font-bold tracking-wider uppercase whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
+                      active
+                        ? "border-cyan-400 text-white"
+                        : "border-transparent text-slate-400 hover:text-slate-200"
+                    }`}
+                  >
+                    {tab.label}
+                  </Link>
+                );
+              })}
+            </nav>
           </div>
-          <span
-            data-testid="pill-regime-source"
-            className={`hidden md:inline-flex items-center px-1.5 py-0.5 border text-[9px] tracking-widest uppercase font-display rounded-sm ${
-              regimeSource === "MANUAL"
-                ? "border-signal-amber/40 bg-signal-amber/10 text-signal-amber"
-                : "border-neon-blue/40 bg-neon-blue/10 text-neon-blue"
-            }`}
-            title={regimeSource === "MANUAL" ? "Manual override active" : "Auto-classified from live market data"}
+
+          {/* Center: Live Connection Telemetry Pill */}
+          <div
+            className="hidden md:flex items-center gap-2 px-2.5 py-0.5 rounded border border-slate-800 bg-[#0B0F17] text-[11px]"
+            data-testid="badge-feed-status"
           >
-            {regimeSource}
-          </span>
-          {regimeStale && (
-            <span
-              className="hidden md:inline-flex items-center px-1.5 py-0.5 border border-signal-amber/40 bg-signal-amber/10 text-signal-amber text-[9px] tracking-widest uppercase font-display rounded-sm"
-              title="Last regime classification failed — showing cached values"
+            {isLiveNow ? (
+              <>
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="font-bold text-emerald-400">● LIVE FEED</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-slate-400">
+                  {marketStore.tickCount} ticks · {chicagoClock(now)} CT
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
+                <span className="font-bold text-slate-300">● STATIC: LAST CLOSE</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-slate-400">{chicagoClock(now)} CT</span>
+              </>
+            )}
+          </div>
+
+          {/* Right: Macro Regime Pill, Account Equity, Daily P&L, Practice Mode */}
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[11px]">
+            {marketStore.isSyncing && (
+              <span
+                className="hidden xl:inline-flex items-center px-2 py-0.5 rounded border border-cyan-400/40 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase"
+                data-testid="badge-updating-live-prices"
+              >
+                🔄 Updating Live Prices...
+              </span>
+            )}
+
+            <div
+              data-testid="text-regime-effective"
+              className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${regimeColor} text-[10px] font-bold uppercase`}
             >
-              STALE
-            </span>
-          )}
+              <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
+              <span>{macroBadgeLabel}</span>
+            </div>
 
-          <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} marketOpen={isMarketOpen(now)} />
+            <div className="hidden lg:flex items-center gap-2 border-l border-slate-800 pl-3">
+              <span className="text-slate-400">EQ</span>
+              <span className="text-white font-bold">${equity.toFixed(2)}</span>
+              <span className={ytdPct >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
+                {ytdPct >= 0 ? "+" : ""}{ytdPct.toFixed(2)}%
+              </span>
+            </div>
 
-          {marketStore.isSyncing && (
-            <span
-              className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/40 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider"
-              data-testid="badge-updating-live-prices"
-            >
-              <span>🔄 Updating Live Prices...</span>
-            </span>
-          )}
-
-          <div className="ml-auto flex items-center gap-3 md:gap-5">
-            {/* Prominent Practice Sandbox Toggle in Main Navigation Header */}
             <button
               type="button"
               onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
               data-testid="button-toggle-practice-mode"
-              className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border text-[11px] font-mono font-black tracking-wider uppercase transition-all shadow-sm cursor-pointer select-none ${
+              className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold uppercase cursor-pointer transition-colors ${
                 isPractice
-                  ? "border-amber-400 bg-amber-500/20 text-amber-300 shadow-[0_0_12px_rgba(245,158,11,0.35)] animate-pulse"
-                  : "border-slate-700 bg-slate-900/60 text-slate-400 hover:text-white hover:border-slate-500"
+                  ? "border-amber-400 bg-amber-500/20 text-amber-300"
+                  : "border-slate-700 bg-[#0B0F17] text-slate-400 hover:text-white"
               }`}
-              title={isPractice ? "Practice Sandbox Mode is ON. Zero live capital at risk." : "Click to switch to Practice Mode"}
             >
               <Beaker className="h-3 w-3 text-amber-400" />
-              <span>{isPractice ? "[ 🧪 PRACTICE MODE: ON ]" : "[ 🧪 PRACTICE MODE: OFF ]"}</span>
+              <span>[ 🧪 PRACTICE MODE ]</span>
             </button>
-            <ThemeSwitcher />
-            <div className="hidden md:flex flex-col items-end leading-tight">
-              <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">Equity</div>
-              <div className="font-mono-num text-[14px] text-soft-white tabular-nums leading-tight">
-                ${equity.toFixed(2)}
-                <span className={`ml-2 text-[10px] tabular-nums ${ytdPct >= 0 ? "text-signal-green" : "text-signal-red"}`}>
-                  {ytdPct >= 0 ? "+" : ""}{ytdPct.toFixed(2)}% YTD
-                </span>
-              </div>
-            </div>
-            <div className="hidden lg:flex flex-col items-end leading-tight border-l border-slate-800 pl-5">
-              <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">Chizzle</div>
-              <div className="flex items-baseline gap-2 leading-tight">
-                <span className={`font-mono-num text-[14px] tabular-nums ${rolling7 >= 90 ? "text-gold-lux" : "text-soft-white"}`}>
-                  {todayScore} <span className="text-slate-gray/70">/</span> {rolling7}
-                </span>
-                <span className="text-[9px] uppercase tracking-wider text-slate-gray">{istate.replace("_", "-")}</span>
-              </div>
-            </div>
-            <div className="flex flex-col items-end leading-tight border-l border-slate-800 pl-5">
-              <div className="text-[9px] uppercase tracking-[0.18em] text-slate-gray">{sessionLabel}</div>
-              <div className="font-mono-num text-[12px] tabular-nums leading-tight">
-                {chicagoClock(now)} <span className="text-slate-gray/70">CT</span>
-              </div>
+
+            <div className="hidden sm:block">
+              <ThemeSwitcher />
             </div>
           </div>
         </div>

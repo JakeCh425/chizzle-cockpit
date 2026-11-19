@@ -44,9 +44,23 @@ export interface SetupAlertState {
   status?: string;
 }
 
+export interface LiveCandleBar {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 export interface TickerData {
   symbol: string;
   price: number | null;
+  bid?: number | null;
+  ask?: number | null;
+  changePct?: number | null;
+  lastTickTs?: number;
+  liveBar?: LiveCandleBar | null;
+  setupStage?: SetupVisualStage;
   lastValidTick?: LastValidTick;
 }
 
@@ -61,6 +75,7 @@ export interface MarketDataState {
   isStaticLastClose: boolean;
   latencyMs: number;
   lastSyncTime: string;
+  tickCount: number;
   reconnectCount: number;
   activeFeed: "WS" | "REST" | "STATIC";
   macroRegime: "GO" | "SELECTIVE" | "STAND_DOWN";
@@ -256,6 +271,7 @@ export const initialState: MarketDataState = {
   isStaticLastClose: false,
   latencyMs: 18,
   lastSyncTime: "00:00:00",
+  tickCount: 0,
   reconnectCount: 0,
   activeFeed: isMarketOpen() ? "WS" : "STATIC",
   macroRegime: "SELECTIVE",
@@ -295,7 +311,7 @@ class MarketDataStore {
   private readonly BAD_TICK_THRESHOLD = 0.05; // 5% max instantaneous jump
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastNotifyAt = 0;
-  private readonly TICK_THROTTLE_MS = 300;
+  private readonly TICK_THROTTLE_MS = 250;
 
   constructor() {
     clearStaleCachedPrices();
@@ -391,9 +407,17 @@ class MarketDataStore {
     if (keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === stages[k])) {
       return;
     }
+    const nextTickers = { ...this.state.tickers };
+    for (const [sym, st] of Object.entries(stages)) {
+      const existing = nextTickers[sym];
+      nextTickers[sym] = existing
+        ? { ...existing, setupStage: st }
+        : { symbol: sym, price: this.state.prices[sym] ?? null, setupStage: st };
+    }
     this.state = {
       ...this.state,
       setupStages: stages,
+      tickers: nextTickers,
     };
     this.notify();
   }
@@ -798,6 +822,26 @@ class MarketDataStore {
     const prevClose = tick.prevClose ?? tick.pc ?? this.state.previousClose[sym] ?? lastValid ?? tick.price;
     const isActiveSym = sym === this.state.activeTicker;
     const computedLatency = Math.max(8, Math.min(250, Math.abs(Date.now() - now) || 16));
+    const bucket1HSec = Math.floor(now / 3600_000) * 3600;
+    const prevTicker = this.state.tickers[sym];
+    const prevBar = prevTicker?.liveBar;
+    const nextLiveBar: LiveCandleBar =
+      prevBar && prevBar.time === bucket1HSec
+        ? {
+            time: bucket1HSec,
+            open: prevBar.open,
+            high: Math.max(prevBar.high, tick.price),
+            low: Math.min(prevBar.low, tick.price),
+            close: tick.price,
+          }
+        : {
+            time: bucket1HSec,
+            open: tick.price,
+            high: tick.price,
+            low: tick.price,
+            close: tick.price,
+          };
+    const changePct = prevClose > 0 ? +(((tick.price - prevClose) / prevClose) * 100).toFixed(2) : 0;
 
     this.state = {
       ...this.state,
@@ -810,6 +854,7 @@ class MarketDataStore {
       activeFeed: isMarketOpen() ? (this.state.isPollingBackup ? "REST" : "WS") : "STATIC",
       latencyMs: computedLatency,
       lastSyncTime: this.formatSyncTime(Date.now()),
+      tickCount: (this.state.tickCount || 0) + 1,
       prices: {
         ...this.state.prices,
         [sym]: tick.price,
@@ -819,6 +864,12 @@ class MarketDataStore {
         [sym]: {
           symbol: sym,
           price: tick.price,
+          bid: (tick as any).bid ?? prevTicker?.bid ?? tick.price,
+          ask: (tick as any).ask ?? prevTicker?.ask ?? tick.price,
+          changePct,
+          lastTickTs: now,
+          liveBar: nextLiveBar,
+          setupStage: this.state.setupStages[sym] ?? prevTicker?.setupStage,
           lastValidTick: { price: tick.price, timestamp: now, prevClose },
         },
       },
