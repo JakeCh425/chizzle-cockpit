@@ -2,6 +2,62 @@ import { useMemo } from "react";
 import type { SwingDecision } from "@shared/swingDecision";
 
 export type LifecycleStep = 1 | 2 | 3 | 4;
+export type SetupStage = "READY" | "PENDING" | "BLOCKED";
+export type MacroRegime = "STAND_DOWN" | "CAUTION" | "GO" | "green" | "yellow" | "red" | string;
+
+/**
+ * Centralized Single-Source-of-Truth stage evaluator controlling BOTH the card badge
+ * AND which bucket (READY TO TRADE vs PENDING & WAITING) the setup renders in.
+ */
+export function getSetupStage(
+  ticker: any,
+  macroRegime?: MacroRegime | null,
+  isPracticeMode = false
+): SetupStage {
+  const regime = String(macroRegime ?? "").trim().toUpperCase();
+  const isMacroStandDown = regime === "STAND_DOWN" || regime === "RED";
+
+  const status = String(ticker?.setupStatus ?? ticker?.status ?? "").trim().toUpperCase();
+  const isBlockedAsset = Boolean(
+    ticker?.hasHardBlock ||
+      ticker?.isStandbyDay ||
+      status === "STANDBY_DAY" ||
+      status === "BLOCKED"
+  );
+
+  // Rule 1 (Macro Stand-Down): No ticker may display READY when macro is STAND_DOWN (unless Practice Mode)
+  if ((isMacroStandDown && !isPracticeMode) || isBlockedAsset) {
+    return "BLOCKED";
+  }
+
+  const isRetestOrInvalid = Boolean(
+    ticker?.isWaitAndRetest ||
+      status === "WATCH_RETEST" ||
+      status === "WAIT_AND_RETEST" ||
+      status === "WAIT_FOR_RETEST" ||
+      status === "NO_TRADE" ||
+      status === "SIGNAL_EXPIRED" ||
+      status === "IGNORED"
+  );
+
+  const entry = Number(ticker?.projectedEntry ?? ticker?.entryPrice ?? 0);
+  const stop = Number(ticker?.stopLoss ?? ticker?.structuralStop ?? 0);
+  const live = Number(ticker?.livePrice ?? ticker?.currentPrice ?? 0);
+  const hasValidLevels = entry > 0 && (stop <= 0 || entry > stop);
+  const withinChaseTolerance =
+    entry > 0 && live > 0 ? Math.abs((live - entry) / entry) * 100 <= 0.75 : true;
+
+  const isReadyStatus =
+    status === "READY_TO_TRADE" || status === "SETUP_CONFIRMED" || status === "READY";
+  const candleConfirmed = Boolean(ticker?.hasClosed1HReversal || isReadyStatus);
+
+  // Rule 2 (Auto-Promotion): Confirmed 1H candle + valid levels + no macro/asset block
+  if (!isRetestOrInvalid && isReadyStatus && candleConfirmed && hasValidLevels && withinChaseTolerance) {
+    return "READY";
+  }
+
+  return "PENDING";
+}
 
 export interface SwingPositionMath {
   entryPrice: number;
@@ -29,42 +85,70 @@ export interface ReadinessTier {
 }
 
 /** Hardcoded Tailwind capsule classes so Tailwind never purges them. */
-export function getCapsuleColor(prox: number): string {
+export function getCapsuleColor(prox: number, stage?: SetupStage): string {
+  if (stage === "BLOCKED") return "bg-rose-500/80";
+  if (stage === "READY") return "bg-emerald-400 shadow-[0_0_10px_#00F5A0]";
+  if (stage === "PENDING") {
+    if (prox <= 0.5) return "bg-[#FFB800] shadow-[0_0_12px_rgba(255,184,0,0.65)] animate-pulse";
+    if (prox <= 1.5) return "bg-[#FFB800] shadow-[0_0_8px_rgba(255,184,0,0.4)]";
+    if (prox <= 3.0) return "bg-amber-500/80";
+    return "bg-slate-700";
+  }
   if (prox <= 0.5) return "bg-amber-400 shadow-[0_0_12px_#fbbf24] animate-pulse"; // Trigger Zone
   if (prox <= 1.5) return "bg-emerald-500 shadow-[0_0_10px_#10b981]"; // Ready Zone
   if (prox <= 3.0) return "bg-cyan-500"; // Monitoring
   return "bg-slate-700"; // Cold
 }
 
-export function getReadinessTier(prox: number, setupStatus?: string | null): ReadinessTier {
-  const isReady = setupStatus === "READY_TO_TRADE";
+export function getReadinessTier(
+  prox: number,
+  setupStatus?: string | null,
+  stage?: SetupStage
+): ReadinessTier {
+  if (stage === "BLOCKED") {
+    return {
+      label: "BLOCKED (MACRO STAND-DOWN)",
+      capsuleClass: getCapsuleColor(prox, "BLOCKED"),
+      textClass: "text-rose-400",
+      tickerAccentClass: "border-rose-500/50",
+    };
+  }
+  const isReady = stage ? stage === "READY" : setupStatus === "READY_TO_TRADE";
+  if (isReady) {
+    return {
+      label: "READY",
+      capsuleClass: getCapsuleColor(prox, "READY"),
+      textClass: "text-emerald-400",
+      tickerAccentClass: "border-emerald-400",
+    };
+  }
   if (prox <= 0.5) {
     return {
       label: "TRIGGER ZONE",
-      capsuleClass: getCapsuleColor(prox),
-      textClass: "text-amber-400",
-      tickerAccentClass: "border-amber-400",
+      capsuleClass: getCapsuleColor(prox, "PENDING"),
+      textClass: "text-[#FFB800]",
+      tickerAccentClass: "border-[#FFB800]",
     };
   }
-  if (isReady || prox <= 1.5) {
+  if (prox <= 1.5) {
     return {
-      label: isReady ? "READY" : "READY ZONE",
-      capsuleClass: getCapsuleColor(prox),
-      textClass: "text-emerald-400",
-      tickerAccentClass: "border-emerald-500",
+      label: "NEAR ENTRY",
+      capsuleClass: getCapsuleColor(prox, "PENDING"),
+      textClass: "text-[#FFB800]",
+      tickerAccentClass: "border-[#FFB800]",
     };
   }
   if (prox <= 3.0) {
     return {
       label: "MONITORING",
-      capsuleClass: getCapsuleColor(prox),
-      textClass: "text-cyan-400",
-      tickerAccentClass: "border-cyan-500",
+      capsuleClass: getCapsuleColor(prox, "PENDING"),
+      textClass: "text-amber-400/90",
+      tickerAccentClass: "border-amber-500/50",
     };
   }
   return {
-    label: "COLD",
-    capsuleClass: getCapsuleColor(prox),
+    label: "DEEP STANDBY",
+    capsuleClass: getCapsuleColor(prox, "PENDING"),
     textClass: "text-slate-400",
     tickerAccentClass: "border-slate-700",
   };

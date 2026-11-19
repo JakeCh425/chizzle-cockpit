@@ -7,6 +7,7 @@ import {
   getCapsuleColor,
   getReadinessTier,
   computeSwingPositionMath,
+  type SetupStage,
 } from "@/hooks/useSwingMath";
 
 export interface PendingRowProps {
@@ -17,6 +18,7 @@ export interface PendingRowProps {
     stopLoss?: number;
     allocatedCapital?: number;
     status?: string;
+    stage?: SetupStage;
   };
   d?: SwingDecision;
   effectivePrice: number;
@@ -100,17 +102,20 @@ export function PendingRow({
 
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
+  const stage: SetupStage =
+    setup.stage ?? ((d as any).stage as SetupStage | undefined) ?? (isHardBlock ? "BLOCKED" : "PENDING");
+  const isBlockedStage = stage === "BLOCKED";
 
-  // Shared readiness tier & capsule classes from useSwingMath
-  const capsuleColorClass = getCapsuleColor(proximity);
+  // Shared readiness tier & capsule classes from useSwingMath (strictly non-green for Pending/Blocked)
+  const capsuleColorClass = getCapsuleColor(proximity, stage);
   const readinessColors = useMemo(() => {
-    const tier = getReadinessTier(proximity, d.setupStatus);
+    const tier = getReadinessTier(proximity, d.setupStatus, stage);
     return {
       label: tier.label,
       tickerAccent: tier.tickerAccentClass,
       text: tier.textClass,
     };
-  }, [d.setupStatus, proximity]);
+  }, [d.setupStatus, proximity, stage]);
 
   // Shared Live-Math Engine Hookup
   const math = useMemo(
@@ -129,8 +134,8 @@ export function PendingRow({
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 terminal-card-surface border hover:border-slate-500/70 transition-colors rounded-xl cursor-pointer shadow-md ${
-        selectedTicker === d.symbol ? "ring-1 ring-cyan-400" : ""
+      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#0B101D] border border-slate-800/90 opacity-85 hover:opacity-100 hover:border-slate-600/80 transition-all rounded-xl cursor-pointer shadow-md ${
+        selectedTicker === d.symbol ? "ring-1 ring-amber-400/70 opacity-100" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
     >
@@ -139,13 +144,13 @@ export function PendingRow({
       {/* Col 1: Ticker & Proximity Capsule (Visual Radar) */}
       <div className="flex flex-col gap-2.5 min-w-0">
         <div className="flex items-center gap-3">
-          <div className={`bg-slate-800 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
+          <div className={`bg-slate-900 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
             <span className="text-2xl lg:text-3xl font-black tracking-widest text-white">{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
-              <Activity className="w-4 h-4 text-cyan-400 shrink-0" />
-              <span className="text-slate-100 font-mono tabular-nums text-xl font-bold leading-tight">
+              <Activity className="w-4 h-4 text-slate-400 shrink-0" />
+              <span className="text-slate-200 font-mono tabular-nums text-xl font-bold leading-tight">
                 {formatCurrency(effectivePrice)}
               </span>
             </div>
@@ -153,19 +158,23 @@ export function PendingRow({
               className="flex items-center gap-1 text-xs text-slate-400 font-mono shrink-0"
               data-testid={`waiting-row-timestamp-${d.symbol}`}
             >
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+              <span className={`w-1.5 h-1.5 rounded-full ${isBlockedStage ? "bg-rose-400" : "bg-[#FFB800]"}`} />
               <span>Updated {rowTimestamp} CT</span>
             </div>
           </div>
         </div>
 
-        {/* Anti-Falling Knife Status Badge or Standardized Readiness Status */}
-        {isAwaiting1HBounce ? (
-          <div className="text-xs font-mono font-bold tracking-wider uppercase" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
-            <span className="text-amber-400">⚠️ ENTRY ZONE: AWAITING 1H BOUNCE</span>
+        {/* Semantic Stage Badge: Blocked (Muted Rose) vs Awaiting 1H Bounce / Pending (Solar Amber) */}
+        {isBlockedStage ? (
+          <div className="inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase text-rose-400 bg-rose-950/50 border-rose-500/40" data-testid={`badge-readiness-status-${d.symbol}`}>
+            <span>BLOCKED (MACRO STAND-DOWN)</span>
+          </div>
+        ) : isAwaiting1HBounce ? (
+          <div className="inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase text-[#FFB800] bg-amber-950/30 border-amber-500/40" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
+            <span>⚠️ ENTRY ZONE: AWAITING 1H BOUNCE</span>
           </div>
         ) : (
-          <div className={`text-xs font-mono font-bold tracking-wider uppercase ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
+          <div className={`inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase bg-amber-950/20 border-amber-500/30 ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
             <span>{readinessColors.label}</span>
           </div>
         )}
@@ -216,17 +225,17 @@ export function PendingRow({
         <div className="flex items-center justify-between gap-4 flex-wrap pt-0.5">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ENTRY</span>
-            <span className="text-lg font-mono tabular-nums font-bold text-cyan-400">${math.entryPrice.toFixed(2)}</span>
+            <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.entryPrice.toFixed(2)}</span>
           </div>
 
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1">
-              <Shield className="w-3.5 h-3.5 text-rose-400 shrink-0" />
+              <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" />
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">STOP</span>
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-mono tabular-nums font-bold text-white">${math.stopLoss.toFixed(2)}</span>
-              <span className="text-base font-mono tabular-nums font-bold text-rose-400">
+              <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.stopLoss.toFixed(2)}</span>
+              <span className="text-base font-mono tabular-nums font-bold text-slate-400">
                 (-${math.totalRisk.toFixed(2)})
               </span>
             </div>
@@ -240,8 +249,8 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">1.5R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target1_5R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target1_5R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
       </div>
 
       {/* Col 4: 2.0R Target */}
@@ -250,8 +259,8 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">2.0R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target2_0R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target2_0R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 5: 3.0R Target */}
@@ -260,8 +269,8 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">3.0R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-white">${math.target3_0R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-emerald-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target3_0R.toFixed(2)}</span>
+        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
       </div>
 
       {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}
