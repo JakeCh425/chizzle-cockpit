@@ -1,6 +1,7 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { reconnectPriceFeed, forceRefreshPrice } from "@/lib/priceFeed";
+import { MarketDataEngine } from "@/services/MarketDataEngine";
 import { toast } from "@/hooks/use-toast";
 import { RefreshCw } from "lucide-react";
 
@@ -103,10 +104,10 @@ export function useWakeRefresh() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         const now = Date.now();
-        // Cooldown: prevent multiple rapid calls if user tabs back and forth in <2s
         if (now - lastWakeRef.current < 2000) return;
         lastWakeRef.current = now;
-        void triggerGlobalHardRefresh();
+        // Zero-Rescan Instant Tab Return: silently patch from /api/state/snapshot without clearing cards
+        void MarketDataEngine.silentSnapshotPatch();
       }
     };
 
@@ -114,7 +115,7 @@ export function useWakeRefresh() {
       const now = Date.now();
       if (now - lastWakeRef.current < 2000) return;
       lastWakeRef.current = now;
-      void triggerGlobalHardRefresh();
+      void MarketDataEngine.silentSnapshotPatch();
     };
 
     document.addEventListener("visibilitychange", handleVisibilityChange);

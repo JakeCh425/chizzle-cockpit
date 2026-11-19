@@ -77,6 +77,7 @@ export interface MarketDataState {
   lastSyncTime: string;
   tickCount: number;
   reconnectCount: number;
+  disconnectedSinceMs: number | null;
   activeFeed: "WS" | "REST" | "STATIC";
   macroRegime: "GO" | "SELECTIVE" | "STAND_DOWN";
   macroReason: string | null;
@@ -93,6 +94,7 @@ export interface MarketDataState {
   isPollingBackup: boolean;
   lastEventAt: number;
   lastTickTimestamp: number;
+  backendLastTickTs: number;
   lastError: string | null;
   dataFeedError: string | null;
   staleQuoteRejected: boolean;
@@ -285,6 +287,7 @@ export const initialState: MarketDataState = {
   lastSyncTime: "00:00:00",
   tickCount: 0,
   reconnectCount: 0,
+  disconnectedSinceMs: null,
   activeFeed: isMarketOpen() ? "WS" : "STATIC",
   macroRegime: "SELECTIVE",
   macroReason: null,
@@ -301,6 +304,7 @@ export const initialState: MarketDataState = {
   isPollingBackup: false,
   lastEventAt: 0,
   lastTickTimestamp: 0,
+  backendLastTickTs: 0,
   lastError: null,
   dataFeedError: null,
   staleQuoteRejected: false,
@@ -390,6 +394,24 @@ class MarketDataStore {
     this.state = {
       ...this.state,
       reconnectCount: (this.state.reconnectCount || 0) + 1,
+    };
+    this.notify();
+  }
+
+  public setBackendLastTickTs(ts: number): void {
+    if (!Number.isFinite(ts) || ts <= this.state.backendLastTickTs) return;
+    this.state = {
+      ...this.state,
+      backendLastTickTs: ts,
+    };
+    this.notify();
+  }
+
+  public setDisconnectedSinceMs(ms: number | null): void {
+    if (this.state.disconnectedSinceMs === ms) return;
+    this.state = {
+      ...this.state,
+      disconnectedSinceMs: ms,
     };
     this.notify();
   }

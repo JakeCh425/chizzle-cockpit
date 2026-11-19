@@ -12,8 +12,18 @@ import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
-  FileText, Activity, ClipboardList, Beaker, X, Trash2, RefreshCw,
+  FileText, Activity, ClipboardList, Beaker, X, Trash2, RefreshCw, Palette,
 } from "lucide-react";
+import {
+  useTerminalTheme,
+  APP_BACKGROUNDS,
+  CARD_SURFACES,
+  type AppBgId,
+  type CardSurfaceId,
+  type FontFamilyOption,
+  type TextScaleOption,
+  type EngineBgOption,
+} from "@/lib/terminalTheme";
 import { useOptionalGlobalState } from "@/lib/globalState";
 
 interface RegimePayload {
@@ -208,6 +218,19 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const marketStore = useMarketDataStore();
   const [healthOpen, setHealthOpen] = useState(false);
+  const [appearanceOpen, setAppearanceOpen] = useState(false);
+  const {
+    appBg,
+    setAppBg,
+    cardTheme,
+    setCardTheme,
+    fontFamily,
+    setFontFamily,
+    textScale,
+    setTextScale,
+    engineBg,
+    setEngineBg,
+  } = useTerminalTheme();
 
   const equity = settings?.equity ?? 1000;
   const ytdPct = ((equity - 1000) / 1000) * 100;
@@ -245,9 +268,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       : "SELECTIVE";
 
   const isMarketOpenNow = isMarketOpen(now);
-  const wsOpenNow = isPrimaryWsOpen();
-  const isLiveWs = isMarketOpenNow && (wsOpenNow || (feedState === "LIVE" && !marketStore.isPollingBackup));
-  const isBackupRest = isMarketOpenNow && !wsOpenNow && marketStore.isPollingBackup;
+  const latestEngineTickTs = Math.max(marketStore.lastTickTimestamp || 0, marketStore.backendLastTickTs || 0);
+  const engineFreshWithin15s = latestEngineTickTs > 0 && now.getTime() - latestEngineTickTs <= 15_000;
+  const disconnectedMs =
+    marketStore.disconnectedSinceMs != null ? now.getTime() - marketStore.disconnectedSinceMs : 0;
+  // Anti-Flicker Telemetry Lock: locked to LIVE ENGINE if backend/worker tick within 15s during market hours
+  const isReconnectingOver8s = isMarketOpenNow && !engineFreshWithin15s && disconnectedMs > 8_000;
+  const isLiveWs = isMarketOpenNow && !isReconnectingOver8s;
 
   const handleManualSync = () => {
     void queryClient.invalidateQueries({ queryKey: ["/api/swing/scan"] });
@@ -259,13 +286,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       className="min-h-screen bg-[#06080D] text-slate-100 flex flex-col"
       data-testid="app-shell-root"
     >
-      {/* Enlarged Consolidated h-16 Command Header */}
-      <header className="h-16 px-4 sm:px-6 bg-[#060913] border-b border-slate-800 sticky top-0 z-30 flex items-center justify-between gap-4">
-        {/* Left: Brand Title & Enlarged Navigation Pills */}
+      {/* Enlarged Consolidated h-14 Command Header */}
+      <header className="h-14 px-5 bg-[#060913] border-b border-slate-800 sticky top-0 z-30 flex items-center justify-between gap-4">
+        {/* Left: Brand Title & Navigation Pills */}
         <div className="flex items-center gap-4 min-w-0">
           <Link
             href="/"
-            className="flex items-center gap-2 text-xl font-black tracking-wide text-white shrink-0 cursor-pointer"
+            className="flex items-center gap-2 text-lg font-black tracking-wide text-white shrink-0 cursor-pointer"
             data-testid="dashboard-brand-logo"
           >
             <CandlestickIcon color="#00F5A0" className="h-5 w-3 inline-block" />
@@ -286,7 +313,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   key={tab.href}
                   href={tab.href}
                   data-testid={tab.testId}
-                  className={`text-sm font-bold tracking-wide px-3.5 py-2 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+                  className={`text-sm font-semibold tracking-wide px-3.5 py-1.5 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
                     active
                       ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/40"
                       : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
@@ -299,24 +326,22 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
 
-        {/* Center: Live Telemetry Pill + Quick Sync */}
+        {/* Center: Fixed-Width Anti-Flicker Telemetry Pill + Quick Sync */}
         <div
-          className="hidden lg:flex items-center gap-2.5 text-sm font-mono font-semibold px-4 py-1.5 rounded-full bg-slate-900 border border-slate-700 tabular-nums shrink-0"
+          className="hidden lg:flex items-center justify-center min-w-[230px] gap-2.5 text-sm font-mono font-semibold px-4 py-1.5 rounded-full bg-slate-900 border border-slate-700 tabular-nums shrink-0"
           data-testid="badge-feed-status"
         >
           {isLiveWs ? (
             <>
               <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400">● LIVE WS</span>
+              <span className="text-emerald-400">● LIVE ENGINE</span>
               <span className="text-slate-600">|</span>
               <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
             </>
-          ) : isBackupRest ? (
+          ) : isReconnectingOver8s ? (
             <>
               <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-amber-300">● BACKUP REST</span>
-              <span className="text-slate-600">|</span>
-              <span className="text-amber-200">{marketStore.latencyMs || 18}ms</span>
+              <span className="text-amber-300">🟡 RECONNECTING...</span>
             </>
           ) : (
             <>
@@ -338,18 +363,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </button>
         </div>
 
-        {/* Right: Equity, Daily P&L, Regime & Practice Mode Controls */}
-        <div className="flex items-center gap-3 shrink-0">
+        {/* Right: Equity, Daily P&L, Regime, Practice Mode, & [ 🎨 Appearance ] Popover */}
+        <div className="flex items-center gap-3 shrink-0 relative">
           <div className="hidden md:flex items-baseline gap-2 font-mono tabular-nums">
-            <span className="text-base font-mono font-bold text-white">${equity.toFixed(2)}</span>
-            <span className={`text-sm font-bold ${ytdPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+            <span className="text-sm font-bold text-white">${equity.toFixed(2)}</span>
+            <span className={`text-xs font-bold ${ytdPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
               {ytdPct >= 0 ? "+" : ""}{ytdPct.toFixed(2)}%
             </span>
           </div>
 
           <div
             data-testid="text-regime-effective"
-            className={`hidden sm:flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg border ${regimeColor} uppercase`}
+            className={`hidden sm:flex items-center gap-1.5 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border ${regimeColor} uppercase`}
           >
             <span className="inline-block w-2 h-2 rounded-full bg-current" />
             <span>{macroBadgeLabel}</span>
@@ -359,15 +384,119 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             type="button"
             onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
             data-testid="button-toggle-practice-mode"
-            className={`flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg border uppercase cursor-pointer transition-colors ${
+            className={`flex items-center gap-1.5 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border uppercase cursor-pointer transition-colors ${
               isPractice
                 ? "border-amber-400 bg-amber-500/20 text-amber-300"
                 : "border-slate-700 bg-slate-900 text-slate-300 hover:text-white"
             }`}
           >
             <Beaker className="h-3.5 w-3.5 text-amber-400" />
-            <span>[ 🧪 PRACTICE MODE ]</span>
+            <span>[ 🧪 PRACTICE ]</span>
           </button>
+
+          {/* [ 🎨 Appearance ] Popover Drawer */}
+          <button
+            type="button"
+            onClick={() => setAppearanceOpen((prev) => !prev)}
+            data-testid="button-header-appearance"
+            className={`flex items-center gap-1.5 text-xs font-mono font-bold px-2.5 py-1 rounded-lg border cursor-pointer transition-colors ${
+              appearanceOpen
+                ? "border-cyan-400 bg-cyan-500/15 text-cyan-300"
+                : "border-slate-700 bg-slate-900 text-slate-300 hover:text-white"
+            }`}
+          >
+            <Palette className="h-3.5 w-3.5 text-cyan-400" />
+            <span className="hidden xl:inline">[ 🎨 Appearance ]</span>
+          </button>
+
+          {appearanceOpen && (
+            <div
+              className="absolute right-0 top-12 z-50 w-72 rounded-xl border border-slate-700 bg-[#0B0F17] p-4 shadow-2xl flex flex-col gap-3 font-mono text-xs"
+              data-testid="popover-appearance-drawer"
+            >
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                <span className="font-bold text-white uppercase tracking-wider">🎨 Terminal Appearance</span>
+                <button
+                  type="button"
+                  onClick={() => setAppearanceOpen(false)}
+                  className="text-slate-400 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 uppercase">Theme</span>
+                <select
+                  value={appBg}
+                  onChange={(e) => setAppBg(e.target.value as AppBgId)}
+                  className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none"
+                >
+                  {APP_BACKGROUNDS.map((bg) => (
+                    <option key={bg.id} value={bg.id}>{bg.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 uppercase">Card Style</span>
+                <select
+                  value={cardTheme}
+                  onChange={(e) => setCardTheme(e.target.value as CardSurfaceId)}
+                  className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none"
+                >
+                  {CARD_SURFACES.map((c) => (
+                    <option key={c.id} value={c.id}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1">
+                <span className="text-[10px] text-slate-400 uppercase">Engine</span>
+                <select
+                  value={engineBg}
+                  onChange={(e) => setEngineBg(e.target.value as EngineBgOption)}
+                  className="bg-slate-900 border border-slate-700 rounded px-2.5 py-1.5 text-slate-200 outline-none"
+                >
+                  <option value="contrast-dark">Contrast Dark</option>
+                  <option value="inherit">Match App</option>
+                  <option value="ice-blue-pro">Ice Blue Pro</option>
+                  <option value="bloomberg-classic">Bloomberg</option>
+                  <option value="emerald-core">Emerald Core</option>
+                  <option value="ultraviolet">Ultraviolet</option>
+                </select>
+              </label>
+
+              <div className="grid grid-cols-2 gap-2">
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-400 uppercase">Font</span>
+                  <select
+                    value={fontFamily}
+                    onChange={(e) => setFontFamily(e.target.value as FontFamilyOption)}
+                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-200 outline-none"
+                  >
+                    <option value="Inter">Inter</option>
+                    <option value="Roboto">Roboto</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Segoe UI">Segoe UI</option>
+                  </select>
+                </label>
+
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-400 uppercase">Scale</span>
+                  <select
+                    value={textScale}
+                    onChange={(e) => setTextScale(e.target.value as TextScaleOption)}
+                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-200 outline-none"
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="default">Default</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
         </div>
       </header>
 

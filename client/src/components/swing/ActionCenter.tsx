@@ -1537,6 +1537,11 @@ function ActionCenterInner() {
     }
   }, [watchlistSymbols]);
 
+  // Keep workstation awake when READY TO TRADE / ACTIVE EXECUTION setups are armed
+  useEffect(() => {
+    void MarketDataEngine.syncWakeLock(confirmedRows.length > 0 || heroTrades.length > 0);
+  }, [confirmedRows.length, heroTrades.length]);
+
   // Non-blocking background sync indicator in header
   useEffect(() => {
     globalStore.setSyncing(Boolean(scan.isFetching));
@@ -2208,8 +2213,18 @@ function ActionCenterInner() {
           <EditableTitle value={title} onChange={setTitle} />
         </div>
 
-        <div className="flex flex-wrap items-center gap-2.5">
-          <TerminalCustomizationBar />
+        <div className="flex flex-wrap items-center gap-3">
+          <span
+            className="font-mono text-xs font-bold text-slate-200 px-3 py-1.5 rounded-lg bg-[#0B0F17] border border-slate-800 tabular-nums"
+            data-testid="ac-clean-summary-bar"
+          >
+            {totalActiveConfirmed} Ready • {generalLoud.length} Pending •{" "}
+            {macroEval.regime === "SELECTIVE"
+              ? "Selective Override Active"
+              : macroEval.regime === "GO"
+              ? "Macro Risk-On"
+              : "Macro Stand-Down"}
+          </span>
 
           {/* Main Prominent Live vs Practice Sandbox Mode Switch */}
           <button
@@ -2226,10 +2241,6 @@ function ActionCenterInner() {
             <Zap className={`h-3.5 w-3.5 ${isPractice ? "text-[#FFB800]" : "text-cyan-400"}`} />
             <span>{isPractice ? "[ 🧪 SYSTEM MODE: PRACTICE ]" : "[ 🧪 SYSTEM MODE: LIVE ]"}</span>
           </button>
-
-          <span className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-1 font-mono text-xs font-bold uppercase tracking-wider text-amber-300">
-            PRACTICE ONLY — ANALYSIS, NOT FINANCIAL ADVICE
-          </span>
         </div>
       </div>
 
