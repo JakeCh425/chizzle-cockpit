@@ -1,34 +1,110 @@
 import { useMemo } from "react";
 import type { SwingDecision } from "@shared/swingDecision";
+import { STATUS_THEME, type SetupVisualStage } from "@/lib/statusTheme";
 
 export type LifecycleStep = 1 | 2 | 3 | 4;
-export type SetupStage = "READY" | "PENDING" | "BLOCKED";
-export type MacroRegime = "STAND_DOWN" | "CAUTION" | "GO" | "green" | "yellow" | "red" | string;
+export type SetupStage = SetupVisualStage;
+export type MacroRegime = "STAND_DOWN" | "SELECTIVE" | "CAUTION" | "GO" | "green" | "yellow" | "red" | string;
+
+export interface IndexDailyCheck {
+  price?: number | null;
+  sma20?: number | null;
+  sma50?: number | null;
+}
+
+export interface MacroRegimeEvaluation {
+  regime: "GO" | "SELECTIVE" | "STAND_DOWN";
+  reason: string | null;
+  isSynced: boolean;
+  spyBelowBoth: boolean;
+  qqqBelowBoth: boolean;
+}
 
 /**
- * Centralized Single-Source-of-Truth stage evaluator controlling BOTH the card badge
- * AND which bucket (READY TO TRADE vs PENDING & WAITING) the setup renders in.
+ * Strict Verified Macro Check:
+ * Only returns 'STAND_DOWN' when live/verified Daily data confirms BOTH SPY and QQQ
+ * are trading below their Daily 20-SMA and 50-SMA (unless user enabled Selective Override).
+ * Defaults to 'SELECTIVE' while syncing or when index data is incomplete.
  */
-export function getSetupStage(
-  ticker: any,
-  macroRegime?: MacroRegime | null,
-  isPracticeMode = false
-): SetupStage {
-  const regime = String(macroRegime ?? "").trim().toUpperCase();
-  const isMacroStandDown = regime === "STAND_DOWN" || regime === "RED";
+export function evaluateMacroRegime(params: {
+  spy?: IndexDailyCheck | null;
+  qqq?: IndexDailyCheck | null;
+  isSyncing?: boolean;
+  allowSelectiveOverride?: boolean;
+}): MacroRegimeEvaluation {
+  const { spy, qqq, isSyncing = false, allowSelectiveOverride = false } = params;
+  const spyPrice = Number(spy?.price || 0);
+  const spy20 = Number(spy?.sma20 || 0);
+  const spy50 = Number(spy?.sma50 || 0);
+  const qqqPrice = Number(qqq?.price || 0);
+  const qqq20 = Number(qqq?.sma20 || 0);
+  const qqq50 = Number(qqq?.sma50 || 0);
 
-  const status = String(ticker?.setupStatus ?? ticker?.status ?? "").trim().toUpperCase();
-  const isBlockedAsset = Boolean(
-    ticker?.hasHardBlock ||
-      ticker?.isStandbyDay ||
-      status === "STANDBY_DAY" ||
-      status === "BLOCKED"
-  );
+  const hasVerifiedSpy = spyPrice > 0 && spy20 > 0 && spy50 > 0;
+  const hasVerifiedQqq = qqqPrice > 0 && qqq20 > 0 && qqq50 > 0;
+  const isSynced = !isSyncing && hasVerifiedSpy && hasVerifiedQqq;
 
-  // Rule 1 (Macro Stand-Down): No ticker may display READY when macro is STAND_DOWN (unless Practice Mode)
-  if ((isMacroStandDown && !isPracticeMode) || isBlockedAsset) {
-    return "BLOCKED";
+  if (!isSynced) {
+    return {
+      regime: "SELECTIVE",
+      reason: null,
+      isSynced: false,
+      spyBelowBoth: false,
+      qqqBelowBoth: false,
+    };
   }
+
+  const spyBelowBoth = spyPrice < spy20 && spyPrice < spy50;
+  const qqqBelowBoth = qqqPrice < qqq20 && qqqPrice < qqq50;
+
+  if (spyBelowBoth && qqqBelowBoth && !allowSelectiveOverride) {
+    return {
+      regime: "STAND_DOWN",
+      reason: "SPY & QQQ below Daily 20-SMA & 50-SMA",
+      isSynced: true,
+      spyBelowBoth,
+      qqqBelowBoth,
+    };
+  }
+
+  if (spyBelowBoth || qqqBelowBoth || allowSelectiveOverride) {
+    return {
+      regime: "SELECTIVE",
+      reason: allowSelectiveOverride
+        ? "Selective Override Active"
+        : spyBelowBoth
+        ? "SPY below Daily 20/50-SMA"
+        : "QQQ below Daily 20/50-SMA",
+      isSynced: true,
+      spyBelowBoth,
+      qqqBelowBoth,
+    };
+  }
+
+  return {
+    regime: "GO",
+    reason: null,
+    isSynced: true,
+    spyBelowBoth: false,
+    qqqBelowBoth: false,
+  };
+}
+
+/**
+ * Computes the underlying technical setup stage (ignoring macro regime) so cards
+ * never erase their real technical progress even when macro caution is active.
+ */
+export function getTechnicalStage(ticker: any, proximityOverride?: number): Exclude<SetupStage, "BLOCKED"> {
+  const status = (ticker?.setupStatus ?? ticker?.status ?? "").toString().trim().toUpperCase();
+  const entry = Number(ticker?.projectedEntry ?? ticker?.entryPrice ?? 0);
+  const stop = Number(ticker?.stopLoss ?? ticker?.structuralStop ?? 0);
+  const live = Number(ticker?.livePrice ?? ticker?.currentPrice ?? 0);
+  const proximity =
+    typeof proximityOverride === "number" && Number.isFinite(proximityOverride)
+      ? proximityOverride
+      : entry > 0 && live > 0
+      ? Math.abs((live - entry) / entry) * 100
+      : 999;
 
   const isRetestOrInvalid = Boolean(
     ticker?.isWaitAndRetest ||
@@ -39,24 +115,49 @@ export function getSetupStage(
       status === "SIGNAL_EXPIRED" ||
       status === "IGNORED"
   );
-
-  const entry = Number(ticker?.projectedEntry ?? ticker?.entryPrice ?? 0);
-  const stop = Number(ticker?.stopLoss ?? ticker?.structuralStop ?? 0);
-  const live = Number(ticker?.livePrice ?? ticker?.currentPrice ?? 0);
   const hasValidLevels = entry > 0 && (stop <= 0 || entry > stop);
-  const withinChaseTolerance =
-    entry > 0 && live > 0 ? Math.abs((live - entry) / entry) * 100 <= 0.75 : true;
-
+  const withinChaseTolerance = proximity <= 0.75;
   const isReadyStatus =
     status === "READY_TO_TRADE" || status === "SETUP_CONFIRMED" || status === "READY";
   const candleConfirmed = Boolean(ticker?.hasClosed1HReversal || isReadyStatus);
 
-  // Rule 2 (Auto-Promotion): Confirmed 1H candle + valid levels + no macro/asset block
   if (!isRetestOrInvalid && isReadyStatus && candleConfirmed && hasValidLevels && withinChaseTolerance) {
     return "READY";
   }
 
-  return "PENDING";
+  if (proximity <= 1.0) {
+    return "APPROACHING";
+  }
+
+  return "FORMING";
+}
+
+/**
+ * Centralized Single-Source-of-Truth stage evaluator controlling BOTH the card badge
+ * AND which bucket (READY TO TRADE vs PENDING & WAITING) the setup renders in.
+ */
+export function getSetupStage(
+  ticker: any,
+  macroRegime?: MacroRegime | null,
+  isPracticeMode = false,
+  proximityOverride?: number
+): SetupStage {
+  const regime = (macroRegime ?? "").toString().trim().toUpperCase();
+  const isMacroStandDown = regime === "STAND_DOWN";
+
+  const status = (ticker?.setupStatus ?? ticker?.status ?? "").toString().trim().toUpperCase();
+  const isBlockedAsset = Boolean(
+    ticker?.hasHardBlock ||
+      ticker?.isStandbyDay ||
+      status === "STANDBY_DAY" ||
+      status === "BLOCKED"
+  );
+
+  if ((isMacroStandDown && !isPracticeMode) || isBlockedAsset) {
+    return "BLOCKED";
+  }
+
+  return getTechnicalStage(ticker, proximityOverride);
 }
 
 export interface SwingPositionMath {
@@ -84,20 +185,12 @@ export interface ReadinessTier {
   tickerAccentClass: string;
 }
 
-/** Hardcoded Tailwind capsule classes so Tailwind never purges them. */
+/** Hardcoded Tailwind capsule classes from shared STATUS_THEME so Tailwind never purges them. */
 export function getCapsuleColor(prox: number, stage?: SetupStage): string {
-  if (stage === "BLOCKED") return "bg-rose-500/80";
-  if (stage === "READY") return "bg-emerald-400 shadow-[0_0_10px_#00F5A0]";
-  if (stage === "PENDING") {
-    if (prox <= 0.5) return "bg-[#FFB800] shadow-[0_0_12px_rgba(255,184,0,0.65)] animate-pulse";
-    if (prox <= 1.5) return "bg-[#FFB800] shadow-[0_0_8px_rgba(255,184,0,0.4)]";
-    if (prox <= 3.0) return "bg-amber-500/80";
-    return "bg-slate-700";
-  }
-  if (prox <= 0.5) return "bg-amber-400 shadow-[0_0_12px_#fbbf24] animate-pulse"; // Trigger Zone
-  if (prox <= 1.5) return "bg-emerald-500 shadow-[0_0_10px_#10b981]"; // Ready Zone
-  if (prox <= 3.0) return "bg-cyan-500"; // Monitoring
-  return "bg-slate-700"; // Cold
+  if (stage) return STATUS_THEME[stage].progressBarClass;
+  if (prox <= 1.0) return STATUS_THEME.APPROACHING.progressBarClass;
+  if (prox <= 3.0) return STATUS_THEME.FORMING.progressBarClass;
+  return "bg-slate-700";
 }
 
 export function getReadinessTier(
@@ -105,52 +198,19 @@ export function getReadinessTier(
   setupStatus?: string | null,
   stage?: SetupStage
 ): ReadinessTier {
-  if (stage === "BLOCKED") {
-    return {
-      label: "BLOCKED (MACRO STAND-DOWN)",
-      capsuleClass: getCapsuleColor(prox, "BLOCKED"),
-      textClass: "text-rose-400",
-      tickerAccentClass: "border-rose-500/50",
-    };
-  }
-  const isReady = stage ? stage === "READY" : setupStatus === "READY_TO_TRADE";
-  if (isReady) {
-    return {
-      label: "READY",
-      capsuleClass: getCapsuleColor(prox, "READY"),
-      textClass: "text-emerald-400",
-      tickerAccentClass: "border-emerald-400",
-    };
-  }
-  if (prox <= 0.5) {
-    return {
-      label: "TRIGGER ZONE",
-      capsuleClass: getCapsuleColor(prox, "PENDING"),
-      textClass: "text-[#FFB800]",
-      tickerAccentClass: "border-[#FFB800]",
-    };
-  }
-  if (prox <= 1.5) {
-    return {
-      label: "NEAR ENTRY",
-      capsuleClass: getCapsuleColor(prox, "PENDING"),
-      textClass: "text-[#FFB800]",
-      tickerAccentClass: "border-[#FFB800]",
-    };
-  }
-  if (prox <= 3.0) {
-    return {
-      label: "MONITORING",
-      capsuleClass: getCapsuleColor(prox, "PENDING"),
-      textClass: "text-amber-400/90",
-      tickerAccentClass: "border-amber-500/50",
-    };
-  }
+  const resolvedStage: SetupStage =
+    stage ??
+    (setupStatus === "READY_TO_TRADE"
+      ? "READY"
+      : prox <= 1.0
+      ? "APPROACHING"
+      : "FORMING");
+  const theme = STATUS_THEME[resolvedStage];
   return {
-    label: "DEEP STANDBY",
-    capsuleClass: getCapsuleColor(prox, "PENDING"),
-    textClass: "text-slate-400",
-    tickerAccentClass: "border-slate-700",
+    label: theme.label,
+    capsuleClass: theme.progressBarClass,
+    textClass: theme.textClass,
+    tickerAccentClass: theme.borderAccentClass,
   };
 }
 

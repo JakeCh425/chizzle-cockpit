@@ -6,9 +6,11 @@ import { formatCurrency } from "./AIExecutionEngine";
 import {
   getCapsuleColor,
   getReadinessTier,
+  getTechnicalStage,
   computeSwingPositionMath,
   type SetupStage,
 } from "@/hooks/useSwingMath";
+import { STATUS_THEME, PRICE_COLOR_CLASSES } from "@/lib/statusTheme";
 
 export interface PendingRowProps {
   setup: SwingDecision & {
@@ -19,11 +21,13 @@ export interface PendingRowProps {
     allocatedCapital?: number;
     status?: string;
     stage?: SetupStage;
+    technicalStage?: Exclude<SetupStage, "BLOCKED">;
   };
   d?: SwingDecision;
   effectivePrice: number;
   rowTimestamp: string;
   selectedTicker: string;
+  macroRegime?: string;
   onSelectTicker: (sym: string) => void;
   onUpdateCapital?: (symbol: string, capital: number) => void;
   onPassSetup?: (ticker: string) => void;
@@ -32,12 +36,13 @@ export interface PendingRowProps {
   getSetupPriceExtension?: (d: any) => any;
 }
 
-export function PendingRow({
+export const PendingRow = React.memo(function PendingRow({
   setup,
   d: propD,
   effectivePrice,
   rowTimestamp,
   selectedTicker,
+  macroRegime,
   onSelectTicker,
   onUpdateCapital,
   onPassSetup,
@@ -102,11 +107,19 @@ export function PendingRow({
 
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
   const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
+  const technicalStage =
+    setup.technicalStage ??
+    ((d as any).technicalStage as Exclude<SetupStage, "BLOCKED"> | undefined) ??
+    getTechnicalStage(setup, proximity);
   const stage: SetupStage =
-    setup.stage ?? ((d as any).stage as SetupStage | undefined) ?? (isHardBlock ? "BLOCKED" : "PENDING");
+    setup.stage ?? ((d as any).stage as SetupStage | undefined) ?? (isHardBlock ? "BLOCKED" : technicalStage);
   const isBlockedStage = stage === "BLOCKED";
+  const isDeepStandby = proximity > 3.0;
+  const stageTheme = STATUS_THEME[stage];
+  const hasMacroCaution =
+    isBlockedStage || String(macroRegime ?? "").toUpperCase() === "SELECTIVE";
 
-  // Shared readiness tier & capsule classes from useSwingMath (strictly non-green for Pending/Blocked)
+  // Shared readiness tier & capsule classes from STATUS_THEME
   const capsuleColorClass = getCapsuleColor(proximity, stage);
   const readinessColors = useMemo(() => {
     const tier = getReadinessTier(proximity, d.setupStatus, stage);
@@ -158,26 +171,34 @@ export function PendingRow({
               className="flex items-center gap-1 text-xs text-slate-400 font-mono shrink-0"
               data-testid={`waiting-row-timestamp-${d.symbol}`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${isBlockedStage ? "bg-rose-400" : "bg-[#FFB800]"}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${stageTheme.dotClass}`} />
               <span>Updated {rowTimestamp} CT</span>
             </div>
           </div>
         </div>
 
-        {/* Semantic Stage Badge: Blocked (Muted Rose) vs Awaiting 1H Bounce / Pending (Solar Amber) */}
-        {isBlockedStage ? (
-          <div className="inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase text-rose-400 bg-rose-950/50 border-rose-500/40" data-testid={`badge-readiness-status-${d.symbol}`}>
-            <span>BLOCKED (MACRO STAND-DOWN)</span>
+        {/* Semantic Stage Badge + Never Overwrite Technical Progress */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          <div
+            className={`inline-flex w-fit px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wider uppercase ${stageTheme.badgeClass}`}
+            data-testid={`badge-readiness-status-${d.symbol}`}
+          >
+            <span>{stageTheme.label}</span>
           </div>
-        ) : isAwaiting1HBounce ? (
-          <div className="inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase text-[#FFB800] bg-amber-950/30 border-amber-500/40" data-testid={`badge-awaiting-bounce-${d.symbol}`}>
-            <span>⚠️ ENTRY ZONE: AWAITING 1H BOUNCE</span>
-          </div>
-        ) : (
-          <div className={`inline-flex w-fit px-2 py-0.5 rounded border text-xs font-mono font-bold tracking-wider uppercase bg-amber-950/20 border-amber-500/30 ${readinessColors.text}`} data-testid={`badge-readiness-status-${d.symbol}`}>
-            <span>{readinessColors.label}</span>
-          </div>
-        )}
+          {hasMacroCaution && (
+            <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-400/40 text-[10px] font-mono font-bold text-amber-300 uppercase">
+              Macro Caution
+            </span>
+          )}
+        </div>
+
+        {/* Always show real technical progress even if macro caution/block is active */}
+        <div className="text-[11px] font-mono text-slate-300 tabular-nums">
+          {proximity < 100 ? `${proximity.toFixed(1)}% from Entry` : "Scanning"} •{" "}
+          {isAwaiting1HBounce || technicalStage === "APPROACHING"
+            ? "Awaiting 1H Bounce"
+            : "Forming Pullback"}
+        </div>
 
         {/* Proximity Capsule (Visual Radar) */}
         <div className="flex items-center gap-2.5 w-full" data-testid={`proximity-capsule-${d.symbol}`}>
@@ -225,18 +246,18 @@ export function PendingRow({
         <div className="flex items-center justify-between gap-4 flex-wrap pt-0.5">
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ENTRY</span>
-            <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.entryPrice.toFixed(2)}</span>
+            <span className={`text-lg tabular-nums ${PRICE_COLOR_CLASSES.entry}`}>${Number(math.entryPrice || 0).toFixed(2)}</span>
           </div>
 
           <div className="flex flex-col gap-0.5">
             <div className="flex items-center gap-1">
-              <Shield className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+              <Shield className="w-3.5 h-3.5 text-rose-400 shrink-0" />
               <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">STOP</span>
             </div>
             <div className="flex items-baseline gap-1.5">
-              <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.stopLoss.toFixed(2)}</span>
-              <span className="text-base font-mono tabular-nums font-bold text-slate-400">
-                (-${math.totalRisk.toFixed(2)})
+              <span className={`text-lg tabular-nums font-bold ${PRICE_COLOR_CLASSES.stop}`}>${Number(math.stopLoss || 0).toFixed(2)}</span>
+              <span className={`text-base tabular-nums font-bold ${PRICE_COLOR_CLASSES.stop}`}>
+                (-${Number(math.totalRisk || 0).toFixed(2)})
               </span>
             </div>
           </div>
@@ -249,8 +270,10 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">1.5R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target1_5R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit1_5.toFixed(2)} (+{math.roi1_5.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target1_5R || 0).toFixed(2)}</span>
+        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
+          +${Number(math.profit1_5 || 0).toFixed(2)} (+{Number(math.roi1_5 || 0).toFixed(1)}%)
+        </div>
       </div>
 
       {/* Col 4: 2.0R Target */}
@@ -259,8 +282,10 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">2.0R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target2_0R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit2_0.toFixed(2)} (+{math.roi2_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target2_0R || 0).toFixed(2)}</span>
+        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
+          +${Number(math.profit2_0 || 0).toFixed(2)} (+{Number(math.roi2_0 || 0).toFixed(1)}%)
+        </div>
       </div>
 
       {/* Col 5: 3.0R Target */}
@@ -269,8 +294,10 @@ export function PendingRow({
           <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
           <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">3.0R Target</span>
         </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-300">${math.target3_0R.toFixed(2)}</span>
-        <div className="text-base font-mono tabular-nums text-slate-400">+${math.profit3_0.toFixed(2)} (+{math.roi3_0.toFixed(1)}%)</div>
+        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target3_0R || 0).toFixed(2)}</span>
+        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
+          +${Number(math.profit3_0 || 0).toFixed(2)} (+{Number(math.roi3_0 || 0).toFixed(1)}%)
+        </div>
       </div>
 
       {/* Col 6: AI Insights Action & Practice Simulator Trigger & Pass */}
@@ -350,6 +377,6 @@ export function PendingRow({
       )}
     </div>
   );
-}
+});
 
 export default PendingRow;

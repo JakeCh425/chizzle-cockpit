@@ -25,21 +25,46 @@ import TradeDetail from "@/pages/TradeDetail";
 import React, { Suspense } from "react";
 import TagsPage from "@/pages/TagsPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
+import AppErrorBoundary from "@/components/AppErrorBoundary";
 import SkeletonDashboardLoader from "@/components/SkeletonDashboardLoader";
 
 function WealthStudioRoute() {
   return (
-    <ErrorBoundary label="Wealth Studio" fullPage>
+    <AppErrorBoundary moduleName="WealthStudio" fullPage>
       <WealthEngineDashboard />
-    </ErrorBoundary>
+    </AppErrorBoundary>
   );
 }
 
 function CockpitRoute() {
   return (
-    <ErrorBoundary label="Cockpit" fullPage>
+    <AppErrorBoundary moduleName="Cockpit" fullPage>
       <Cockpit />
-    </ErrorBoundary>
+    </AppErrorBoundary>
+  );
+}
+
+function PipelineCockpitRoute() {
+  return (
+    <AppErrorBoundary moduleName="Cockpit">
+      <PipelineCockpit />
+    </AppErrorBoundary>
+  );
+}
+
+function WatchlistRoute() {
+  return (
+    <AppErrorBoundary moduleName="Watchlist">
+      <Watchlist />
+    </AppErrorBoundary>
+  );
+}
+
+function TradesRoute() {
+  return (
+    <AppErrorBoundary moduleName="Trades">
+      <Trades />
+    </AppErrorBoundary>
   );
 }
 
@@ -81,15 +106,15 @@ function AppRouter() {
           >
             <Suspense fallback={<SkeletonDashboardLoader />}>
               <Switch>
-                <Route path="/" component={PipelineCockpit} />
-                <Route path="/cockpit" component={PipelineCockpit} />
-                <Route path="/pipeline" component={PipelineCockpit} />
+                <Route path="/" component={PipelineCockpitRoute} />
+                <Route path="/cockpit" component={PipelineCockpitRoute} />
+                <Route path="/pipeline" component={PipelineCockpitRoute} />
                 <Route path="/engine" component={WealthStudioRoute} />
                 <Route path="/dashboard" component={WealthStudioRoute} />
                 <Route path="/advanced" component={CockpitRoute} />
                 <Route path="/archive/pipeline" component={LegacyPipelineArchive} />
-                <Route path="/watchlist" component={Watchlist} />
-                <Route path="/trades" component={Trades} />
+                <Route path="/watchlist" component={WatchlistRoute} />
+                <Route path="/trades" component={TradesRoute} />
                 <Route path="/trade-planner" component={TradePlanner} />
                 <Route path="/trade/:id" component={TradeDetail} />
                 <Route path="/tags" component={TagsPage} />
@@ -135,7 +160,7 @@ function App() {
     console.log("[Boot:App] Mounting Chizzle Cockpit root application container");
   }
   return (
-    <ErrorBoundary label="Application Root" fullPage>
+    <AppErrorBoundary moduleName="ApplicationRoot" fullPage>
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
           <TerminalThemeProvider>
@@ -151,7 +176,7 @@ function App() {
           </TerminalThemeProvider>
         </TooltipProvider>
       </QueryClientProvider>
-    </ErrorBoundary>
+    </AppErrorBoundary>
   );
 }
 

@@ -5,11 +5,12 @@ import { MegaMenu } from "./MegaMenu";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
+import { useMarketDataStore, APP_SCHEMA_VERSION, CACHE_VERSION_KEY } from "@/lib/useMarketDataStore";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
-  FileText, Activity, ClipboardList, Beaker,
+  FileText, Activity, ClipboardList, Beaker, X, Trash2,
 } from "lucide-react";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import UnifiedTelemetryStrip from "./UnifiedTelemetryStrip";
@@ -204,9 +205,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const rolling7 = last7.length ? Math.round(last7.reduce((s, x) => s + x.total, 0) / last7.length) : 0;
   const istate = identityFn(rolling7);
 
+  const marketStore = useMarketDataStore();
+  const [healthOpen, setHealthOpen] = useState(false);
+
   const equity = settings?.equity ?? 1000;
   const ytdPct = ((equity - 1000) / 1000) * 100;
-  const effectiveCode = regimePayload?.effective?.code ?? (settings?.regime?.toLowerCase() as "green" | "yellow" | "red" | undefined) ?? "yellow";
+  const storeMacro = marketStore.macroRegime;
+  const effectiveCode =
+    storeMacro === "STAND_DOWN"
+      ? "red"
+      : storeMacro === "GO"
+      ? "green"
+      : storeMacro === "SELECTIVE"
+      ? "yellow"
+      : regimePayload?.effective?.code ?? (settings?.regime?.toLowerCase() as "green" | "yellow" | "red" | undefined) ?? "yellow";
   const regime = (effectiveCode.toUpperCase() as "GREEN" | "YELLOW" | "RED");
   const regimeSource = regimePayload?.effective?.source ?? "AUTO";
   const regimeStale = regimePayload?.state?.stale ?? false;
@@ -544,12 +556,98 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </Link>
         </div>
 
-        <div className="flex items-center gap-2 text-[10px] font-mono text-slate-500">
-          <span>Simulation Mode</span>
-          <span className="text-slate-700">·</span>
-          <span>Zero Live Capital at Risk</span>
+        <div className="flex items-center gap-3 text-[10px] font-mono text-slate-500">
+          <button
+            type="button"
+            onClick={() => setHealthOpen(true)}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-900 hover:bg-slate-800 border border-slate-700/80 text-cyan-300 font-bold uppercase tracking-wider cursor-pointer transition-colors"
+            data-testid="button-system-health"
+          >
+            <span>🩺 System Health</span>
+          </button>
+          <span className="hidden sm:inline">Simulation Mode</span>
+          <span className="hidden sm:inline text-slate-700">·</span>
+          <span className="hidden sm:inline">Zero Live Capital at Risk</span>
         </div>
       </footer>
+
+      {/* System Health Diagnostic Modal */}
+      {healthOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+          onClick={() => setHealthOpen(false)}
+          data-testid="modal-system-health"
+        >
+          <div
+            className="w-full max-w-md rounded-2xl bg-[#0B101D] border border-slate-700 shadow-2xl p-5 font-mono text-white flex flex-col gap-4"
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="System Health Diagnostics"
+          >
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <Activity className="w-4 h-4 text-cyan-400" />
+                <h3 className="text-sm font-black uppercase tracking-wider">🩺 System Health</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setHealthOpen(false)}
+                className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 cursor-pointer"
+                aria-label="Close System Health Modal"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 text-xs">
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
+                <div className="text-[10px] text-slate-400 uppercase">Active Feed</div>
+                <div className="text-sm font-bold text-cyan-300 mt-0.5">{marketStore.activeFeed}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
+                <div className="text-[10px] text-slate-400 uppercase">Last Tick</div>
+                <div className="text-sm font-bold text-white mt-0.5 tabular-nums">
+                  {marketStore.lastTickTimestamp > 0
+                    ? new Date(marketStore.lastTickTimestamp).toLocaleTimeString("en-US", { hour12: false })
+                    : "Awaiting Tick"}
+                </div>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
+                <div className="text-[10px] text-slate-400 uppercase">Reconnect Count</div>
+                <div className="text-sm font-bold text-amber-300 mt-0.5 tabular-nums">{marketStore.reconnectCount}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-slate-900/90 border border-slate-800">
+                <div className="text-[10px] text-slate-400 uppercase">Schema Version</div>
+                <div className="text-sm font-bold text-emerald-400 mt-0.5">
+                  {(typeof window !== "undefined" && localStorage.getItem(CACHE_VERSION_KEY)) || APP_SCHEMA_VERSION}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-800">
+              <span className="text-[11px] text-slate-400">
+                Regime: <strong className="text-white">{marketStore.macroRegime}</strong>
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  try {
+                    localStorage.clear();
+                    sessionStorage.clear();
+                  } catch {}
+                  window.location.reload();
+                }}
+                className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-rose-500/15 hover:bg-rose-500/25 border border-rose-500/50 text-rose-300 text-xs font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                data-testid="button-reset-local-cache"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>[ Reset Local Cache ]</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

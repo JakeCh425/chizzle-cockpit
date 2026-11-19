@@ -1,6 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { isMarketOpen, reconnectPriceFeed, type LiveQuote, type ConnState } from "./priceFeed";
 import { type CardThemePreset, CARD_THEME_STORAGE_KEY, DEFAULT_CARD_THEME } from "./cardTheme";
+import type { SetupVisualStage } from "./statusTheme";
 
 /**
  * Valid tick payload structure for incoming market events.
@@ -54,10 +55,18 @@ export interface MarketDataState {
   currentPrice: number | null;
   tickers: Record<string, TickerData>;
   isLoading: boolean;
+  isInitialLoading: boolean;
+  isSyncing: boolean;
   isLoadingTicker: boolean;
   isStaticLastClose: boolean;
   latencyMs: number;
   lastSyncTime: string;
+  reconnectCount: number;
+  activeFeed: "WS" | "REST" | "STATIC";
+  macroRegime: "GO" | "SELECTIVE" | "STAND_DOWN";
+  macroReason: string | null;
+  allowSelectiveOverride: boolean;
+  setupStages: Record<string, SetupVisualStage>;
   prices: Record<string, number>;
   quotes: Record<string, LiveQuote>;
   lastValidTicks: Record<string, LastValidTick>;
@@ -77,13 +86,14 @@ export interface MarketDataState {
 
 type Listener = () => void;
 
+export const APP_SCHEMA_VERSION = "v2.0";
 export const STALE_TICK_THRESHOLD_MS = 15_000; // 15 seconds max silence while market is OPEN
 export const LIVE_EXCHANGE_TIMEOUT_MS = 10_000; // 10 seconds timeout fallback to Last Official Close
 export const MAX_QUOTE_AGE_OPEN_MARKET_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms) max quote age when market is OPEN
 export const MAX_CACHE_AGE_OPEN_MARKET_MS = 15 * 60 * 1000; // 15 minutes (900,000 ms) max localStorage cache age when market is OPEN
 export const CACHE_TIMESTAMP_KEY = "chizzle-cache-timestamp";
 export const CACHE_VERSION_KEY = "chizzle-store-version";
-export const CACHE_VERSION = "v3-live-pipeline";
+export const CACHE_VERSION = APP_SCHEMA_VERSION;
 export const STALE_QUOTE_ERROR_MESSAGE = "[ ⚠️ DATA FEED ERROR: STALE QUOTE REJECTED ]";
 export const SYNCING_LIVE_DATA_BADGE = "[ 🔄 SYNCING LIVE DATA... ]";
 export const CONNECTING_TO_EXCHANGE_BADGE = "[ 🔄 CONNECTING TO EXCHANGE... ]";
@@ -164,8 +174,41 @@ export function purgeStaleLocalStorageOnBoot(options?: {
     }
 
     if ((marketOpenNow && isOlderThan15Min) || isVersionMismatch) {
-      localStorage.removeItem("your_store_key");
-      localStorage.removeItem("chizzle-wealth-watchlist");
+      // Versioned localStorage purge: wipe stale cache keys while preserving watchlist symbols & journal trades
+      const preservePrefixes = [
+        "action-center-custom-watchlist",
+        "swing-trades",
+        "journal",
+        "chizzle-trades",
+      ];
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (!k) continue;
+        if (k === CACHE_VERSION_KEY || k === CACHE_TIMESTAMP_KEY) continue;
+        if (preservePrefixes.some((p) => k.startsWith(p))) continue;
+        if (k.startsWith("chizzle-") || k.startsWith("ac-") || k === "your_store_key") {
+          keysToRemove.push(k);
+        }
+      }
+      for (const k of keysToRemove) {
+        if (k === "chizzle-wealth-watchlist") {
+          try {
+            const raw = localStorage.getItem(k);
+            const parsed = raw ? JSON.parse(raw) : null;
+            if (Array.isArray(parsed)) {
+              const symbolsOnly = parsed.map((item: any) =>
+                item && typeof item === "object"
+                  ? { symbol: item.symbol, price: 0, sparkline: [] }
+                  : item
+              );
+              localStorage.setItem(k, JSON.stringify(symbolsOnly));
+              continue;
+            }
+          } catch {}
+        }
+        localStorage.removeItem(k);
+      }
       purged = true;
     } else {
       const savedWatchlist = localStorage.getItem("chizzle-wealth-watchlist");
@@ -207,10 +250,18 @@ export const initialState: MarketDataState = {
   currentPrice: null,
   tickers: {},
   isLoading: true,
+  isInitialLoading: true,
+  isSyncing: false,
   isLoadingTicker: true,
   isStaticLastClose: false,
   latencyMs: 18,
   lastSyncTime: "00:00:00",
+  reconnectCount: 0,
+  activeFeed: isMarketOpen() ? "WS" : "STATIC",
+  macroRegime: "SELECTIVE",
+  macroReason: null,
+  allowSelectiveOverride: false,
+  setupStages: {},
   prices: {},
   quotes: {},
   lastValidTicks: {},
@@ -242,6 +293,9 @@ class MarketDataStore {
   private state: MarketDataState;
   private listeners = new Set<Listener>();
   private readonly BAD_TICK_THRESHOLD = 0.05; // 5% max instantaneous jump
+  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
+  private lastNotifyAt = 0;
+  private readonly TICK_THROTTLE_MS = 300;
 
   constructor() {
     clearStaleCachedPrices();
@@ -268,8 +322,80 @@ class MarketDataStore {
   }
 
   public getTickerPrice(symbol: string): number | null {
-    const sym = symbol.toUpperCase().trim().split(":").pop()!;
+    const sym = (symbol || "").toUpperCase().trim().split(":").pop()!;
     return this.state.prices[sym] ?? (sym === this.state.activeTicker ? this.state.currentPrice : null) ?? null;
+  }
+
+  /** Batch/throttle high-frequency tick commits to at most once every 300ms. */
+  public scheduleThrottledNotify(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastNotifyAt;
+    if (elapsed >= this.TICK_THROTTLE_MS) {
+      if (this.throttleTimer) {
+        clearTimeout(this.throttleTimer);
+        this.throttleTimer = null;
+      }
+      this.lastNotifyAt = now;
+      this.notify();
+      return;
+    }
+    if (!this.throttleTimer) {
+      this.throttleTimer = setTimeout(() => {
+        this.throttleTimer = null;
+        this.lastNotifyAt = Date.now();
+        this.notify();
+      }, this.TICK_THROTTLE_MS - elapsed);
+    }
+  }
+
+  public setSyncing(isSyncing: boolean): void {
+    if (this.state.isSyncing === isSyncing) return;
+    this.state = {
+      ...this.state,
+      isSyncing,
+      isInitialLoading: Object.keys(this.state.prices).length === 0 ? this.state.isInitialLoading : false,
+    };
+    this.notify();
+  }
+
+  public incrementReconnectCount(): void {
+    this.state = {
+      ...this.state,
+      reconnectCount: (this.state.reconnectCount || 0) + 1,
+    };
+    this.notify();
+  }
+
+  public setMacroEvaluation(regime: "GO" | "SELECTIVE" | "STAND_DOWN", reason: string | null): void {
+    if (this.state.macroRegime === regime && this.state.macroReason === reason) return;
+    this.state = {
+      ...this.state,
+      macroRegime: regime,
+      macroReason: reason,
+    };
+    this.notify();
+  }
+
+  public setAllowSelectiveOverride(allow: boolean): void {
+    if (this.state.allowSelectiveOverride === allow) return;
+    this.state = {
+      ...this.state,
+      allowSelectiveOverride: allow,
+    };
+    this.notify();
+  }
+
+  public setSetupStages(stages: Record<string, SetupVisualStage>): void {
+    const prev = this.state.setupStages;
+    const keys = Object.keys(stages);
+    if (keys.length === Object.keys(prev).length && keys.every((k) => prev[k] === stages[k])) {
+      return;
+    }
+    this.state = {
+      ...this.state,
+      setupStages: stages,
+    };
+    this.notify();
   }
 
   public setTickerPrice(symbol: string, price: number): void {
@@ -676,9 +802,12 @@ class MarketDataStore {
     this.state = {
       ...this.state,
       currentPrice: isActiveSym ? tick.price : (this.state.currentPrice ?? this.state.prices[this.state.activeTicker] ?? null),
-      isLoading: isActiveSym ? false : this.state.isLoading,
+      isLoading: false,
+      isInitialLoading: false,
+      isSyncing: false,
       isLoadingTicker: isActiveSym ? false : this.state.isLoadingTicker,
       isStaticLastClose: false,
+      activeFeed: isMarketOpen() ? (this.state.isPollingBackup ? "REST" : "WS") : "STATIC",
       latencyMs: computedLatency,
       lastSyncTime: this.formatSyncTime(Date.now()),
       prices: {
@@ -715,7 +844,7 @@ class MarketDataStore {
       status: this.state.status === "CONNECTING" || this.state.status === "RECONNECTING" || this.state.status === "DELAYED" || this.state.status === "STALE" || this.state.status === "STATIC" ? "LIVE" : this.state.status,
     };
 
-    this.notify();
+    this.scheduleThrottledNotify();
     return true;
   }
 
@@ -801,7 +930,10 @@ class MarketDataStore {
         ...this.state,
         currentPrice: nextPrices[activeSym] ?? this.state.currentPrice,
         isLoading: false,
+        isInitialLoading: false,
+        isSyncing: false,
         isLoadingTicker: false,
+        activeFeed: isMarketOpen() ? (this.state.isPollingBackup ? "REST" : "WS") : "STATIC",
         lastSyncTime: this.formatSyncTime(now),
         prices: nextPrices,
         quotes: nextQuotes,
@@ -1244,60 +1376,8 @@ export class MarketDataDistributor {
   }
 
   private connectWs(): void {
-    if (typeof window === "undefined" || !window.WebSocket) return;
-    try {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/ws/prices`;
-      this.ws = new WebSocket(wsUrl);
-
-      this.ws.onopen = () => {
-        this.reconnectAttempt = 0;
-        marketDataStore.setStatus("LIVE");
-        if (this.subscribedSymbols.size > 0) {
-          try {
-            this.ws?.send(JSON.stringify({ action: "subscribe", symbols: Array.from(this.subscribedSymbols) }));
-          } catch {}
-        }
-      };
-
-      this.ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data && (data.type === "pong" || data.action === "pong")) {
-            if (data.timestamp) {
-              marketDataStore.setLatency(Date.now() - data.timestamp);
-            }
-            return;
-          }
-          if (Array.isArray(data)) {
-            for (const item of data) {
-              const p = extractQuotePrice(item);
-              const sym = item.symbol || item.s;
-              if (sym && p != null && p > 0) {
-                marketDataStore.validateAndApplyTick({ ...item, symbol: sym, price: p });
-              }
-            }
-          } else if (data && typeof data === "object") {
-            const p = extractQuotePrice(data);
-            const sym = data.symbol || data.s;
-            if (sym && p != null && p > 0) {
-              marketDataStore.validateAndApplyTick({ ...data, symbol: sym, price: p });
-            }
-          }
-        } catch {}
-      };
-
-      this.ws.onerror = () => {
-        this.scheduleReconnect();
-      };
-
-      this.ws.onclose = () => {
-        this.scheduleReconnect();
-      };
-    } catch {
-      this.scheduleReconnect();
-    }
+    // Delegated to the single root MarketDataService in priceFeed.ts to prevent duplicate WebSockets.
+    reconnectPriceFeed();
   }
 
   private scheduleReconnect(): void {

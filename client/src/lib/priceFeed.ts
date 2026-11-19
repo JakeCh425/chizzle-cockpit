@@ -413,7 +413,7 @@ function startWsHeartbeat() {
       stopWsHeartbeat();
       handleWsDisconnect();
     }
-  }, 10_000);
+  }, 25_000);
 }
 
 function stopWsHeartbeat() {
@@ -443,18 +443,16 @@ function handleWsDisconnect() {
   }
 
   wsRetryCount++;
-  // Exponential backoff starting at 3s: 3s, 6s, 12s, 24s, 30s max
-  const delay = Math.min(3000 * Math.pow(2, wsRetryCount - 1), 30000);
+  marketDataStore.incrementReconnectCount();
+  // Exponential backoff: 2s -> 4s -> 8s -> 16s -> max 30s
+  const delay = Math.min(2000 * Math.pow(2, wsRetryCount - 1), 30000);
   console.info(`[priceFeed] WebSocket disconnected. Attempting reconnect in ${delay}ms (retry #${wsRetryCount})`);
 
   marketDataStore.setStatus("RECONNECTING");
 
-  // If primary data socket fails after 3 consecutive retries or 3 heartbeats (30s), seamlessly fall back to 5-second REST API quote polling
-  if (wsRetryCount >= 3 || wsMissedHeartbeats >= 3) {
-    console.warn(`[priceFeed] Primary WebSocket failed consecutive heartbeats/retries. Seamlessly activating 5s REST quote polling.`);
-    marketDataStore.setPollingBackup(true);
-    startFallbackPolling();
-  }
+  // While reconnecting, activate single 5s batched REST polling fallback so prices stay steady
+  marketDataStore.setPollingBackup(true);
+  startFallbackPolling();
 
   if (!reconnectTimer) {
     reconnectTimer = setTimeout(() => {

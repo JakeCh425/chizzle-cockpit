@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback, useState } from "react";
 import { globalStore, useMarketDataStore, type MarketTick } from "@/lib/useMarketDataStore";
-import { isMarketOpen } from "@/lib/priceFeed";
+import { isMarketOpen, reconnectPriceFeed, subscribeSymbol } from "@/lib/priceFeed";
 
 /**
  * Singleton Root WebSocket Pipeline Manager (Single Source of Truth)
@@ -34,63 +34,12 @@ class MarketDataPipelineManager {
   }
 
   /**
-   * Initializes root connection to primary live feed.
+   * Delegates to the single root MarketDataService in priceFeed.ts (no duplicate WebSocket).
    */
   public connect(): void {
-    if (this.ws && (this.ws.readyState === WebSocket.OPEN || this.ws.readyState === WebSocket.CONNECTING)) {
-      return;
-    }
-    if (this.isConnecting) return;
-    this.isConnecting = true;
-
-    try {
-      const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/api/prices/ws`;
-
-      const ws = new WebSocket(wsUrl);
-      this.ws = ws;
-
-      ws.onopen = () => {
-        this.isConnecting = false;
-        this.retryCount = 0;
-        console.log("[useMarketDataPipeline] Connected to primary live market stream.");
-        // Resubscribe active watchlist
-        this.sendSubscriptions();
-        this.notifyListeners();
-      };
-
-      ws.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (Array.isArray(data)) {
-            for (const item of data) {
-              this.handleIncomingTick(item);
-            }
-          } else if (data && typeof data === "object") {
-            this.handleIncomingTick(data);
-          }
-        } catch (err) {
-          console.warn("[useMarketDataPipeline] Failed to parse message:", err);
-        }
-      };
-
-      ws.onclose = () => {
-        this.isConnecting = false;
-        this.ws = null;
-        this.scheduleReconnect();
-        this.notifyListeners();
-      };
-
-      ws.onerror = (err) => {
-        this.isConnecting = false;
-        console.warn("[useMarketDataPipeline] WebSocket error:", err);
-        try { ws.close(); } catch {}
-      };
-    } catch (e) {
-      this.isConnecting = false;
-      this.scheduleReconnect();
-    }
+    if (typeof window === "undefined") return;
+    reconnectPriceFeed();
+    this.notifyListeners();
   }
 
   /**
@@ -132,16 +81,12 @@ class MarketDataPipelineManager {
   }
 
   public subscribe(symbols: string[]): void {
-    let hasNew = false;
     for (const s of symbols) {
-      const clean = s.toUpperCase().trim().split(":").pop()!;
+      const clean = (s ?? "").toString().toUpperCase().trim().split(":").pop()!;
       if (clean && !this.subscribedSymbols.has(clean)) {
         this.subscribedSymbols.add(clean);
-        hasNew = true;
+        subscribeSymbol(clean);
       }
-    }
-    if (hasNew) {
-      this.sendSubscriptions();
     }
   }
 
@@ -280,9 +225,11 @@ export function useMarketDataPipeline(watchlist?: string[]) {
       }
     });
 
+    const abortController = new AbortController();
+
     const fetchLatestRestQuotes = async () => {
       try {
-        const res = await fetch("/api/prices");
+        const res = await fetch("/api/prices", { signal: abortController.signal });
         if (!res.ok) return;
         const payload = await res.json();
         if (payload && typeof payload === "object") {
@@ -291,7 +238,7 @@ export function useMarketDataPipeline(watchlist?: string[]) {
           }
         }
       } catch {
-        // Ignore transient REST wake-up fetch errors
+        // Ignore transient REST wake-up fetch errors or aborts
       }
     };
 
@@ -319,9 +266,12 @@ export function useMarketDataPipeline(watchlist?: string[]) {
     };
 
     window.addEventListener("focus", handleFocus);
-    window.addEventListener("visibilitychange", handleVisibilityChange);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", handleVisibilityChange);
+    }
 
     return () => {
+      abortController.abort();
       if (failoverTimeout) clearTimeout(failoverTimeout);
       if (backupTimerRef.current) {
         clearInterval(backupTimerRef.current);
@@ -329,7 +279,9 @@ export function useMarketDataPipeline(watchlist?: string[]) {
       }
       unsub();
       window.removeEventListener("focus", handleFocus);
-      window.removeEventListener("visibilitychange", handleVisibilityChange);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", handleVisibilityChange);
+      }
     };
   }, [connectBackup, stopBackup]);
 

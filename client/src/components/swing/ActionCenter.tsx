@@ -44,7 +44,11 @@ import {
   getProximityForSetup as sharedGetProximity,
   computeSwingPositionMath,
   getSetupStage,
+  getTechnicalStage,
+  evaluateMacroRegime,
 } from "@/hooks/useSwingMath";
+import { STATUS_THEME, type SetupVisualStage } from "@/lib/statusTheme";
+import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import {
   useTerminalTheme,
   APP_BACKGROUNDS,
@@ -644,7 +648,7 @@ interface ReadyExecutionCardProps {
   onConfirmExecute: (d: SwingDecision, ver: any) => void;
 }
 
-function ReadyExecutionCard({
+const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   d,
   ver,
   isPractice,
@@ -1045,15 +1049,17 @@ function ReadyExecutionCard({
       )}
     </>
   );
-}
+});
 
 export default function ActionCenter() {
   return (
-    <ActionCenterErrorBoundary>
-      <DisclosureProvider>
-        <ActionCenterInner />
-      </DisclosureProvider>
-    </ActionCenterErrorBoundary>
+    <AppErrorBoundary moduleName="ActionCenter">
+      <ActionCenterErrorBoundary>
+        <DisclosureProvider>
+          <ActionCenterInner />
+        </DisclosureProvider>
+      </ActionCenterErrorBoundary>
+    </AppErrorBoundary>
   );
 }
 
@@ -1495,7 +1501,36 @@ function ActionCenterInner() {
     return rawSetups.filter((setup: any) => setup && (setup.ticker || setup.symbol));
   }, [rawSetups]);
 
-  const macroRegime = regimeCode === "red" ? "STAND_DOWN" : regimeCode === "green" ? "GO" : "CAUTION";
+  const spyRow = useMemo(() => validSetups.find((r: any) => (r.symbol || r.ticker || "").toUpperCase() === "SPY"), [validSetups]);
+  const qqqRow = useMemo(() => validSetups.find((r: any) => (r.symbol || r.ticker || "").toUpperCase() === "QQQ"), [validSetups]);
+
+  const macroEval = useMemo(() => {
+    const extractIndexCheck = (row: any, sym: string) => {
+      if (!row) return null;
+      const livePx =
+        marketStore.prices[sym] ??
+        global?.livePrices?.[sym] ??
+        prices?.[sym]?.price ??
+        row.currentPrice ??
+        0;
+      const levels = Array.isArray(row.structureLevels) ? null : (row.structureLevels as any);
+      const sma20 = Number(row.sma20 ?? row.dailySma20 ?? levels?.sma20 ?? 0);
+      const sma50 = Number(row.sma50 ?? row.dailySma50 ?? levels?.sma50 ?? 0);
+      return { price: livePx, sma20, sma50 };
+    };
+    return evaluateMacroRegime({
+      spy: extractIndexCheck(spyRow, "SPY"),
+      qqq: extractIndexCheck(qqqRow, "QQQ"),
+      isSyncing: scan.isLoading && validSetups.length === 0,
+      allowSelectiveOverride: marketStore.allowSelectiveOverride,
+    });
+  }, [spyRow, qqqRow, marketStore.prices, global?.livePrices, prices, scan.isLoading, validSetups.length, marketStore.allowSelectiveOverride]);
+
+  const macroRegime = macroEval.regime;
+
+  useEffect(() => {
+    globalStore.setMacroEvaluation(macroEval.regime, macroEval.reason);
+  }, [macroEval.regime, macroEval.reason]);
 
   const setups = useMemo(() => {
     return validSetups.map((d: any) => {
@@ -1554,20 +1589,24 @@ function ActionCenterInner() {
         resolvedSetupStatus = "SETUP_FORMING";
       }
 
+      const proximity = entryPx > 0 && livePx > 0 ? Math.abs((livePx - entryPx) / entryPx) * 100 : 999;
+      const candidate = {
+        ...d,
+        setupStatus: resolvedSetupStatus,
+        hasClosed1HReversal,
+        isStandbyDay: isStandby,
+        hasHardBlock: hasBlock,
+        isWaitAndRetest: isRetest,
+        projectedEntry: entryPx,
+        stopLoss: stopPx,
+        livePrice: livePx,
+      };
+      const technicalStage = getTechnicalStage(candidate, proximity);
       const stage = getSetupStage(
-        {
-          ...d,
-          setupStatus: resolvedSetupStatus,
-          hasClosed1HReversal,
-          isStandbyDay: isStandby,
-          hasHardBlock: hasBlock,
-          isWaitAndRetest: isRetest,
-          projectedEntry: entryPx,
-          stopLoss: stopPx,
-          livePrice: livePx,
-        },
+        candidate,
         macroRegime,
-        Boolean(global?.isPracticeMode)
+        Boolean(global?.isPracticeMode),
+        proximity
       );
 
       // Rule 1 (Macro Stand-Down): If stage is BLOCKED, demote status so NO ticker displays READY
@@ -1578,6 +1617,7 @@ function ActionCenterInner() {
       return Object.assign(d, {
         setupStatus: resolvedSetupStatus,
         stage,
+        technicalStage,
         hasClosed1HReversal,
         isStandbyDay: isStandby,
         hasHardBlock: hasBlock,
@@ -1586,6 +1626,17 @@ function ActionCenterInner() {
       });
     });
   }, [validSetups, prices, marketStore.prices, global?.livePrices, global?.confirmedSetups, macroRegime, global?.isPracticeMode]);
+
+  // Sync unified setup stages to globalStore so Header, Watchlist, and Wealth Studio match 1-to-1
+  useEffect(() => {
+    const nextStages: Record<string, SetupVisualStage> = {};
+    for (const s of setups) {
+      if (s.symbol && s.stage) {
+        nextStages[s.symbol] = s.stage;
+      }
+    }
+    globalStore.setSetupStages(nextStages);
+  }, [setups]);
 
   // Rule 3 (Single Filter): Both buckets derive from the exact same `setups` array
   const readySetups = useMemo(() => {
@@ -2383,6 +2434,39 @@ function ActionCenterInner() {
       {/* ─── BODY: FULL-WIDTH VERTICAL STACK (TOP-TO-BOTTOM) ─── */}
       {boxOpen && (
         <div id="ac-body" className="flex flex-col gap-8 w-full px-4 lg:px-6">
+          {/* Transparent Macro Stand-Down Banner (ONLY when verified SPY & QQQ both below Daily 20 & 50-SMA) */}
+          {macroEval.regime === "STAND_DOWN" && (
+            <div
+              className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-500/50 bg-rose-950/30 px-4 py-3 text-xs font-mono"
+              data-testid="macro-standdown-banner"
+            >
+              <div className="flex items-center gap-2 text-rose-300 font-bold">
+                <span>⚠️ Macro Stand-Down Active: {macroEval.reason || "SPY & QQQ below Daily 20-SMA & 50-SMA"}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => globalStore.setAllowSelectiveOverride(true)}
+                className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/60 text-amber-300 font-bold uppercase tracking-wider cursor-pointer transition-colors"
+                data-testid="button-override-selective"
+              >
+                [ Override / Allow Selective ]
+              </button>
+            </div>
+          )}
+          {macroEval.regime === "SELECTIVE" && marketStore.allowSelectiveOverride && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-500/40 bg-amber-950/20 px-4 py-2.5 text-xs font-mono">
+              <span className="text-amber-300 font-bold">
+                ⚡ Selective Override Active — Technical stages displayed with Macro Caution
+              </span>
+              <button
+                type="button"
+                onClick={() => globalStore.setAllowSelectiveOverride(false)}
+                className="px-3 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-300 font-bold uppercase cursor-pointer"
+              >
+                [ Restore Macro Gate ]
+              </button>
+            </div>
+          )}
           {/* ═════════════════════════════════════════════════════════════════ */}
           {/* ZONE 1: TRUE "READY TO EXECUTE" (TOP)                              */}
           {/* ═════════════════════════════════════════════════════════════════ */}
@@ -2782,6 +2866,7 @@ function ActionCenterInner() {
                           effectivePrice={effectivePrice}
                           rowTimestamp={rowTimestamp}
                           selectedTicker={selectedTicker}
+                          macroRegime={macroRegime}
                           onSelectTicker={(sym) => {
                             setSelectedTicker(sym);
                             global?.setActiveTicker?.(sym);
