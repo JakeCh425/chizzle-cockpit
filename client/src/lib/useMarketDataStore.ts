@@ -102,6 +102,17 @@ export interface MarketDataState {
 type Listener = () => void;
 
 export const APP_SCHEMA_VERSION = "v2.0";
+export const SELECTIVE_OVERRIDE_STORAGE_KEY = "chizzle_selective_override";
+
+function loadInitialSelectiveOverride(): boolean {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return true;
+  try {
+    const saved = localStorage.getItem(SELECTIVE_OVERRIDE_STORAGE_KEY);
+    return saved !== null ? Boolean(JSON.parse(saved)) : true;
+  } catch {
+    return true;
+  }
+}
 export const STALE_TICK_THRESHOLD_MS = 15_000; // 15 seconds max silence while market is OPEN
 export const LIVE_EXCHANGE_TIMEOUT_MS = 10_000; // 10 seconds timeout fallback to Last Official Close
 export const MAX_QUOTE_AGE_OPEN_MARKET_MS = 5 * 60 * 1000; // 5 minutes (300,000 ms) max quote age when market is OPEN
@@ -195,6 +206,7 @@ export function purgeStaleLocalStorageOnBoot(options?: {
         "swing-trades",
         "journal",
         "chizzle-trades",
+        SELECTIVE_OVERRIDE_STORAGE_KEY,
       ];
       const keysToRemove: string[] = [];
       for (let i = 0; i < localStorage.length; i++) {
@@ -276,7 +288,7 @@ export const initialState: MarketDataState = {
   activeFeed: isMarketOpen() ? "WS" : "STATIC",
   macroRegime: "SELECTIVE",
   macroReason: null,
-  allowSelectiveOverride: false,
+  allowSelectiveOverride: loadInitialSelectiveOverride(),
   setupStages: {},
   prices: {},
   quotes: {},
@@ -393,10 +405,16 @@ class MarketDataStore {
   }
 
   public setAllowSelectiveOverride(allow: boolean): void {
-    if (this.state.allowSelectiveOverride === allow) return;
+    const next = Boolean(allow);
+    if (typeof window !== "undefined" && typeof localStorage !== "undefined") {
+      try {
+        localStorage.setItem(SELECTIVE_OVERRIDE_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+    }
+    if (this.state.allowSelectiveOverride === next) return;
     this.state = {
       ...this.state,
-      allowSelectiveOverride: allow,
+      allowSelectiveOverride: next,
     };
     this.notify();
   }

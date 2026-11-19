@@ -1,6 +1,7 @@
 import React, { useEffect } from "react";
-import { isMarketOpen, reconnectPriceFeed, subscribeSymbol } from "@/lib/priceFeed";
+import { isMarketOpen, reconnectPriceFeed, subscribeSymbols } from "@/lib/priceFeed";
 import { globalStore } from "@/lib/useMarketDataStore";
+import { queryClient } from "@/lib/queryClient";
 
 declare global {
   interface Window {
@@ -19,6 +20,8 @@ class MarketDataEngineService {
   private started = false;
   private visibilityListenerAttached = false;
   private lastRecoveryAt = 0;
+  private hourlyCloseTimer: ReturnType<typeof setInterval> | null = null;
+  private lastTriggeredHourKey = "";
 
   public getSessionId(): string {
     if (typeof window === "undefined") return "ssr";
@@ -39,13 +42,24 @@ class MarketDataEngineService {
       this.visibilityListenerAttached = true;
       document.addEventListener("visibilitychange", this.handleVisibilityChange);
     }
+
+    // Trigger an immediate forced refresh at :00 of every hour when 1H candles close
+    if (!this.hourlyCloseTimer) {
+      this.hourlyCloseTimer = setInterval(() => {
+        const now = new Date();
+        if (now.getMinutes() === 0 && now.getSeconds() < 20) {
+          const hourKey = `${now.getFullYear()}-${now.getMonth()}-${now.getDate()}-${now.getHours()}`;
+          if (this.lastTriggeredHourKey !== hourKey) {
+            this.lastTriggeredHourKey = hourKey;
+            void queryClient.invalidateQueries({ queryKey: ["/api/swing/scan"] });
+          }
+        }
+      }, 15_000);
+    }
   }
 
   public subscribe(symbols: string[]): void {
-    for (const s of symbols) {
-      const clean = (s ?? "").toString().trim().toUpperCase();
-      if (clean) subscribeSymbol(clean);
-    }
+    subscribeSymbols(symbols);
   }
 
   public async recoverMissedTicks(): Promise<void> {

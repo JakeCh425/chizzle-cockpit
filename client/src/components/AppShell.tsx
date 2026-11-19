@@ -4,16 +4,17 @@ import { ThemeSwitcher } from "./ThemeSwitcher";
 import { MegaMenu } from "./MegaMenu";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
-import { chicagoClock, marketSession, useFeedConnection, isMarketOpen } from "@/lib/priceFeed";
+import { chicagoClock, marketSession, useFeedConnection, isMarketOpen, isPrimaryWsOpen } from "@/lib/priceFeed";
 import { useMarketDataStore, APP_SCHEMA_VERSION, CACHE_VERSION_KEY } from "@/lib/useMarketDataStore";
+import { MarketDataEngine } from "@/services/MarketDataEngine";
+import { queryClient } from "@/lib/queryClient";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
 import {
   Gauge, LayoutDashboard, ListChecks, History, BookText, Layers,
   BarChart3, Settings as SettingsIcon, ChevronLeft, ChevronRight,
-  FileText, Activity, ClipboardList, Beaker, X, Trash2,
+  FileText, Activity, ClipboardList, Beaker, X, Trash2, RefreshCw,
 } from "lucide-react";
 import { useOptionalGlobalState } from "@/lib/globalState";
-import UnifiedTelemetryStrip from "./UnifiedTelemetryStrip";
 
 interface RegimePayload {
   state: RegimeState;
@@ -243,128 +244,132 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       ? "STAND-DOWN"
       : "SELECTIVE";
 
-  const isLiveNow = isMarketOpen(now) && feedState === "LIVE";
+  const isMarketOpenNow = isMarketOpen(now);
+  const wsOpenNow = isPrimaryWsOpen();
+  const isLiveWs = isMarketOpenNow && (wsOpenNow || (feedState === "LIVE" && !marketStore.isPollingBackup));
+  const isBackupRest = isMarketOpenNow && !wsOpenNow && marketStore.isPollingBackup;
+
+  const handleManualSync = () => {
+    void queryClient.invalidateQueries({ queryKey: ["/api/swing/scan"] });
+    void MarketDataEngine.recoverMissedTicks();
+  };
 
   return (
     <div
       className="min-h-screen bg-[#06080D] text-slate-100 flex flex-col"
       data-testid="app-shell-root"
     >
-      {/* Bloomberg / Prop-Firm Persistent Top Telemetry Bar */}
-      <header className="h-10 bg-[#05070B] border-b border-slate-800/90 sticky top-0 z-30 font-mono tabular-nums">
-        <div className="h-full px-3 sm:px-4 flex items-center justify-between gap-3">
-          {/* Left: Compact Brand + Instant Workspace Tabs */}
-          <div className="flex items-center gap-3 min-w-0 h-full">
-            <Link
-              href="/"
-              className="flex items-center gap-1.5 font-black tracking-tight text-sm text-white shrink-0 cursor-pointer"
-              data-testid="dashboard-brand-logo"
-            >
-              <CandlestickIcon color="#00F5A0" className="h-4 w-2.5 inline-block" />
-              <span className="hidden sm:inline">CHIZZLE</span>
-            </Link>
-
-            <nav className="flex items-center h-full gap-1 sm:gap-2 overflow-x-auto" data-testid="header-essential-nav">
-              {[
-                { href: "/", match: (l: string) => l === "/" || l === "/cockpit" || l === "/pipeline", label: "COCKPIT", testId: "nav-header-dashboard" },
-                { href: "/engine", match: (l: string) => l === "/engine" || l === "/dashboard", label: "WEALTH STUDIO", testId: "nav-header-wealth-studio" },
-                { href: "/watchlist", match: (l: string) => l === "/watchlist", label: "WATCHLIST", testId: "nav-header-live-scanner" },
-                { href: "/trades", match: (l: string) => l === "/trades", label: "TRADES", testId: "nav-header-trades" },
-                { href: "/journal", match: (l: string) => l === "/journal", label: "JOURNAL", testId: "nav-header-journal" },
-              ].map((tab) => {
-                const active = tab.match(location);
-                return (
-                  <Link
-                    key={tab.href}
-                    href={tab.href}
-                    data-testid={tab.testId}
-                    className={`h-full flex items-center px-2 text-[11px] font-bold tracking-wider uppercase whitespace-nowrap border-b-2 transition-colors cursor-pointer ${
-                      active
-                        ? "border-cyan-400 text-white"
-                        : "border-transparent text-slate-400 hover:text-slate-200"
-                    }`}
-                  >
-                    {tab.label}
-                  </Link>
-                );
-              })}
-            </nav>
-          </div>
-
-          {/* Center: Live Connection Telemetry Pill */}
-          <div
-            className="hidden md:flex items-center gap-2 px-2.5 py-0.5 rounded border border-slate-800 bg-[#0B0F17] text-[11px]"
-            data-testid="badge-feed-status"
+      {/* Enlarged Consolidated h-16 Command Header */}
+      <header className="h-16 px-4 sm:px-6 bg-[#060913] border-b border-slate-800 sticky top-0 z-30 flex items-center justify-between gap-4">
+        {/* Left: Brand Title & Enlarged Navigation Pills */}
+        <div className="flex items-center gap-4 min-w-0">
+          <Link
+            href="/"
+            className="flex items-center gap-2 text-xl font-black tracking-wide text-white shrink-0 cursor-pointer"
+            data-testid="dashboard-brand-logo"
           >
-            {isLiveNow ? (
-              <>
-                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="font-bold text-emerald-400">● LIVE FEED</span>
-                <span className="text-slate-600">|</span>
-                <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
-                <span className="text-slate-600">|</span>
-                <span className="text-slate-400">
-                  {marketStore.tickCount} ticks · {chicagoClock(now)} CT
-                </span>
-              </>
-            ) : (
-              <>
-                <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
-                <span className="font-bold text-slate-300">● STATIC: LAST CLOSE</span>
-                <span className="text-slate-600">|</span>
-                <span className="text-slate-400">{chicagoClock(now)} CT</span>
-              </>
-            )}
+            <CandlestickIcon color="#00F5A0" className="h-5 w-3 inline-block" />
+            <span className="hidden sm:inline">CHIZZLE</span>
+          </Link>
+
+          <nav className="flex items-center gap-1.5 overflow-x-auto" data-testid="header-essential-nav">
+            {[
+              { href: "/", match: (l: string) => l === "/" || l === "/cockpit" || l === "/pipeline", label: "COCKPIT", testId: "nav-header-dashboard" },
+              { href: "/engine", match: (l: string) => l === "/engine" || l === "/dashboard", label: "WEALTH STUDIO", testId: "nav-header-wealth-studio" },
+              { href: "/watchlist", match: (l: string) => l === "/watchlist", label: "WATCHLIST", testId: "nav-header-live-scanner" },
+              { href: "/trades", match: (l: string) => l === "/trades", label: "TRADES", testId: "nav-header-trades" },
+              { href: "/journal", match: (l: string) => l === "/journal", label: "JOURNAL", testId: "nav-header-journal" },
+            ].map((tab) => {
+              const active = tab.match(location);
+              return (
+                <Link
+                  key={tab.href}
+                  href={tab.href}
+                  data-testid={tab.testId}
+                  className={`text-sm font-bold tracking-wide px-3.5 py-2 rounded-lg whitespace-nowrap transition-colors cursor-pointer ${
+                    active
+                      ? "bg-cyan-500/15 text-cyan-300 border border-cyan-500/40"
+                      : "text-slate-300 hover:text-white hover:bg-slate-800/60 border border-transparent"
+                  }`}
+                >
+                  {tab.label}
+                </Link>
+              );
+            })}
+          </nav>
+        </div>
+
+        {/* Center: Live Telemetry Pill + Quick Sync */}
+        <div
+          className="hidden lg:flex items-center gap-2.5 text-sm font-mono font-semibold px-4 py-1.5 rounded-full bg-slate-900 border border-slate-700 tabular-nums shrink-0"
+          data-testid="badge-feed-status"
+        >
+          {isLiveWs ? (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-emerald-400">● LIVE WS</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
+            </>
+          ) : isBackupRest ? (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+              <span className="text-amber-300">● BACKUP REST</span>
+              <span className="text-slate-600">|</span>
+              <span className="text-amber-200">{marketStore.latencyMs || 18}ms</span>
+            </>
+          ) : (
+            <>
+              <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
+              <span className="text-slate-300">● STATIC: LAST CLOSE</span>
+            </>
+          )}
+          <span className="text-slate-600">|</span>
+          <span className="text-slate-300">{chicagoClock(now)} CT</span>
+          <button
+            type="button"
+            onClick={handleManualSync}
+            title="Sync Live Quotes & Bars Now"
+            data-testid="button-header-quick-sync"
+            className="ml-1 inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300 text-xs font-bold cursor-pointer transition-colors"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${marketStore.isSyncing ? "animate-spin" : ""}`} />
+            <span>Sync</span>
+          </button>
+        </div>
+
+        {/* Right: Equity, Daily P&L, Regime & Practice Mode Controls */}
+        <div className="flex items-center gap-3 shrink-0">
+          <div className="hidden md:flex items-baseline gap-2 font-mono tabular-nums">
+            <span className="text-base font-mono font-bold text-white">${equity.toFixed(2)}</span>
+            <span className={`text-sm font-bold ${ytdPct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
+              {ytdPct >= 0 ? "+" : ""}{ytdPct.toFixed(2)}%
+            </span>
           </div>
 
-          {/* Right: Macro Regime Pill, Account Equity, Daily P&L, Practice Mode */}
-          <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[11px]">
-            {marketStore.isSyncing && (
-              <span
-                className="hidden xl:inline-flex items-center px-2 py-0.5 rounded border border-cyan-400/40 bg-cyan-500/10 text-cyan-300 text-[10px] font-bold uppercase"
-                data-testid="badge-updating-live-prices"
-              >
-                🔄 Updating Live Prices...
-              </span>
-            )}
-
-            <div
-              data-testid="text-regime-effective"
-              className={`hidden sm:flex items-center gap-1.5 px-2 py-0.5 rounded border ${regimeColor} text-[10px] font-bold uppercase`}
-            >
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-current" />
-              <span>{macroBadgeLabel}</span>
-            </div>
-
-            <div className="hidden lg:flex items-center gap-2 border-l border-slate-800 pl-3">
-              <span className="text-slate-400">EQ</span>
-              <span className="text-white font-bold">${equity.toFixed(2)}</span>
-              <span className={ytdPct >= 0 ? "text-emerald-400 font-bold" : "text-rose-400 font-bold"}>
-                {ytdPct >= 0 ? "+" : ""}{ytdPct.toFixed(2)}%
-              </span>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
-              data-testid="button-toggle-practice-mode"
-              className={`flex items-center gap-1 px-2 py-0.5 rounded border text-[10px] font-bold uppercase cursor-pointer transition-colors ${
-                isPractice
-                  ? "border-amber-400 bg-amber-500/20 text-amber-300"
-                  : "border-slate-700 bg-[#0B0F17] text-slate-400 hover:text-white"
-              }`}
-            >
-              <Beaker className="h-3 w-3 text-amber-400" />
-              <span>[ 🧪 PRACTICE MODE ]</span>
-            </button>
-
-            <div className="hidden sm:block">
-              <ThemeSwitcher />
-            </div>
+          <div
+            data-testid="text-regime-effective"
+            className={`hidden sm:flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg border ${regimeColor} uppercase`}
+          >
+            <span className="inline-block w-2 h-2 rounded-full bg-current" />
+            <span>{macroBadgeLabel}</span>
           </div>
+
+          <button
+            type="button"
+            onClick={() => global?.setIsPracticeMode && global.setIsPracticeMode(!global.isPracticeMode)}
+            data-testid="button-toggle-practice-mode"
+            className={`flex items-center gap-1.5 text-xs font-mono font-bold px-3 py-1.5 rounded-lg border uppercase cursor-pointer transition-colors ${
+              isPractice
+                ? "border-amber-400 bg-amber-500/20 text-amber-300"
+                : "border-slate-700 bg-slate-900 text-slate-300 hover:text-white"
+            }`}
+          >
+            <Beaker className="h-3.5 w-3.5 text-amber-400" />
+            <span>[ 🧪 PRACTICE MODE ]</span>
+          </button>
         </div>
       </header>
-      <UnifiedTelemetryStrip />
 
       <div className="flex-1 flex min-w-0 max-w-full overflow-hidden">
         {/* Sidebar (with adjustable drag-handle) */}

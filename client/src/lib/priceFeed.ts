@@ -84,28 +84,47 @@ let es: EventSource | null = null;
 let ws: WebSocket | null = null;
 const subscribedSymbols = new Set<string>();
 
+export function isPrimaryWsOpen(): boolean {
+  return Boolean(ws && ws.readyState === WebSocket.OPEN);
+}
+
 export function subscribeSymbol(symbol: string) {
-  const s = symbol.toUpperCase().split(":").pop()!;
-  if (!s || subscribedSymbols.has(s)) return;
-  subscribedSymbols.add(s);
+  subscribeSymbols([symbol]);
+}
+
+/** Single batched WebSocket subscription payload to avoid provider rate-limit disconnects. */
+export function subscribeSymbols(symbols: string[]) {
+  const newlyAdded: string[] = [];
+  for (const raw of symbols) {
+    const s = (raw ?? "").toString().toUpperCase().split(":").pop()!;
+    if (s && !subscribedSymbols.has(s)) {
+      subscribedSymbols.add(s);
+      newlyAdded.push(s);
+    }
+  }
+  if (newlyAdded.length === 0) return;
   if (!isMarketOpen()) {
-    fetch(`${API_BASE}/api/prices/${s}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(q => {
-        if (q) applyQuote(q);
+    fetch(`${API_BASE}/api/prices`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((snap) => {
+        if (snap && typeof snap === "object") {
+          for (const s of newlyAdded) {
+            if (snap[s]) applyQuote(snap[s]);
+          }
+        }
       })
       .catch(() => {});
     return;
   }
   if (ws && ws.readyState === WebSocket.OPEN) {
     try {
-      ws.send(JSON.stringify({ type: "subscribe", symbols: [s] }));
+      ws.send(JSON.stringify({ type: "subscribe", symbols: Array.from(subscribedSymbols) }));
     } catch {}
   } else {
     fetch(`${API_BASE}/api/prices/subscribe`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ symbols: [s] }),
+      body: JSON.stringify({ symbols: Array.from(subscribedSymbols) }),
     }).catch(() => {});
   }
 }
@@ -444,8 +463,8 @@ function handleWsDisconnect() {
 
   wsRetryCount++;
   marketDataStore.incrementReconnectCount();
-  // Exponential backoff: 2s -> 4s -> 8s -> 16s -> max 30s
-  const delay = Math.min(2000 * Math.pow(2, wsRetryCount - 1), 30000);
+  // Background auto-recovery check every 10s, capped at 30s backoff
+  const delay = Math.min(10_000 * wsRetryCount, 30_000);
   console.info(`[priceFeed] WebSocket disconnected. Attempting reconnect in ${delay}ms (retry #${wsRetryCount})`);
 
   marketDataStore.setStatus("RECONNECTING");

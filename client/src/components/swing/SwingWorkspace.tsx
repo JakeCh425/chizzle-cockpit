@@ -316,23 +316,37 @@ export function useScan(req: { selection: ScanSelection; symbols: string[]; forc
 
   return useQuery<ScanResp>({
     queryKey: ["/api/swing/scan", req.selection, req.symbols.join(","), req.force],
-    queryFn: async () => {
-      const data = await swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : "&wait=0"}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`);
-      if (typeof window !== "undefined" && data && Array.isArray(data.rows) && data.rows.length > 0) {
-        try {
-          localStorage.setItem(SWING_SCAN_SWR_KEY, JSON.stringify(data));
-        } catch {}
+    queryFn: async ({ signal }) => {
+      const timeoutCtrl = new AbortController();
+      const timeoutId = setTimeout(() => timeoutCtrl.abort(), 5_000);
+      const onParentAbort = () => timeoutCtrl.abort();
+      signal?.addEventListener("abort", onParentAbort);
+      try {
+        const url = `/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : "&wait=0"}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`;
+        const res = await fetch(url, { credentials: "include", signal: timeoutCtrl.signal });
+        if (!res.ok) throw new Error(`Scan failed (${res.status})`);
+        const data = (await res.json()) as ScanResp;
+        if (typeof window !== "undefined" && data && Array.isArray(data.rows) && data.rows.length > 0) {
+          try {
+            localStorage.setItem(SWING_SCAN_SWR_KEY, JSON.stringify(data));
+          } catch {}
+        }
+        return data;
+      } finally {
+        clearTimeout(timeoutId);
+        signal?.removeEventListener("abort", onParentAbort);
       }
-      return data;
     },
     initialData: cachedInitialData,
     initialDataUpdatedAt: 0,
-    enabled, staleTime: 5 * 60_000, placeholderData: (prev) => prev, retry: false,
+    enabled,
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+    retry: false,
     refetchInterval: (q) => {
       const d = q.state.data as ScanResp | undefined;
       if (d?.pending?.length) return 2_500;
-      // Cached (non-forced) scans only: re-check every minute while any ticker's data is not LIVE.
-      return req.force ? false : (d?.rows ?? []).some((r) => r.decision.dataStatus !== "LIVE") ? 60_000 : 5 * 60_000;
+      return req.force ? false : 30_000;
     },
   });
 }

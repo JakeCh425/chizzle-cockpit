@@ -39,6 +39,7 @@ import { useFreshness } from "@/lib/freshness";
 import { useOptionalGlobalState } from "@/lib/globalState";
 import { useMarketDataStore, globalStore, STATIC_LAST_CLOSE_BADGE, POLLING_BACKUP_BADGE } from "@/lib/useMarketDataStore";
 import { useFeedConnection, isMarketOpen, isFallbackPollingActive } from "@/lib/priceFeed";
+import { MarketDataEngine } from "@/services/MarketDataEngine";
 import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
 import {
   getProximityForSetup as sharedGetProximity,
@@ -1529,6 +1530,13 @@ function ActionCenterInner() {
     return combined.length > 0 ? combined : defaultUniverse;
   }, [customWatchlist, wlQuery.data?.items, defaultUniverse]);
 
+  // Single batched WebSocket subscription for the entire watchlist
+  useEffect(() => {
+    if (watchlistSymbols.length > 0) {
+      MarketDataEngine.subscribe(watchlistSymbols);
+    }
+  }, [watchlistSymbols]);
+
   // Non-blocking background sync indicator in header
   useEffect(() => {
     globalStore.setSyncing(Boolean(scan.isFetching));
@@ -2171,9 +2179,6 @@ function ActionCenterInner() {
       data-open={boxOpen}
     >
       
-      {/* ─── SYSTEM STATUS CONSOLE (TOP OPERATOR STRIP) ─────────────────────── */}
-      <SystemStatusConsole />
-
       {/* ─── HEADER ─────────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
@@ -2228,43 +2233,14 @@ function ActionCenterInner() {
         </div>
       </div>
 
-      {/* ─── TASK 4: ACTION CENTER TOOLBAR ROW (BELOW MAIN HEADER) ─────────── */}
+      {/* ─── ACTION CENTER TOOLBAR ROW ─────────── */}
       {boxOpen && (
         <div
           className="w-full flex flex-wrap items-center justify-between gap-3 bg-[#1E293B] border border-slate-700 p-3 rounded-lg shadow-sm"
           data-testid="cockpit-grid-toolbar"
         >
-          {/* Left Side: System Status Summary + Solid Filter Pills */}
+          {/* Left Side: Solid Filter Pills */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {/* System Status Indicators (WebSocket, Latency, Market State) */}
-            <div className="flex items-center gap-2 font-mono text-xs text-slate-300 pr-3 border-r border-slate-700/80">
-              <span className="font-extrabold uppercase tracking-wider text-cyan-400">STATUS</span>
-              <span className="text-slate-600">|</span>
-              <span className="flex items-center gap-1.5" data-testid="status-console-websocket">
-                <span className={`h-2 w-2 rounded-full ${isConnected && !isPollingBackup ? "bg-emerald-400 shadow-[0_0_6px_#34d399]" : isPollingBackup ? "bg-amber-400 animate-ping" : isStaticClose ? "bg-amber-400" : "bg-rose-400"}`} />
-                <span className="text-slate-400">WS:</span>
-                <strong className={isConnected && !isPollingBackup ? "text-emerald-400 font-bold" : isPollingBackup ? "text-amber-300 font-bold" : "text-amber-300 font-bold"}>
-                  {isConnected && !isPollingBackup ? "CONNECTED" : isPollingBackup ? "RECONNECTING" : (isConnected ? "CONNECTED" : "DISCONNECTED")}
-                </strong>
-              </span>
-              <span className="text-slate-600">|</span>
-              <span className="tabular-nums" data-testid="status-console-latency">
-                <span className="text-slate-400">Latency:</span>{" "}
-                <strong className="text-cyan-300 font-bold">{latencyMs} ms</strong>
-              </span>
-              <span className="text-slate-600">|</span>
-              <span data-testid="status-console-market-state">
-                <span className="text-slate-400">Market:</span>{" "}
-                <strong className={isMarketOpenNow ? "text-emerald-400 font-bold" : "text-slate-300 font-bold"}>
-                  {isMarketOpenNow ? "OPEN" : "CLOSED"}
-                </strong>
-              </span>
-              <span className="text-slate-600">|</span>
-              <span className="tabular-nums" data-testid="status-console-last-sync">
-                <span className="text-slate-400">Last Sync:</span>{" "}
-                <strong className="text-white font-bold">{lastSync}</strong>
-              </span>
-            </div>
 
             {/* Task 2: Solid Filter Buttons: bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm */}
             <div
