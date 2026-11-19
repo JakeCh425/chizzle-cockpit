@@ -1537,11 +1537,6 @@ function ActionCenterInner() {
     }
   }, [watchlistSymbols]);
 
-  // Keep workstation awake when READY TO TRADE / ACTIVE EXECUTION setups are armed
-  useEffect(() => {
-    void MarketDataEngine.syncWakeLock(confirmedRows.length > 0 || heroTrades.length > 0);
-  }, [confirmedRows.length, heroTrades.length]);
-
   // Non-blocking background sync indicator in header
   useEffect(() => {
     globalStore.setSyncing(Boolean(scan.isFetching));
@@ -1723,6 +1718,11 @@ function ActionCenterInner() {
   const confirmedRows = readySetups;
   const confirmedSymSet = new Set(confirmedRows.map((d) => d.symbol));
   const generalPriorityRows = rows.filter((d) => !confirmedSymSet.has(d.symbol));
+
+  // Keep workstation awake when READY TO TRADE / ACTIVE EXECUTION setups are armed (placed after declarations to avoid TDZ)
+  useEffect(() => {
+    void MarketDataEngine.syncWakeLock(confirmedRows.length > 0 || heroTrades.length > 0);
+  }, [confirmedRows.length, heroTrades.length]);
 
   // Task 4: Passed / Ignored Setups Exclusion & Watchlist
   const setupsWithIgnored = useMemo(() => {

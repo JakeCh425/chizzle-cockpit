@@ -696,7 +696,7 @@ function SwingWorkspaceInner() {
       : ENGINE_BG_CLASSES[engineBg];
 
   return (
-    <div className={`w-full space-y-4 transition-colors duration-200 ${elevatedSurfaceClass}`} data-testid="swing-workspace" data-engine-bg={engineBg}>
+    <div className={`w-full space-y-4 pb-8 overflow-visible transition-colors duration-200 ${elevatedSurfaceClass}`} data-testid="swing-workspace" data-engine-bg={engineBg}>
       <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-signal-amber/40 bg-signal-amber/5 px-3 py-1.5 text-xs font-mono text-signal-amber" role="note" data-testid="banner-practice">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-bold">{PRACTICE_BANNER}</span><span className="text-slate-gray">·</span><span>{GAP_RISK_WARNING}</span>
@@ -721,8 +721,8 @@ function SwingWorkspaceInner() {
       <SetupLifecycleHUD
         symbol={active}
         livePrice={swingMath.livePrice}
-        entryPrice={swingMath.entryPrice}
-        setupStatus={d?.setupStatus}
+        entryPrice={swingMath.isExpired ? 0 : swingMath.entryPrice}
+        setupStatus={swingMath.isExpired ? "SCANNING" : d?.setupStatus}
       />
 
       <DataStatusBanner decisions={(scan.data?.rows ?? []).map((r) => r.decision)} />
@@ -757,12 +757,28 @@ function SwingWorkspaceInner() {
               <span className="text-xs font-mono font-bold uppercase tracking-widest text-cyan-400">
                 NEXT ACTION MODULE · {active}
               </span>
-              <span className={`text-xs font-mono font-bold uppercase tracking-wider ${swingMath.readiness.textClass}`}>
-                {d?.setupStatus === "READY_TO_TRADE" ? "READY TO TRADE — EXECUTION TICKET UNLOCKED" : `${swingMath.readiness.label} · DYNAMIC SIZING`}
+              <span className={`text-xs font-mono font-bold uppercase tracking-wider ${swingMath.isExpired ? "text-sky-300" : swingMath.readiness.textClass}`}>
+                {swingMath.isExpired
+                  ? "STAGE 1 · SCANNING FOR NEW SETUP"
+                  : d?.setupStatus === "READY_TO_TRADE"
+                  ? "READY TO TRADE — EXECUTION TICKET UNLOCKED"
+                  : `${swingMath.readiness.label} · DYNAMIC SIZING`}
               </span>
             </div>
 
-            {d?.setupStatus === "READY_TO_TRADE" && swingMath.math ? (
+            {swingMath.isExpired ? (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3 p-4 rounded-lg bg-[#0B1220] border border-sky-500/30 font-mono text-xs"
+                data-testid={`expired-setup-reset-${active}`}
+              >
+                <span className="px-3 py-1.5 rounded bg-sky-500/15 border border-sky-400/50 text-sky-300 font-bold uppercase tracking-wider">
+                  [ 🔄 RESET — SCANNING FOR NEW 4H PULLBACK ]
+                </span>
+                <span className="text-slate-400">
+                  Prior setup expired (&gt; 2 sessions or &gt; 3.0% drift). Obsolete order grid hidden until a fresh pullback forms.
+                </span>
+              </div>
+            ) : d?.setupStatus === "READY_TO_TRADE" && swingMath.math ? (
               <div className="flex flex-col gap-3" data-testid={`unified-ready-fidelity-ticket-${active}`}>
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums text-sm font-bold">

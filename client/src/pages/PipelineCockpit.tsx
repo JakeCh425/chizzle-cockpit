@@ -58,7 +58,7 @@ export default function PipelineCockpit() {
 
   return (
     <CockpitTickerProvider>
-    <div className="w-full space-y-6">
+    <div className="w-full space-y-6 pb-24">
       {/* 1. P&L header — always visible at very top */}
       <PnLHeader />
 

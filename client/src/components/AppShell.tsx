@@ -5,7 +5,7 @@ import { MegaMenu } from "./MegaMenu";
 import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection, isMarketOpen, isPrimaryWsOpen } from "@/lib/priceFeed";
-import { useMarketDataStore, APP_SCHEMA_VERSION, CACHE_VERSION_KEY } from "@/lib/useMarketDataStore";
+import { useMarketDataStore, getUnifiedFeedStatus, APP_SCHEMA_VERSION, CACHE_VERSION_KEY } from "@/lib/useMarketDataStore";
 import { MarketDataEngine } from "@/services/MarketDataEngine";
 import { queryClient } from "@/lib/queryClient";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
@@ -275,6 +275,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   // Anti-Flicker Telemetry Lock: locked to LIVE ENGINE if backend/worker tick within 15s during market hours
   const isReconnectingOver8s = isMarketOpenNow && !engineFreshWithin15s && disconnectedMs > 8_000;
   const isLiveWs = isMarketOpenNow && !isReconnectingOver8s;
+  const unifiedFeed = getUnifiedFeedStatus(marketStore, now);
 
   const handleManualSync = () => {
     void queryClient.invalidateQueries({ queryKey: ["/api/swing/scan"] });
@@ -331,22 +332,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           className="hidden lg:flex items-center justify-center min-w-[230px] gap-2.5 text-sm font-mono font-semibold px-4 py-1.5 rounded-full bg-slate-900 border border-slate-700 tabular-nums shrink-0"
           data-testid="badge-feed-status"
         >
-          {isLiveWs ? (
-            <>
-              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-emerald-400">● LIVE ENGINE</span>
-              <span className="text-slate-600">|</span>
-              <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
-            </>
-          ) : isReconnectingOver8s ? (
-            <>
-              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
-              <span className="text-amber-300">🟡 RECONNECTING...</span>
-            </>
+          {isReconnectingOver8s ? (
+            <span className="text-amber-300">🟡 RECONNECTING...</span>
           ) : (
             <>
-              <span className="inline-block w-2 h-2 rounded-full bg-slate-400" />
-              <span className="text-slate-300">● STATIC: LAST CLOSE</span>
+              <span className={unifiedFeed.textClass}>{unifiedFeed.label}</span>
+              {unifiedFeed.mode === "LIVE" && (
+                <>
+                  <span className="text-slate-600">|</span>
+                  <span className="text-cyan-300">{marketStore.latencyMs || 18}ms</span>
+                </>
+              )}
             </>
           )}
           <span className="text-slate-600">|</span>

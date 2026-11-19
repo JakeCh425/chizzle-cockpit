@@ -1,7 +1,56 @@
 import { useSyncExternalStore } from "react";
-import { isMarketOpen, reconnectPriceFeed, type LiveQuote, type ConnState } from "./priceFeed";
+import { isMarketOpen, getMarketStatus, reconnectPriceFeed, type LiveQuote, type ConnState } from "./priceFeed";
 import { type CardThemePreset, CARD_THEME_STORAGE_KEY, DEFAULT_CARD_THEME } from "./cardTheme";
 import type { SetupVisualStage } from "./statusTheme";
+
+export interface UnifiedFeedStatus {
+  mode: "LIVE" | "POST" | "CLOSED";
+  label: string;
+  shortLabel: string;
+  textClass: string;
+  dotClass: string;
+}
+
+/**
+ * Single shared feed-status selector used by BOTH Top Header and Unified Swing Engine
+ * so they never show contradictory status strings.
+ */
+export function getUnifiedFeedStatus(
+  state: Pick<MarketDataState, "currentPrice" | "prices" | "activeTicker">,
+  now: Date = new Date()
+): UnifiedFeedStatus {
+  const mStatus = getMarketStatus(now);
+  const lastClosePx =
+    state.currentPrice ?? state.prices?.[state.activeTicker] ?? null;
+  const pxSuffix =
+    lastClosePx != null && lastClosePx > 0 ? ` (LAST CLOSE: $${lastClosePx.toFixed(2)})` : "";
+
+  if (mStatus.session === "REGULAR") {
+    return {
+      mode: "LIVE",
+      label: "🟢 LIVE STREAM",
+      shortLabel: "🟢 LIVE STREAM",
+      textClass: "text-emerald-400",
+      dotClass: "bg-emerald-400 animate-pulse",
+    };
+  }
+  if (mStatus.session === "POST") {
+    return {
+      mode: "POST",
+      label: `🟡 POST-MARKET${pxSuffix}`,
+      shortLabel: "🟡 POST-MARKET",
+      textClass: "text-amber-300",
+      dotClass: "bg-amber-400",
+    };
+  }
+  return {
+    mode: "CLOSED",
+    label: "⚪ MARKET CLOSED · LAST CLOSE",
+    shortLabel: "⚪ MARKET CLOSED · LAST CLOSE",
+    textClass: "text-slate-300",
+    dotClass: "bg-slate-400",
+  };
+}
 
 /**
  * Valid tick payload structure for incoming market events.

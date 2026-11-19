@@ -307,6 +307,55 @@ export function computeSwingPositionMath(params: {
   };
 }
 
+/**
+ * Automatic Signal Expiration Check:
+ * Marks setup expired if status is SIGNAL_EXPIRED, signalTimestamp is older than
+ * 2 trading sessions, or livePrice has drifted > 3.0% away from entryPrice.
+ */
+export function isSetupExpired(
+  decision: any,
+  livePrice?: number | null,
+  entryPrice?: number | null
+): boolean {
+  if (!decision) return false;
+  if (decision.isExpired) return true;
+  if (decision.setupStatus === "SIGNAL_EXPIRED") return true;
+
+  const live = Number(livePrice ?? decision.currentPrice ?? 0);
+  const entry = Number(entryPrice ?? decision.entryPrice ?? 0);
+  if (live > 0 && entry > 0) {
+    const driftPct = Math.abs((live - entry) / entry) * 100;
+    if (driftPct > 3.0) return true;
+  }
+
+  const rawTs =
+    decision.signalTimestamp ??
+    decision.triggeredAt ??
+    decision.evaluatedAt ??
+    decision.quoteTimestamp;
+  if (rawTs) {
+    const tsMs = typeof rawTs === "number" ? (rawTs < 1e12 ? rawTs * 1000 : rawTs) : Date.parse(String(rawTs));
+    if (Number.isFinite(tsMs) && tsMs > 0) {
+      // Count weekdays elapsed between signal timestamp and now (> 2 trading sessions => expired)
+      const now = Date.now();
+      if (now - tsMs > 4 * 24 * 3600 * 1000) return true;
+      let tradingDays = 0;
+      const cursor = new Date(tsMs);
+      cursor.setHours(0, 0, 0, 0);
+      const today = new Date(now);
+      today.setHours(0, 0, 0, 0);
+      while (cursor < today) {
+        cursor.setDate(cursor.getDate() + 1);
+        const day = cursor.getDay();
+        if (day !== 0 && day !== 6) tradingDays++;
+        if (tradingDays > 2) return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 /** Shared hook synchronizing ActionCenter & UnifiedSwingEngine math, colors, and lifecycle state. */
 export function useSwingMath(
   decision: SwingDecision | undefined | null,
@@ -338,19 +387,24 @@ export function useSwingMath(
     return Math.abs((livePrice - entryPrice) / entryPrice) * 100;
   }, [livePrice, entryPrice]);
 
+  const isExpired = useMemo(
+    () => isSetupExpired(decision, livePrice, entryPrice),
+    [decision, livePrice, entryPrice]
+  );
+
   const readiness = useMemo(
-    () => getReadinessTier(proximity, decision?.setupStatus),
-    [proximity, decision?.setupStatus]
+    () => getReadinessTier(proximity, isExpired ? "SCANNING" : decision?.setupStatus),
+    [proximity, decision?.setupStatus, isExpired]
   );
 
   const lifecycleStep = useMemo(
-    () => resolveLifecycleStep(decision?.setupStatus, entryPrice > 0),
-    [decision?.setupStatus, entryPrice]
+    () => (isExpired ? (1 as LifecycleStep) : resolveLifecycleStep(decision?.setupStatus, entryPrice > 0)),
+    [decision?.setupStatus, entryPrice, isExpired]
   );
 
   const math = useMemo(
-    () => computeSwingPositionMath({ entryPrice, stopLoss, capital }),
-    [entryPrice, stopLoss, capital]
+    () => (isExpired ? null : computeSwingPositionMath({ entryPrice, stopLoss, capital })),
+    [entryPrice, stopLoss, capital, isExpired]
   );
 
   return {
@@ -358,6 +412,7 @@ export function useSwingMath(
     entryPrice,
     stopLoss,
     proximity,
+    isExpired,
     readiness,
     lifecycleStep,
     math,

@@ -7,6 +7,7 @@ import { dataVerifyLabel, REFERENCE_ONLY } from "@shared/swingDecision";
 import { fmtCT, swingGet } from "@/lib/swing";
 import { queryClient } from "@/lib/queryClient";
 import { useLiveQuote, type LiveQuoteStatus } from "@/lib/useLivePrices";
+import { useMarketDataStore, getUnifiedFeedStatus } from "@/lib/useMarketDataStore";
 
 const BAD: DataStatus[] = ["DELAYED", "STALE", "ERROR", "MISMATCH"];
 export const isUnverified = (s: string | undefined) => !!s && (BAD as string[]).includes(s);
@@ -40,15 +41,16 @@ export function RefreshDataButton({ symbols, small }: { symbols: string[]; small
 
 /** Top-level banner summarizing data status across the scanned tickers. */
 export function DataStatusBanner({ decisions }: { decisions: SwingDecision[] }) {
+  const marketStore = useMarketDataStore();
+  const unifiedFeed = getUnifiedFeedStatus(marketStore);
   if (!decisions.length) return null;
   const bad = decisions.filter((d) => isUnverified(d.dataStatus));
   if (!bad.length) {
     const unverified = decisions.filter((d) => !d.dataHealth?.referenceVerified).length;
     return (
-      <div className="flex flex-wrap items-center gap-2 rounded border border-emerald-500/40 bg-emerald-500/5 px-2 py-1 text-[10.5px] font-mono text-emerald-600 dark:text-emerald-300" data-testid="banner-data-status">
-        <CheckCircle2 className="h-3 w-3" />
-        <span className="font-bold">DATA LIVE</span>
-        <span className="text-slate-gray">all {decisions.length} tickers have quotes within the 20-min tolerance of the free feed{unverified ? ` · ${unverified} not cross-checked with a chart reference (does not block)` : ""}</span>
+      <div className="flex flex-wrap items-center gap-2 rounded border border-slate-700/80 bg-slate-900/60 px-2.5 py-1.5 text-[11px] font-mono" data-testid="banner-data-status">
+        <span className={`font-bold ${unifiedFeed.textClass}`}>{unifiedFeed.label}</span>
+        <span className="text-slate-400">· all {decisions.length} tickers synced{unverified ? ` · ${unverified} reference-unchecked` : ""}</span>
       </div>
     );
   }
