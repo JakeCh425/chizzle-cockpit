@@ -299,13 +299,34 @@ function ScannerPanel({ req, setReq, selected, onFocus, active }: {
   );
 }
 
+const SWING_SCAN_SWR_KEY = "chizzle-swr-scan-snapshot";
+
 export function useScan(req: { selection: ScanSelection; symbols: string[]; force: number }, enabled = true) {
-  // Part 3: non-blocking scan. The server answers immediately with cached / persisted rows and a `pending` list;
-  // while anything is pending we poll every 2.5 s so each symbol's status appears as it finishes.
+  // Stale-While-Revalidate Hydration: render cached snapshot in <100ms while refreshing in background
   const focus = typeof window !== "undefined" ? (() => { try { return JSON.parse(localStorage.getItem("chizzle/v2/swing-active-symbol") ?? "\"\""); } catch { return ""; } })() : "";
+  const cachedInitialData = useMemo<ScanResp | undefined>(() => {
+    if (typeof window === "undefined") return undefined;
+    try {
+      const raw = localStorage.getItem(SWING_SCAN_SWR_KEY);
+      return raw ? (JSON.parse(raw) as ScanResp) : undefined;
+    } catch {
+      return undefined;
+    }
+  }, []);
+
   return useQuery<ScanResp>({
     queryKey: ["/api/swing/scan", req.selection, req.symbols.join(","), req.force],
-    queryFn: () => swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : "&wait=0"}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`),
+    queryFn: async () => {
+      const data = await swingGet<ScanResp>(`/api/swing/scan?selection=${req.selection}${req.symbols.length ? `&symbols=${req.symbols.join(",")}` : ""}${req.force ? "&force=1" : "&wait=0"}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`);
+      if (typeof window !== "undefined" && data && Array.isArray(data.rows) && data.rows.length > 0) {
+        try {
+          localStorage.setItem(SWING_SCAN_SWR_KEY, JSON.stringify(data));
+        } catch {}
+      }
+      return data;
+    },
+    initialData: cachedInitialData,
+    initialDataUpdatedAt: 0,
     enabled, staleTime: 5 * 60_000, placeholderData: (prev) => prev, retry: false,
     refetchInterval: (q) => {
       const d = q.state.data as ScanResp | undefined;

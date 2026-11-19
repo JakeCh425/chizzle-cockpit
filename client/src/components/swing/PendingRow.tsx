@@ -141,13 +141,43 @@ export const PendingRow = React.memo(function PendingRow({
     [customCapital, entryPrice, setup.stopLoss]
   );
 
-  if (entryPrice <= 0 || !math) return null;
+  if (entryPrice <= 0 || !math) {
+    return (
+      <div
+        key={d.symbol}
+        onClick={() => onSelectTicker(d.symbol)}
+        className={`flex flex-wrap items-center justify-between gap-4 p-5 bg-[#0B101D] border border-slate-800/90 opacity-85 hover:opacity-100 rounded-xl cursor-pointer shadow-md ${
+          selectedTicker === d.symbol ? "ring-1 ring-amber-400/70 opacity-100" : ""
+        }`}
+        data-testid={`waiting-row-${d.symbol}`}
+      >
+        <div className="flex items-center gap-3">
+          <div className="bg-slate-900 border-l-4 border-sky-400 px-3 py-2 flex justify-center items-center shrink-0 rounded">
+            <span className="text-2xl lg:text-3xl font-black tracking-widest text-white">{d.symbol}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-slate-200 font-mono tabular-nums text-xl font-bold">
+              {effectivePrice > 0 ? formatCurrency(effectivePrice) : "Syncing..."}
+            </span>
+            <span className="text-xs font-mono text-sky-300 uppercase">📡 Syncing Setup Levels...</span>
+          </div>
+        </div>
+        <span className="px-2.5 py-1 rounded bg-sky-500/15 text-sky-300 border border-sky-400/50 text-xs font-mono font-bold uppercase">
+          {stageTheme.label}
+        </span>
+      </div>
+    );
+  }
+
+  const isCloseToEntry = proximity <= 1.5;
 
   return (
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#0B101D] border border-slate-800/90 opacity-85 hover:opacity-100 hover:border-slate-600/80 transition-all rounded-xl cursor-pointer shadow-md ${
+      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#0B101D] border border-slate-800/90 ${
+        isCloseToEntry ? "border-l-4 border-l-amber-400" : ""
+      } opacity-85 hover:opacity-100 hover:border-slate-600/80 transition-all rounded-xl cursor-pointer shadow-md ${
         selectedTicker === d.symbol ? "ring-1 ring-amber-400/70 opacity-100" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
@@ -185,6 +215,14 @@ export const PendingRow = React.memo(function PendingRow({
           >
             <span>{stageTheme.label}</span>
           </div>
+          {isCloseToEntry && (
+            <span
+              className="inline-flex px-2 py-0.5 rounded bg-amber-400/20 border border-amber-400/70 text-[10px] font-mono font-black text-amber-300 uppercase tracking-wider"
+              data-testid={`badge-close-to-entry-${d.symbol}`}
+            >
+              [ 🔥 CLOSE TO ENTRY: {proximity.toFixed(1)}% ]
+            </span>
+          )}
           {hasMacroCaution && (
             <span className="inline-flex px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-400/40 text-[10px] font-mono font-bold text-amber-300 uppercase">
               Macro Caution

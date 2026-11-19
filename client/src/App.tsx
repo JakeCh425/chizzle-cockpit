@@ -1,4 +1,4 @@
-import WealthEngineDashboard from "@/pages/WealthEngineDashboard";
+import React, { Suspense, lazy } from "react";
 import { useWakeRefresh, WakeSyncLoader } from "@/lib/wakeRefresh";
 import { Switch, Route, Router, useLocation } from "wouter";
 import { useHashLocation } from "wouter/use-hash-location";
@@ -9,24 +9,26 @@ import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import NotFound from "@/pages/not-found";
 import { AppShell } from "@/components/AppShell";
-import Cockpit from "@/pages/Cockpit";
 import PipelineCockpit from "@/pages/PipelineCockpit";
-import LegacyPipelineArchive from "@/pages/LegacyPipelineArchive";
-import Watchlist from "@/pages/Watchlist";
-import Trades from "@/pages/Trades";
-import Journal from "@/pages/Journal";
-import LeapLadder from "@/pages/LeapLadder";
-import Analytics from "@/pages/Analytics";
-import SettingsPage from "@/pages/Settings";
-import SpecReview from "@/pages/SpecReview";
-import SignalHistoryPage from "@/pages/SignalHistory";
-import TradePlanner from "@/pages/TradePlanner";
-import TradeDetail from "@/pages/TradeDetail";
-import React, { Suspense } from "react";
-import TagsPage from "@/pages/TagsPage";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import AppErrorBoundary from "@/components/AppErrorBoundary";
 import SkeletonDashboardLoader from "@/components/SkeletonDashboardLoader";
+
+// Code-split heavy views so initial Cockpit load downloads minimal JS
+const WealthEngineDashboard = lazy(() => import("@/pages/WealthEngineDashboard"));
+const Cockpit = lazy(() => import("@/pages/Cockpit"));
+const LegacyPipelineArchive = lazy(() => import("@/pages/LegacyPipelineArchive"));
+const Watchlist = lazy(() => import("@/pages/Watchlist"));
+const Trades = lazy(() => import("@/pages/Trades"));
+const Journal = lazy(() => import("@/pages/Journal"));
+const LeapLadder = lazy(() => import("@/pages/LeapLadder"));
+const Analytics = lazy(() => import("@/pages/Analytics"));
+const SettingsPage = lazy(() => import("@/pages/Settings"));
+const SpecReview = lazy(() => import("@/pages/SpecReview"));
+const SignalHistoryPage = lazy(() => import("@/pages/SignalHistory"));
+const TradePlanner = lazy(() => import("@/pages/TradePlanner"));
+const TradeDetail = lazy(() => import("@/pages/TradeDetail"));
+const TagsPage = lazy(() => import("@/pages/TagsPage"));
 
 function WealthStudioRoute() {
   return (

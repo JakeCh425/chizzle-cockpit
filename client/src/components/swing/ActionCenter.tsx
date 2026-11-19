@@ -46,6 +46,8 @@ import {
   getSetupStage,
   getTechnicalStage,
   evaluateMacroRegime,
+  DEFAULT_WATCHLIST,
+  NEW_SWING_CANDIDATES,
 } from "@/hooks/useSwingMath";
 import { STATUS_THEME, type SetupVisualStage } from "@/lib/statusTheme";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
@@ -1495,11 +1497,70 @@ function ActionCenterInner() {
     return isSetupReady && levelsValid && is1hCandleConfirmed;
   };
 
+  // ─── Watchlist & Non-Destructive Default Candidate Merge ───
+  const defaultUniverse = useMemo(() => [...DEFAULT_WATCHLIST], []);
+  const wlQuery = useQuery<WatchlistResp>({
+    queryKey: ["/api/swing/watchlist"],
+    queryFn: () => swingGet("/api/swing/watchlist"),
+  });
+  const [customWatchlist, setCustomWatchlist] = usePersistentState<string[]>(
+    "action-center-custom-watchlist",
+    defaultUniverse
+  );
+  const [removedDefaults, setRemovedDefaults] = usePersistentState<string[]>(
+    "ac-removed-defaults",
+    []
+  );
+
+  // Non-destructive merge: add any missing new swing candidates unless explicitly deleted by user
+  useEffect(() => {
+    const removedSet = new Set((removedDefaults || []).map((s) => s.toUpperCase()));
+    const missing = NEW_SWING_CANDIDATES.filter(
+      (sym) => !customWatchlist.includes(sym) && !removedSet.has(sym)
+    );
+    if (missing.length > 0) {
+      setCustomWatchlist((prev) => Array.from(new Set([...prev, ...missing])));
+    }
+  }, []);
+
+  const watchlistSymbols = useMemo(() => {
+    const apiSymbols = wlQuery.data?.items?.map((x) => x.symbol) ?? [];
+    const combined = Array.from(new Set([...customWatchlist, ...apiSymbols]));
+    return combined.length > 0 ? combined : defaultUniverse;
+  }, [customWatchlist, wlQuery.data?.items, defaultUniverse]);
+
+  // Non-blocking background sync indicator in header
+  useEffect(() => {
+    globalStore.setSyncing(Boolean(scan.isFetching));
+  }, [scan.isFetching]);
+
   const rawSetups = rows;
   const validSetups = useMemo(() => {
-    if (!Array.isArray(rawSetups)) return [];
-    return rawSetups.filter((setup: any) => setup && (setup.ticker || setup.symbol));
-  }, [rawSetups]);
+    const base = Array.isArray(rawSetups)
+      ? rawSetups.filter((setup: any) => setup && (setup.ticker || setup.symbol))
+      : [];
+    const present = new Set(base.map((s: any) => String(s.symbol || s.ticker).toUpperCase()));
+    const extras: any[] = [];
+    for (const sym of watchlistSymbols) {
+      const clean = String(sym).toUpperCase().trim();
+      if (!clean || present.has(clean)) continue;
+      present.add(clean);
+      const livePx =
+        marketStore.prices[clean] ??
+        global?.livePrices?.[clean] ??
+        prices?.[clean]?.price ??
+        0;
+      extras.push({
+        symbol: clean,
+        ticker: clean,
+        currentPrice: livePx,
+        setupStatus: "SETUP_FORMING",
+        dataStatus: livePx > 0 ? "LIVE" : "SYNCING",
+        score: 0,
+      });
+    }
+    return [...base, ...extras];
+  }, [rawSetups, watchlistSymbols, marketStore.prices, global?.livePrices, prices]);
 
   const spyRow = useMemo(() => validSetups.find((r: any) => (r.symbol || r.ticker || "").toUpperCase() === "SPY"), [validSetups]);
   const qqqRow = useMemo(() => validSetups.find((r: any) => (r.symbol || r.ticker || "").toUpperCase() === "QQQ"), [validSetups]);
@@ -1734,19 +1795,20 @@ function ActionCenterInner() {
     return indexMap;
   }, [rawPendingSymbolsKey, imminentTickersKey, getStaticProximityForSetup]);
 
+  // Strict Catch-All Partitioning:
+  // Every tracked ticker belongs to READY TO TRADE, PASSED & WATCHING, or PENDING & WAITING.
+  // Sort pendingSetups strictly by Math.abs(distanceToEntryPercent) ascending (closest first).
   const pendingSetups = useMemo(() => {
-    return [...rawPendingWaiting].sort((a, b) => {
-      const ia = cachedOrderMap.get(a.symbol) ?? 9999;
-      const ib = cachedOrderMap.get(b.symbol) ?? 9999;
-      return ia - ib;
-    });
-  }, [rawPendingWaiting, cachedOrderMap]);
+    return [...rawPendingWaiting].sort(
+      (a, b) => getProximityForSetup(a) - getProximityForSetup(b)
+    );
+  }, [rawPendingWaiting, getProximityForSetup]);
 
   const generalLoud = pendingSetups;
 
   const deepStandbyRows = useMemo(() => {
-    return generalLoud.filter((d) => getProximityForSetup(d) > 3.0);
-  }, [generalLoud, getProximityForSetup]);
+    return [];
+  }, []);
 
   const passedSetups = setups.filter((setup) => setup.status === 'IGNORED' || (setup as any).status === 'WATCHLIST_ONLY' || passedTickers.includes(setup.symbol));
   // Backward compatibility hook: const generalLoud = loud.filter((d) => !confirmedSymSet.has(d.symbol));
@@ -1761,18 +1823,6 @@ function ActionCenterInner() {
   }, [confirmedSymSet]);
 
   // ─── Section 1: Watchlist & Chart State ───
-  const defaultUniverse = ["SMH", "QQQ", "SPY", "XLE", "XLV"];
-  const wlQuery = useQuery<WatchlistResp>({
-    queryKey: ["/api/swing/watchlist"],
-    queryFn: () => swingGet("/api/swing/watchlist"),
-  });
-  const [customWatchlist, setCustomWatchlist] = usePersistentState<string[]>("action-center-custom-watchlist", defaultUniverse);
-  const watchlistSymbols = useMemo(() => {
-    const apiSymbols = wlQuery.data?.items?.map((x) => x.symbol) ?? [];
-    const combined = Array.from(new Set([...customWatchlist, ...apiSymbols]));
-    return combined.length > 0 ? combined : defaultUniverse;
-  }, [customWatchlist, wlQuery.data?.items]);
-
   const [selectedTicker, setSelectedTicker] = useState<string>("SPY");
   const [newTickerInput, setNewTickerInput] = useState("");
   const [chartTf, setChartTf] = useState<Tf>("4H");
@@ -1878,6 +1928,9 @@ function ActionCenterInner() {
     if (!customWatchlist.includes(sym)) {
       setCustomWatchlist([...customWatchlist, sym]);
     }
+    if (removedDefaults.includes(sym)) {
+      setRemovedDefaults((prev) => prev.filter((s) => s !== sym));
+    }
     global?.addTicker?.(sym);
     addTickerMutation.mutate(sym);
     setSelectedTicker(sym);
@@ -1888,6 +1941,9 @@ function ActionCenterInner() {
   const handleDeleteTicker = (sym: string, e: React.MouseEvent) => {
     e.stopPropagation();
     setCustomWatchlist((prev) => prev.filter((s) => s !== sym));
+    if ((DEFAULT_WATCHLIST as readonly string[]).includes(sym)) {
+      setRemovedDefaults((prev) => Array.from(new Set([...prev, sym])));
+    }
     global?.removeTicker?.(sym);
     deleteTickerMutation.mutate(sym);
     if (selectedTicker === sym) {
@@ -2844,9 +2900,6 @@ function ActionCenterInner() {
                       const stopLoss = d.structuralStop && d.structuralStop < entryPrice
                         ? d.structuralStop
                         : +(entryPrice * 0.98).toFixed(2);
-
-                      const proximity = entryPrice > 0 ? Math.abs((effectivePrice - entryPrice) / entryPrice) * 100 : 999;
-                      if (proximity > 3.0) return null; // Routed to Deep Standby section below
 
                       const setup = {
                         ...d,

@@ -6,6 +6,17 @@ export type LifecycleStep = 1 | 2 | 3 | 4;
 export type SetupStage = SetupVisualStage;
 export type MacroRegime = "STAND_DOWN" | "SELECTIVE" | "CAUTION" | "GO" | "green" | "yellow" | "red" | string;
 
+export const NEW_SWING_CANDIDATES = ["XLF", "JPM", "CAT", "COST", "AAPL"] as const;
+export const DEFAULT_WATCHLIST = [
+  "SMH",
+  "QQQ",
+  "SPY",
+  "XLE",
+  "XLV",
+  "XLI",
+  ...NEW_SWING_CANDIDATES,
+] as const;
+
 export interface IndexDailyCheck {
   price?: number | null;
   sma20?: number | null;

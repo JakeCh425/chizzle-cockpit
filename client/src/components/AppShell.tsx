@@ -320,6 +320,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
           <FeedBadge state={feedState} ageSec={ageSec} source={feedSource} marketOpen={isMarketOpen(now)} />
 
+          {marketStore.isSyncing && (
+            <span
+              className="hidden lg:inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/40 text-cyan-300 text-[10px] font-mono font-bold uppercase tracking-wider"
+              data-testid="badge-updating-live-prices"
+            >
+              <span>🔄 Updating Live Prices...</span>
+            </span>
+          )}
+
           <div className="ml-auto flex items-center gap-3 md:gap-5">
             {/* Prominent Practice Sandbox Toggle in Main Navigation Header */}
             <button
