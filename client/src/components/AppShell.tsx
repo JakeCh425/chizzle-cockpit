@@ -6,6 +6,12 @@ import { useQuery } from "@tanstack/react-query";
 import type { Settings, ChizzleScore, RegimeState, RegimeInputsRow } from "@shared/schema";
 import { chicagoClock, marketSession, useFeedConnection, isMarketOpen, isPrimaryWsOpen } from "@/lib/priceFeed";
 import { useMarketDataStore, getUnifiedFeedStatus, APP_SCHEMA_VERSION, CACHE_VERSION_KEY } from "@/lib/useMarketDataStore";
+import {
+  useCardTypography,
+  updateCardTypography,
+  type CardFontSize,
+  type CardFontFamily,
+} from "@/lib/statusTheme";
 import { MarketDataEngine } from "@/services/MarketDataEngine";
 import { queryClient } from "@/lib/queryClient";
 import { regimeLabel, identityState as identityFn } from "@/lib/engine";
@@ -217,6 +223,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const istate = identityFn(rolling7);
 
   const marketStore = useMarketDataStore();
+  const cardTypo = useCardTypography();
   const [healthOpen, setHealthOpen] = useState(false);
   const [appearanceOpen, setAppearanceOpen] = useState(false);
   const {
@@ -488,6 +495,36 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <option value="compact">Compact</option>
                     <option value="default">Default</option>
                     <option value="large">Large</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="border-t border-slate-800 pt-2.5 flex flex-col gap-2">
+                <span className="text-[10px] text-cyan-300 font-bold uppercase tracking-wider">Card Typography</span>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-400 uppercase">Card Font Size</span>
+                  <select
+                    value={cardTypo.size}
+                    onChange={(e) => updateCardTypography({ size: e.target.value as CardFontSize })}
+                    data-testid="select-card-font-size"
+                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-200 outline-none"
+                  >
+                    <option value="compact">Compact</option>
+                    <option value="standard">Standard</option>
+                    <option value="large">Large</option>
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span className="text-[10px] text-slate-400 uppercase">Card Font Family</span>
+                  <select
+                    value={cardTypo.family}
+                    onChange={(e) => updateCardTypography({ family: e.target.value as CardFontFamily })}
+                    data-testid="select-card-font-family"
+                    className="bg-slate-900 border border-slate-700 rounded px-2 py-1.5 text-slate-200 outline-none"
+                  >
+                    <option value="jetbrains">JetBrains / Tabular Mono</option>
+                    <option value="geometric">Clean Geometric Sans</option>
+                    <option value="bloomberg">Bloomberg Terminal</option>
                   </select>
                 </label>
               </div>

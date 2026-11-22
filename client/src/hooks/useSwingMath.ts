@@ -136,7 +136,11 @@ export function getTechnicalStage(ticker: any, proximityOverride?: number): Excl
     return "READY";
   }
 
-  if (proximity <= 1.0) {
+  if (proximity <= 0.6) {
+    return "IMMINENT";
+  }
+
+  if (proximity <= 1.5) {
     return "APPROACHING";
   }
 
@@ -174,19 +178,31 @@ export function getSetupStage(
 export interface SwingPositionMath {
   entryPrice: number;
   stopLoss: number;
+  stopPct: number;
   shares: number;
+  isFractional: boolean;
   actualCapitalDeployed: number;
   riskPerShare: number;
   totalRisk: number;
+  equityRiskPct: number;
+  scale50Shares: number;
+  core30Shares: number;
+  runner20Shares: number;
   target1_5R: number;
+  targetPct1_5: number;
   profit1_5: number;
   roi1_5: number;
+  roc1_5: number;
   target2_0R: number;
+  targetPct2_0: number;
   profit2_0: number;
   roi2_0: number;
+  roc2_0: number;
   target3_0R: number;
+  targetPct3_0: number;
   profit3_0: number;
   roi3_0: number;
+  roc3_0: number;
 }
 
 export interface ReadinessTier {
@@ -268,42 +284,77 @@ export function computeSwingPositionMath(params: {
   entryPrice: number;
   stopLoss: number;
   capital: number;
+  fractional?: boolean;
+  accountEquity?: number;
 }): SwingPositionMath | null {
-  const { entryPrice, stopLoss, capital } = params;
+  const { entryPrice, stopLoss, capital, fractional, accountEquity } = params;
   if (!entryPrice || entryPrice <= 0) return null;
 
   const safeStop = stopLoss > 0 && stopLoss < entryPrice ? stopLoss : +(entryPrice * 0.98).toFixed(2);
   const riskPerShare = Math.max(0.01, entryPrice - safeStop);
   const safeCapital = Math.max(0, capital || 0);
-  const shares = Math.floor(safeCapital / entryPrice);
-  const actualCapitalDeployed = shares * entryPrice;
-  const totalRisk = shares * riskPerShare;
+  const isFractional = fractional !== undefined ? fractional : safeCapital < entryPrice;
+  const shares = isFractional
+    ? Number((safeCapital / entryPrice).toFixed(3))
+    : Math.floor(safeCapital / entryPrice);
+  const actualCapitalDeployed = +(shares * entryPrice).toFixed(2);
+  const totalRisk = +(shares * riskPerShare).toFixed(2);
+  const safeEquity = accountEquity && accountEquity > 0 ? accountEquity : 1615;
+  const equityRiskPct = +((totalRisk / safeEquity) * 100).toFixed(2);
 
-  const profit1_5 = totalRisk * 1.5;
-  const roi1_5 = actualCapitalDeployed > 0 ? (profit1_5 / actualCapitalDeployed) * 100 : 0;
+  const scale50Shares = isFractional ? Number((shares * 0.5).toFixed(3)) : Math.floor(shares * 0.5);
+  const core30Shares = isFractional ? Number((shares * 0.3).toFixed(3)) : Math.floor(shares * 0.3);
+  const runner20Shares = isFractional
+    ? Number(Math.max(0, shares - scale50Shares - core30Shares).toFixed(3))
+    : Math.max(0, shares - scale50Shares - core30Shares);
 
-  const profit2_0 = totalRisk * 2.0;
-  const roi2_0 = actualCapitalDeployed > 0 ? (profit2_0 / actualCapitalDeployed) * 100 : 0;
+  const target1_5R = entryPrice + riskPerShare * 1.5;
+  const target2_0R = entryPrice + riskPerShare * 2.0;
+  const target3_0R = entryPrice + riskPerShare * 3.0;
 
-  const profit3_0 = totalRisk * 3.0;
-  const roi3_0 = actualCapitalDeployed > 0 ? (profit3_0 / actualCapitalDeployed) * 100 : 0;
+  // Independent Price % Move (never 0.0% even if shares === 0)
+  const stopPct = ((safeStop - entryPrice) / entryPrice) * 100;
+  const targetPct1_5 = ((target1_5R - entryPrice) / entryPrice) * 100;
+  const targetPct2_0 = ((target2_0R - entryPrice) / entryPrice) * 100;
+  const targetPct3_0 = ((target3_0R - entryPrice) / entryPrice) * 100;
+
+  const profit1_5 = +((target1_5R - entryPrice) * shares).toFixed(2);
+  const roc1_5 = actualCapitalDeployed > 0 ? (profit1_5 / actualCapitalDeployed) * 100 : targetPct1_5;
+
+  const profit2_0 = +((target2_0R - entryPrice) * shares).toFixed(2);
+  const roc2_0 = actualCapitalDeployed > 0 ? (profit2_0 / actualCapitalDeployed) * 100 : targetPct2_0;
+
+  const profit3_0 = +((target3_0R - entryPrice) * shares).toFixed(2);
+  const roc3_0 = actualCapitalDeployed > 0 ? (profit3_0 / actualCapitalDeployed) * 100 : targetPct3_0;
 
   return {
     entryPrice,
     stopLoss: safeStop,
+    stopPct,
     shares,
+    isFractional,
     actualCapitalDeployed,
     riskPerShare,
     totalRisk,
-    target1_5R: entryPrice + riskPerShare * 1.5,
+    equityRiskPct,
+    scale50Shares,
+    core30Shares,
+    runner20Shares,
+    target1_5R,
+    targetPct1_5,
     profit1_5,
-    roi1_5,
-    target2_0R: entryPrice + riskPerShare * 2.0,
+    roi1_5: roc1_5,
+    roc1_5,
+    target2_0R,
+    targetPct2_0,
     profit2_0,
-    roi2_0,
-    target3_0R: entryPrice + riskPerShare * 3.0,
+    roi2_0: roc2_0,
+    roc2_0,
+    target3_0R,
+    targetPct3_0,
     profit3_0,
-    roi3_0,
+    roi3_0: roc3_0,
+    roc3_0,
   };
 }
 

@@ -50,7 +50,7 @@ import {
   DEFAULT_WATCHLIST,
   NEW_SWING_CANDIDATES,
 } from "@/hooks/useSwingMath";
-import { STATUS_THEME, type SetupVisualStage } from "@/lib/statusTheme";
+import { STATUS_THEME, useCardTypography, updateCardTypography, type SetupVisualStage } from "@/lib/statusTheme";
 import { AppErrorBoundary } from "@/components/AppErrorBoundary";
 import {
   useTerminalTheme,
@@ -665,17 +665,20 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   isArming,
   onConfirmExecute,
 }: ReadyExecutionCardProps) {
-  const [customCapital, setCustomCapital] = useState<number>(allocatedCapital || 1000);
+  const [rawCapital, setRawCapital] = useState<string>(() => String(allocatedCapital || 1000));
+  const [shareModeOverride, setShareModeOverride] = useState<"auto" | "whole" | "fractional">("auto");
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTicketDrawerOpen, setIsTicketDrawerOpen] = useState(false);
   const [copiedTicket, setCopiedTicket] = useState(false);
   const { toast } = useToast();
 
   useEffect(() => {
-    if (allocatedCapital && allocatedCapital > 0 && allocatedCapital !== customCapital) {
-      setCustomCapital(allocatedCapital);
+    if (allocatedCapital && allocatedCapital > 0) {
+      setRawCapital((prev) => (prev === "" ? prev : String(allocatedCapital)));
     }
   }, [allocatedCapital]);
+
+  const numericCapital = Number(rawCapital) || 0;
 
   useEffect(() => {
     if (!isTicketDrawerOpen) return;
@@ -686,20 +689,36 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     return () => document.removeEventListener("keydown", onEsc);
   }, [isTicketDrawerOpen]);
 
-  // Dynamic Real-Time Math via useMemo whenever customCapital changes
+  const useFractional =
+    shareModeOverride === "fractional"
+      ? true
+      : shareModeOverride === "whole"
+      ? false
+      : entryPrice > 0 && numericCapital < entryPrice;
+
+  // Dynamic Real-Time Math via useMemo whenever rawCapital or share mode changes
   const cardMath = useMemo(() => {
     const calc = computeSwingPositionMath({
       entryPrice,
       stopLoss: stopLossPrice,
-      capital: customCapital,
+      capital: numericCapital,
+      fractional: useFractional,
     });
     if (!calc) {
       return {
         shares: 0,
         totalRisk: 0,
+        actualCapitalDeployed: 0,
+        equityRiskPct: 0,
+        scale50Shares: 0,
+        core30Shares: 0,
+        runner20Shares: 0,
         t1: entryPrice,
         t2: entryPrice,
         t3: entryPrice,
+        targetPct1_5: 0,
+        targetPct2_0: 0,
+        targetPct3_0: 0,
         profit1_5: 0,
         roi1_5: 0,
         profit2_0: 0,
@@ -713,9 +732,17 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     return {
       shares: calc.shares,
       totalRisk: calc.totalRisk,
+      actualCapitalDeployed: calc.actualCapitalDeployed,
+      equityRiskPct: calc.equityRiskPct,
+      scale50Shares: calc.scale50Shares,
+      core30Shares: calc.core30Shares,
+      runner20Shares: calc.runner20Shares,
       t1: +calc.target1_5R.toFixed(2),
       t2: +calc.target2_0R.toFixed(2),
       t3: +calc.target3_0R.toFixed(2),
+      targetPct1_5: calc.targetPct1_5,
+      targetPct2_0: calc.targetPct2_0,
+      targetPct3_0: calc.targetPct3_0,
       profit1_5: calc.profit1_5,
       roi1_5: calc.roi1_5,
       profit2_0: calc.profit2_0,
@@ -724,21 +751,19 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       roi3_0: calc.roi3_0,
       capitalRiskPct,
     };
-  }, [customCapital, entryPrice, stopLossPrice]);
+  }, [numericCapital, entryPrice, stopLossPrice, useFractional]);
 
-  const halfShares = Math.floor(cardMath.shares / 2);
+  const halfShares = cardMath.scale50Shares;
 
   const handleCopyTicket = () => {
     const ticketText = [
-      `FIDELITY BROKER TICKET — ${d.symbol}`,
-      `Allocated Capital: $${customCapital.toLocaleString()}`,
-      `Step 1 — Entry Order (Standard Ticket):`,
-      `Action: BUY | Qty: ${cardMath.shares} | Order Type: LIMIT | Limit Price: $${entryPrice.toFixed(2)} | TIF: Day`,
-      `Step 2 — Protection & Scale-Out (Conditional OCO Ticket):`,
-      `Order 1 (1.5R Profit): SELL ${halfShares} Shares @ LIMIT $${cardMath.t1.toFixed(2)}`,
-      `Order 2 (Hard Stop): SELL ${cardMath.shares} Shares @ STOP $${stopLossPrice.toFixed(2)}`,
-      `2.0R Runner Target: $${cardMath.t2.toFixed(2)} (+$${cardMath.profit2_0.toFixed(2)} / +${cardMath.roi2_0.toFixed(1)}%)`,
-      `Max Risk: -$${cardMath.totalRisk.toFixed(2)} | 1.5R Profit: +$${cardMath.profit1_5.toFixed(2)} (+${cardMath.roi1_5.toFixed(1)}%)`,
+      `FIDELITY PROP-FIRM OCO BRACKET — ${d.symbol}`,
+      `Allocated Capital: $${numericCapital.toLocaleString()} (${useFractional ? "Fractional" : "Whole"} Shares)`,
+      `Leg 1 (Entry): BUY LIMIT ${cardMath.shares} sh @ $${entryPrice.toFixed(2)} • DAY`,
+      `Leg 2 (1.5R Scale — 50%): SELL LIMIT ${cardMath.scale50Shares} sh @ $${cardMath.t1.toFixed(2)} (Move Stop to Breakeven $${entryPrice.toFixed(2)})`,
+      `Leg 3 (2.0R Core — 30%): SELL LIMIT ${cardMath.core30Shares} sh @ $${cardMath.t2.toFixed(2)}`,
+      `Leg 4 (3.0R Runner — 20%): SELL LIMIT ${cardMath.runner20Shares} sh @ $${cardMath.t3.toFixed(2)} (or trail under 1H 20-SMA)`,
+      `Hard Stop: SELL ${cardMath.shares} sh @ STOP $${stopLossPrice.toFixed(2)} (Max Risk: -$${cardMath.totalRisk.toFixed(2)})`,
     ].join("\n");
     if (typeof navigator !== "undefined" && navigator.clipboard) {
       navigator.clipboard.writeText(ticketText).catch(() => {});
@@ -746,7 +771,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     setCopiedTicket(true);
     setTimeout(() => setCopiedTicket(false), 2000);
     toast({
-      title: `Full Fidelity Ticket Copied — ${d.symbol}`,
+      title: `Fidelity OCO Bracket Copied — ${d.symbol}`,
       description: `BUY LIMIT ${cardMath.shares} sh @ $${entryPrice.toFixed(2)} | 1.5R $${cardMath.t1.toFixed(2)} | Stop $${stopLossPrice.toFixed(2)}`,
     });
   };
@@ -809,39 +834,76 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             <div className="flex items-center gap-1">
               <span className="text-xs font-bold text-slate-400 uppercase">CAPITAL $</span>
               <input
-                type="number"
-                min="1"
-                step="100"
-                value={customCapital}
+                type="text"
+                inputMode="numeric"
+                value={rawCapital}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => {
-                  const next = Math.max(0, Number(e.target.value));
-                  setCustomCapital(next);
-                  onUpdateCapital?.(d.symbol, next);
+                  const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                  const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
+                  setRawCapital(cleaned);
+                  onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
+                }}
+                onBlur={() => {
+                  if (rawCapital === "") {
+                    setRawCapital("1000");
+                    onUpdateCapital?.(d.symbol, 1000);
+                  }
                 }}
                 aria-label={`Allocated capital for ${d.symbol}`}
                 data-testid={`ready-input-capital-${d.symbol}`}
-                className="bg-slate-800 border border-slate-700 focus:border-cyan-500 text-cyan-300 font-mono tabular-nums font-bold text-right w-24 rounded px-2 py-1 outline-none"
+                className="appearance-none font-mono font-bold text-white bg-slate-900 border border-slate-600 focus:border-cyan-400 rounded px-2.5 py-1 w-28 text-right tabular-nums outline-none"
               />
             </div>
           </div>
         </div>
 
-        {/* 2-Button Action Bar: [ ⚡ OPEN FIDELITY TICKET ] & [ ▾ DETAILS ] */}
-        <div className="flex flex-wrap items-center gap-3 pt-1">
+        {/* Prop-Firm 4-Leg Scale-Out Split */}
+        <div className="rounded-lg bg-[#081012] border border-emerald-500/25 p-3 flex flex-col gap-1.5 font-mono text-xs tabular-nums">
+          <div className="flex items-center justify-between text-[11px] text-emerald-300 font-bold uppercase tracking-wider pb-1 border-b border-emerald-500/15">
+            <span>Prop-Firm Scale-Out Plan</span>
+            <span>ROC 1.5R: +{cardMath.roi1_5.toFixed(2)}%</span>
+          </div>
+          <div><strong className="text-cyan-300">Leg 1 (Entry):</strong> Buy {cardMath.shares} sh @ Limit ${entryPrice.toFixed(2)}</div>
+          <div><strong className="text-emerald-400">Leg 2 (1.5R Scale — 50%):</strong> Sell {cardMath.scale50Shares} sh @ Limit ${cardMath.t1.toFixed(2)} <span className="text-slate-400">(Move stop to Breakeven ${entryPrice.toFixed(2)})</span></div>
+          <div><strong className="text-emerald-400">Leg 3 (2.0R Core — 30%):</strong> Sell {cardMath.core30Shares} sh @ Limit ${cardMath.t2.toFixed(2)}</div>
+          <div><strong className="text-emerald-400">Leg 4 (3.0R Runner — 20%):</strong> Sell {cardMath.runner20Shares} sh @ Limit ${cardMath.t3.toFixed(2)} <span className="text-slate-400">(or trail under 1H 20-SMA)</span></div>
+        </div>
+
+        {/* Action Bar: [ 📋 Copy Fidelity OCO Bracket ], [ ✓ Log Active Trade ], [ ⚡ OPEN FIDELITY TICKET ], [ ▾ DETAILS ] */}
+        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+          <button
+            type="button"
+            onClick={handleCopyTicket}
+            className="flex-1 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black px-4 py-2.5 rounded-lg font-mono text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_16px_rgba(0,245,160,0.3)]"
+            data-testid={`button-copy-oco-card-${d.symbol}`}
+          >
+            <span>{copiedTicket ? "✓ Copied OCO Bracket!" : "[ 📋 Copy Fidelity OCO Bracket ]"}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onConfirmExecute(d, ver)}
+            disabled={isArming}
+            className="px-4 py-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/60 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+            data-testid={`button-log-active-trade-${d.symbol}`}
+          >
+            <span>{isArming ? "Logging..." : "[ ✓ Log Active Trade ]"}</span>
+          </button>
+
           <button
             type="button"
             onClick={() => setIsTicketDrawerOpen(true)}
-            className="flex-1 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black px-5 py-2.5 rounded-lg font-mono text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 shadow-[0_0_16px_rgba(0,245,160,0.3)]"
+            className="px-3.5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-cyan-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
             data-testid={`button-massive-arm-${d.symbol}`}
           >
-            <span>[ ⚡ OPEN FIDELITY TICKET ]</span>
+            <span>[ ⚡ Ticket ]</span>
           </button>
 
           <button
             type="button"
             onClick={() => setIsDetailsOpen((prev) => !prev)}
-            className={`px-4 py-2.5 rounded-lg font-mono font-semibold text-sm uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            className={`px-3.5 py-2.5 rounded-lg font-mono font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               isDetailsOpen
                 ? "bg-slate-700 border border-cyan-500/60 text-white"
                 : "bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200"
@@ -860,26 +922,26 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             data-testid={`ready-details-drawer-${d.symbol}`}
           >
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono tabular-nums">
-              <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">1.5R Target</span>
-                <span className="text-emerald-400 font-mono text-lg font-bold">${cardMath.t1.toFixed(2)}</span>
-                <span className="text-sm font-bold text-emerald-400">
+              <div className="p-3 rounded-lg bg-cyan-950/25 border border-cyan-500/40 flex flex-col gap-1">
+                <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider">🎯 1.5R SCALE (50%)</span>
+                <span className="text-white font-mono text-lg font-bold">${cardMath.t1.toFixed(2)}</span>
+                <span className="text-sm font-bold text-cyan-300">
                   +${cardMath.profit1_5.toFixed(2)} (+{cardMath.roi1_5.toFixed(1)}%)
                 </span>
               </div>
 
-              <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">2.0R Target</span>
-                <span className="text-emerald-400 font-mono text-lg font-bold">${cardMath.t2.toFixed(2)}</span>
+              <div className="p-3 rounded-lg bg-emerald-950/25 border border-emerald-500/40 flex flex-col gap-1">
+                <span className="text-xs font-bold text-emerald-300 uppercase tracking-wider">💰 2.0R CORE TARGET</span>
+                <span className="text-white font-mono text-lg font-bold">${cardMath.t2.toFixed(2)}</span>
                 <span className="text-sm font-bold text-emerald-400">
                   +${cardMath.profit2_0.toFixed(2)} (+{cardMath.roi2_0.toFixed(1)}%)
                 </span>
               </div>
 
-              <div className="p-3 rounded-lg bg-[#0B1220] border border-slate-800 flex flex-col gap-1">
-                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">3.0R Target</span>
-                <span className="text-emerald-400 font-mono text-lg font-bold">${cardMath.t3.toFixed(2)}</span>
-                <span className="text-sm font-bold text-emerald-400">
+              <div className="p-3 rounded-lg bg-violet-950/25 border border-violet-500/40 flex flex-col gap-1">
+                <span className="text-xs font-bold text-violet-300 uppercase tracking-wider">🚀 3.0R RUNNER</span>
+                <span className="text-white font-mono text-lg font-bold">${cardMath.t3.toFixed(2)}</span>
+                <span className="text-sm font-bold text-violet-300">
                   +${cardMath.profit3_0.toFixed(2)} (+{cardMath.roi3_0.toFixed(1)}%)
                 </span>
               </div>
@@ -926,7 +988,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
                     FIDELITY BROKER CARD
                   </span>
                   <span className="font-mono text-xs text-slate-400 uppercase">
-                    Capital: ${customCapital.toLocaleString()}
+                    Capital: ${numericCapital.toLocaleString()}
                   </span>
                 </div>
                 <h3 className="font-mono text-2xl font-black tracking-tight text-white">
@@ -1084,6 +1146,7 @@ function ActionCenterInner() {
   });
   const regimeCode = regimePayload?.effective?.code?.toLowerCase() ?? (settings.data?.regime?.toLowerCase() as "green" | "yellow" | "red" | undefined) ?? "yellow";
   const [prefs, setPrefs] = useAcPrefs();
+  const cardTypo = useCardTypography();
   const all = useDisclosureAll();
   const [alertsOpen, setAlertsOpen] = useDisclosure("alerts", true);
   const [boxOpen, setBoxOpen] = usePersistentState<boolean>("ac-box-open", true);
@@ -2253,6 +2316,34 @@ function ActionCenterInner() {
           {/* Left Side: Solid Filter Pills */}
           <div className="flex flex-wrap items-center gap-2.5">
 
+            {/* Quick Card Font Size Pill [ A- | A | A+ ] */}
+            <div
+              className="inline-flex items-center rounded-md border border-slate-700 bg-slate-900 p-0.5 font-mono text-xs"
+              data-testid="pill-card-font-size"
+            >
+              {(
+                [
+                  { id: "compact", label: "A-" },
+                  { id: "standard", label: "A" },
+                  { id: "large", label: "A+" },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => updateCardTypography({ size: opt.id })}
+                  className={`px-2 py-1 rounded font-bold cursor-pointer transition-colors ${
+                    cardTypo.size === opt.id
+                      ? "bg-cyan-500/20 text-cyan-300"
+                      : "text-slate-400 hover:text-white"
+                  }`}
+                  title={`Card font size: ${opt.id}`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+
             {/* Task 2: Solid Filter Buttons: bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm */}
             <div
               className="flex items-center gap-2 bg-slate-800 text-slate-200 px-4 py-2 rounded-md shadow-sm font-mono text-xs font-bold uppercase tracking-wider select-none"
@@ -2528,7 +2619,7 @@ function ActionCenterInner() {
                   <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
                 </span>
                 <h3 className="font-mono text-base sm:text-lg font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
-                  <span>⚡ READY TO TRADE</span>
+                  <span>⚡ READY TO TRADE — PROP EXECUTION DESK</span>
                   <span className="sr-only">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
                 <span className="bg-emerald-400/10 border border-emerald-400/30 text-[#00F5A0] px-3 py-1 rounded-md font-bold text-xs font-mono">

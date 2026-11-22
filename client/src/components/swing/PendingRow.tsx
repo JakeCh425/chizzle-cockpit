@@ -10,7 +10,7 @@ import {
   computeSwingPositionMath,
   type SetupStage,
 } from "@/hooks/useSwingMath";
-import { STATUS_THEME, PRICE_COLOR_CLASSES } from "@/lib/statusTheme";
+import { STATUS_THEME, PRICE_COLOR_CLASSES, useCardTypography } from "@/lib/statusTheme";
 
 export interface PendingRowProps {
   setup: SwingDecision & {
@@ -51,13 +51,17 @@ export const PendingRow = React.memo(function PendingRow({
   getSetupPriceExtension,
 }: PendingRowProps) {
   const d = propD || setup;
-  const [customCapital, setCustomCapital] = useState<number>(setup.allocatedCapital || 1000);
+  const [rawCapital, setRawCapital] = useState<string>(() => String(setup.allocatedCapital || 1000));
+  const [shareModeOverride, setShareModeOverride] = useState<"auto" | "whole" | "fractional">("auto");
+  const cardTypo = useCardTypography();
 
   useEffect(() => {
-    if (setup.allocatedCapital && setup.allocatedCapital !== customCapital) {
-      setCustomCapital(setup.allocatedCapital);
+    if (setup.allocatedCapital && setup.allocatedCapital > 0) {
+      setRawCapital((prev) => (prev === "" ? prev : String(setup.allocatedCapital)));
     }
   }, [setup.allocatedCapital]);
+
+  const numericCapital = Number(rawCapital) || 0;
 
   const ext = getSetupPriceExtension?.(d) ?? { extensionPercent: 0, diffSign: "+" };
   const isExtended = ext.extensionPercent > 0.75;
@@ -130,15 +134,23 @@ export const PendingRow = React.memo(function PendingRow({
     };
   }, [d.setupStatus, proximity, stage]);
 
-  // Shared Live-Math Engine Hookup
+  const useFractional =
+    shareModeOverride === "fractional"
+      ? true
+      : shareModeOverride === "whole"
+      ? false
+      : entryPrice > 0 && numericCapital < entryPrice;
+
+  // Shared Live-Math Engine Hookup (Institutional Calculator with Fractional + ROC %)
   const math = useMemo(
     () =>
       computeSwingPositionMath({
         entryPrice,
         stopLoss: setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2),
-        capital: customCapital,
+        capital: numericCapital,
+        fractional: useFractional,
       }),
-    [customCapital, entryPrice, setup.stopLoss]
+    [numericCapital, entryPrice, setup.stopLoss, useFractional]
   );
 
   if (entryPrice <= 0 || !math) {
@@ -170,35 +182,36 @@ export const PendingRow = React.memo(function PendingRow({
   }
 
   const isCloseToEntry = proximity <= 1.5;
+  const proximityBarPct = Math.max(0, Math.min(100, 100 - proximity * 10));
 
   return (
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[180px_minmax(200px,1.5fr)_repeat(3,minmax(140px,1fr))_auto] gap-5 items-center p-5 bg-[#0B101D] border border-slate-800/90 ${
-        isCloseToEntry ? "border-l-4 border-l-amber-400" : ""
-      } opacity-85 hover:opacity-100 hover:border-slate-600/80 transition-all rounded-xl cursor-pointer shadow-md ${
-        selectedTicker === d.symbol ? "ring-1 ring-amber-400/70 opacity-100" : ""
+      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(280px,1.8fr)_auto] gap-5 items-center p-5 bg-[#0B101D] border ${
+        stageTheme.cardGlowClass
+      } opacity-95 hover:opacity-100 transition-all rounded-xl cursor-pointer shadow-md ${
+        selectedTicker === d.symbol ? "ring-1 ring-cyan-400/70 opacity-100" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
     >
       <motion.div key={d.symbol} initial={{ opacity: 0, y: 10 }} className="sr-only" />
 
-      {/* Col 1: Ticker & Proximity Capsule (Visual Radar) */}
-      <div className="flex flex-col gap-2.5 min-w-0">
+      {/* Left Zone: Asset & 4-Tier Proximity Color-Shift Engine */}
+      <div className="flex flex-col gap-2.5 min-w-0" style={cardTypo.fontStyle}>
         <div className="flex items-center gap-3">
           <div className={`bg-slate-900 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
-            <span className="text-2xl lg:text-3xl font-black tracking-widest text-white">{d.symbol}</span>
+            <span className={`${cardTypo.tickerClass} font-black tracking-widest text-white`}>{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
             <div className="flex items-center gap-1.5">
               <Activity className="w-4 h-4 text-slate-400 shrink-0" />
-              <span className="text-slate-200 font-mono tabular-nums text-xl font-bold leading-tight">
+              <span className={`text-slate-100 font-mono tabular-nums ${cardTypo.priceClass} font-bold leading-tight`}>
                 {formatCurrency(effectivePrice)}
               </span>
             </div>
             <div
-              className="flex items-center gap-1 text-xs text-slate-400 font-mono shrink-0"
+              className={`flex items-center gap-1 ${cardTypo.labelClass} text-slate-400 font-mono shrink-0`}
               data-testid={`waiting-row-timestamp-${d.symbol}`}
             >
               <span className={`w-1.5 h-1.5 rounded-full ${stageTheme.dotClass}`} />
@@ -207,7 +220,6 @@ export const PendingRow = React.memo(function PendingRow({
           </div>
         </div>
 
-        {/* Semantic Stage Badge + Never Overwrite Technical Progress */}
         <div className="flex flex-wrap items-center gap-1.5">
           <div
             className={`inline-flex w-fit px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wider uppercase ${stageTheme.badgeClass}`}
@@ -230,12 +242,8 @@ export const PendingRow = React.memo(function PendingRow({
           )}
         </div>
 
-        {/* Always show real technical progress even if macro caution/block is active */}
         <div className="text-[11px] font-mono text-slate-300 tabular-nums">
-          {proximity < 100 ? `${proximity.toFixed(1)}% from Entry` : "Scanning"} •{" "}
-          {isAwaiting1HBounce || technicalStage === "APPROACHING"
-            ? "Awaiting 1H Bounce"
-            : "Forming Pullback"}
+          {Math.round(proximityBarPct)}% to Entry • {proximity < 100 ? `${proximity.toFixed(1)}% away` : "Scanning"}
         </div>
 
         {/* Proximity Capsule (Visual Radar) */}
@@ -243,7 +251,7 @@ export const PendingRow = React.memo(function PendingRow({
           <div className="w-full h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700 relative">
             <div
               className={`h-full rounded-full transition-all duration-700 ${capsuleColorClass}`}
-              style={{ width: `${Math.max(0, Math.min(100, 100 - proximity * 10))}%` }}
+              style={{ width: `${proximityBarPct}%` }}
             />
           </div>
           <span className={`text-sm font-mono font-bold tabular-nums shrink-0 ${readinessColors.text}`}>
@@ -252,89 +260,125 @@ export const PendingRow = React.memo(function PendingRow({
         </div>
       </div>
 
-      {/* Col 2: Core Plan & Risk (Capital Input / Entry / Stop) */}
+      {/* Center Zone: Interactive Capital Calculator & 3-Column Target Strip */}
       <div className="flex flex-col gap-3 min-w-0">
-        {/* Capital Input & Shares */}
-        <div className="flex items-center justify-between gap-2 flex-wrap">
+        {/* Capital Input, Fractional Toggle, Shares, Allocated & 1R Risk */}
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">CAPITAL</span>
-            <div className="flex items-center gap-1">
-              <span className="text-slate-400 font-mono text-base font-bold">$</span>
-              <input
-                type="number"
-                value={customCapital}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  setCustomCapital(Number(e.target.value));
-                  onUpdateCapital?.(d.symbol, Number(e.target.value));
-                }}
-                className="bg-slate-800 border border-slate-700 hover:border-slate-500 focus:border-cyan-500 text-cyan-400 font-mono tabular-nums text-base font-bold text-right w-24 rounded px-2 py-1 outline-none transition-colors"
-                data-testid={`input-capital-${d.symbol}`}
-                aria-label={`Allocated capital for ${d.symbol}`}
-              />
-            </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">SHARES</span>
-            <span className="text-slate-100 font-mono tabular-nums font-bold text-lg">{math.shares}</span>
-          </div>
-        </div>
-
-        {/* Core Prices: Entry & Stop */}
-        <div className="flex items-center justify-between gap-4 flex-wrap pt-0.5">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">ENTRY</span>
-            <span className={`text-lg tabular-nums ${PRICE_COLOR_CLASSES.entry}`}>${Number(math.entryPrice || 0).toFixed(2)}</span>
+            <span className={`${cardTypo.labelClass} font-bold text-slate-400 uppercase tracking-widest`}>CAPITAL ($)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={rawCapital}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
+                setRawCapital(cleaned);
+                onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
+              }}
+              onBlur={() => {
+                if (rawCapital === "") {
+                  setRawCapital("1000");
+                  onUpdateCapital?.(d.symbol, 1000);
+                }
+              }}
+              className="appearance-none font-mono font-bold text-white bg-slate-900 border border-slate-600 focus:border-cyan-400 rounded px-2.5 py-1 w-28 text-right tabular-nums outline-none transition-colors"
+              data-testid={`input-capital-${d.symbol}`}
+              aria-label={`Allocated capital for ${d.symbol}`}
+            />
           </div>
 
-          <div className="flex flex-col gap-0.5">
-            <div className="flex items-center gap-1">
-              <Shield className="w-3.5 h-3.5 text-rose-400 shrink-0" />
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">STOP</span>
-            </div>
-            <div className="flex items-baseline gap-1.5">
-              <span className={`text-lg tabular-nums font-bold ${PRICE_COLOR_CLASSES.stop}`}>${Number(math.stopLoss || 0).toFixed(2)}</span>
-              <span className={`text-base tabular-nums font-bold ${PRICE_COLOR_CLASSES.stop}`}>
-                (-${Number(math.totalRisk || 0).toFixed(2)})
-              </span>
-            </div>
+          <div
+            className="inline-flex rounded-md border border-slate-700 bg-slate-900 p-0.5 text-[11px] font-mono"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShareModeOverride("whole")}
+              className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                !useFractional ? "bg-cyan-500/20 text-cyan-300" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Whole
+            </button>
+            <button
+              type="button"
+              onClick={() => setShareModeOverride("fractional")}
+              className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                useFractional ? "bg-cyan-500/20 text-cyan-300" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              Fractional
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3 font-mono text-xs tabular-nums">
+            <span>
+              <span className="text-slate-400 uppercase">SHARES </span>
+              <strong className="text-white text-sm">{math.shares} sh</strong>
+            </span>
+            <span>
+              <span className="text-slate-400 uppercase">ALLOCATED </span>
+              <strong className="text-cyan-300">${math.actualCapitalDeployed.toFixed(2)}</strong>
+            </span>
+            <span>
+              <span className="text-slate-400 uppercase">1R RISK </span>
+              <strong className="text-rose-400">
+                -${math.totalRisk.toFixed(2)} ({math.equityRiskPct.toFixed(1)}% Eq)
+              </strong>
+            </span>
           </div>
         </div>
-      </div>
 
-      {/* Col 3: 1.5R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
-        <div className="flex items-center gap-1">
-          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">1.5R Target</span>
-        </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target1_5R || 0).toFixed(2)}</span>
-        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
-          +${Number(math.profit1_5 || 0).toFixed(2)} (+{Number(math.roi1_5 || 0).toFixed(1)}%)
-        </div>
-      </div>
+        {!useFractional && math.shares === 0 && (
+          <div className="inline-flex w-fit px-2.5 py-1 rounded bg-amber-500/15 border border-amber-400/60 text-amber-300 text-xs font-mono font-bold">
+            [ ⚠️ Min Capital: ${Math.ceil(entryPrice)} for 1 Whole Share ]
+          </div>
+        )}
 
-      {/* Col 4: 2.0R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
-        <div className="flex items-center gap-1">
-          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">2.0R Target</span>
-        </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target2_0R || 0).toFixed(2)}</span>
-        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
-          +${Number(math.profit2_0 || 0).toFixed(2)} (+{Number(math.roi2_0 || 0).toFixed(1)}%)
-        </div>
-      </div>
+        {/* Entry / Stop + Distinct Color-Coded 3-Column Target Strip */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5" style={cardTypo.fontStyle}>
+          <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-0.5">
+            <span className={`${cardTypo.labelClass} font-bold text-slate-400 uppercase tracking-wider`}>Entry / Stop</span>
+            <span className={`${cardTypo.priceClass} tabular-nums ${PRICE_COLOR_CLASSES.entry}`}>${math.entryPrice.toFixed(2)}</span>
+            <span className={`text-xs tabular-nums font-bold ${PRICE_COLOR_CLASSES.stop}`}>
+              Stop ${math.stopLoss.toFixed(2)} ({math.stopPct.toFixed(2)}%)
+            </span>
+          </div>
 
-      {/* Col 5: 3.0R Target */}
-      <div className="flex flex-col p-3 rounded-lg bg-slate-900/70 border border-slate-800/80 gap-1 min-w-[140px]">
-        <div className="flex items-center gap-1">
-          <Crosshair className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <span className="text-xs font-bold text-slate-400 uppercase tracking-widest">3.0R Target</span>
-        </div>
-        <span className="text-lg font-mono tabular-nums font-bold text-slate-200">${Number(math.target3_0R || 0).toFixed(2)}</span>
-        <div className={`text-base tabular-nums ${isDeepStandby ? PRICE_COLOR_CLASSES.profitDeepStandby : PRICE_COLOR_CLASSES.profitActive}`}>
-          +${Number(math.profit3_0 || 0).toFixed(2)} (+{Number(math.roi3_0 || 0).toFixed(1)}%)
+          <div className="flex flex-col bg-cyan-950/25 border border-cyan-500/40 rounded-lg p-3 gap-0.5">
+            <span className={`${cardTypo.labelClass} text-cyan-300 font-bold uppercase tracking-wider`}>🎯 1.5R SCALE (50%)</span>
+            <span className={`${cardTypo.priceClass} font-bold font-mono tabular-nums text-white`}>${math.target1_5R.toFixed(2)}</span>
+            <span className="text-xs text-cyan-300 font-mono font-bold tabular-nums">
+              +${math.profit1_5.toFixed(2)} (+{math.targetPct1_5.toFixed(2)}%)
+            </span>
+            <span className="text-[11px] font-mono tabular-nums text-cyan-300/80">
+              ROC: +{math.roc1_5.toFixed(2)}%
+            </span>
+          </div>
+
+          <div className="flex flex-col bg-emerald-950/25 border border-emerald-500/40 rounded-lg p-3 gap-0.5">
+            <span className={`${cardTypo.labelClass} text-emerald-300 font-bold uppercase tracking-wider`}>💰 2.0R CORE TARGET</span>
+            <span className={`${cardTypo.priceClass} font-bold font-mono tabular-nums text-white`}>${math.target2_0R.toFixed(2)}</span>
+            <span className="text-xs text-emerald-400 font-mono font-bold tabular-nums">
+              +${math.profit2_0.toFixed(2)} (+{math.targetPct2_0.toFixed(2)}%)
+            </span>
+            <span className="text-[11px] font-mono tabular-nums text-emerald-300/80">
+              ROC: +{math.roc2_0.toFixed(2)}%
+            </span>
+          </div>
+
+          <div className="flex flex-col bg-violet-950/25 border border-violet-500/40 rounded-lg p-3 gap-0.5">
+            <span className={`${cardTypo.labelClass} text-violet-300 font-bold uppercase tracking-wider`}>🚀 3.0R RUNNER</span>
+            <span className={`${cardTypo.priceClass} font-bold font-mono tabular-nums text-white`}>${math.target3_0R.toFixed(2)}</span>
+            <span className="text-xs text-violet-300 font-mono font-bold tabular-nums">
+              +${math.profit3_0.toFixed(2)} (+{math.targetPct3_0.toFixed(2)}%)
+            </span>
+            <span className="text-[11px] font-mono tabular-nums text-violet-300/80">
+              ROC: +{math.roc3_0.toFixed(2)}%
+            </span>
+          </div>
         </div>
       </div>
 
@@ -402,6 +446,24 @@ export const PendingRow = React.memo(function PendingRow({
             <span className="sr-only">[ 🎮 Practice Drill ]</span>
           </button>
         )}
+      </div>
+
+      {/* Explicit "Current Status -> Next Action" Flow Strip */}
+      <div
+        className="col-span-full bg-slate-900/90 border border-slate-800 rounded-md px-3 py-2 text-xs font-mono flex flex-wrap items-center justify-between gap-2"
+        data-testid={`status-next-action-strip-${d.symbol}`}
+      >
+        <span className="text-slate-300 tabular-nums">
+          <strong className="text-cyan-300 uppercase">Current Status:</strong>{" "}
+          Price ({formatCurrency(effectivePrice)}) is{" "}
+          {proximity < 100 ? `${proximity.toFixed(1)}%` : "—"} {effectivePrice >= math.entryPrice ? "above" : "below"} 20-SMA support (${math.entryPrice.toFixed(2)})
+        </span>
+        <span className="text-amber-300 tabular-nums">
+          <strong className="uppercase">Next Step:</strong>{" "}
+          {proximity <= 0.6
+            ? `Hold support $${math.entryPrice.toFixed(2)} + wait for 1H green candle close ➔ Auto-moves to Ready to Trade`
+            : `Wait for pullback to $${math.entryPrice.toFixed(2)} + 1H green candle close ➔ Auto-moves to Ready to Trade`}
+        </span>
       </div>
 
       {/* Hidden compatibility markers for test suites */}
