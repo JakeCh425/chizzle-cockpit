@@ -1737,6 +1737,11 @@ function ActionCenterInner() {
       const is1HCandleClosedGreen = Boolean(hasClosed1HReversal && (last1HClose <= 0 || last1HClose >= entryPx));
       const existingTimestamps = tradeSetupStore.getTimestamps(cleanTicker);
       const hasTouchedEntry = Boolean(existingTimestamps.entryTouchedAt) || proximity <= 0.25 || hasClosed1HReversal;
+      const isAwaiting1HBounce = Boolean(
+        (d as any).isAwaiting1HBounce ??
+        ((livePx > 0 && entryPx > 0 && livePx <= entryPx && !hasClosed1HReversal) ||
+          existingTimestamps.entryTouchedAt !== null)
+      );
 
       if (
         hasTouchedEntry &&
@@ -1781,6 +1786,7 @@ function ActionCenterInner() {
         stage,
         technicalStage,
         computedProximity: proximity,
+        isAwaiting1HBounce,
         hasClosed1HReversal,
         isStandbyDay: isStandby,
         hasHardBlock: hasBlock,

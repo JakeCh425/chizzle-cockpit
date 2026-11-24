@@ -39,8 +39,7 @@ export function MyTrades({ compact = false }: { compact?: boolean }) {
         )}
       </div>
       <div className="text-[10px] font-mono font-bold text-signal-amber" data-testid="text-my-trades-gap">{GAP_RISK}</div>
-      {q.isLoading && <div className="text-[11px] text-slate-gray">Loading practice trades…</div>}
-      {q.isError && <div className="text-[11px] text-signal-red">Could not load practice trades: {(q.error as any)?.message}</div>}
+      {q.isLoading && all.length === 0 && <div className="text-[11px] text-slate-gray">Loading practice trades…</div>}
       {!q.isLoading && open.length === 0 && <div className="text-[11px] text-slate-gray border border-dashed border-ink-line rounded-sm p-3" data-testid="text-my-trades-empty">No armed or active practice trades. Use <b>Arm Trade</b> on a Ready trading card to add one here.</div>}
       {open.map((t) => <TradeRow key={t.id} t={t} price={prices?.[t.symbol]?.price ?? null} compact={compact} />)}
       {done.length > 0 && (

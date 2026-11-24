@@ -9,6 +9,26 @@ import type { EffectivePlan } from "@shared/practicePlan";
 import { JOURNAL_KEY } from "@/lib/journal";
 
 export const TRADES_KEY = ["/api/swing/trades"] as const;
+export const PRACTICE_TRADES_STORAGE_KEY = "chizzle_practice_trades";
+
+export function loadLocalPracticeTrades(): SwingTrade[] {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return [];
+  try {
+    const raw = localStorage.getItem(PRACTICE_TRADES_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+export function saveLocalPracticeTrades(trades: SwingTrade[]): void {
+  if (typeof window === "undefined" || typeof localStorage === "undefined") return;
+  try {
+    localStorage.setItem(PRACTICE_TRADES_STORAGE_KEY, JSON.stringify(trades));
+  } catch {}
+}
+
 export async function invalidateTrades() {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: [...TRADES_KEY] }),
@@ -20,13 +40,66 @@ export async function invalidateTrades() {
 
 export function useSwingTrades(enabledOverride?: boolean) {
   const on = useSwingEnabled();
+  const localInitial = loadLocalPracticeTrades();
   return useQuery<{ trades: SwingTrade[]; banner: string; note: string }>({
-    queryKey: [...TRADES_KEY], queryFn: () => swingGet("/api/swing/trades"), enabled: enabledOverride ?? on, staleTime: 15_000, refetchInterval: 60_000,
+    queryKey: [...TRADES_KEY],
+    queryFn: async () => {
+      try {
+        const res = await swingGet<{ trades: SwingTrade[]; banner: string; note: string }>("/api/swing/trades");
+        if (res && Array.isArray(res.trades)) {
+          saveLocalPracticeTrades(res.trades);
+        }
+        return res;
+      } catch {
+        // Silent graceful fallback to localStorage so UI never blocks on 8000ms timeout
+        return {
+          trades: loadLocalPracticeTrades(),
+          banner: "PRACTICE ONLY — LOCAL-FIRST SYNC",
+          note: "Loaded from localStorage cache",
+        };
+      }
+    },
+    initialData: {
+      trades: localInitial,
+      banner: "PRACTICE ONLY — LOCAL-FIRST SYNC",
+      note: "Instant localStorage hydration",
+    },
+    initialDataUpdatedAt: 0,
+    enabled: enabledOverride ?? on,
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    retry: false,
   });
 }
 export function useTradesSummary() {
   const on = useSwingEnabled();
-  return useQuery<SwingTradesSummary>({ queryKey: [...TRADES_KEY, "summary"], queryFn: () => swingGet("/api/swing/trades/summary"), enabled: on, staleTime: 15_000, refetchInterval: 60_000 });
+  return useQuery<SwingTradesSummary>({
+    queryKey: [...TRADES_KEY, "summary"],
+    queryFn: async () => {
+      try {
+        return await swingGet<SwingTradesSummary>("/api/swing/trades/summary");
+      } catch {
+        const local = loadLocalPracticeTrades();
+        const armed = local.filter((t) => t.status === "ARMED").length;
+        const active = local.filter((t) => t.status === "ACTIVE").length;
+        const openRiskDollars = local
+          .filter((t) => t.status === "ARMED" || t.status === "ACTIVE")
+          .reduce((sum, t) => sum + Number(t.riskDollars || 0), 0);
+        return {
+          armed,
+          active,
+          closed: local.filter((t) => t.status === "CLOSED").length,
+          openRiskDollars,
+          dailyPnl: 0,
+          weeklyPnl: 0,
+        } as unknown as SwingTradesSummary;
+      }
+    },
+    enabled: on,
+    staleTime: 15_000,
+    refetchInterval: 60_000,
+    retry: false,
+  });
 }
 export function useTradeEvents(id: number | null) {
   return useQuery<{ events: SwingTradeEvent[] }>({ queryKey: [...TRADES_KEY, id, "events"], queryFn: () => swingGet(`/api/swing/trades/${id}/events`), enabled: id != null });

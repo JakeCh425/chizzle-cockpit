@@ -112,8 +112,13 @@ export const PendingRow = React.memo(function PendingRow({
     return Math.abs((effectivePrice - entryPrice) / entryPrice) * 100;
   }, [effectivePrice, entryPrice]);
 
+  const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
   const hasClosed1HReversal = Boolean(d.hasClosed1HReversal || (setup as any).hasClosed1HReversal);
-  const isAwaiting1HBounce = effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal;
+  const isAwaiting1HBounce = Boolean(
+    (setup as any)?.isAwaiting1HBounce ??
+    ((effectivePrice > 0 && entryPrice > 0 && effectivePrice <= entryPrice && !hasClosed1HReversal) ||
+      Boolean(setupTimestamps?.entryTouchedAt))
+  );
   const technicalStage =
     setup.technicalStage ??
     ((d as any).technicalStage as Exclude<SetupStage, "BLOCKED"> | undefined) ??
@@ -124,7 +129,6 @@ export const PendingRow = React.memo(function PendingRow({
   const isDeepStandby = proximity > 4.5;
   const stageTheme = STATUS_THEME[stage];
   const proxTheme = getProximityTheme(proximity, stage === "READY");
-  const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
   const [countdown, setCountdown] = useState(() => get1HCandleCountdown());
 
   useEffect(() => {
