@@ -2806,6 +2806,123 @@ export async function registerRoutes(httpServer: Server, app: Express): Promise<
     }
   });
 
+  // ── Ready-to-Trade Telegram & Email Alert Engine with 12h Deduplication ──
+  const dispatchAlertsCache = new Map<string, number>();
+
+  app.get("/api/alerts/status", (_req, res) => {
+    const telegramConfigured = Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID);
+    const emailConfigured = Boolean(
+      (process.env.RESEND_API_KEY || process.env.SMTP_HOST) && process.env.ALERT_EMAIL_TO
+    );
+    res.json({
+      ok: true,
+      telegramConfigured,
+      emailConfigured,
+      alertEmailTo: process.env.ALERT_EMAIL_TO ? true : false,
+    });
+  });
+
+  app.post("/api/alerts/dispatch", async (req, res) => {
+    try {
+      const b = req.body || {};
+      const ticker = String(b.ticker || "SPY").trim().toUpperCase();
+      const stage = String(b.stage || "READY").trim().toUpperCase();
+      const isTest = Boolean(b.isTest);
+      const entryPrice = Number(b.entryPrice || 100);
+      const stopLoss = Number(b.stopLoss || 98);
+      const livePrice = Number(b.livePrice || entryPrice);
+      const shares = Number(b.shares || 1);
+      const allocated = Number(b.allocated || shares * entryPrice);
+      const dollarRisk = Number(b.dollarRisk || Math.abs(entryPrice - stopLoss) * shares);
+      const equityRiskPct = Number(b.equityRiskPct || 1.0);
+      const target1_5R = Number(b.target1_5R || entryPrice + Math.abs(entryPrice - stopLoss) * 1.5);
+      const profit1_5R = Number(b.profit1_5R || (target1_5R - entryPrice) * shares);
+      const target2_0R = Number(b.target2_0R || entryPrice + Math.abs(entryPrice - stopLoss) * 2.0);
+      const profit2_0R = Number(b.profit2_0R || (target2_0R - entryPrice) * shares);
+      const confirmedTime = String(b.confirmedTime || new Date().toLocaleTimeString("en-US", { timeZone: "America/Chicago", hour: "numeric", minute: "2-digit", hour12: true }) + " CT");
+
+      const setupDate = new Date().toISOString().slice(0, 10);
+      const dedupeKey = `${ticker}_${setupDate}_${stage}_${entryPrice.toFixed(2)}`;
+      const now = Date.now();
+      const TWELVE_HOURS_MS = 12 * 60 * 60 * 1000;
+
+      if (!isTest) {
+        const prevSentAt = dispatchAlertsCache.get(dedupeKey);
+        if (prevSentAt && now - prevSentAt < TWELVE_HOURS_MS) {
+          return res.json({ ok: true, skipped: true, dedupeKey });
+        }
+        dispatchAlertsCache.set(dedupeKey, now);
+      }
+
+      const textBody = [
+        `${isTest ? "🧪 TEST ALERT — " : ""}⚡ CHIZZLE READY TO TRADE: ${ticker}`,
+        `Confirmed: ${confirmedTime} | Live: $${livePrice.toFixed(2)}`,
+        `• Buy Limit: $${entryPrice.toFixed(2)} (${shares} sh • $${allocated.toFixed(2)} capital)`,
+        `• Hard Stop: $${stopLoss.toFixed(2)} (-$${dollarRisk.toFixed(2)} / ${equityRiskPct.toFixed(2)}% eq)`,
+        `• Target 1 (1.5R): $${target1_5R.toFixed(2)} (+$${profit1_5R.toFixed(2)})`,
+        `• Target 2 (2.0R): $${target2_0R.toFixed(2)} (+$${profit2_0R.toFixed(2)})`,
+        ``,
+        `Fidelity OCO: Buy ${shares} @ $${entryPrice.toFixed(2)} | Sell Limit $${target1_5R.toFixed(2)} / Sell Stop $${stopLoss.toFixed(2)}`,
+      ].join("\n");
+
+      let telegramSent = false;
+      let emailSent = false;
+      const errors: string[] = [];
+
+      const tgToken = process.env.TELEGRAM_BOT_TOKEN;
+      const tgChatId = process.env.TELEGRAM_CHAT_ID;
+      if (tgToken && tgChatId) {
+        try {
+          const tgRes = await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ chat_id: tgChatId, text: textBody }),
+          });
+          telegramSent = tgRes.ok;
+          if (!tgRes.ok) errors.push(`Telegram HTTP ${tgRes.status}`);
+        } catch (err: any) {
+          errors.push(`Telegram: ${err?.message || String(err)}`);
+        }
+      }
+
+      const resendKey = process.env.RESEND_API_KEY;
+      const emailTo = process.env.ALERT_EMAIL_TO;
+      if (resendKey && emailTo) {
+        try {
+          const subject = `${isTest ? "[TEST] " : ""}⚡ READY TO TRADE: ${ticker} @ $${entryPrice.toFixed(2)} (${shares} sh)`;
+          const emRes = await fetch("https://api.resend.com/emails", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${resendKey}`,
+            },
+            body: JSON.stringify({
+              from: process.env.ALERT_EMAIL_FROM || "Chizzle Engine <alerts@chizzle.app>",
+              to: [emailTo],
+              subject,
+              text: textBody,
+            }),
+          });
+          emailSent = emRes.ok;
+          if (!emRes.ok) errors.push(`Email HTTP ${emRes.status}`);
+        } catch (err: any) {
+          errors.push(`Email: ${err?.message || String(err)}`);
+        }
+      }
+
+      res.json({
+        ok: true,
+        skipped: false,
+        telegramSent,
+        emailSent,
+        dedupeKey,
+        errors: errors.length > 0 ? errors : undefined,
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e?.message || String(e) });
+    }
+  });
+
   // ── Persistent 24/7 Backend Notification Audit Log & Watchlist Alert Worker ──
   app.get("/api/alerts/audit-log", async (req, res) => {
     try {

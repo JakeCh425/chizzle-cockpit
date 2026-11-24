@@ -787,13 +787,25 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   return (
     <>
       <div
-        className={`flex flex-col justify-between gap-4 transition-all bg-[#0D191B] border-2 border-emerald-400 shadow-[0_0_20px_rgba(0,245,160,0.15)] ${
+        className={`overflow-hidden box-border flex flex-col justify-between gap-4 transition-all bg-[#0B111E] border-2 border-emerald-400 shadow-[0_0_20px_rgba(0,245,160,0.15)] ${
           isPractice ? "ring-1 ring-amber-400/40" : ""
         } rounded-xl p-5 text-white`}
         data-testid={`active-execution-card-${d.symbol}`}
       >
-        {/* Header: Ticker Symbol, Live Price (real time), and READY Badge */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-emerald-500/20">
+        {/* Wrap Status Pill Cleanly (Never Clips Right Edge) */}
+        <div
+          className="w-full px-3 py-1.5 rounded-md bg-emerald-400 text-slate-950 font-mono text-xs font-extrabold flex flex-wrap items-center justify-between gap-2"
+          data-testid={`badge-ready-promoted-${d.symbol}`}
+        >
+          <span>⚡ READY TO TRADE</span>
+          <span>
+            {setupTimestamps?.entryTouchedAt ? `HIT ${setupTimestamps.entryTouchedAt}` : "ACTIVE"}
+            {setupTimestamps?.confirmedReadyAt ? ` • CONFIRMED ${setupTimestamps.confirmedReadyAt}` : ""}
+          </span>
+        </div>
+
+        {/* Header: Ticker Symbol & Live Price */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-emerald-500/20">
           <div className="flex flex-wrap items-center gap-3 min-w-0">
             <span className="font-mono text-3xl font-black tracking-tight text-white">{d.symbol}</span>
             {!isSyncingLiveData ? (
@@ -803,91 +815,110 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             ) : (
               <div className="h-5 bg-slate-800 rounded w-24 animate-pulse" />
             )}
-            <span className="text-sm font-mono tabular-nums text-slate-400">
-              Entry: <strong className="text-cyan-300">{formatCurrency(entryPrice)}</strong>
-            </span>
           </div>
-
-          <span
-            className="bg-emerald-400 text-slate-950 font-black px-3 py-1 rounded text-xs font-mono uppercase tracking-wider shrink-0"
-            data-testid={`badge-ready-promoted-${d.symbol}`}
-          >
-            ⚡ READY TO TRADE
-            {setupTimestamps?.entryTouchedAt ? ` • Hit Entry ${setupTimestamps.entryTouchedAt}` : ""}
-            {setupTimestamps?.confirmedReadyAt ? ` • Confirmed ${setupTimestamps.confirmedReadyAt}` : ""}
+          <span className="text-xs font-mono tabular-nums text-slate-400">
+            Updated {formattedLastUpdated} CT
           </span>
         </div>
 
-        {/* Core Row: Entry Limit, Stop Loss (with dollar risk), Target 1.5R (+$XX / +X%), Shares & Capital Input */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 py-2 font-mono tabular-nums items-start">
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Entry Limit</span>
-            <span className="text-cyan-300 font-mono text-xl font-bold">{formatCurrency(entryPrice)}</span>
+        {/* Clean 3-Column Boxed Price Grid (Zero Horizontal Collision) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full font-mono tabular-nums">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+            <div className="text-[11px] font-mono text-slate-400">ENTRY LIMIT</div>
+            <div className="text-lg font-mono font-bold text-cyan-300">${entryPrice.toFixed(2)}</div>
           </div>
-
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stop Loss</span>
-            <span className="text-rose-400 font-mono text-xl font-bold">{formatCurrency(stopLossPrice)}</span>
-            <span className="text-sm text-emerald-400 font-bold">
+          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+            <div className="text-[11px] font-mono text-slate-400">STOP LOSS</div>
+            <div className="text-lg font-mono font-bold text-rose-400">${stopLossPrice.toFixed(2)}</div>
+            <div className="text-[11px] font-mono text-rose-300">
               -${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}% Eq)
-            </span>
-            {cardMath.isRiskClamped && (
-              <span className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded w-fit">
-                🛡️ 1% Risk Capped (${cardMath.maxRiskBudget.toFixed(2)} Max)
-              </span>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-0.5">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Target 1.5R</span>
-            <span className="text-emerald-400 font-mono text-lg font-bold">{formatCurrency(cardMath.t1)}</span>
-            <span className="text-sm text-emerald-400 font-bold" data-testid={`ready-card-roi-${d.symbol}`}>
-              +${cardMath.profit1_5.toFixed(2)} (+{cardMath.roi1_5.toFixed(1)}%)
-            </span>
-          </div>
-
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Shares</span>
-              <span className="text-xl font-bold text-white">{cardMath.shares}</span>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="text-xs font-bold text-slate-400 uppercase">CAPITAL $</span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={rawCapital}
-                onClick={(e) => e.stopPropagation()}
-                onChange={(e) => {
-                  const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
-                  const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
-                  setRawCapital(cleaned);
-                  onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
-                }}
-                onBlur={() => {
-                  if (rawCapital === "") {
-                    setRawCapital("1000");
-                    onUpdateCapital?.(d.symbol, 1000);
-                  }
-                }}
-                aria-label={`Allocated capital for ${d.symbol}`}
-                data-testid={`ready-input-capital-${d.symbol}`}
-                className="appearance-none font-mono font-bold text-white bg-slate-900 border border-slate-600 focus:border-cyan-400 rounded px-2.5 py-1 w-28 text-right tabular-nums outline-none"
-              />
+          </div>
+          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
+            <div className="text-[11px] font-mono text-slate-400">TARGET 1.5R</div>
+            <div className="text-lg font-mono font-bold text-emerald-400">${cardMath.t1.toFixed(2)}</div>
+            <div className="text-[11px] font-mono text-emerald-300" data-testid={`ready-card-roi-${d.symbol}`}>
+              +${cardMath.profit1_5.toFixed(2)} (+{cardMath.roi1_5.toFixed(1)}%)
             </div>
           </div>
         </div>
 
-        {/* Prop-Firm 4-Leg Scale-Out Split */}
+        {/* Dedicated Sizing & Capital Row (Strictly Contained Inside Card) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 font-mono tabular-nums">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase">SHARES</span>
+            <span className="text-lg font-bold text-white">{cardMath.shares} sh</span>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-400 uppercase">CAPITAL ($)</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={rawCapital}
+              onClick={(e) => e.stopPropagation()}
+              onChange={(e) => {
+                const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
+                setRawCapital(cleaned);
+                onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
+              }}
+              onBlur={() => {
+                if (rawCapital === "") {
+                  setRawCapital("1000");
+                  onUpdateCapital?.(d.symbol, 1000);
+                }
+              }}
+              aria-label={`Allocated capital for ${d.symbol}`}
+              data-testid={`ready-input-capital-${d.symbol}`}
+              className="appearance-none font-mono font-bold text-white bg-slate-900 border border-slate-600 focus:border-cyan-400 rounded px-2.5 py-1 w-24 max-w-full text-right tabular-nums outline-none"
+            />
+          </div>
+
+          {cardMath.isRiskClamped && (
+            <span className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded">
+              🛡️ 1% Risk Capped (${cardMath.maxRiskBudget.toFixed(2)} Max)
+            </span>
+          )}
+        </div>
+
+        {/* Prop-Firm Scale-Out Plan (Handles 1-Share vs Multi-Share Cleanly) */}
         <div className="rounded-lg bg-[#081012] border border-emerald-500/25 p-3 flex flex-col gap-1.5 font-mono text-xs tabular-nums">
           <div className="flex items-center justify-between text-[11px] text-emerald-300 font-bold uppercase tracking-wider pb-1 border-b border-emerald-500/15">
             <span>Prop-Firm Scale-Out Plan</span>
             <span>ROC 1.5R: +{cardMath.roi1_5.toFixed(2)}%</span>
           </div>
           <div><strong className="text-cyan-300">Leg 1 (Entry):</strong> Buy {cardMath.shares} sh @ Limit ${entryPrice.toFixed(2)}</div>
-          <div><strong className="text-emerald-400">Leg 2 (1.5R Scale — 50%):</strong> Sell {cardMath.scale50Shares} sh @ Limit ${cardMath.t1.toFixed(2)} <span className="text-slate-400">(Move stop to Breakeven ${entryPrice.toFixed(2)})</span></div>
-          <div><strong className="text-emerald-400">Leg 3 (2.0R Core — 30%):</strong> Sell {cardMath.core30Shares} sh @ Limit ${cardMath.t2.toFixed(2)}</div>
-          <div><strong className="text-emerald-400">Leg 4 (3.0R Runner — 20%):</strong> Sell {cardMath.runner20Shares} sh @ Limit ${cardMath.t3.toFixed(2)} <span className="text-slate-400">(or trail under 1H 20-SMA)</span></div>
+          {cardMath.shares <= 1 ? (
+            <div className="text-emerald-300">
+              <strong>Single-Share Exit Plan:</strong> Sell 1 sh @ Limit ${cardMath.t1.toFixed(2)} (1.5R High-Probability Lock-In) OR Trail Stop to Breakeven (${entryPrice.toFixed(2)}) once 1.5R is reached toward 2.0R (${cardMath.t2.toFixed(2)}).
+            </div>
+          ) : (
+            (() => {
+              const leg2 = Math.max(1, Math.floor(cardMath.shares * 0.5));
+              const leg3 = Math.max(0, Math.floor(cardMath.shares * 0.3));
+              const leg4 = Math.max(0, +(cardMath.shares - leg2 - leg3).toFixed(3));
+              return (
+                <>
+                  <div>
+                    <strong className="text-emerald-400">Leg 2 (1.5R Scale — 50%):</strong> Sell {leg2} sh @ Limit ${cardMath.t1.toFixed(2)}{" "}
+                    <span className="text-slate-400">(Move stop to Breakeven ${entryPrice.toFixed(2)})</span>
+                  </div>
+                  {leg3 > 0 && (
+                    <div>
+                      <strong className="text-emerald-400">Leg 3 (2.0R Core — 30%):</strong> Sell {leg3} sh @ Limit ${cardMath.t2.toFixed(2)}
+                    </div>
+                  )}
+                  {leg4 > 0 && (
+                    <div>
+                      <strong className="text-emerald-400">Leg 4 (3.0R Runner — 20%):</strong> Sell {leg4} sh @ Limit ${cardMath.t3.toFixed(2)}{" "}
+                      <span className="text-slate-400">(or trail under 1H 20-SMA)</span>
+                    </div>
+                  )}
+                </>
+              );
+            })()
+          )}
         </div>
 
         {/* Action Bar: [ 📋 Copy Fidelity OCO Bracket ], [ ✓ Log Active Trade ], [ ⚡ OPEN FIDELITY TICKET ], [ ▾ DETAILS ] */}
@@ -1797,7 +1828,9 @@ function ActionCenterInner() {
     });
   }, [validSetups, prices, marketStore.prices, global?.livePrices, global?.confirmedSetups, macroRegime, global?.isPracticeMode]);
 
-  // Record exact Entry-Hit & Confirmed-Ready timestamps in tradeSetupStore
+  const dispatchedReadyKeysRef = useRef<Set<string>>(new Set());
+
+  // Record exact Entry-Hit & Confirmed-Ready timestamps in tradeSetupStore + auto-dispatch Telegram/Email alerts
   useEffect(() => {
     for (const s of setups) {
       if (!s.symbol) continue;
@@ -1805,9 +1838,45 @@ function ActionCenterInner() {
       tradeSetupStore.syncEntryTouchTimestamp(s.symbol, prox, isMarketOpenNow);
       if (s.stage === "READY") {
         tradeSetupStore.markConfirmedReady(s.symbol);
+        if (isMarketOpenNow) {
+          const entryPx = Number((s as any).projectedEntry ?? s.entryPrice ?? 0);
+          const stopPx = Number((s as any).stopLoss ?? s.structuralStop ?? +(entryPx * 0.98).toFixed(2));
+          const livePx = Number(marketStore.prices[s.symbol] ?? s.currentPrice ?? entryPx);
+          const cap = tickerCapitalMap[s.symbol] ?? standardCapital;
+          const calc = computeSwingPositionMath({
+            entryPrice: entryPx,
+            stopLoss: stopPx,
+            capital: cap,
+            accountEquity: safeEquity,
+          });
+          const key = `${s.symbol}_READY_${entryPx.toFixed(2)}`;
+          if (calc && entryPx > 0 && !dispatchedReadyKeysRef.current.has(key)) {
+            dispatchedReadyKeysRef.current.add(key);
+            fetch("/api/alerts/dispatch", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                ticker: s.symbol,
+                stage: "READY",
+                confirmedTime: tradeSetupStore.getTimestamps(s.symbol).confirmedReadyAt || "LIVE",
+                livePrice: livePx,
+                entryPrice: entryPx,
+                stopLoss: calc.stopLoss,
+                shares: calc.shares,
+                allocated: calc.actualCapitalDeployed,
+                dollarRisk: calc.totalRisk,
+                equityRiskPct: calc.equityRiskPct,
+                target1_5R: +calc.target1_5R.toFixed(2),
+                profit1_5R: calc.profit1_5,
+                target2_0R: +calc.target2_0R.toFixed(2),
+                profit2_0R: calc.profit2_0,
+              }),
+            }).catch(() => {});
+          }
+        }
       }
     }
-  }, [setups, isMarketOpenNow]);
+  }, [setups, isMarketOpenNow, marketStore.prices, tickerCapitalMap, safeEquity]);
 
   // Sync unified setup stages to globalStore so Header, Watchlist, and Wealth Studio match 1-to-1
   useEffect(() => {
@@ -2696,9 +2765,7 @@ function ActionCenterInner() {
                 </span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 w-full" data-testid="ready-cards-grid">
-                {/* Compatibility hook: gap-3.5 sm:gap-4 */}
-                <div className="hidden gap-3.5 sm:gap-4" />
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full" data-testid="ready-cards-grid">
                   {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
                   {validHeroTrades.map((trade) => (
                     <motion.div

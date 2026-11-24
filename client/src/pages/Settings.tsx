@@ -1089,7 +1089,75 @@ function RegimeEnginePanel() {
         <div className="pt-2 border-t border-ink-line text-[10px] text-slate-gray">
           VIX uses the VIXY ETF as a proxy (Finnhub free tier doesn’t cover ^VIX). Yahoo daily closes power SMAs, distribution days, follow-through, and breadth. Refresh: server start + 6:15 PM ET daily + every 15 min during US market hours.
         </div>
+
+        <AlertChannelStatusCard />
       </div>
     </Panel>
+  );
+}
+
+function AlertChannelStatusCard() {
+  const { toast } = useToast();
+  const [testing, setTesting] = useState(false);
+  const statusQ = useQuery<{ ok: boolean; telegramConfigured: boolean; emailConfigured: boolean }>({
+    queryKey: ["/api/alerts/status"],
+    staleTime: 30_000,
+  });
+
+  const handleTestAlerts = async () => {
+    setTesting(true);
+    try {
+      const res = await fetch("/api/alerts/dispatch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          isTest: true,
+          ticker: "SPY",
+          stage: "READY",
+          entryPrice: 590.0,
+          stopLoss: 584.0,
+          shares: 2,
+          allocated: 1180.0,
+          dollarRisk: 12.0,
+          equityRiskPct: 0.74,
+          target1_5R: 599.0,
+          profit1_5R: 18.0,
+          target2_0R: 602.0,
+          profit2_0R: 24.0,
+        }),
+      });
+      const json = await res.json();
+      toast({
+        title: "Test Alert Dispatched",
+        description: `Telegram: ${json.telegramSent ? "Sent ✓" : "Not configured / skipped"} · Email: ${json.emailSent ? "Sent ✓" : "Not configured / skipped"}`,
+      });
+    } catch (e: any) {
+      toast({ title: "Test Alert Error", description: e?.message || "Failed", variant: "destructive" });
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <div className="pt-3 border-t border-ink-line flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
+      <div className="flex flex-wrap items-center gap-3">
+        <span className="font-bold text-cyan-300 uppercase">Ready-to-Trade Alerts:</span>
+        <span className={statusQ.data?.telegramConfigured ? "text-emerald-400" : "text-amber-300"}>
+          Telegram: {statusQ.data?.telegramConfigured ? "Configured ✓" : "Missing ENV"}
+        </span>
+        <span className={statusQ.data?.emailConfigured ? "text-emerald-400" : "text-amber-300"}>
+          Email: {statusQ.data?.emailConfigured ? "Configured ✓" : "Missing ENV"}
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={handleTestAlerts}
+        disabled={testing}
+        className="px-3 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-300 font-bold uppercase cursor-pointer disabled:opacity-50"
+        data-testid="button-test-telegram-email-alert"
+      >
+        {testing ? "Sending..." : "[ 🔔 Send Test Telegram & Email Alert ]"}
+      </button>
+    </div>
   );
 }
