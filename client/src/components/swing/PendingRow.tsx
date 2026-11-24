@@ -8,6 +8,9 @@ import {
   getReadinessTier,
   getTechnicalStage,
   computeSwingPositionMath,
+  getRecommendedRiskPct,
+  type MacroRegime,
+  type SizingMode,
   type SetupStage,
 } from "@/hooks/useSwingMath";
 import { STATUS_THEME, PRICE_COLOR_CLASSES, useCardTypography, getProximityTheme } from "@/lib/statusTheme";
@@ -28,15 +31,19 @@ export interface PendingRowProps {
   effectivePrice: number;
   rowTimestamp: string;
   selectedTicker: string;
-  macroRegime?: string;
+  macroRegime?: MacroRegime | string;
   accountEquity?: number;
+  selectedRiskPct?: number;
   onSelectTicker: (sym: string) => void;
   onUpdateCapital?: (symbol: string, capital: number) => void;
+  onUpdateRiskPct?: (symbol: string, riskPct: number) => void;
   onPassSetup?: (ticker: string) => void;
   isPractice?: boolean;
   onStartPracticeDrill?: (d: SwingDecision, price: number) => void;
   getSetupPriceExtension?: (d: any) => any;
 }
+
+const RISK_PRESETS = [0.01, 0.015, 0.02, 0.025, 0.03] as const;
 
 export const PendingRow = React.memo(function PendingRow({
   setup,
@@ -46,8 +53,10 @@ export const PendingRow = React.memo(function PendingRow({
   selectedTicker,
   macroRegime,
   accountEquity,
+  selectedRiskPct,
   onSelectTicker,
   onUpdateCapital,
+  onUpdateRiskPct,
   onPassSetup,
   isPractice = false,
   onStartPracticeDrill,
@@ -56,6 +65,16 @@ export const PendingRow = React.memo(function PendingRow({
   const d = propD || setup;
   const [rawCapital, setRawCapital] = useState<string>(() => String(setup.allocatedCapital || 1000));
   const [shareModeOverride, setShareModeOverride] = useState<"auto" | "whole" | "fractional">("auto");
+  const [sizingMode, setSizingMode] = useState<SizingMode>("risk_cap");
+  const recommendation = useMemo(
+    () => getRecommendedRiskPct({ macroRegime: (macroRegime as MacroRegime) ?? null, setup: d }),
+    [macroRegime, d]
+  );
+  const [localRiskPct, setLocalRiskPct] = useState<number>(
+    () => selectedRiskPct ?? recommendation.recommendedPct
+  );
+  const activeRiskPct = selectedRiskPct ?? localRiskPct;
+  const activeRiskLabel = `${(activeRiskPct * 100).toFixed(1).replace(/\.0$/, "")}%`;
   const cardTypo = useCardTypography();
 
   useEffect(() => {
@@ -166,7 +185,7 @@ export const PendingRow = React.memo(function PendingRow({
       ? false
       : entryPrice > 0 && numericCapital < entryPrice;
 
-  // Shared Live-Math Engine Hookup (Institutional Calculator with 1% Risk Clamp + Fractional + ROC %)
+  // Shared Live-Math Engine Hookup (Institutional Calculator with Dynamic Risk Clamp + Dual Sizing + ROC %)
   const math = useMemo(
     () =>
       computeSwingPositionMath({
@@ -175,9 +194,18 @@ export const PendingRow = React.memo(function PendingRow({
         capital: numericCapital,
         fractional: useFractional,
         accountEquity,
+        riskPct: activeRiskPct,
+        sizingMode,
       }),
-    [numericCapital, entryPrice, setup.stopLoss, useFractional, accountEquity]
+    [numericCapital, entryPrice, setup.stopLoss, useFractional, accountEquity, activeRiskPct, sizingMode]
   );
+
+  const riskBadgeColor =
+    activeRiskPct <= 0.015
+      ? "bg-emerald-500/15 border-emerald-400/40 text-emerald-300"
+      : activeRiskPct <= 0.02
+      ? "bg-amber-500/15 border-amber-400/40 text-amber-300"
+      : "bg-rose-500/15 border-rose-400/40 text-rose-300";
 
   if (entryPrice <= 0 || !math) {
     return (
@@ -344,6 +372,61 @@ export const PendingRow = React.memo(function PendingRow({
             </button>
           </div>
 
+          <div
+            className="inline-flex rounded-md border border-slate-700 bg-slate-900 p-0.5 text-[11px] font-mono"
+            onClick={(e) => e.stopPropagation()}
+            data-testid={`pending-sizing-mode-${d.symbol}`}
+          >
+            <button
+              type="button"
+              onClick={() => setSizingMode("risk_cap")}
+              className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                sizingMode === "risk_cap" ? "bg-emerald-500/20 text-emerald-300" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              🛡️ {activeRiskLabel} Risk Cap
+            </button>
+            <button
+              type="button"
+              onClick={() => setSizingMode("capital")}
+              className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                sizingMode === "capital" ? "bg-cyan-500/20 text-cyan-300" : "text-slate-400 hover:text-white"
+              }`}
+            >
+              💵 Capital
+            </button>
+          </div>
+
+          <div
+            className="flex flex-wrap items-center gap-1 font-mono"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {RISK_PRESETS.map((pct) => {
+              const isSelected = Math.abs(activeRiskPct - pct) < 0.0005;
+              const label = `${(pct * 100).toFixed(1).replace(/\.0$/, "")}%`;
+              return (
+                <button
+                  key={pct}
+                  type="button"
+                  onClick={() => {
+                    setLocalRiskPct(pct);
+                    onUpdateRiskPct?.(d.symbol, pct);
+                  }}
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-colors ${
+                    isSelected
+                      ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                      : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-600"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 border border-cyan-500/25">
+              {recommendation.label}
+            </span>
+          </div>
+
           <div className="flex flex-wrap items-center gap-3 font-mono text-xs tabular-nums">
             <span>
               <span className="text-slate-400 uppercase">SHARES </span>
@@ -353,12 +436,20 @@ export const PendingRow = React.memo(function PendingRow({
               <span className="text-slate-400 uppercase">ALLOCATED </span>
               <strong className="text-cyan-300">${math.actualCapitalDeployed.toFixed(2)}</strong>
             </span>
-            {math.isRiskClamped && (
-              <span
-                className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded"
-                data-testid={`badge-risk-clamped-${d.symbol}`}
-              >
-                🛡️ 1% Risk Capped (${math.maxRiskBudget.toFixed(2)} Max)
+            <span
+              className={`text-[11px] font-mono border px-2 py-0.5 rounded ${riskBadgeColor}`}
+              data-testid={`badge-risk-clamped-${d.symbol}`}
+            >
+              🛡️ {activeRiskLabel} Risk Cap (${math.maxRiskBudget.toFixed(2)} Max)
+            </span>
+            {sizingMode === "risk_cap" && math.isRiskClamped && (
+              <span className="text-[11px] font-mono text-amber-300">
+                Using ${math.actualCapitalDeployed.toFixed(0)} of ${numericCapital.toLocaleString()} (${math.totalRisk.toFixed(2)} risk)
+              </span>
+            )}
+            {sizingMode === "capital" && math.exceedsRiskCap && (
+              <span className="text-[11px] font-mono font-bold text-amber-300">
+                ⚠️ Exceeds {activeRiskLabel} Risk Cap
               </span>
             )}
             <span>

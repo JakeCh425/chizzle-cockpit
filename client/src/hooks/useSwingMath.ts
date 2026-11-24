@@ -175,6 +175,25 @@ export function getSetupStage(
   return getTechnicalStage(ticker, proximityOverride);
 }
 
+export type SizingMode = "risk_cap" | "capital";
+
+export function getRecommendedRiskPct(params: {
+  macroRegime?: MacroRegime | null;
+  setup?: any;
+}): { recommendedPct: number; label: string } {
+  const regime = String(params.macroRegime ?? "").trim().toUpperCase();
+  const hasCaution = regime === "SELECTIVE" || regime === "STAND_DOWN" || Boolean(params.setup?.hasHardBlock);
+  if (hasCaution) {
+    return { recommendedPct: 0.01, label: "Recommended: 1.0%" };
+  }
+  const confirmed1H = Boolean(params.setup?.hasClosed1HReversal || params.setup?.setupStatus === "READY_TO_TRADE");
+  const bullish4H = String(params.setup?.marketRegime ?? "").toUpperCase() === "BULLISH" || regime === "GO";
+  if (bullish4H && confirmed1H) {
+    return { recommendedPct: 0.02, label: "A+ Setup • Up to 2.0%–3.0%" };
+  }
+  return { recommendedPct: 0.015, label: "Standard Trend: 1.5%" };
+}
+
 export interface ClampedSharesResult {
   shares: number;
   maxRiskBudget: number;
@@ -182,6 +201,7 @@ export interface ClampedSharesResult {
   actualEquityRiskPct: number;
   capitalAllocated: number;
   isRiskClamped: boolean;
+  exceedsRiskCap: boolean;
   maxAllowedCapitalByRisk: number;
 }
 
@@ -196,6 +216,7 @@ export function calculateClampedShares({
   stopLossPrice,
   isFractional = false,
   riskPct = 0.01,
+  sizingMode = "risk_cap",
 }: {
   totalAccountEquity: number;
   userCapitalInput: number;
@@ -203,6 +224,7 @@ export function calculateClampedShares({
   stopLossPrice: number;
   isFractional?: boolean;
   riskPct?: number;
+  sizingMode?: SizingMode;
 }): ClampedSharesResult {
   const maxRiskBudget = Number((Math.max(0, totalAccountEquity) * riskPct).toFixed(2));
   const riskPerShare = Math.abs(entryPrice - stopLossPrice);
@@ -215,17 +237,18 @@ export function calculateClampedShares({
       actualEquityRiskPct: 0,
       capitalAllocated: 0,
       isRiskClamped: false,
+      exceedsRiskCap: false,
       maxAllowedCapitalByRisk: 0,
     };
   }
 
   const rawRiskShares = maxRiskBudget / riskPerShare;
   const rawCapitalShares = Math.max(0, userCapitalInput) / entryPrice;
-  const limitingShares = Math.min(rawRiskShares, rawCapitalShares);
+  const targetRawShares = sizingMode === "capital" ? rawCapitalShares : Math.min(rawRiskShares, rawCapitalShares);
 
   const shares = isFractional
-    ? Number(limitingShares.toFixed(3))
-    : Math.floor(limitingShares);
+    ? Number(targetRawShares.toFixed(3))
+    : Math.floor(targetRawShares);
 
   const capitalAllocated = Number((shares * entryPrice).toFixed(2));
   const actualDollarRisk = Number((shares * riskPerShare).toFixed(2));
@@ -234,7 +257,8 @@ export function calculateClampedShares({
       ? Number(((actualDollarRisk / totalAccountEquity) * 100).toFixed(2))
       : 0;
 
-  const isRiskClamped = rawCapitalShares > rawRiskShares;
+  const isRiskClamped = sizingMode === "risk_cap" && rawCapitalShares > rawRiskShares;
+  const exceedsRiskCap = sizingMode === "capital" && actualDollarRisk > maxRiskBudget;
   const maxAllowedCapitalByRisk = isFractional
     ? Number((rawRiskShares * entryPrice).toFixed(2))
     : Math.floor(rawRiskShares) * entryPrice;
@@ -246,6 +270,7 @@ export function calculateClampedShares({
     actualEquityRiskPct,
     capitalAllocated,
     isRiskClamped,
+    exceedsRiskCap,
     maxAllowedCapitalByRisk,
   };
 }
@@ -262,6 +287,7 @@ export interface SwingPositionMath {
   equityRiskPct: number;
   maxRiskBudget: number;
   isRiskClamped: boolean;
+  exceedsRiskCap: boolean;
   maxAllowedCapitalByRisk: number;
   scale50Shares: number;
   core30Shares: number;
@@ -364,8 +390,18 @@ export function computeSwingPositionMath(params: {
   capital: number;
   fractional?: boolean;
   accountEquity?: number;
+  riskPct?: number;
+  sizingMode?: SizingMode;
 }): SwingPositionMath | null {
-  const { entryPrice, stopLoss, capital, fractional, accountEquity } = params;
+  const {
+    entryPrice,
+    stopLoss,
+    capital,
+    fractional,
+    accountEquity,
+    riskPct = 0.01,
+    sizingMode = "risk_cap",
+  } = params;
   if (!entryPrice || entryPrice <= 0) return null;
 
   const safeStop = stopLoss > 0 && stopLoss < entryPrice ? stopLoss : +(entryPrice * 0.98).toFixed(2);
@@ -380,7 +416,8 @@ export function computeSwingPositionMath(params: {
     entryPrice,
     stopLossPrice: safeStop,
     isFractional,
-    riskPct: 0.01,
+    riskPct,
+    sizingMode,
   });
 
   const shares = clamped.shares;
@@ -425,6 +462,7 @@ export function computeSwingPositionMath(params: {
     equityRiskPct,
     maxRiskBudget: clamped.maxRiskBudget,
     isRiskClamped: clamped.isRiskClamped,
+    exceedsRiskCap: clamped.exceedsRiskCap,
     maxAllowedCapitalByRisk: clamped.maxAllowedCapitalByRisk,
     scale50Shares,
     core30Shares,

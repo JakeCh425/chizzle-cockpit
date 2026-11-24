@@ -44,9 +44,12 @@ import { useMarketDataPipeline } from "@/hooks/useMarketDataPipeline";
 import {
   getProximityForSetup as sharedGetProximity,
   computeSwingPositionMath,
+  getRecommendedRiskPct,
   getSetupStage,
   getTechnicalStage,
   evaluateMacroRegime,
+  type MacroRegime,
+  type SizingMode,
   DEFAULT_WATCHLIST,
   NEW_SWING_CANDIDATES,
 } from "@/hooks/useSwingMath";
@@ -647,10 +650,15 @@ interface ReadyExecutionCardProps {
   shares: number;
   allocatedCapital?: number;
   accountEquity?: number;
+  macroRegime?: MacroRegime | string | null;
+  selectedRiskPct?: number;
   onUpdateCapital?: (symbol: string, capital: number) => void;
+  onUpdateRiskPct?: (symbol: string, riskPct: number) => void;
   isArming: boolean;
   onConfirmExecute: (d: SwingDecision, ver: any) => void;
 }
+
+const RISK_PRESETS = [0.01, 0.015, 0.02, 0.025, 0.03] as const;
 
 const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   d,
@@ -663,17 +671,31 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   stopLossPrice,
   allocatedCapital,
   accountEquity,
+  macroRegime,
+  selectedRiskPct,
   onUpdateCapital,
+  onUpdateRiskPct,
   isArming,
   onConfirmExecute,
 }: ReadyExecutionCardProps) {
   const [rawCapital, setRawCapital] = useState<string>(() => String(allocatedCapital || 1000));
   const [shareModeOverride, setShareModeOverride] = useState<"auto" | "whole" | "fractional">("auto");
+  const [sizingMode, setSizingMode] = useState<SizingMode>("risk_cap");
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTicketDrawerOpen, setIsTicketDrawerOpen] = useState(false);
   const [copiedTicket, setCopiedTicket] = useState(false);
   const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
   const { toast } = useToast();
+
+  const recommendation = useMemo(
+    () => getRecommendedRiskPct({ macroRegime: (macroRegime as MacroRegime) ?? null, setup: d }),
+    [macroRegime, d]
+  );
+  const [localRiskPct, setLocalRiskPct] = useState<number>(
+    () => selectedRiskPct ?? recommendation.recommendedPct
+  );
+  const activeRiskPct = selectedRiskPct ?? localRiskPct;
+  const activeRiskLabel = `${(activeRiskPct * 100).toFixed(1).replace(/\.0$/, "")}%`;
 
   useEffect(() => {
     if (allocatedCapital && allocatedCapital > 0) {
@@ -699,7 +721,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       ? false
       : entryPrice > 0 && numericCapital < entryPrice;
 
-  // Dynamic Real-Time Math via useMemo whenever rawCapital or share mode changes
+  // Dynamic Real-Time Math via useMemo whenever rawCapital, sizingMode, riskPct, or share mode changes
   const cardMath = useMemo(() => {
     const calc = computeSwingPositionMath({
       entryPrice,
@@ -707,6 +729,8 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       capital: numericCapital,
       fractional: useFractional,
       accountEquity,
+      riskPct: activeRiskPct,
+      sizingMode,
     });
     if (!calc) {
       return {
@@ -716,6 +740,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
         equityRiskPct: 0,
         maxRiskBudget: 0,
         isRiskClamped: false,
+        exceedsRiskCap: false,
         scale50Shares: 0,
         core30Shares: 0,
         runner20Shares: 0,
@@ -742,6 +767,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       equityRiskPct: calc.equityRiskPct,
       maxRiskBudget: calc.maxRiskBudget,
       isRiskClamped: calc.isRiskClamped,
+      exceedsRiskCap: calc.exceedsRiskCap,
       scale50Shares: calc.scale50Shares,
       core30Shares: calc.core30Shares,
       runner20Shares: calc.runner20Shares,
@@ -759,14 +785,14 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       roi3_0: calc.roi3_0,
       capitalRiskPct,
     };
-  }, [numericCapital, entryPrice, stopLossPrice, useFractional]);
+  }, [numericCapital, entryPrice, stopLossPrice, useFractional, accountEquity, activeRiskPct, sizingMode]);
 
   const halfShares = cardMath.scale50Shares;
 
   const handleCopyTicket = () => {
     const ticketText = [
       `FIDELITY PROP-FIRM OCO BRACKET — ${d.symbol}`,
-      `Allocated Capital: $${numericCapital.toLocaleString()} (${useFractional ? "Fractional" : "Whole"} Shares)`,
+      `Sizing Mode: ${sizingMode === "risk_cap" ? `${activeRiskLabel} Risk Cap ($${cardMath.maxRiskBudget.toFixed(2)} Max)` : "Direct Capital"} | Deployed: $${cardMath.actualCapitalDeployed.toFixed(2)} (${useFractional ? "Fractional" : "Whole"})`,
       `Leg 1 (Entry): BUY LIMIT ${cardMath.shares} sh @ $${entryPrice.toFixed(2)} • DAY`,
       `Leg 2 (1.5R Scale — 50%): SELL LIMIT ${cardMath.scale50Shares} sh @ $${cardMath.t1.toFixed(2)} (Move Stop to Breakeven $${entryPrice.toFixed(2)})`,
       `Leg 3 (2.0R Core — 30%): SELL LIMIT ${cardMath.core30Shares} sh @ $${cardMath.t2.toFixed(2)}`,
@@ -784,194 +810,277 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     });
   };
 
+  const riskBadgeColor =
+    activeRiskPct <= 0.015
+      ? "bg-emerald-500/15 border-emerald-400/40 text-emerald-300"
+      : activeRiskPct <= 0.02
+      ? "bg-amber-500/15 border-amber-400/40 text-amber-300"
+      : "bg-rose-500/15 border-rose-400/40 text-rose-300";
+
   return (
     <>
       <div
-        className={`overflow-hidden box-border flex flex-col justify-between gap-4 transition-all bg-[#0B111E] border-2 border-emerald-400 shadow-[0_0_20px_rgba(0,245,160,0.15)] ${
+        className={`overflow-hidden box-border flex flex-col justify-between gap-3 transition-all bg-[#0B111E] border border-emerald-400/80 shadow-[0_0_20px_rgba(0,245,160,0.12)] ${
           isPractice ? "ring-1 ring-amber-400/40" : ""
-        } rounded-xl p-5 text-white`}
+        } rounded-xl p-3.5 text-white`}
         data-testid={`active-execution-card-${d.symbol}`}
       >
-        {/* Wrap Status Pill Cleanly (Never Clips Right Edge) */}
-        <div
-          className="w-full px-3 py-1.5 rounded-md bg-emerald-400 text-slate-950 font-mono text-xs font-extrabold flex flex-wrap items-center justify-between gap-2"
-          data-testid={`badge-ready-promoted-${d.symbol}`}
-        >
-          <span>⚡ READY TO TRADE</span>
-          <span>
-            {setupTimestamps?.entryTouchedAt ? `HIT ${setupTimestamps.entryTouchedAt}` : "ACTIVE"}
-            {setupTimestamps?.confirmedReadyAt ? ` • CONFIRMED ${setupTimestamps.confirmedReadyAt}` : ""}
-          </span>
-        </div>
-
-        {/* Header: Ticker Symbol & Live Price */}
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-2 border-b border-emerald-500/20">
-          <div className="flex flex-wrap items-center gap-3 min-w-0">
-            <span className="font-mono text-3xl font-black tracking-tight text-white">{d.symbol}</span>
+        {/* Block 1: Compact Header Row */}
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-emerald-500/20">
+          <div className="flex flex-wrap items-center gap-2 min-w-0">
+            <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
             {!isSyncingLiveData ? (
-              <span className="font-mono text-xl font-bold text-emerald-400 tabular-nums">
+              <span className="font-mono text-lg font-bold text-emerald-400 tabular-nums">
                 {formatCurrency(effectivePrice)}
               </span>
             ) : (
-              <div className="h-5 bg-slate-800 rounded w-24 animate-pulse" />
+              <div className="h-4 bg-slate-800 rounded w-16 animate-pulse" />
             )}
+            <span
+              className="text-[11px] font-mono font-black px-2 py-0.5 rounded bg-emerald-400 text-slate-950"
+              data-testid={`badge-ready-promoted-${d.symbol}`}
+            >
+              ⚡ READY
+            </span>
           </div>
-          <span className="text-xs font-mono tabular-nums text-slate-400">
-            Updated {formattedLastUpdated} CT
+          <span className="text-[11px] font-mono tabular-nums text-slate-400">
+            {setupTimestamps?.confirmedReadyAt
+              ? `Confirmed ${setupTimestamps.confirmedReadyAt}`
+              : `Updated ${formattedLastUpdated} CT`}
           </span>
         </div>
 
-        {/* Clean 3-Column Boxed Price Grid (Zero Horizontal Collision) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full font-mono tabular-nums">
-          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
-            <div className="text-[11px] font-mono text-slate-400">ENTRY LIMIT</div>
-            <div className="text-lg font-mono font-bold text-cyan-300">${entryPrice.toFixed(2)}</div>
-          </div>
-          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
-            <div className="text-[11px] font-mono text-slate-400">STOP LOSS</div>
-            <div className="text-lg font-mono font-bold text-rose-400">${stopLossPrice.toFixed(2)}</div>
-            <div className="text-[11px] font-mono text-rose-300">
-              -${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}% Eq)
+        {/* Block 2: 3-Column Price & R-Target Strip + Slim 2.0R/3.0R Strip */}
+        <div className="flex flex-col gap-1.5 font-mono tabular-nums">
+          <div className="grid grid-cols-3 gap-2 w-full">
+            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
+              <div className="text-[10px] text-slate-400 uppercase">ENTRY</div>
+              <div className="text-base font-bold text-cyan-300">${entryPrice.toFixed(2)}</div>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
+              <div className="text-[10px] text-slate-400 uppercase">STOP (-1R)</div>
+              <div className="text-base font-bold text-rose-400">${stopLossPrice.toFixed(2)}</div>
+              <div className="text-[11px] text-rose-300 truncate">
+                -${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}%)
+              </div>
+            </div>
+            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
+              <div className="text-[10px] text-slate-400 uppercase">TARGET 1.5R</div>
+              <div className="text-base font-bold text-emerald-400">${cardMath.t1.toFixed(2)}</div>
+              <div className="text-[11px] text-emerald-300 truncate" data-testid={`ready-card-roi-${d.symbol}`}>
+                +${cardMath.profit1_5.toFixed(2)} (+{cardMath.targetPct1_5.toFixed(1)}%)
+              </div>
             </div>
           </div>
-          <div className="bg-slate-900/90 border border-slate-800 rounded-lg p-2.5">
-            <div className="text-[11px] font-mono text-slate-400">TARGET 1.5R</div>
-            <div className="text-lg font-mono font-bold text-emerald-400">${cardMath.t1.toFixed(2)}</div>
-            <div className="text-[11px] font-mono text-emerald-300" data-testid={`ready-card-roi-${d.symbol}`}>
-              +${cardMath.profit1_5.toFixed(2)} (+{cardMath.roi1_5.toFixed(1)}%)
-            </div>
-          </div>
-        </div>
 
-        {/* Dedicated Sizing & Capital Row (Strictly Contained Inside Card) */}
-        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 font-mono tabular-nums">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase">SHARES</span>
-            <span className="text-lg font-bold text-white">{cardMath.shares} sh</span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-bold text-slate-400 uppercase">CAPITAL ($)</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={rawCapital}
-              onClick={(e) => e.stopPropagation()}
-              onChange={(e) => {
-                const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
-                const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
-                setRawCapital(cleaned);
-                onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
-              }}
-              onBlur={() => {
-                if (rawCapital === "") {
-                  setRawCapital("1000");
-                  onUpdateCapital?.(d.symbol, 1000);
-                }
-              }}
-              aria-label={`Allocated capital for ${d.symbol}`}
-              data-testid={`ready-input-capital-${d.symbol}`}
-              className="appearance-none font-mono font-bold text-white bg-slate-900 border border-slate-600 focus:border-cyan-400 rounded px-2.5 py-1 w-24 max-w-full text-right tabular-nums outline-none"
-            />
-          </div>
-
-          {cardMath.isRiskClamped && (
-            <span className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded">
-              🛡️ 1% Risk Capped (${cardMath.maxRiskBudget.toFixed(2)} Max)
+          <div className="flex items-center justify-between px-2.5 py-1 rounded bg-slate-900/50 border border-slate-800/70 text-xs text-slate-300">
+            <span>
+              2.0R: <strong className="text-emerald-300">${cardMath.t2.toFixed(2)}</strong>{" "}
+              <span className="text-slate-400">(+${cardMath.profit2_0.toFixed(2)})</span>
             </span>
-          )}
-        </div>
-
-        {/* Prop-Firm Scale-Out Plan (Handles 1-Share vs Multi-Share Cleanly) */}
-        <div className="rounded-lg bg-[#081012] border border-emerald-500/25 p-3 flex flex-col gap-1.5 font-mono text-xs tabular-nums">
-          <div className="flex items-center justify-between text-[11px] text-emerald-300 font-bold uppercase tracking-wider pb-1 border-b border-emerald-500/15">
-            <span>Prop-Firm Scale-Out Plan</span>
-            <span>ROC 1.5R: +{cardMath.roi1_5.toFixed(2)}%</span>
+            <span>
+              3.0R: <strong className="text-violet-300">${cardMath.t3.toFixed(2)}</strong>{" "}
+              <span className="text-slate-400">(+${cardMath.profit3_0.toFixed(2)})</span>
+            </span>
           </div>
-          <div><strong className="text-cyan-300">Leg 1 (Entry):</strong> Buy {cardMath.shares} sh @ Limit ${entryPrice.toFixed(2)}</div>
-          {cardMath.shares <= 1 ? (
-            <div className="text-emerald-300">
-              <strong>Single-Share Exit Plan:</strong> Sell 1 sh @ Limit ${cardMath.t1.toFixed(2)} (1.5R High-Probability Lock-In) OR Trail Stop to Breakeven (${entryPrice.toFixed(2)}) once 1.5R is reached toward 2.0R (${cardMath.t2.toFixed(2)}).
+        </div>
+
+        {/* Block 3: Interactive Capital, Dual Sizing Mode & Dynamic 1%-3% Risk Tier Bar */}
+        <div className="bg-slate-900/80 border border-slate-800 rounded-lg p-2.5 flex flex-col gap-2 font-mono tabular-nums">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-400 uppercase">CAPITAL $</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={rawCapital}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                  const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
+                  setRawCapital(cleaned);
+                  onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
+                }}
+                onBlur={() => {
+                  if (rawCapital === "") {
+                    setRawCapital("1000");
+                    onUpdateCapital?.(d.symbol, 1000);
+                  }
+                }}
+                aria-label={`Allocated capital for ${d.symbol}`}
+                data-testid={`ready-input-capital-${d.symbol}`}
+                className="appearance-none font-mono font-bold text-sm text-white bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-2 py-1 w-24 text-right outline-none"
+              />
             </div>
-          ) : (
-            (() => {
-              const leg2 = Math.max(1, Math.floor(cardMath.shares * 0.5));
-              const leg3 = Math.max(0, Math.floor(cardMath.shares * 0.3));
-              const leg4 = Math.max(0, +(cardMath.shares - leg2 - leg3).toFixed(3));
-              return (
-                <>
-                  <div>
-                    <strong className="text-emerald-400">Leg 2 (1.5R Scale — 50%):</strong> Sell {leg2} sh @ Limit ${cardMath.t1.toFixed(2)}{" "}
-                    <span className="text-slate-400">(Move stop to Breakeven ${entryPrice.toFixed(2)})</span>
-                  </div>
-                  {leg3 > 0 && (
-                    <div>
-                      <strong className="text-emerald-400">Leg 3 (2.0R Core — 30%):</strong> Sell {leg3} sh @ Limit ${cardMath.t2.toFixed(2)}
-                    </div>
-                  )}
-                  {leg4 > 0 && (
-                    <div>
-                      <strong className="text-emerald-400">Leg 4 (3.0R Runner — 20%):</strong> Sell {leg4} sh @ Limit ${cardMath.t3.toFixed(2)}{" "}
-                      <span className="text-slate-400">(or trail under 1H 20-SMA)</span>
-                    </div>
-                  )}
-                </>
-              );
-            })()
+
+            {/* Dual Sizing Mode Pill Toggle */}
+            <div
+              className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5 text-[11px]"
+              data-testid={`sizing-mode-toggle-${d.symbol}`}
+            >
+              <button
+                type="button"
+                onClick={() => setSizingMode("risk_cap")}
+                className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                  sizingMode === "risk_cap"
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                🛡️ {activeRiskLabel} Risk Cap
+              </button>
+              <button
+                type="button"
+                onClick={() => setSizingMode("capital")}
+                className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                  sizingMode === "capital"
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                💵 Capital
+              </button>
+            </div>
+
+            <div className="flex items-baseline gap-1.5 ml-auto">
+              <span className="text-base font-black text-white">{cardMath.shares} sh</span>
+              <span className="text-xs text-slate-400">${cardMath.actualCapitalDeployed.toFixed(2)} deployed</span>
+            </div>
+          </div>
+
+          {/* Risk Tier Preset Pills + Smart Recommendation */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-1">
+              {RISK_PRESETS.map((pct) => {
+                const isSelected = Math.abs(activeRiskPct - pct) < 0.0005;
+                const label = `${(pct * 100).toFixed(1).replace(/\.0$/, "")}%`;
+                return (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      setLocalRiskPct(pct);
+                      onUpdateRiskPct?.(d.symbol, pct);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-colors ${
+                      isSelected
+                        ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                        : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800/80 text-cyan-300 border border-cyan-500/25">
+                {recommendation.label}
+              </span>
+            </div>
+
+            <span className={`text-[10px] px-2 py-0.5 rounded border ${riskBadgeColor}`}>
+              🛡️ {activeRiskLabel} Risk Cap (${cardMath.maxRiskBudget.toFixed(2)} Max)
+            </span>
+          </div>
+
+          {/* Live Sizing Explanation / Caution Line */}
+          {sizingMode === "risk_cap" && cardMath.isRiskClamped && (
+            <div className="text-[11px] text-amber-300">
+              Using ${cardMath.actualCapitalDeployed.toFixed(0)} of ${numericCapital.toLocaleString()} ($
+              {cardMath.totalRisk.toFixed(2)} risk)
+            </div>
+          )}
+          {sizingMode === "capital" && cardMath.exceedsRiskCap && (
+            <div className="text-[11px] font-bold text-amber-300">
+              ⚠️ Exceeds {activeRiskLabel} Risk Cap (${cardMath.maxRiskBudget.toFixed(2)} Max)
+            </div>
           )}
         </div>
 
-        {/* Action Bar: [ 📋 Copy Fidelity OCO Bracket ], [ ✓ Log Active Trade ], [ ⚡ OPEN FIDELITY TICKET ], [ ▾ DETAILS ] */}
-        <div className="flex flex-wrap items-center gap-2.5 pt-1">
+        {/* Block 4: Compact Action Footer + Collapsible Scale-Out */}
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             type="button"
             onClick={() => setIsTicketDrawerOpen(true)}
-            className="px-4 py-2.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-mono font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_16px_rgba(0,245,160,0.3)]"
+            className="px-3 py-1.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-mono font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_12px_rgba(0,245,160,0.25)]"
             data-testid={`button-massive-arm-${d.symbol}`}
           >
-            <span>[ ⚡ OPEN FIDELITY TICKET ]</span>
+            ⚡ Fidelity Ticket
           </button>
 
           <button
             type="button"
             onClick={handleCopyTicket}
-            className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-emerald-400/50 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
+            className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-emerald-400/50 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
             data-testid={`button-copy-oco-card-${d.symbol}`}
           >
-            <span>{copiedTicket ? "✓ Copied OCO Bracket!" : "[ 📋 1-Click Copy OCO Bracket ]"}</span>
+            {copiedTicket ? "✓ Copied!" : "📋 Copy OCO"}
           </button>
 
           <button
             type="button"
             onClick={() => onConfirmExecute(d, ver)}
             disabled={isArming}
-            className="px-4 py-2.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/60 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
+            className="px-3 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/60 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-50"
             data-testid={`button-log-active-trade-${d.symbol}`}
           >
-            <span>{isArming ? "Logging..." : "[ ✓ Log Active Trade ]"}</span>
+            {isArming ? "Logging..." : "✓ Log"}
           </button>
 
           <button
             type="button"
             onClick={() => setIsDetailsOpen((prev) => !prev)}
-            className={`px-3.5 py-2.5 rounded-lg font-mono font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`ml-auto px-2.5 py-1.5 rounded-lg font-mono font-semibold text-xs transition-all cursor-pointer ${
               isDetailsOpen
                 ? "bg-slate-700 border border-cyan-500/60 text-white"
                 : "bg-slate-800 hover:bg-slate-700 border border-slate-600 text-slate-200"
             }`}
             data-testid={`button-ready-details-${d.symbol}`}
             aria-expanded={isDetailsOpen}
+            aria-label={isDetailsOpen ? "Hide scale-out details" : "Show scale-out details"}
           >
-            <span>{isDetailsOpen ? "[ ▴ DETAILS ]" : "[ ▾ DETAILS ]"}</span>
+            {isDetailsOpen ? "▴" : "▾"}
           </button>
         </div>
 
-        {/* "Details" Inline Drawer (Targets 1.5R / 2.0R / 3.0R + Context) */}
+        {/* Collapsible Prop-Firm Scale-Out Plan & Target Details */}
         {isDetailsOpen && (
           <div
-            className="mt-2 pt-4 border-t border-emerald-500/20 flex flex-col gap-4"
+            className="mt-1 pt-3 border-t border-emerald-500/20 flex flex-col gap-3"
             data-testid={`ready-details-drawer-${d.symbol}`}
           >
+            <div className="rounded-lg bg-[#081012] border border-emerald-500/25 p-2.5 flex flex-col gap-1 font-mono text-xs tabular-nums">
+              <div className="flex items-center justify-between text-[11px] text-emerald-300 font-bold uppercase tracking-wider pb-1 border-b border-emerald-500/15">
+                <span>Prop-Firm Scale-Out Plan</span>
+                <span>ROC 1.5R: +{cardMath.roi1_5.toFixed(2)}%</span>
+              </div>
+              <div>
+                <strong className="text-cyan-300">Leg 1 (Entry):</strong> Buy {cardMath.shares} sh @ Limit ${entryPrice.toFixed(2)}
+              </div>
+              {cardMath.shares <= 1 ? (
+                <div className="text-emerald-300">
+                  <strong>Single-Share Exit:</strong> Sell 1 sh @ Limit ${cardMath.t1.toFixed(2)} (1.5R) OR Trail Stop to Breakeven (${entryPrice.toFixed(2)}) toward 2.0R (${cardMath.t2.toFixed(2)}).
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <strong className="text-emerald-400">Leg 2 (1.5R — 50%):</strong> Sell {cardMath.scale50Shares} sh @ Limit ${cardMath.t1.toFixed(2)}{" "}
+                    <span className="text-slate-400">(Stop -&gt; BE ${entryPrice.toFixed(2)})</span>
+                  </div>
+                  {cardMath.core30Shares > 0 && (
+                    <div>
+                      <strong className="text-emerald-400">Leg 3 (2.0R — 30%):</strong> Sell {cardMath.core30Shares} sh @ Limit ${cardMath.t2.toFixed(2)}
+                    </div>
+                  )}
+                  {cardMath.runner20Shares > 0 && (
+                    <div>
+                      <strong className="text-emerald-400">Leg 4 (3.0R — 20%):</strong> Sell {cardMath.runner20Shares} sh @ Limit ${cardMath.t3.toFixed(2)}{" "}
+                      <span className="text-slate-400">(or trail under 1H 20-SMA)</span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 font-mono tabular-nums">
               <div className="p-3 rounded-lg bg-cyan-950/25 border border-cyan-500/40 flex flex-col gap-1">
                 <span className="text-xs font-bold text-cyan-300 uppercase tracking-wider">🎯 1.5R SCALE (50%)</span>
@@ -1237,6 +1346,17 @@ function ActionCenterInner() {
       [symbol]: capital,
     }));
   }, [setTickerCapitalMap]);
+
+  const [tickerRiskMap, setTickerRiskMap] = usePersistentState<Record<string, number>>(
+    "ac-ticker-risk-map",
+    {}
+  );
+  const handleUpdateRiskPct = useCallback((symbol: string, riskPct: number) => {
+    setTickerRiskMap((prev) => ({
+      ...(prev || {}),
+      [symbol]: riskPct,
+    }));
+  }, [setTickerRiskMap]);
 
   const rows = sortForCockpit((scan.data?.rows ?? []).map((r) => r.decision));
   const [moreOpen, setMoreOpen] = useState(false);
@@ -2765,7 +2885,7 @@ function ActionCenterInner() {
                 </span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 w-full" data-testid="ready-cards-grid">
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 w-full" data-testid="ready-cards-grid">
                   {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
                   {validHeroTrades.map((trade) => (
                     <motion.div
@@ -3025,7 +3145,10 @@ function ActionCenterInner() {
                         shares={calculatedShares}
                         allocatedCapital={userAllocatedCapital}
                         accountEquity={safeEquity}
+                        macroRegime={macroRegime}
+                        selectedRiskPct={tickerRiskMap[d.symbol]}
                         onUpdateCapital={handleUpdateCapital}
+                        onUpdateRiskPct={handleUpdateRiskPct}
                         isArming={isArming}
                         onConfirmExecute={handleDirectArmExecute}
                       />
@@ -3117,12 +3240,14 @@ function ActionCenterInner() {
                           selectedTicker={selectedTicker}
                           macroRegime={macroRegime}
                           accountEquity={safeEquity}
+                          selectedRiskPct={tickerRiskMap[d.symbol]}
                           onSelectTicker={(sym) => {
                             setSelectedTicker(sym);
                             global?.setActiveTicker?.(sym);
                             marketStore.setActiveTicker?.(sym);
                           }}
                           onUpdateCapital={handleUpdateCapital}
+                          onUpdateRiskPct={handleUpdateRiskPct}
                           onPassSetup={handlePassSetup}
                           isPractice={isPractice}
                           onStartPracticeDrill={handleStartPracticeDrill}
@@ -3189,12 +3314,16 @@ function ActionCenterInner() {
                                 effectivePrice={effectivePrice}
                                 rowTimestamp={rowTimestamp}
                                 selectedTicker={selectedTicker}
+                                macroRegime={macroRegime}
+                                accountEquity={safeEquity}
+                                selectedRiskPct={tickerRiskMap[d.symbol]}
                                 onSelectTicker={(sym) => {
                                   setSelectedTicker(sym);
                                   global?.setActiveTicker?.(sym);
                                   marketStore.setActiveTicker?.(sym);
                                 }}
                                 onUpdateCapital={handleUpdateCapital}
+                                onUpdateRiskPct={handleUpdateRiskPct}
                                 onPassSetup={handlePassSetup}
                                 isPractice={isPractice}
                                 onStartPracticeDrill={handleStartPracticeDrill}
