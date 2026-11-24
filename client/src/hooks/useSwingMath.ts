@@ -136,11 +136,11 @@ export function getTechnicalStage(ticker: any, proximityOverride?: number): Excl
     return "READY";
   }
 
-  if (proximity <= 0.6) {
+  if (proximity <= 1.5) {
     return "IMMINENT";
   }
 
-  if (proximity <= 1.5) {
+  if (proximity <= 4.5) {
     return "APPROACHING";
   }
 
@@ -175,6 +175,81 @@ export function getSetupStage(
   return getTechnicalStage(ticker, proximityOverride);
 }
 
+export interface ClampedSharesResult {
+  shares: number;
+  maxRiskBudget: number;
+  actualDollarRisk: number;
+  actualEquityRiskPct: number;
+  capitalAllocated: number;
+  isRiskClamped: boolean;
+  maxAllowedCapitalByRisk: number;
+}
+
+/**
+ * Dual-Constraint Position Sizing: Math.min(CapitalShares, RiskShares).
+ * Strictly enforces 1.0% Max Equity Risk Budget even if userCapitalInput is higher.
+ */
+export function calculateClampedShares({
+  totalAccountEquity,
+  userCapitalInput,
+  entryPrice,
+  stopLossPrice,
+  isFractional = false,
+  riskPct = 0.01,
+}: {
+  totalAccountEquity: number;
+  userCapitalInput: number;
+  entryPrice: number;
+  stopLossPrice: number;
+  isFractional?: boolean;
+  riskPct?: number;
+}): ClampedSharesResult {
+  const maxRiskBudget = Number((Math.max(0, totalAccountEquity) * riskPct).toFixed(2));
+  const riskPerShare = Math.abs(entryPrice - stopLossPrice);
+
+  if (entryPrice <= 0 || riskPerShare <= 0) {
+    return {
+      shares: 0,
+      maxRiskBudget,
+      actualDollarRisk: 0,
+      actualEquityRiskPct: 0,
+      capitalAllocated: 0,
+      isRiskClamped: false,
+      maxAllowedCapitalByRisk: 0,
+    };
+  }
+
+  const rawRiskShares = maxRiskBudget / riskPerShare;
+  const rawCapitalShares = Math.max(0, userCapitalInput) / entryPrice;
+  const limitingShares = Math.min(rawRiskShares, rawCapitalShares);
+
+  const shares = isFractional
+    ? Number(limitingShares.toFixed(3))
+    : Math.floor(limitingShares);
+
+  const capitalAllocated = Number((shares * entryPrice).toFixed(2));
+  const actualDollarRisk = Number((shares * riskPerShare).toFixed(2));
+  const actualEquityRiskPct =
+    totalAccountEquity > 0
+      ? Number(((actualDollarRisk / totalAccountEquity) * 100).toFixed(2))
+      : 0;
+
+  const isRiskClamped = rawCapitalShares > rawRiskShares;
+  const maxAllowedCapitalByRisk = isFractional
+    ? Number((rawRiskShares * entryPrice).toFixed(2))
+    : Math.floor(rawRiskShares) * entryPrice;
+
+  return {
+    shares,
+    maxRiskBudget,
+    actualDollarRisk,
+    actualEquityRiskPct,
+    capitalAllocated,
+    isRiskClamped,
+    maxAllowedCapitalByRisk,
+  };
+}
+
 export interface SwingPositionMath {
   entryPrice: number;
   stopLoss: number;
@@ -185,6 +260,9 @@ export interface SwingPositionMath {
   riskPerShare: number;
   totalRisk: number;
   equityRiskPct: number;
+  maxRiskBudget: number;
+  isRiskClamped: boolean;
+  maxAllowedCapitalByRisk: number;
   scale50Shares: number;
   core30Shares: number;
   runner20Shares: number;
@@ -294,13 +372,21 @@ export function computeSwingPositionMath(params: {
   const riskPerShare = Math.max(0.01, entryPrice - safeStop);
   const safeCapital = Math.max(0, capital || 0);
   const isFractional = fractional !== undefined ? fractional : safeCapital < entryPrice;
-  const shares = isFractional
-    ? Number((safeCapital / entryPrice).toFixed(3))
-    : Math.floor(safeCapital / entryPrice);
-  const actualCapitalDeployed = +(shares * entryPrice).toFixed(2);
-  const totalRisk = +(shares * riskPerShare).toFixed(2);
-  const safeEquity = accountEquity && accountEquity > 0 ? accountEquity : 1615;
-  const equityRiskPct = +((totalRisk / safeEquity) * 100).toFixed(2);
+  const safeEquity = accountEquity && accountEquity > 0 ? accountEquity : 1614.95;
+
+  const clamped = calculateClampedShares({
+    totalAccountEquity: safeEquity,
+    userCapitalInput: safeCapital,
+    entryPrice,
+    stopLossPrice: safeStop,
+    isFractional,
+    riskPct: 0.01,
+  });
+
+  const shares = clamped.shares;
+  const actualCapitalDeployed = clamped.capitalAllocated;
+  const totalRisk = clamped.actualDollarRisk;
+  const equityRiskPct = clamped.actualEquityRiskPct;
 
   const scale50Shares = isFractional ? Number((shares * 0.5).toFixed(3)) : Math.floor(shares * 0.5);
   const core30Shares = isFractional ? Number((shares * 0.3).toFixed(3)) : Math.floor(shares * 0.3);
@@ -337,6 +423,9 @@ export function computeSwingPositionMath(params: {
     riskPerShare,
     totalRisk,
     equityRiskPct,
+    maxRiskBudget: clamped.maxRiskBudget,
+    isRiskClamped: clamped.isRiskClamped,
+    maxAllowedCapitalByRisk: clamped.maxAllowedCapitalByRisk,
     scale50Shares,
     core30Shares,
     runner20Shares,

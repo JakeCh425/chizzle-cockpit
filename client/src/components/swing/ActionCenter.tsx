@@ -646,6 +646,7 @@ interface ReadyExecutionCardProps {
   target3_0R: number;
   shares: number;
   allocatedCapital?: number;
+  accountEquity?: number;
   onUpdateCapital?: (symbol: string, capital: number) => void;
   isArming: boolean;
   onConfirmExecute: (d: SwingDecision, ver: any) => void;
@@ -661,6 +662,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   entryPrice,
   stopLossPrice,
   allocatedCapital,
+  accountEquity,
   onUpdateCapital,
   isArming,
   onConfirmExecute,
@@ -670,6 +672,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [isTicketDrawerOpen, setIsTicketDrawerOpen] = useState(false);
   const [copiedTicket, setCopiedTicket] = useState(false);
+  const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
   const { toast } = useToast();
 
   useEffect(() => {
@@ -703,6 +706,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       stopLoss: stopLossPrice,
       capital: numericCapital,
       fractional: useFractional,
+      accountEquity,
     });
     if (!calc) {
       return {
@@ -710,6 +714,8 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
         totalRisk: 0,
         actualCapitalDeployed: 0,
         equityRiskPct: 0,
+        maxRiskBudget: 0,
+        isRiskClamped: false,
         scale50Shares: 0,
         core30Shares: 0,
         runner20Shares: 0,
@@ -734,6 +740,8 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       totalRisk: calc.totalRisk,
       actualCapitalDeployed: calc.actualCapitalDeployed,
       equityRiskPct: calc.equityRiskPct,
+      maxRiskBudget: calc.maxRiskBudget,
+      isRiskClamped: calc.isRiskClamped,
       scale50Shares: calc.scale50Shares,
       core30Shares: calc.core30Shares,
       runner20Shares: calc.runner20Shares,
@@ -800,8 +808,13 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             </span>
           </div>
 
-          <span className="bg-emerald-400 text-slate-950 font-black px-3 py-1 rounded text-xs font-mono uppercase tracking-wider shrink-0">
-            READY
+          <span
+            className="bg-emerald-400 text-slate-950 font-black px-3 py-1 rounded text-xs font-mono uppercase tracking-wider shrink-0"
+            data-testid={`badge-ready-promoted-${d.symbol}`}
+          >
+            ⚡ READY TO TRADE
+            {setupTimestamps?.entryTouchedAt ? ` • Hit Entry ${setupTimestamps.entryTouchedAt}` : ""}
+            {setupTimestamps?.confirmedReadyAt ? ` • Confirmed ${setupTimestamps.confirmedReadyAt}` : ""}
           </span>
         </div>
 
@@ -815,7 +828,14 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
           <div className="flex flex-col gap-0.5">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Stop Loss</span>
             <span className="text-rose-400 font-mono text-xl font-bold">{formatCurrency(stopLossPrice)}</span>
-            <span className="text-sm text-rose-400 font-bold">-${cardMath.totalRisk.toFixed(2)}</span>
+            <span className="text-sm text-emerald-400 font-bold">
+              -${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}% Eq)
+            </span>
+            {cardMath.isRiskClamped && (
+              <span className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded w-fit">
+                🛡️ 1% Risk Capped (${cardMath.maxRiskBudget.toFixed(2)} Max)
+              </span>
+            )}
           </div>
 
           <div className="flex flex-col gap-0.5">
@@ -874,11 +894,20 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
         <div className="flex flex-wrap items-center gap-2.5 pt-1">
           <button
             type="button"
+            onClick={() => setIsTicketDrawerOpen(true)}
+            className="px-4 py-2.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-mono font-black text-xs uppercase tracking-wider transition-all cursor-pointer shadow-[0_0_16px_rgba(0,245,160,0.3)]"
+            data-testid={`button-massive-arm-${d.symbol}`}
+          >
+            <span>[ ⚡ OPEN FIDELITY TICKET ]</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleCopyTicket}
-            className="flex-1 bg-emerald-400 hover:bg-emerald-300 text-slate-950 font-black px-4 py-2.5 rounded-lg font-mono text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-[0_0_16px_rgba(0,245,160,0.3)]"
+            className="px-4 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-emerald-400/50 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer flex items-center justify-center gap-1.5"
             data-testid={`button-copy-oco-card-${d.symbol}`}
           >
-            <span>{copiedTicket ? "✓ Copied OCO Bracket!" : "[ 📋 Copy Fidelity OCO Bracket ]"}</span>
+            <span>{copiedTicket ? "✓ Copied OCO Bracket!" : "[ 📋 1-Click Copy OCO Bracket ]"}</span>
           </button>
 
           <button
@@ -889,15 +918,6 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             data-testid={`button-log-active-trade-${d.symbol}`}
           >
             <span>{isArming ? "Logging..." : "[ ✓ Log Active Trade ]"}</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => setIsTicketDrawerOpen(true)}
-            className="px-3.5 py-2.5 rounded-lg bg-slate-800 hover:bg-slate-700 border border-slate-600 text-cyan-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer"
-            data-testid={`button-massive-arm-${d.symbol}`}
-          >
-            <span>[ ⚡ Ticket ]</span>
           </button>
 
           <button
@@ -1712,16 +1732,26 @@ function ActionCenterInner() {
         d.setupStatus === "SETUP_CONFIRMED" ||
         global?.confirmedSetups?.[cleanTicker]
       );
-      const isAwaiting1HBounce = livePx > 0 && entryPx > 0 && livePx <= entryPx && !hasClosed1HReversal;
-      let resolvedSetupStatus = d.setupStatus;
-      if (livePx > 0 && entryPx > 0 && livePx <= entryPx && hasClosed1HReversal && !isStandby && !hasBlock) {
+      const proximity = entryPx > 0 && livePx > 0 ? Math.abs((livePx - entryPx) / entryPx) * 100 : 999;
+      const last1HClose = Number((d as any).last1HClose ?? livePx ?? 0);
+      const is1HCandleClosedGreen = Boolean(hasClosed1HReversal && (last1HClose <= 0 || last1HClose >= entryPx));
+      const existingTimestamps = tradeSetupStore.getTimestamps(cleanTicker);
+      const hasTouchedEntry = Boolean(existingTimestamps.entryTouchedAt) || proximity <= 0.25 || hasClosed1HReversal;
+
+      if (
+        hasTouchedEntry &&
+        is1HCandleClosedGreen &&
+        proximity <= 0.75 &&
+        !isStandby &&
+        !hasBlock &&
+        !isRetest
+      ) {
         resolvedSetupStatus = "READY_TO_TRADE";
       } else if (isAwaiting1HBounce && cleanStatus === "READY_TO_TRADE") {
         // Anti-Falling Knife Guardrail: never transition to READY_TO_TRADE without 1H reversal candle close
         resolvedSetupStatus = "SETUP_FORMING";
       }
 
-      const proximity = entryPx > 0 && livePx > 0 ? Math.abs((livePx - entryPx) / entryPx) * 100 : 999;
       const candidate = {
         ...d,
         setupStatus: resolvedSetupStatus,
@@ -1750,6 +1780,7 @@ function ActionCenterInner() {
         setupStatus: resolvedSetupStatus,
         stage,
         technicalStage,
+        computedProximity: proximity,
         hasClosed1HReversal,
         isStandbyDay: isStandby,
         hasHardBlock: hasBlock,
@@ -1758,6 +1789,18 @@ function ActionCenterInner() {
       });
     });
   }, [validSetups, prices, marketStore.prices, global?.livePrices, global?.confirmedSetups, macroRegime, global?.isPracticeMode]);
+
+  // Record exact Entry-Hit & Confirmed-Ready timestamps in tradeSetupStore
+  useEffect(() => {
+    for (const s of setups) {
+      if (!s.symbol) continue;
+      const prox = typeof (s as any).computedProximity === "number" ? (s as any).computedProximity : 999;
+      tradeSetupStore.syncEntryTouchTimestamp(s.symbol, prox, isMarketOpenNow);
+      if (s.stage === "READY") {
+        tradeSetupStore.markConfirmedReady(s.symbol);
+      }
+    }
+  }, [setups, isMarketOpenNow]);
 
   // Sync unified setup stages to globalStore so Header, Watchlist, and Wealth Studio match 1-to-1
   useEffect(() => {
@@ -2907,6 +2950,7 @@ function ActionCenterInner() {
                         target3_0R={lockedMath.target3_0R}
                         shares={calculatedShares}
                         allocatedCapital={userAllocatedCapital}
+                        accountEquity={safeEquity}
                         onUpdateCapital={handleUpdateCapital}
                         isArming={isArming}
                         onConfirmExecute={handleDirectArmExecute}
@@ -2998,6 +3042,7 @@ function ActionCenterInner() {
                           rowTimestamp={rowTimestamp}
                           selectedTicker={selectedTicker}
                           macroRegime={macroRegime}
+                          accountEquity={safeEquity}
                           onSelectTicker={(sym) => {
                             setSelectedTicker(sym);
                             global?.setActiveTicker?.(sym);

@@ -10,7 +10,8 @@ import {
   computeSwingPositionMath,
   type SetupStage,
 } from "@/hooks/useSwingMath";
-import { STATUS_THEME, PRICE_COLOR_CLASSES, useCardTypography } from "@/lib/statusTheme";
+import { STATUS_THEME, PRICE_COLOR_CLASSES, useCardTypography, getProximityTheme } from "@/lib/statusTheme";
+import { useTradeSetupStore, get1HCandleCountdown } from "@/lib/useTradeSetupStore";
 
 export interface PendingRowProps {
   setup: SwingDecision & {
@@ -28,6 +29,7 @@ export interface PendingRowProps {
   rowTimestamp: string;
   selectedTicker: string;
   macroRegime?: string;
+  accountEquity?: number;
   onSelectTicker: (sym: string) => void;
   onUpdateCapital?: (symbol: string, capital: number) => void;
   onPassSetup?: (ticker: string) => void;
@@ -43,6 +45,7 @@ export const PendingRow = React.memo(function PendingRow({
   rowTimestamp,
   selectedTicker,
   macroRegime,
+  accountEquity,
   onSelectTicker,
   onUpdateCapital,
   onPassSetup,
@@ -118,21 +121,39 @@ export const PendingRow = React.memo(function PendingRow({
   const stage: SetupStage =
     setup.stage ?? ((d as any).stage as SetupStage | undefined) ?? (isHardBlock ? "BLOCKED" : technicalStage);
   const isBlockedStage = stage === "BLOCKED";
-  const isDeepStandby = proximity > 3.0;
+  const isDeepStandby = proximity > 4.5;
   const stageTheme = STATUS_THEME[stage];
+  const proxTheme = getProximityTheme(proximity, stage === "READY");
+  const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
+  const [countdown, setCountdown] = useState(() => get1HCandleCountdown());
+
+  useEffect(() => {
+    if (proxTheme.tier !== "IN_ZONE") return;
+    setCountdown(get1HCandleCountdown());
+    const timer = setInterval(() => {
+      setCountdown(get1HCandleCountdown());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [proxTheme.tier]);
   const hasMacroCaution =
     isBlockedStage || String(macroRegime ?? "").toUpperCase() === "SELECTIVE";
 
-  // Shared readiness tier & capsule classes from STATUS_THEME
-  const capsuleColorClass = getCapsuleColor(proximity, stage);
+  // Shared readiness tier & capsule classes from getProximityTheme (complete static Tailwind strings)
+  const capsuleColorClass = isBlockedStage ? stageTheme.progressBarClass : proxTheme.barFill;
   const readinessColors = useMemo(() => {
-    const tier = getReadinessTier(proximity, d.setupStatus, stage);
+    if (isBlockedStage) {
+      return {
+        label: stageTheme.label,
+        tickerAccent: stageTheme.borderAccentClass,
+        text: stageTheme.textClass,
+      };
+    }
     return {
-      label: tier.label,
-      tickerAccent: tier.tickerAccentClass,
-      text: tier.textClass,
+      label: proxTheme.label,
+      tickerAccent: proxTheme.leftBorder,
+      text: proxTheme.textAccent,
     };
-  }, [d.setupStatus, proximity, stage]);
+  }, [isBlockedStage, stageTheme, proxTheme]);
 
   const useFractional =
     shareModeOverride === "fractional"
@@ -141,7 +162,7 @@ export const PendingRow = React.memo(function PendingRow({
       ? false
       : entryPrice > 0 && numericCapital < entryPrice;
 
-  // Shared Live-Math Engine Hookup (Institutional Calculator with Fractional + ROC %)
+  // Shared Live-Math Engine Hookup (Institutional Calculator with 1% Risk Clamp + Fractional + ROC %)
   const math = useMemo(
     () =>
       computeSwingPositionMath({
@@ -149,8 +170,9 @@ export const PendingRow = React.memo(function PendingRow({
         stopLoss: setup.stopLoss ?? +(entryPrice * 0.98).toFixed(2),
         capital: numericCapital,
         fractional: useFractional,
+        accountEquity,
       }),
-    [numericCapital, entryPrice, setup.stopLoss, useFractional]
+    [numericCapital, entryPrice, setup.stopLoss, useFractional, accountEquity]
   );
 
   if (entryPrice <= 0 || !math) {
@@ -182,15 +204,20 @@ export const PendingRow = React.memo(function PendingRow({
   }
 
   const isCloseToEntry = proximity <= 1.5;
-  const proximityBarPct = Math.max(0, Math.min(100, 100 - proximity * 10));
+  const proximityBarPct = isBlockedStage ? Math.max(10, Math.min(100, 100 - proximity * 10)) : proxTheme.barWidthPct;
+  const cardBorderClass = isBlockedStage ? stageTheme.cardGlowClass : proxTheme.leftBorder;
+  const activeBadgeClass = isBlockedStage ? stageTheme.badgeClass : proxTheme.badgeClass;
+  const activeBadgeLabel = isBlockedStage
+    ? stageTheme.label
+    : proxTheme.tier === "IN_ZONE"
+    ? `🔥 HIT ENTRY @ ${setupTimestamps?.entryTouchedAt ?? "IN ZONE"} • AWAITING 1H CLOSE (${countdown.formatted})`
+    : proxTheme.label;
 
   return (
     <div
       key={d.symbol}
       onClick={() => onSelectTicker(d.symbol)}
-      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(280px,1.8fr)_auto] gap-5 items-center p-5 bg-[#0B101D] border ${
-        stageTheme.cardGlowClass
-      } opacity-95 hover:opacity-100 transition-all rounded-xl cursor-pointer shadow-md ${
+      className={`grid grid-cols-1 lg:grid-cols-[240px_minmax(280px,1.8fr)_auto] gap-5 items-center p-5 bg-[#0B101D] border ${cardBorderClass} opacity-95 hover:opacity-100 transition-all rounded-xl cursor-pointer shadow-md ${
         selectedTicker === d.symbol ? "ring-1 ring-cyan-400/70 opacity-100" : ""
       }`}
       data-testid={`waiting-row-${d.symbol}`}
@@ -200,7 +227,7 @@ export const PendingRow = React.memo(function PendingRow({
       {/* Left Zone: Asset & 4-Tier Proximity Color-Shift Engine */}
       <div className="flex flex-col gap-2.5 min-w-0" style={cardTypo.fontStyle}>
         <div className="flex items-center gap-3">
-          <div className={`bg-slate-900 border-l-4 ${readinessColors.tickerAccent} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
+          <div className={`bg-slate-900 ${isBlockedStage ? `border-l-4 ${stageTheme.borderAccentClass}` : proxTheme.leftBorder} px-3 py-2 flex justify-center items-center shrink-0 rounded`}>
             <span className={`${cardTypo.tickerClass} font-black tracking-widest text-white`}>{d.symbol}</span>
           </div>
           <div className="flex flex-col min-w-0">
@@ -214,7 +241,7 @@ export const PendingRow = React.memo(function PendingRow({
               className={`flex items-center gap-1 ${cardTypo.labelClass} text-slate-400 font-mono shrink-0`}
               data-testid={`waiting-row-timestamp-${d.symbol}`}
             >
-              <span className={`w-1.5 h-1.5 rounded-full ${stageTheme.dotClass}`} />
+              <span className={`w-1.5 h-1.5 rounded-full ${isBlockedStage ? stageTheme.dotClass : proxTheme.barFill}`} />
               <span>Updated {rowTimestamp} CT</span>
             </div>
           </div>
@@ -222,10 +249,10 @@ export const PendingRow = React.memo(function PendingRow({
 
         <div className="flex flex-wrap items-center gap-1.5">
           <div
-            className={`inline-flex w-fit px-2 py-0.5 rounded text-xs font-mono font-bold tracking-wider uppercase ${stageTheme.badgeClass}`}
+            className={`inline-flex w-fit px-2 py-0.5 rounded text-xs font-mono tracking-wider uppercase ${activeBadgeClass}`}
             data-testid={`badge-readiness-status-${d.symbol}`}
           >
-            <span>{stageTheme.label}</span>
+            <span>{activeBadgeLabel}</span>
           </div>
           {isCloseToEntry && (
             <span
@@ -322,10 +349,18 @@ export const PendingRow = React.memo(function PendingRow({
               <span className="text-slate-400 uppercase">ALLOCATED </span>
               <strong className="text-cyan-300">${math.actualCapitalDeployed.toFixed(2)}</strong>
             </span>
+            {math.isRiskClamped && (
+              <span
+                className="text-[11px] font-mono text-amber-300 bg-amber-500/15 border border-amber-400/40 px-2 py-0.5 rounded"
+                data-testid={`badge-risk-clamped-${d.symbol}`}
+              >
+                🛡️ 1% Risk Capped (${math.maxRiskBudget.toFixed(2)} Max)
+              </span>
+            )}
             <span>
               <span className="text-slate-400 uppercase">1R RISK </span>
-              <strong className="text-rose-400">
-                -${math.totalRisk.toFixed(2)} ({math.equityRiskPct.toFixed(1)}% Eq)
+              <strong className="text-emerald-400">
+                -${math.totalRisk.toFixed(2)} ({math.equityRiskPct.toFixed(2)}% Eq)
               </strong>
             </span>
           </div>

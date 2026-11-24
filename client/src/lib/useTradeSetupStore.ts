@@ -17,11 +17,43 @@ export interface SetupStageInfo {
   isInitializing?: boolean;
 }
 
+export interface SetupLifecycleTimestamps {
+  entryTouchedAt: string | null;
+  confirmedReadyAt: string | null;
+}
+
+export function formatTimeCT(date: Date = new Date(), withSeconds = true): string {
+  return date.toLocaleTimeString("en-US", {
+    timeZone: "America/Chicago",
+    hour: "numeric",
+    minute: "2-digit",
+    ...(withSeconds ? { second: "2-digit" } : {}),
+    hour12: true,
+  }) + " CT";
+}
+
+export function get1HCandleCountdown(now: Date = new Date()): {
+  minutes: number;
+  seconds: number;
+  formatted: string;
+} {
+  const secsIntoHour = now.getMinutes() * 60 + now.getSeconds();
+  const remaining = Math.max(0, 3600 - secsIntoHour);
+  const minutes = Math.floor(remaining / 60);
+  const seconds = remaining % 60;
+  return {
+    minutes,
+    seconds,
+    formatted: `${minutes}m ${String(seconds).padStart(2, "0")}s left`,
+  };
+}
+
 export interface TradeSetupStoreState {
   activeExecutionSetups: ConfirmedHeroTrade[];
   stages: Record<string, SetupStageInfo>;
   tradeSetups: Record<string, any>;
   dismissedSymbols: Set<string>;
+  setupTimestamps: Record<string, SetupLifecycleTimestamps>;
 }
 
 type Listener = () => void;
@@ -32,6 +64,7 @@ class TradeSetupStore {
     stages: {},
     tradeSetups: {},
     dismissedSymbols: new Set<string>(),
+    setupTimestamps: {},
   };
 
   private listeners = new Set<Listener>();
@@ -50,7 +83,93 @@ class TradeSetupStore {
           this.state.activeExecutionSetups = parsed;
         }
       }
+      const savedTs = localStorage.getItem("chizzle_setup_timestamps");
+      if (savedTs) {
+        const parsedTs = JSON.parse(savedTs);
+        if (parsedTs && typeof parsedTs === "object") {
+          this.state.setupTimestamps = parsedTs;
+        }
+      }
     } catch {}
+  }
+
+  private persistTimestamps() {
+    if (typeof window === "undefined") return;
+    try {
+      localStorage.setItem(
+        "chizzle_setup_timestamps",
+        JSON.stringify(this.state.setupTimestamps)
+      );
+    } catch {}
+  }
+
+  public getTimestamps(symbol: string): SetupLifecycleTimestamps {
+    const sym = (symbol || "").toUpperCase().trim();
+    return this.state.setupTimestamps[sym] ?? { entryTouchedAt: null, confirmedReadyAt: null };
+  }
+
+  /**
+   * Captures exact `entryTouchedAt` (HH:MM:SS CT) the first moment proximity <= 0.25%
+   * during Regular Trading Hours, and clears it if invalidated (> 1.5% away before confirming).
+   */
+  public syncEntryTouchTimestamp(
+    symbol: string,
+    proximityPct: number,
+    isMarketOpenNow: boolean
+  ): void {
+    const sym = (symbol || "").toUpperCase().trim();
+    if (!sym) return;
+    const prev = this.getTimestamps(sym);
+
+    if (proximityPct <= 0.25 && isMarketOpenNow && !prev.entryTouchedAt) {
+      this.state = {
+        ...this.state,
+        setupTimestamps: {
+          ...this.state.setupTimestamps,
+          [sym]: {
+            ...prev,
+            entryTouchedAt: formatTimeCT(new Date(), true),
+          },
+        },
+      };
+      this.persistTimestamps();
+      this.notify();
+      return;
+    }
+
+    if (prev.entryTouchedAt && !prev.confirmedReadyAt && proximityPct > 1.5) {
+      this.state = {
+        ...this.state,
+        setupTimestamps: {
+          ...this.state.setupTimestamps,
+          [sym]: {
+            entryTouchedAt: null,
+            confirmedReadyAt: null,
+          },
+        },
+      };
+      this.persistTimestamps();
+      this.notify();
+    }
+  }
+
+  public markConfirmedReady(symbol: string): void {
+    const sym = (symbol || "").toUpperCase().trim();
+    if (!sym) return;
+    const prev = this.getTimestamps(sym);
+    if (prev.confirmedReadyAt) return;
+    this.state = {
+      ...this.state,
+      setupTimestamps: {
+        ...this.state.setupTimestamps,
+        [sym]: {
+          entryTouchedAt: prev.entryTouchedAt ?? formatTimeCT(new Date(), true),
+          confirmedReadyAt: formatTimeCT(new Date(), false),
+        },
+      },
+    };
+    this.persistTimestamps();
+    this.notify();
   }
 
   private persistActiveSetups() {

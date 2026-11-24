@@ -7,6 +7,74 @@ import { useSyncExternalStore } from "react";
 
 export type SetupVisualStage = "READY" | "IMMINENT" | "APPROACHING" | "FORMING" | "BLOCKED";
 
+export interface ProximityTheme {
+  tier: "READY" | "IN_ZONE" | "APPROACHING" | "DISTANT";
+  label: string;
+  leftBorder: string;
+  badgeClass: string;
+  barFill: string;
+  barWidthPct: number;
+  textAccent: string;
+}
+
+/**
+ * Complete, literal Tailwind class strings for every visual element on a setup card
+ * so Tailwind CSS never purges dynamic colors in production builds.
+ */
+export function getProximityTheme(distancePct: number, isReady: boolean): ProximityTheme {
+  const absDist = Math.abs(Number.isFinite(distancePct) ? distancePct : 999);
+
+  // TIER 4: CONFIRMED & READY TO TRADE (Neon Emerald)
+  if (isReady) {
+    return {
+      tier: "READY",
+      label: "⚡ READY TO TRADE",
+      leftBorder: "border-l-4 border-l-emerald-400 border-emerald-500/60",
+      badgeClass: "bg-emerald-400 text-slate-950 font-black",
+      barFill: "bg-emerald-400",
+      barWidthPct: 100,
+      textAccent: "text-emerald-400",
+    };
+  }
+
+  // TIER 3: IN ENTRY ZONE / TESTING SUPPORT (<= 1.5% away — Vibrant Orange-Red Pulse)
+  if (absDist <= 1.5) {
+    return {
+      tier: "IN_ZONE",
+      label: "🔥 IN ENTRY ZONE • AWAIT 1H CLOSE",
+      leftBorder: "border-l-4 border-l-orange-500 border-orange-500/50",
+      badgeClass: "bg-orange-500/20 text-orange-300 border border-orange-400 font-bold",
+      barFill: "bg-orange-500 animate-pulse",
+      barWidthPct: Math.min(95, Math.max(80, Math.round(100 - absDist * 10))),
+      textAccent: "text-orange-400",
+    };
+  }
+
+  // TIER 2: APPROACHING ENTRY (1.51% – 4.5% away — Warm Solar Amber/Gold)
+  if (absDist <= 4.5) {
+    return {
+      tier: "APPROACHING",
+      label: "⏳ APPROACHING ENTRY",
+      leftBorder: "border-l-4 border-l-amber-400 border-amber-500/40",
+      badgeClass: "bg-amber-500/15 text-amber-300 border border-amber-400/60 font-bold",
+      barFill: "bg-amber-400",
+      barWidthPct: Math.min(79, Math.max(45, Math.round(100 - absDist * 10))),
+      textAccent: "text-amber-300",
+    };
+  }
+
+  // TIER 1: FORMING / DISTANT (> 4.5% away — Cool Slate/Cyan Blue)
+  return {
+    tier: "DISTANT",
+    label: "📡 FORMING PULLBACK",
+    leftBorder: "border-l-4 border-l-sky-400 border-slate-700/80",
+    badgeClass: "bg-sky-500/15 text-sky-300 border border-sky-400/40 font-semibold",
+    barFill: "bg-sky-400",
+    barWidthPct: Math.min(44, Math.max(15, Math.round(100 - absDist * 10))),
+    textAccent: "text-sky-300",
+  };
+}
+
 export interface StageThemeConfig {
   stage: SetupVisualStage;
   label: string;
