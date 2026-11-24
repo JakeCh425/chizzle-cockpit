@@ -1742,6 +1742,7 @@ function ActionCenterInner() {
         ((livePx > 0 && entryPx > 0 && livePx <= entryPx && !hasClosed1HReversal) ||
           existingTimestamps.entryTouchedAt !== null)
       );
+      let resolvedSetupStatus = String(d.setupStatus ?? d.status ?? "SETUP_FORMING").trim().toUpperCase();
 
       if (
         hasTouchedEntry &&
