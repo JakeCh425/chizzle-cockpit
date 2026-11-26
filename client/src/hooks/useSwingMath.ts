@@ -176,6 +176,52 @@ export function getSetupStage(
 }
 
 export type SizingMode = "risk_cap" | "capital";
+export type EntryOrderType = "BUY LIMIT" | "BUY STOP-LIMIT";
+export type CardActionabilityTier = "READY" | "APPROACHING" | "STALE";
+
+export interface ExecutionGuardrailStatus {
+  orderType: EntryOrderType;
+  isStopLimit: boolean;
+  distancePct: number;
+  isStalePriceDrift: boolean;
+  isTargetAlreadyExceeded: boolean;
+  isStale: boolean;
+  actionabilityTier: CardActionabilityTier;
+}
+
+/**
+ * Classifies entry order type (BUY LIMIT vs BUY STOP-LIMIT) and enforces the
+ * >5% entry drift / target-already-exceeded stale-setup circuit breaker.
+ */
+export function evaluateExecutionGuardrails(params: {
+  entryPrice: number;
+  currentPrice: number;
+  target1Price: number;
+}): ExecutionGuardrailStatus {
+  const { entryPrice, currentPrice, target1Price } = params;
+  const hasLivePrice = currentPrice > 0 && Number.isFinite(currentPrice);
+  const isStopLimit = hasLivePrice && entryPrice > currentPrice;
+  const orderType: EntryOrderType = isStopLimit ? "BUY STOP-LIMIT" : "BUY LIMIT";
+  const distancePct = hasLivePrice ? Math.abs(entryPrice - currentPrice) / currentPrice : 0;
+  const isStalePriceDrift = hasLivePrice && distancePct > 0.05;
+  const isTargetAlreadyExceeded = hasLivePrice && target1Price > 0 && target1Price <= currentPrice;
+  const isStale = isStalePriceDrift || isTargetAlreadyExceeded;
+  const actionabilityTier: CardActionabilityTier = isStale
+    ? "STALE"
+    : hasLivePrice && distancePct <= 0.005
+    ? "READY"
+    : "APPROACHING";
+
+  return {
+    orderType,
+    isStopLimit,
+    distancePct,
+    isStalePriceDrift,
+    isTargetAlreadyExceeded,
+    isStale,
+    actionabilityTier,
+  };
+}
 
 export function getRecommendedRiskPct(params: {
   macroRegime?: MacroRegime | null;
@@ -206,12 +252,14 @@ export interface ClampedSharesResult {
 }
 
 /**
- * Dual-Constraint Position Sizing: Math.min(CapitalShares, RiskShares).
- * Strictly enforces 1.0% Max Equity Risk Budget even if userCapitalInput is higher.
+ * Risk-First Position Sizing:
+ * - In "risk_cap" mode: shares = floor(maxDollarRisk / riskPerShare), capped only by available buying power.
+ * - In "capital" mode: shares derived from userCapitalInput / entryPrice, capped by available buying power.
  */
 export function calculateClampedShares({
   totalAccountEquity,
   userCapitalInput,
+  availableBuyingPower,
   entryPrice,
   stopLossPrice,
   isFractional = false,
@@ -220,6 +268,7 @@ export function calculateClampedShares({
 }: {
   totalAccountEquity: number;
   userCapitalInput: number;
+  availableBuyingPower?: number;
   entryPrice: number;
   stopLossPrice: number;
   isFractional?: boolean;
@@ -243,8 +292,20 @@ export function calculateClampedShares({
   }
 
   const rawRiskShares = maxRiskBudget / riskPerShare;
+  const effectiveBuyingPower =
+    availableBuyingPower != null && availableBuyingPower > 0
+      ? availableBuyingPower
+      : Math.max(0, totalAccountEquity);
+  const rawBuyingPowerShares =
+    effectiveBuyingPower > 0 ? effectiveBuyingPower / entryPrice : rawRiskShares;
   const rawCapitalShares = Math.max(0, userCapitalInput) / entryPrice;
-  const targetRawShares = sizingMode === "capital" ? rawCapitalShares : Math.min(rawRiskShares, rawCapitalShares);
+
+  const targetRawShares =
+    sizingMode === "capital"
+      ? effectiveBuyingPower > 0
+        ? Math.min(rawCapitalShares, rawBuyingPowerShares)
+        : rawCapitalShares
+      : Math.min(rawRiskShares, rawBuyingPowerShares);
 
   const shares = isFractional
     ? Number(targetRawShares.toFixed(3))
@@ -257,7 +318,7 @@ export function calculateClampedShares({
       ? Number(((actualDollarRisk / totalAccountEquity) * 100).toFixed(2))
       : 0;
 
-  const isRiskClamped = sizingMode === "risk_cap" && rawCapitalShares > rawRiskShares;
+  const isRiskClamped = sizingMode === "risk_cap" && rawRiskShares > rawBuyingPowerShares;
   const exceedsRiskCap = sizingMode === "capital" && actualDollarRisk > maxRiskBudget;
   const maxAllowedCapitalByRisk = isFractional
     ? Number((rawRiskShares * entryPrice).toFixed(2))
@@ -390,6 +451,7 @@ export function computeSwingPositionMath(params: {
   capital: number;
   fractional?: boolean;
   accountEquity?: number;
+  availableBuyingPower?: number;
   riskPct?: number;
   sizingMode?: SizingMode;
 }): SwingPositionMath | null {
@@ -399,6 +461,7 @@ export function computeSwingPositionMath(params: {
     capital,
     fractional,
     accountEquity,
+    availableBuyingPower,
     riskPct = 0.01,
     sizingMode = "risk_cap",
   } = params;
@@ -413,6 +476,7 @@ export function computeSwingPositionMath(params: {
   const clamped = calculateClampedShares({
     totalAccountEquity: safeEquity,
     userCapitalInput: safeCapital,
+    availableBuyingPower,
     entryPrice,
     stopLossPrice: safeStop,
     isFractional,
