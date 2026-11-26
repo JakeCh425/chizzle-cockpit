@@ -28,7 +28,6 @@ import { LockedTradeCard } from "./LockedCard";
 import { PriorityBoard } from "./SetupScore";
 import { MechanicalSMAPanel } from "./MechanicalSMAPanel";
 import { CardThemeSwitcher } from "./CardThemeSwitcher";
-import { ActiveExecutionHeroCard } from "./ActiveExecutionHeroCard";
 import { PendingRow } from "./PendingRow";
 import { evaluateQualityTradeValidation } from "@/hooks/useQualityTradeValidation";
 import { useStrategyEngine, type ConfirmedHeroTrade } from "@/hooks/useStrategyEngine";
@@ -833,44 +832,48 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
 
   const statusBadge = guardrail.isStale ? (
     <span
-      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700"
+      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0"
       data-testid={`badge-ready-stale-${d.symbol}`}
     >
-      OUT OF RANGE / STALE
+      STALE / OUT OF RANGE
     </span>
   ) : guardrail.actionabilityTier === "READY" ? (
     <span
-      className="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-emerald-400 text-slate-950"
+      className="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-emerald-400 text-slate-950 shrink-0"
       data-testid={`badge-ready-promoted-${d.symbol}`}
     >
       ⚡ READY
     </span>
   ) : (
     <span
-      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/40"
+      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/40 shrink-0"
       data-testid={`badge-ready-promoted-${d.symbol}`}
     >
       APPROACHING
     </span>
   );
 
+  const shareCountLabel = cardMath.shares === 1 ? "1 Share" : `${cardMath.shares} Shares`;
+
   return (
     <>
       <div
-        className={`h-full overflow-hidden box-border flex flex-col gap-3 transition-all rounded-xl p-3.5 text-white ${
+        className={`h-full min-w-0 overflow-hidden box-border flex flex-col gap-3 transition-all rounded-xl p-3.5 text-white ${
           guardrail.isStale
-            ? "bg-[#0B111E]/75 border border-slate-700/80 opacity-80"
+            ? "bg-[#0B111E]/65 border border-slate-700/80 opacity-65"
             : "bg-[#0B111E] border border-emerald-400/80 shadow-[0_0_20px_rgba(0,245,160,0.12)]"
         } ${isPractice ? "ring-1 ring-amber-400/40" : ""}`}
         data-testid={`active-execution-card-${d.symbol}`}
       >
         {/* Zone 1: Standardized Header */}
-        <div className="flex items-start justify-between gap-2 pb-2 border-b border-slate-800/80">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-            <span className="font-mono text-xl font-black tracking-tight text-white">{d.symbol}</span>
+        <div className="flex items-start justify-between gap-2 pb-2 border-b border-slate-800/80 min-w-0">
+          <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
+            <span className="font-mono text-[clamp(1rem,1.4vw,1.25rem)] font-black tracking-tight text-white truncate">
+              {d.symbol}
+            </span>
             {!isSyncingLiveData ? (
               <span
-                className={`font-mono text-base font-bold tabular-nums ${
+                className={`font-mono text-[clamp(0.875rem,1.15vw,1.05rem)] font-bold tabular-nums shrink-0 ${
                   guardrail.isStale ? "text-slate-400" : "text-emerald-400"
                 }`}
               >
@@ -879,11 +882,11 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
             ) : (
               <div className="h-4 bg-slate-800 rounded w-16 animate-pulse" />
             )}
-            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800">
+            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 shrink-0">
               {timeframeTag}
             </span>
             <span
-              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${
+              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border shrink-0 ${
                 guardrail.isStopLimit
                   ? "bg-amber-500/15 text-amber-300 border-amber-400/40"
                   : "bg-cyan-500/15 text-cyan-300 border-cyan-400/40"
@@ -908,32 +911,39 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
         </div>
 
         {/* Zone 2: 3-Column Price Matrix + Compact 2.0R / 3.0R Pills */}
-        <div className="flex flex-col gap-2 font-mono tabular-nums">
-          <div className="grid grid-cols-3 gap-2 w-full">
-            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
-              <div className="text-[10px] text-slate-400 uppercase">ENTRY</div>
-              <div className="text-base font-bold text-cyan-300 tabular-nums">${entryPrice.toFixed(2)}</div>
+        <div className="flex flex-col gap-2 font-mono tabular-nums min-w-0">
+          <div className="grid grid-cols-3 gap-2 w-full min-w-0">
+            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
+              <div className="text-[10px] text-slate-400 uppercase truncate">ENTRY</div>
+              <div className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-cyan-300 tabular-nums truncate">
+                ${entryPrice.toFixed(2)}
+              </div>
             </div>
-            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
-              <div className="text-[10px] text-slate-400 uppercase">STOP (-1R)</div>
-              <div className="text-base font-bold text-rose-400 tabular-nums">${stopLossPrice.toFixed(2)}</div>
+            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
+              <div className="text-[10px] text-slate-400 uppercase truncate">STOP (-1R)</div>
+              <div className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-rose-400 tabular-nums truncate">
+                ${stopLossPrice.toFixed(2)}
+              </div>
             </div>
-            <div className="bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-2">
-              <div className="text-[10px] text-slate-400 uppercase">TARGET (1.5R)</div>
-              <div className="text-base font-bold text-emerald-400 tabular-nums" data-testid={`ready-card-roi-${d.symbol}`}>
+            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
+              <div className="text-[10px] text-slate-400 uppercase truncate">TARGET (1.5R)</div>
+              <div
+                className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-emerald-400 tabular-nums truncate"
+                data-testid={`ready-card-roi-${d.symbol}`}
+              >
                 ${cardMath.t1.toFixed(2)}
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2 text-[11px] font-mono tabular-nums">
-            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300">
+          <div className="flex flex-wrap items-center gap-1.5 text-[clamp(0.65rem,0.85vw,0.75rem)] font-mono tabular-nums min-w-0">
+            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300 shrink-0">
               2.0R <strong className="text-emerald-300">${cardMath.t2.toFixed(2)}</strong>
             </span>
-            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300">
+            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300 shrink-0">
               3.0R <strong className="text-violet-300">${cardMath.t3.toFixed(2)}</strong>
             </span>
-            <span className="ml-auto text-[10px] text-slate-500">
+            <span className="ml-auto text-[10px] text-slate-500 truncate">
               {setupTimestamps?.confirmedReadyAt
                 ? `Confirmed ${setupTimestamps.confirmedReadyAt}`
                 : `${formattedLastUpdated} CT`}
@@ -943,10 +953,10 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
 
         {/* Zone 3: Single Execution Summary Strip */}
         <div
-          className="px-2.5 py-2 rounded-lg bg-slate-900/70 border border-slate-800 font-mono text-xs text-slate-200 tabular-nums"
+          className="min-w-0 px-2.5 py-2 rounded-lg bg-slate-900/70 border border-slate-800 font-mono text-[clamp(0.68rem,0.9vw,0.75rem)] text-slate-200 tabular-nums break-words"
           data-testid={`execution-summary-strip-${d.symbol}`}
         >
-          <strong className="text-white">{cardMath.shares} Shares</strong>{" "}
+          <strong className="text-white">{shareCountLabel}</strong>{" "}
           <span className="text-slate-400">(${cardMath.actualCapitalDeployed.toFixed(2)})</span>
           <span className="text-slate-600 mx-1.5">•</span>
           <span className="text-rose-300">
@@ -1124,7 +1134,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
                   </span>
                 </div>
                 <h3 className="font-mono text-2xl font-black tracking-tight text-white tabular-nums">
-                  {d.symbol} · {cardMath.shares} Shares
+                  {d.symbol} · {shareCountLabel}
                 </h3>
               </div>
               <button
@@ -2863,24 +2873,212 @@ function ActionCenterInner() {
                 </span>
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 w-full" data-testid="ready-cards-grid">
-                  {/* Auto-docking Hero Execution Cards from Mechanical Strategy Engine */}
-                  {validHeroTrades.map((trade) => (
-                    <motion.div
-                      key={`hero-${trade.symbol}`}
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.25, ease: "easeOut" }}
-                      className="w-full"
-                    >
-                      <ActiveExecutionHeroCard
-                        trade={trade}
-                        onDismiss={handleHeroDismiss}
-                        onArmOrExecute={handleHeroArmOrExecute}
-                        bulkExpanded={bulkExpanded}
-                      />
-                    </motion.div>
-                  ))}
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch w-full" data-testid="ready-cards-grid">
+                  {/* Unified Execution Cards (Mechanical Hero + Confirmed Scanner) sorted by Actionability */}
+                  {(() => {
+                    const availableBuyingPower = Number((acct as any)?.buyingPower ?? (acct as any)?.cash ?? safeEquity) || safeEquity;
+                    const tierOrder = { READY: 0, APPROACHING: 1, STALE: 2 } as const;
+
+                    type UnifiedCardEntry = {
+                      key: string;
+                      d: SwingDecision;
+                      ver: any;
+                      isSyncingLiveData: boolean;
+                      isStaticLastClose: boolean;
+                      effectivePrice: number;
+                      formattedLastUpdated: string;
+                      entryPrice: number;
+                      stopLoss: number;
+                      target1: number;
+                      target2: number;
+                      target3: number;
+                      calculatedShares: number;
+                      userAllocatedCapital: number;
+                      isArming: boolean;
+                      onDismiss: (symbol: string) => void;
+                      onConfirmExecute: (d: SwingDecision, ver: any) => void;
+                      distancePct: number;
+                      actionabilityTier: "READY" | "APPROACHING" | "STALE";
+                    };
+
+                    const heroEntries: UnifiedCardEntry[] = validHeroTrades.map((trade) => {
+                      const liveQuote = prices?.[trade.symbol];
+                      const storeCurrent = trade.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
+                      const effectivePrice =
+                        Number(
+                          storeCurrent ??
+                            marketStore.prices[trade.symbol] ??
+                            global?.livePrices?.[trade.symbol] ??
+                            liveQuote?.price ??
+                            trade.currentPrice
+                        ) || 0;
+                      const entryPrice = trade.entryPrice;
+                      const stopLoss = trade.stopLoss;
+                      const target1 = trade.target1;
+                      const target2 = trade.target2;
+                      const target3 = +(entryPrice + Math.max(0.01, entryPrice - stopLoss) * 3.0).toFixed(2);
+                      const guardrail = evaluateExecutionGuardrails({
+                        entryPrice,
+                        currentPrice: effectivePrice,
+                        target1Price: target1,
+                      });
+                      const syntheticDecision = {
+                        symbol: trade.symbol,
+                        currentPrice: effectivePrice,
+                        entryPrice,
+                        structuralStop: stopLoss,
+                        setupStatus: "READY_TO_TRADE",
+                        timeframe: "1H / 4H",
+                        evaluatedAt: new Date(trade.timestamp).toISOString(),
+                      } as unknown as SwingDecision;
+
+                      return {
+                        key: `hero-${trade.symbol}`,
+                        d: syntheticDecision,
+                        ver: null,
+                        isSyncingLiveData: effectivePrice <= 0,
+                        isStaticLastClose: Boolean(marketStore.isStaticLastClose || marketStore.status === "STATIC"),
+                        effectivePrice,
+                        formattedLastUpdated: getTickerTimestamp(trade.symbol, trade.timestamp),
+                        entryPrice,
+                        stopLoss,
+                        target1,
+                        target2,
+                        target3,
+                        calculatedShares: trade.shares,
+                        userAllocatedCapital: tickerCapitalMap[trade.symbol] ?? standardCapital,
+                        isArming: armingSymbol === trade.symbol,
+                        onDismiss: handleHeroDismiss,
+                        onConfirmExecute: () => handleHeroArmOrExecute(trade),
+                        distancePct: guardrail.distancePct,
+                        actionabilityTier: guardrail.actionabilityTier,
+                      };
+                    });
+
+                    const scannerEntries: UnifiedCardEntry[] = confirmedRows
+                      .filter((d) => !heroSymSet.has(d.symbol))
+                      .map((d) => {
+                        const ver = activeVersion(d, sel);
+                        const plan = effectivePlan(d, ver);
+                        const liveQuote = prices?.[d.symbol];
+                        const storeCurrent = d.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
+                        const verifiedLivePrice =
+                          storeCurrent ??
+                          marketStore.prices[d.symbol] ??
+                          global?.livePrices?.[d.symbol] ??
+                          liveQuote?.price ??
+                          (d.currentPrice != null && d.currentPrice > 0 ? d.currentPrice : null);
+                        const isSyncingLiveData =
+                          !marketStore.isStaticLastClose &&
+                          (verifiedLivePrice == null ||
+                            verifiedLivePrice <= 0 ||
+                            (d.symbol === marketStore.activeTicker &&
+                              (marketStore.currentPrice === null || marketStore.currentPrice === 0) &&
+                              marketStore.isLoadingTicker &&
+                              verifiedLivePrice == null));
+                        const isStaticLastClose = Boolean(
+                          marketStore.isStaticLastClose ||
+                          marketStore.status === "STATIC" ||
+                          (liveQuote as any)?.source === "LAST_CLOSE"
+                        );
+                        const globalPrice =
+                          storeCurrent ??
+                          marketStore.prices[d.symbol] ??
+                          global?.livePrices?.[d.symbol] ??
+                          (d.symbol === global?.activeTicker ? global?.activePrice : null);
+                        const effectivePrice = Number(globalPrice ?? liveQuote?.price ?? d.currentPrice) || 0;
+
+                        const rawEntry = (d as any).projectedEntry ?? plan.entry ?? d.entryPrice ?? (effectivePrice > 0 ? effectivePrice : 100);
+                        const rawStop = (d as any).stopLoss ?? plan.stop ?? d.structuralStop ?? +(rawEntry * 0.98).toFixed(2);
+                        const userAllocatedCapital = tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital;
+                        const sharedCalc = computeSwingPositionMath({
+                          entryPrice: rawEntry,
+                          stopLoss: rawStop,
+                          capital: userAllocatedCapital,
+                          accountEquity: safeEquity,
+                          availableBuyingPower,
+                        });
+
+                        let lockedMath = frozenReadySnapshotsRef.current.get(d.symbol);
+                        if (!lockedMath && sharedCalc) {
+                          lockedMath = {
+                            entryPrice: sharedCalc.entryPrice,
+                            stopLoss: sharedCalc.stopLoss,
+                            target1_5R: +sharedCalc.target1_5R.toFixed(2),
+                            target2_0R: +sharedCalc.target2_0R.toFixed(2),
+                            target3_0R: +sharedCalc.target3_0R.toFixed(2),
+                            calculatedShares: sharedCalc.shares,
+                            totalRisk: +sharedCalc.totalRisk.toFixed(2),
+                          };
+                          frozenReadySnapshotsRef.current.set(d.symbol, lockedMath);
+                        }
+                        if (!lockedMath) return null;
+
+                        const guardrail = evaluateExecutionGuardrails({
+                          entryPrice: lockedMath.entryPrice,
+                          currentPrice: effectivePrice,
+                          target1Price: lockedMath.target1_5R,
+                        });
+
+                        return {
+                          key: d.symbol,
+                          d,
+                          ver,
+                          isSyncingLiveData,
+                          isStaticLastClose,
+                          effectivePrice,
+                          formattedLastUpdated: getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp),
+                          entryPrice: lockedMath.entryPrice,
+                          stopLoss: lockedMath.stopLoss,
+                          target1: lockedMath.target1_5R,
+                          target2: lockedMath.target2_0R,
+                          target3: lockedMath.target3_0R,
+                          calculatedShares: lockedMath.calculatedShares,
+                          userAllocatedCapital,
+                          isArming: armingSymbol === d.symbol,
+                          onDismiss: handlePassSetup,
+                          onConfirmExecute: handleDirectArmExecute,
+                          distancePct: guardrail.distancePct,
+                          actionabilityTier: guardrail.actionabilityTier,
+                        };
+                      })
+                      .filter((x): x is UnifiedCardEntry => x !== null);
+
+                    return [...heroEntries, ...scannerEntries]
+                      .sort((a, b) => {
+                        const tierDiff = tierOrder[a.actionabilityTier] - tierOrder[b.actionabilityTier];
+                        return tierDiff !== 0 ? tierDiff : a.distancePct - b.distancePct;
+                      })
+                      .map((item) => (
+                        <ReadyExecutionCard
+                          key={item.key}
+                          d={item.d}
+                          ver={item.ver}
+                          isPractice={isPractice}
+                          isSyncingLiveData={item.isSyncingLiveData}
+                          isStaticLastClose={item.isStaticLastClose}
+                          effectivePrice={item.effectivePrice}
+                          formattedLastUpdated={item.formattedLastUpdated}
+                          entryPrice={item.entryPrice}
+                          stopLossPrice={item.stopLoss}
+                          target1Price={item.target1}
+                          target1_5R={item.target1}
+                          target2_0R={item.target2}
+                          target3_0R={item.target3}
+                          shares={item.calculatedShares}
+                          allocatedCapital={item.userAllocatedCapital}
+                          accountEquity={safeEquity}
+                          availableBuyingPower={availableBuyingPower}
+                          macroRegime={macroRegime}
+                          selectedRiskPct={tickerRiskMap[item.d.symbol]}
+                          onUpdateCapital={handleUpdateCapital}
+                          onUpdateRiskPct={handleUpdateRiskPct}
+                          onDismiss={item.onDismiss}
+                          isArming={item.isArming}
+                          onConfirmExecute={item.onConfirmExecute}
+                        />
+                      ));
+                  })()}
 
                   {/* Practice Execution Cards from Beginner Practice Simulator */}
                   {practiceDrills.map((drill) => (
@@ -3040,144 +3238,6 @@ function ActionCenterInner() {
                     </motion.div>
                   ))}
 
-                  {/* Confirmed Setup Cards from Swing Scanner sorted by Actionability */}
-                  {[...confirmedRows]
-                    .filter((d) => !heroSymSet.has(d.symbol))
-                    .sort((a, b) => {
-                      const tierOrder = { READY: 0, APPROACHING: 1, STALE: 2 } as const;
-                      const evalRow = (d: SwingDecision) => {
-                        const ver = activeVersion(d, sel);
-                        const plan = effectivePlan(d, ver);
-                        const lp =
-                          (d.symbol === marketStore.activeTicker && marketStore.currentPrice != null
-                            ? globalStore.currentPrice
-                            : null) ??
-                          marketStore.prices[d.symbol] ??
-                          global?.livePrices?.[d.symbol] ??
-                          prices?.[d.symbol]?.price ??
-                          d.currentPrice ??
-                          0;
-                        const ep =
-                          frozenReadySnapshotsRef.current.get(d.symbol)?.entryPrice ??
-                          (d as any).projectedEntry ??
-                          plan.entry ??
-                          d.entryPrice ??
-                          lp;
-                        const sp =
-                          frozenReadySnapshotsRef.current.get(d.symbol)?.stopLoss ??
-                          (d as any).stopLoss ??
-                          plan.stop ??
-                          d.structuralStop ??
-                          +(ep * 0.98).toFixed(2);
-                        const t1 =
-                          frozenReadySnapshotsRef.current.get(d.symbol)?.target1_5R ??
-                          +(ep + Math.max(0.01, ep - sp) * 1.5).toFixed(2);
-                        return evaluateExecutionGuardrails({
-                          entryPrice: ep,
-                          currentPrice: lp,
-                          target1Price: t1,
-                        });
-                      };
-                      const ga = evalRow(a);
-                      const gb = evalRow(b);
-                      const tierDiff = tierOrder[ga.actionabilityTier] - tierOrder[gb.actionabilityTier];
-                      return tierDiff !== 0 ? tierDiff : ga.distancePct - gb.distancePct;
-                    })
-                    .map((d) => {
-                    const ver = activeVersion(d, sel);
-                    const plan = effectivePlan(d, ver);
-                    const isArming = armingSymbol === d.symbol;
-
-                    const liveQuote = prices?.[d.symbol];
-                    const storeCurrent = d.symbol === marketStore.activeTicker && marketStore.currentPrice != null ? globalStore.currentPrice : null;
-                    const verifiedLivePrice =
-                      storeCurrent ??
-                      marketStore.prices[d.symbol] ??
-                      global?.livePrices?.[d.symbol] ??
-                      liveQuote?.price ??
-                      (d.currentPrice != null && d.currentPrice > 0 ? d.currentPrice : null);
-                    const isSyncingLiveData =
-                      !marketStore.isStaticLastClose &&
-                      (verifiedLivePrice == null ||
-                        verifiedLivePrice <= 0 ||
-                        (d.symbol === marketStore.activeTicker &&
-                          (marketStore.currentPrice === null || marketStore.currentPrice === 0) &&
-                          marketStore.isLoadingTicker &&
-                          verifiedLivePrice == null));
-                    const isStaticLastClose = Boolean(
-                      marketStore.isStaticLastClose ||
-                      marketStore.status === "STATIC" ||
-                      liveQuote?.source === "LAST_CLOSE"
-                    );
-                    const isStaleQuoteRejected = Boolean(marketStore.staleQuoteRejected || marketStore.dataFeedError);
-                    const globalPrice = storeCurrent ?? marketStore.prices[d.symbol] ?? global?.livePrices?.[d.symbol] ?? (d.symbol === global?.activeTicker ? global?.activePrice : null);
-                    const effectivePrice = globalPrice ?? liveQuote?.price ?? d.currentPrice;
-
-                    // Single Source of Truth Math (shared with PendingRow & SwingWorkspace)
-                    const rawEntry = (d as any).projectedEntry ?? plan.entry ?? d.entryPrice ?? (effectivePrice > 0 ? effectivePrice : 100);
-                    const rawStop = (d as any).stopLoss ?? plan.stop ?? d.structuralStop ?? +(rawEntry * 0.98).toFixed(2);
-                    const userAllocatedCapital = tickerCapitalMap[d.symbol] ?? (d as any).allocatedCapital ?? standardCapital;
-                    const availableBuyingPower = Number((acct as any)?.buyingPower ?? (acct as any)?.cash ?? safeEquity) || safeEquity;
-                    const sharedCalc = computeSwingPositionMath({
-                      entryPrice: rawEntry,
-                      stopLoss: rawStop,
-                      capital: userAllocatedCapital,
-                      accountEquity: safeEquity,
-                      availableBuyingPower,
-                    });
-
-                    let lockedMath = frozenReadySnapshotsRef.current.get(d.symbol);
-                    if (!lockedMath && sharedCalc) {
-                      lockedMath = {
-                        entryPrice: sharedCalc.entryPrice,
-                        stopLoss: sharedCalc.stopLoss,
-                        target1_5R: +sharedCalc.target1_5R.toFixed(2),
-                        target2_0R: +sharedCalc.target2_0R.toFixed(2),
-                        target3_0R: +sharedCalc.target3_0R.toFixed(2),
-                        calculatedShares: sharedCalc.shares,
-                        totalRisk: +sharedCalc.totalRisk.toFixed(2),
-                      };
-                      frozenReadySnapshotsRef.current.set(d.symbol, lockedMath);
-                    }
-                    if (!lockedMath) return null;
-
-                    const entryPrice = lockedMath.entryPrice;
-                    const stopLoss = lockedMath.stopLoss;
-                    const target1 = lockedMath.target1_5R;
-                    const calculatedShares = lockedMath.calculatedShares;
-                    const totalRisk = lockedMath.totalRisk;
-                    const formattedLastUpdated = getTickerTimestamp(d.symbol, d.evaluatedAt || d.quoteTimestamp);
-
-                    return (
-                      <ReadyExecutionCard
-                        key={d.symbol}
-                        d={d}
-                        ver={ver}
-                        isPractice={isPractice}
-                        isSyncingLiveData={isSyncingLiveData}
-                        isStaticLastClose={isStaticLastClose}
-                        effectivePrice={effectivePrice}
-                        formattedLastUpdated={formattedLastUpdated}
-                        entryPrice={entryPrice}
-                        stopLossPrice={stopLoss}
-                        target1Price={target1}
-                        target1_5R={lockedMath.target1_5R}
-                        target2_0R={lockedMath.target2_0R}
-                        target3_0R={lockedMath.target3_0R}
-                        shares={calculatedShares}
-                        allocatedCapital={userAllocatedCapital}
-                        accountEquity={safeEquity}
-                        availableBuyingPower={availableBuyingPower}
-                        macroRegime={macroRegime}
-                        selectedRiskPct={tickerRiskMap[d.symbol]}
-                        onUpdateCapital={handleUpdateCapital}
-                        onUpdateRiskPct={handleUpdateRiskPct}
-                        onDismiss={handlePassSetup}
-                        isArming={isArming}
-                        onConfirmExecute={handleDirectArmExecute}
-                      />
-                    );
-                  })}
                 </div>
               )}
             </div>
