@@ -179,6 +179,65 @@ export type SizingMode = "risk_cap" | "capital";
 export type EntryOrderType = "BUY LIMIT" | "BUY STOP-LIMIT";
 export type CardActionabilityTier = "READY" | "APPROACHING" | "STALE";
 
+export interface Sma10GateResult {
+  passesSma10Gate: boolean;
+  reasons: string[];
+}
+
+/**
+ * Strict 1H + 4H SMA-10 Confirmation Gate:
+ * - Non-bearish 4H regime, no hard blocks, non-falling-knife structure
+ * - Price holding/bouncing above rising 10-SMA with 20/50-SMA alignment
+ * - Minimum 1.5R reward-to-risk
+ */
+export function evaluateSma10SetupGate(params: {
+  decision: any;
+  entryPrice: number;
+  stopLoss: number;
+  target1Price: number;
+}): Sma10GateResult {
+  const { decision, entryPrice, stopLoss, target1Price } = params;
+  const reasons: string[] = [];
+
+  if (decision?.hasHardBlock) {
+    reasons.push("Hard block active");
+  }
+  const regime = String(decision?.marketRegime ?? "").toUpperCase();
+  if (regime === "BEARISH") {
+    reasons.push("Bearish 4H regime");
+  }
+  if (decision?.isFallingKnife || decision?.fallingKnife) {
+    reasons.push("Falling-knife structure");
+  }
+
+  const sma10 = decision?.sma10 ?? decision?.ema10 ?? decision?.structureLevels?.sma10;
+  const sma20 = decision?.sma20 ?? decision?.structureLevels?.sma20;
+  const sma50 = decision?.sma50 ?? decision?.structureLevels?.sma50;
+  if (sma10 != null && Number(sma10) > 0 && entryPrice > 0 && entryPrice < Number(sma10) * 0.995) {
+    reasons.push("Entry below 10-SMA");
+  }
+  if (decision?.sma10Rising === false) {
+    reasons.push("10-SMA not rising");
+  }
+  if (sma20 != null && sma50 != null && Number(sma20) > 0 && Number(sma50) > 0 && Number(sma20) < Number(sma50)) {
+    reasons.push("20/50-SMA bearish alignment");
+  }
+  if (decision?.is1HCandleClosedGreen === false) {
+    reasons.push("1H green close unconfirmed");
+  }
+
+  const riskPerShare = entryPrice - stopLoss;
+  const rr = riskPerShare > 0 ? (target1Price - entryPrice) / riskPerShare : 0;
+  if (rr < 1.49) {
+    reasons.push("Below 1.5R minimum");
+  }
+
+  return {
+    passesSma10Gate: reasons.length === 0,
+    reasons,
+  };
+}
+
 export interface ExecutionGuardrailStatus {
   orderType: EntryOrderType;
   isStopLimit: boolean;

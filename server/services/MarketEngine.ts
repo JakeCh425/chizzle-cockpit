@@ -1,6 +1,7 @@
 import type { Express, Request, Response } from "express";
 import { addPollSymbols, feedStatus, snapshot as getPriceSnapshot, type Quote } from "../priceService";
 import { isRegularMarketHours } from "../marketHours";
+import { dispatchTradeAlert } from "./tradeAlertDispatcher";
 
 export interface EngineTickerState {
   symbol: string;
@@ -32,6 +33,7 @@ class MarketEngineService {
   private keepAliveTimer: ReturnType<typeof setInterval> | null = null;
   private sseClients = new Set<Response>();
   private decisionCache = new Map<string, { setupStatus?: string; entryPrice?: number; stopLoss?: number }>();
+  private prevReadySet = new Set<string>();
   private state: EngineSnapshot = {
     marketStatus: "CLOSED",
     feedHealth: "STATIC",
@@ -120,10 +122,22 @@ class MarketEngineService {
       const isReady = meta?.setupStatus === "READY_TO_TRADE" || meta?.setupStatus === "SETUP_CONFIRMED";
       if (isReady) {
         nextReady.push(sym);
+        if (open && !this.prevReadySet.has(sym)) {
+          const entryPx = meta?.entryPrice ?? q.price;
+          const stopPx = meta?.stopLoss ?? +(entryPx * 0.98).toFixed(2);
+          void dispatchTradeAlert({
+            ticker: sym,
+            stage: "READY",
+            livePrice: q.price,
+            entryPrice: entryPx,
+            stopLoss: stopPx,
+          }).catch(() => {});
+        }
       } else {
         nextPending.push(sym);
       }
     }
+    this.prevReadySet = new Set(nextReady);
 
     for (const sym of DEFAULT_UNIVERSE) {
       if (!nextTickers[sym] && !nextPending.includes(sym)) {

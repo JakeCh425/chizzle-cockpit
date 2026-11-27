@@ -44,6 +44,7 @@ import {
   getProximityForSetup as sharedGetProximity,
   computeSwingPositionMath,
   evaluateExecutionGuardrails,
+  evaluateSma10SetupGate,
   getRecommendedRiskPct,
   getSetupStage,
   getTechnicalStage,
@@ -637,6 +638,8 @@ interface ReadyExecutionCardProps {
   d: SwingDecision;
   ver: any;
   isPractice: boolean;
+  isMarketOpen?: boolean;
+  isExperimentalSetup?: boolean;
   isSyncingLiveData: boolean;
   isStaticLastClose: boolean;
   effectivePrice: number;
@@ -662,10 +665,28 @@ interface ReadyExecutionCardProps {
 
 const RISK_PRESETS = [0.01, 0.015, 0.02, 0.025, 0.03] as const;
 
+function calcTargetMetrics(entry: number, stop: number, shares: number, rMultiple: number) {
+  const riskPerShare = Math.abs(entry - stop);
+  const targetPrice = entry + riskPerShare * rMultiple;
+  const movePct = entry > 0 ? ((targetPrice - entry) / entry) * 100 : 0;
+  const dollarProfit = shares * (targetPrice - entry);
+  const capitalDeployed = shares * entry;
+  const rocPct = capitalDeployed > 0 ? (dollarProfit / capitalDeployed) * 100 : movePct;
+  return {
+    rMultiple,
+    targetPrice: targetPrice.toFixed(2),
+    movePct: movePct.toFixed(2),
+    dollarProfit: dollarProfit.toFixed(2),
+    rocPct: rocPct.toFixed(2),
+  };
+}
+
 const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   d,
   ver,
   isPractice,
+  isMarketOpen: marketOpen = true,
+  isExperimentalSetup = false,
   isSyncingLiveData,
   effectivePrice,
   formattedLastUpdated,
@@ -682,10 +703,17 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   isArming,
   onConfirmExecute,
 }: ReadyExecutionCardProps) {
-  const [rawCapital, setRawCapital] = useState<string>(() => String(allocatedCapital || 1000));
+  const [rawCapital, setRawCapital] = useState<string>(() =>
+    String(
+      allocatedCapital && allocatedCapital > 0
+        ? allocatedCapital
+        : Math.min(1000, Math.round(accountEquity || 1000))
+    )
+  );
   const [shareModeOverride, setShareModeOverride] = useState<"auto" | "whole" | "fractional">("auto");
   const [sizingMode, setSizingMode] = useState<SizingMode>("risk_cap");
-  const [isSizingOpen, setIsSizingOpen] = useState(false);
+  const [showMoreReturns, setShowMoreReturns] = useState(false);
+  const [customRInput, setCustomRInput] = useState("8");
   const [isTicketDrawerOpen, setIsTicketDrawerOpen] = useState(false);
   const [copiedTicket, setCopiedTicket] = useState(false);
   const setupTimestamps = useTradeSetupStore((s) => s.setupTimestamps[(d.symbol || "").toUpperCase()]);
@@ -696,7 +724,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     [macroRegime, d]
   );
   const [localRiskPct, setLocalRiskPct] = useState<number>(
-    () => selectedRiskPct ?? recommendation.recommendedPct
+    () => selectedRiskPct ?? 0.02
   );
   const activeRiskPct = selectedRiskPct ?? localRiskPct;
   const activeRiskLabel = `${(activeRiskPct * 100).toFixed(1).replace(/\.0$/, "")}%`;
@@ -718,29 +746,41 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     return () => document.removeEventListener("keydown", onEsc);
   }, [isTicketDrawerOpen]);
 
-  const useFractional =
-    shareModeOverride === "fractional"
-      ? true
-      : shareModeOverride === "whole"
-      ? false
-      : false;
-
-  // Risk-First Real-Time Math via useMemo
+  // Risk-First Real-Time Math via useMemo (auto-enables fractional if whole shares === 0 and risk budget > 0)
   const cardMath = useMemo(() => {
-    const calc = computeSwingPositionMath({
+    const wholeAttempt = computeSwingPositionMath({
       entryPrice,
       stopLoss: stopLossPrice,
       capital: numericCapital,
-      fractional: useFractional,
+      fractional: shareModeOverride === "fractional",
       accountEquity,
       availableBuyingPower,
       riskPct: activeRiskPct,
       sizingMode,
     });
+    const autoNeedsFractional =
+      shareModeOverride === "auto" &&
+      wholeAttempt != null &&
+      wholeAttempt.shares === 0 &&
+      wholeAttempt.maxRiskBudget > 0;
+    const calc = autoNeedsFractional
+      ? computeSwingPositionMath({
+          entryPrice,
+          stopLoss: stopLossPrice,
+          capital: numericCapital,
+          fractional: true,
+          accountEquity,
+          availableBuyingPower,
+          riskPct: activeRiskPct,
+          sizingMode,
+        })
+      : wholeAttempt;
     if (!calc) {
       return {
         shares: 0,
+        isFractional: false,
         totalRisk: 0,
+        stopPct: 0,
         actualCapitalDeployed: 0,
         equityRiskPct: 0,
         maxRiskBudget: 0,
@@ -767,7 +807,9 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
     const capitalRiskPct = calc.actualCapitalDeployed > 0 ? (calc.totalRisk / calc.actualCapitalDeployed) * 100 : 0;
     return {
       shares: calc.shares,
+      isFractional: calc.isFractional,
       totalRisk: calc.totalRisk,
+      stopPct: calc.stopPct,
       actualCapitalDeployed: calc.actualCapitalDeployed,
       equityRiskPct: calc.equityRiskPct,
       maxRiskBudget: calc.maxRiskBudget,
@@ -790,7 +832,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
       roi3_0: calc.roi3_0,
       capitalRiskPct,
     };
-  }, [numericCapital, entryPrice, stopLossPrice, useFractional, accountEquity, availableBuyingPower, activeRiskPct, sizingMode]);
+  }, [numericCapital, entryPrice, stopLossPrice, shareModeOverride, accountEquity, availableBuyingPower, activeRiskPct, sizingMode]);
 
   const guardrail = useMemo(
     () =>
@@ -804,6 +846,7 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
 
   const halfShares = cardMath.scale50Shares;
   const timeframeTag = String((d as any).timeframe || "1H / 4H").toUpperCase();
+  const useFractional = cardMath.isFractional;
 
   const handleCopyTicket = () => {
     if (guardrail.isStale) return;
@@ -832,21 +875,28 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
 
   const statusBadge = guardrail.isStale ? (
     <span
-      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0"
+      className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 shrink-0"
       data-testid={`badge-ready-stale-${d.symbol}`}
     >
       STALE / OUT OF RANGE
     </span>
+  ) : !marketOpen ? (
+    <span
+      className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-slate-800/90 text-cyan-300 border border-cyan-500/30 shrink-0"
+      data-testid={`badge-ready-queued-${d.symbol}`}
+    >
+      QUEUED
+    </span>
   ) : guardrail.actionabilityTier === "READY" ? (
     <span
-      className="text-[10px] font-mono font-black px-2 py-0.5 rounded bg-emerald-400 text-slate-950 shrink-0"
+      className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-emerald-400 text-slate-950 shrink-0"
       data-testid={`badge-ready-promoted-${d.symbol}`}
     >
       ⚡ READY
     </span>
   ) : (
     <span
-      className="text-[10px] font-mono font-bold px-2 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/40 shrink-0"
+      className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-cyan-500/15 text-cyan-300 border border-cyan-400/40 shrink-0"
       data-testid={`badge-ready-promoted-${d.symbol}`}
     >
       APPROACHING
@@ -858,44 +908,65 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
   return (
     <>
       <div
-        className={`h-full min-w-0 overflow-hidden box-border flex flex-col gap-3 transition-all rounded-xl p-3.5 text-white ${
+        className={`h-full min-w-0 overflow-hidden box-border flex flex-col gap-3 transition-all rounded-2xl p-4 text-white ${
           guardrail.isStale
-            ? "bg-[#0B111E]/65 border border-slate-700/80 opacity-65"
-            : "bg-[#0B111E] border border-emerald-400/80 shadow-[0_0_20px_rgba(0,245,160,0.12)]"
+            ? "bg-gradient-to-b from-[#0D1424]/70 to-[#080C16]/70 border border-slate-800 opacity-65"
+            : !marketOpen
+            ? "bg-gradient-to-b from-[#0D1424] to-[#080C16] border border-slate-700/80"
+            : "bg-gradient-to-b from-[#0D1424] to-[#080C16] border border-emerald-400/60 shadow-[0_0_25px_rgba(0,245,160,0.08)]"
         } ${isPractice ? "ring-1 ring-amber-400/40" : ""}`}
         data-testid={`active-execution-card-${d.symbol}`}
       >
-        {/* Zone 1: Standardized Header */}
+        {/* Header Strip: Large Ticker, Live Price, Order Type Pill, Ready Badge & Timestamp */}
         <div className="flex items-start justify-between gap-2 pb-2 border-b border-slate-800/80 min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5 min-w-0 flex-1">
-            <span className="font-mono text-[clamp(1rem,1.4vw,1.25rem)] font-black tracking-tight text-white truncate">
-              {d.symbol}
-            </span>
-            {!isSyncingLiveData ? (
-              <span
-                className={`font-mono text-[clamp(0.875rem,1.15vw,1.05rem)] font-bold tabular-nums shrink-0 ${
-                  guardrail.isStale ? "text-slate-400" : "text-emerald-400"
-                }`}
-              >
-                {formatCurrency(effectivePrice)}
+          <div className="flex flex-col gap-1 min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2 min-w-0">
+              <span className="font-mono text-2xl font-black tracking-tight text-white">
+                {d.symbol}
               </span>
-            ) : (
-              <div className="h-4 bg-slate-800 rounded w-16 animate-pulse" />
-            )}
-            <span className="text-[10px] font-mono font-semibold px-1.5 py-0.5 rounded bg-slate-900 text-slate-400 border border-slate-800 shrink-0">
-              {timeframeTag}
-            </span>
-            <span
-              className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border shrink-0 ${
-                guardrail.isStopLimit
-                  ? "bg-amber-500/15 text-amber-300 border-amber-400/40"
-                  : "bg-cyan-500/15 text-cyan-300 border-cyan-400/40"
-              }`}
-              data-testid={`badge-order-type-${d.symbol}`}
-            >
-              {guardrail.orderType}
-            </span>
-            {statusBadge}
+              {!isSyncingLiveData ? (
+                <span
+                  className={`font-mono text-xl font-bold tabular-nums shrink-0 ${
+                    guardrail.isStale
+                      ? "text-slate-400"
+                      : !marketOpen
+                      ? "text-slate-200"
+                      : "text-emerald-400"
+                  }`}
+                >
+                  {formatCurrency(effectivePrice)}
+                </span>
+              ) : (
+                <div className="h-5 bg-slate-800 rounded w-16 animate-pulse" />
+              )}
+              <span
+                className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded border shrink-0 ${
+                  guardrail.isStopLimit
+                    ? "bg-amber-500/15 text-amber-300 border-amber-400/40"
+                    : "bg-cyan-500/15 text-cyan-300 border-cyan-400/40"
+                }`}
+                data-testid={`badge-order-type-${d.symbol}`}
+              >
+                {guardrail.orderType}
+              </span>
+              {statusBadge}
+              {isExperimentalSetup && isPractice && (
+                <span
+                  className="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-400/20 text-amber-300 border border-amber-400/50 shrink-0"
+                  data-testid={`badge-practice-setup-${d.symbol}`}
+                >
+                  PRACTICE SETUP
+                </span>
+              )}
+            </div>
+            <div className="text-[10px] font-mono text-slate-400 tabular-nums">
+              {!marketOpen
+                ? "Orders queued for next market open"
+                : setupTimestamps?.confirmedReadyAt
+                ? `Confirmed ${setupTimestamps.confirmedReadyAt}`
+                : `Confirmed ${formattedLastUpdated} CT`}
+              <span className="ml-2 text-slate-500">• {timeframeTag}</span>
+            </div>
           </div>
 
           <button
@@ -910,201 +981,300 @@ const ReadyExecutionCard = React.memo(function ReadyExecutionCard({
           </button>
         </div>
 
-        {/* Zone 2: 3-Column Price Matrix + Compact 2.0R / 3.0R Pills */}
-        <div className="flex flex-col gap-2 font-mono tabular-nums min-w-0">
-          <div className="grid grid-cols-3 gap-2 w-full min-w-0">
-            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
-              <div className="text-[10px] text-slate-400 uppercase truncate">ENTRY</div>
-              <div className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-cyan-300 tabular-nums truncate">
-                ${entryPrice.toFixed(2)}
-              </div>
+        {/* Row 1: Entry & Hard Risk Strip (2 Columns) */}
+        <div className="grid grid-cols-2 gap-2.5 font-mono tabular-nums min-w-0">
+          <div className="min-w-0 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2">
+            <div className="text-[10px] text-slate-400 uppercase tracking-wider">
+              {guardrail.isStopLimit ? "Entry Stop-Limit" : "Entry Limit"}
             </div>
-            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
-              <div className="text-[10px] text-slate-400 uppercase truncate">STOP (-1R)</div>
-              <div className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-rose-400 tabular-nums truncate">
-                ${stopLossPrice.toFixed(2)}
-              </div>
-            </div>
-            <div className="min-w-0 bg-slate-900/90 border border-slate-800 rounded-lg px-2 py-2">
-              <div className="text-[10px] text-slate-400 uppercase truncate">TARGET (1.5R)</div>
-              <div
-                className="text-[clamp(0.85rem,1.1vw,1rem)] font-bold text-emerald-400 tabular-nums truncate"
-                data-testid={`ready-card-roi-${d.symbol}`}
-              >
-                ${cardMath.t1.toFixed(2)}
-              </div>
+            <div className="text-xl font-mono font-bold text-cyan-300 tabular-nums truncate">
+              ${entryPrice.toFixed(2)}
             </div>
           </div>
-
-          <div className="flex flex-wrap items-center gap-1.5 text-[clamp(0.65rem,0.85vw,0.75rem)] font-mono tabular-nums min-w-0">
-            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300 shrink-0">
-              2.0R <strong className="text-emerald-300">${cardMath.t2.toFixed(2)}</strong>
-            </span>
-            <span className="px-2 py-0.5 rounded bg-slate-900/80 border border-slate-800 text-slate-300 shrink-0">
-              3.0R <strong className="text-violet-300">${cardMath.t3.toFixed(2)}</strong>
-            </span>
-            <span className="ml-auto text-[10px] text-slate-500 truncate">
-              {setupTimestamps?.confirmedReadyAt
-                ? `Confirmed ${setupTimestamps.confirmedReadyAt}`
-                : `${formattedLastUpdated} CT`}
-            </span>
+          <div className="min-w-0 bg-slate-900/80 border border-slate-800 rounded-xl px-3 py-2">
+            <div className="text-[10px] text-slate-400 uppercase tracking-wider">Hard Stop (-1R)</div>
+            <div className="text-xl font-mono font-bold text-rose-400 tabular-nums truncate">
+              ${stopLossPrice.toFixed(2)}
+            </div>
+            <div className="text-[11px] font-mono text-rose-300 tabular-nums truncate">
+              Risk: -${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}% Acct • {cardMath.stopPct.toFixed(2)}%)
+            </div>
           </div>
         </div>
 
-        {/* Zone 3: Single Execution Summary Strip */}
-        <div
-          className="min-w-0 px-2.5 py-2 rounded-lg bg-slate-900/70 border border-slate-800 font-mono text-[clamp(0.68rem,0.9vw,0.75rem)] text-slate-200 tabular-nums break-words"
-          data-testid={`execution-summary-strip-${d.symbol}`}
-        >
-          <strong className="text-white">{shareCountLabel}</strong>{" "}
-          <span className="text-slate-400">(${cardMath.actualCapitalDeployed.toFixed(2)})</span>
-          <span className="text-slate-600 mx-1.5">•</span>
-          <span className="text-rose-300">
-            Risk: ${cardMath.totalRisk.toFixed(2)} ({cardMath.equityRiskPct.toFixed(2)}% Acct)
-          </span>
-          <span className="text-slate-600 mx-1.5">•</span>
-          <span className="text-emerald-300">1.5R Reward: +${cardMath.profit1_5.toFixed(2)}</span>
-        </div>
+        {/* Row 2: 3-Column Target & Potential Return Matrix + Expandable More Returns */}
+        {(() => {
+          const t15 = calcTargetMetrics(entryPrice, stopLossPrice, cardMath.shares, 1.5);
+          const t20 = calcTargetMetrics(entryPrice, stopLossPrice, cardMath.shares, 2.0);
+          const t30 = calcTargetMetrics(entryPrice, stopLossPrice, cardMath.shares, 3.0);
+          const customRVal = Math.max(0.5, Number(customRInput) || 8);
+          const tCustom = calcTargetMetrics(entryPrice, stopLossPrice, cardMath.shares, customRVal);
 
-        {/* Zone 4: Collapsible Sizing Drawer + Clean Footer */}
-        <div className="mt-auto flex flex-col gap-2.5 pt-1">
-          <div>
-            <button
-              type="button"
-              onClick={() => setIsSizingOpen((prev) => !prev)}
-              className="text-[11px] font-mono font-semibold text-slate-400 hover:text-cyan-300 transition-colors cursor-pointer flex items-center gap-1"
-              data-testid={`button-toggle-sizing-${d.symbol}`}
-              aria-expanded={isSizingOpen}
-            >
-              <span>⚙ Adjust Sizing</span>
-              <span>{isSizingOpen ? "▴" : "▾"}</span>
-            </button>
-
-            {isSizingOpen && (
-              <div
-                className="mt-2 bg-slate-900/90 border border-slate-800 rounded-lg p-2.5 flex flex-col gap-2 font-mono tabular-nums"
-                data-testid={`sizing-drawer-${d.symbol}`}
-              >
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[11px] font-bold text-slate-400 uppercase">CAPITAL $</span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={rawCapital}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={(e) => {
-                        const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
-                        const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
-                        setRawCapital(cleaned);
-                        onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
-                      }}
-                      onBlur={() => {
-                        if (rawCapital === "") {
-                          setRawCapital("1000");
-                          onUpdateCapital?.(d.symbol, 1000);
-                        }
-                      }}
-                      aria-label={`Allocated capital for ${d.symbol}`}
-                      data-testid={`ready-input-capital-${d.symbol}`}
-                      className="appearance-none font-mono font-bold text-xs text-white bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-2 py-1 w-24 text-right tabular-nums outline-none"
-                    />
+          return (
+            <div className="flex flex-col gap-2 min-w-0">
+              <div className="grid grid-cols-3 gap-2 w-full font-mono tabular-nums min-w-0">
+                <div className="min-w-0 bg-cyan-950/30 border border-cyan-500/40 rounded-lg p-2 flex flex-col gap-0.5">
+                  <div className="text-[10px] font-bold text-cyan-300 uppercase truncate">1.5R SCALE</div>
+                  <div className="text-sm font-mono font-bold text-white tabular-nums truncate">${t15.targetPrice}</div>
+                  <div className="text-xs font-mono font-bold text-cyan-300 tabular-nums truncate" data-testid={`ready-card-roi-${d.symbol}`}>
+                    +${t15.dollarProfit} (+{t15.movePct}%)
                   </div>
-
-                  <div
-                    className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5 text-[10px]"
-                    data-testid={`sizing-mode-toggle-${d.symbol}`}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => setSizingMode("risk_cap")}
-                      className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                        sizingMode === "risk_cap"
-                          ? "bg-emerald-500/20 text-emerald-300"
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      {activeRiskLabel} Risk Cap
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setSizingMode("capital")}
-                      className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
-                        sizingMode === "capital"
-                          ? "bg-cyan-500/20 text-cyan-300"
-                          : "text-slate-400 hover:text-white"
-                      }`}
-                    >
-                      Capital
-                    </button>
+                  <div className="text-[10px] font-mono text-slate-400 tabular-nums truncate">
+                    ROC: +{t15.rocPct}%
                   </div>
                 </div>
 
-                <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-slate-800/80">
-                  <div className="flex flex-wrap items-center gap-1">
-                    {RISK_PRESETS.map((pct) => {
-                      const isSelected = Math.abs(activeRiskPct - pct) < 0.0005;
-                      const label = `${(pct * 100).toFixed(1).replace(/\.0$/, "")}%`;
+                <div className="min-w-0 bg-emerald-950/30 border border-emerald-500/40 rounded-lg p-2 flex flex-col gap-0.5">
+                  <div className="text-[10px] font-bold text-emerald-300 uppercase truncate">2.0R CORE</div>
+                  <div className="text-sm font-mono font-bold text-white tabular-nums truncate">${t20.targetPrice}</div>
+                  <div className="text-xs font-mono font-bold text-emerald-400 tabular-nums truncate">
+                    +${t20.dollarProfit} (+{t20.movePct}%)
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400 tabular-nums truncate">
+                    ROC: +{t20.rocPct}%
+                  </div>
+                </div>
+
+                <div className="min-w-0 bg-violet-950/30 border border-violet-500/40 rounded-lg p-2 flex flex-col gap-0.5">
+                  <div className="text-[10px] font-bold text-violet-300 uppercase truncate">3.0R RUNNER</div>
+                  <div className="text-sm font-mono font-bold text-white tabular-nums truncate">${t30.targetPrice}</div>
+                  <div className="text-xs font-mono font-bold text-violet-300 tabular-nums truncate">
+                    +${t30.dollarProfit} (+{t30.movePct}%)
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-400 tabular-nums truncate">
+                    ROC: +{t30.rocPct}%
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowMoreReturns((prev) => !prev)}
+                  className="text-xs font-mono text-amber-300 hover:text-amber-200 bg-amber-500/10 border border-amber-400/30 rounded-md px-2.5 py-1 cursor-pointer transition-colors"
+                  data-testid={`button-more-returns-${d.symbol}`}
+                  aria-expanded={showMoreReturns}
+                >
+                  {showMoreReturns ? "− Hide Extended Runners ▴" : "+ More Returns (4R · 5R · 6R) ▾"}
+                </button>
+              </div>
+
+              {showMoreReturns && (
+                <div className="flex flex-col gap-2 min-w-0" data-testid={`more-returns-grid-${d.symbol}`}>
+                  <div className="grid grid-cols-3 gap-2 w-full font-mono tabular-nums min-w-0">
+                    {[4.0, 5.0, 6.0].map((rVal) => {
+                      const m = calcTargetMetrics(entryPrice, stopLossPrice, cardMath.shares, rVal);
                       return (
-                        <button
-                          key={pct}
-                          type="button"
-                          onClick={() => {
-                            setLocalRiskPct(pct);
-                            onUpdateRiskPct?.(d.symbol, pct);
-                          }}
-                          className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-colors ${
-                            isSelected
-                              ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
-                              : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-600"
-                          }`}
+                        <div
+                          key={rVal}
+                          className="min-w-0 bg-amber-950/20 border border-amber-500/30 rounded-lg p-2 flex flex-col gap-0.5"
                         >
-                          {label}
-                        </button>
+                          <div className="text-[10px] font-bold text-amber-300 uppercase truncate">
+                            {rVal.toFixed(1)}R RUNNER
+                          </div>
+                          <div className="text-sm font-mono font-bold text-white tabular-nums truncate">
+                            ${m.targetPrice}
+                          </div>
+                          <div className="text-xs font-mono font-bold text-amber-300 tabular-nums truncate">
+                            +${m.dollarProfit} (+{m.movePct}%)
+                          </div>
+                          <div className="text-[10px] font-mono text-slate-400 tabular-nums truncate">
+                            ROC: +{m.rocPct}%
+                          </div>
+                        </div>
                       );
                     })}
                   </div>
-                  <button
-                    type="button"
-                    disabled={guardrail.isStale}
-                    onClick={() => setIsTicketDrawerOpen(true)}
-                    className="text-[10px] text-emerald-300 hover:underline disabled:opacity-40 disabled:no-underline cursor-pointer"
-                    data-testid={`button-massive-arm-${d.symbol}`}
-                  >
-                    Open Full Ticket →
-                  </button>
-                </div>
 
-                {sizingMode === "capital" && cardMath.exceedsRiskCap && (
-                  <div className="text-[11px] font-bold text-amber-300">
-                    ⚠️ Exceeds {activeRiskLabel} Risk Cap (${cardMath.maxRiskBudget.toFixed(2)} Max)
+                  <div className="flex flex-wrap items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-amber-950/15 border border-amber-500/25 font-mono text-xs tabular-nums">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] font-bold text-amber-300 uppercase">Custom R</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={customRInput}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^0-9.]/g, "");
+                          setCustomRInput(cleaned);
+                        }}
+                        className="w-12 px-1.5 py-0.5 rounded bg-slate-950 border border-amber-400/40 text-amber-200 font-bold text-xs text-right outline-none"
+                        aria-label={`Custom R-multiple for ${d.symbol}`}
+                      />
+                      <span className="text-slate-400 text-[10px]">R</span>
+                    </div>
+                    <div className="text-amber-200 font-bold truncate">
+                      ${tCustom.targetPrice} · +${tCustom.dollarProfit} (+{tCustom.movePct}%) · ROC +{tCustom.rocPct}%
+                    </div>
                   </div>
-                )}
-              </div>
-            )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {/* Row 3: Interactive Sizing Bar */}
+        <div
+          className="bg-slate-900/80 border border-slate-800 rounded-xl p-2.5 flex flex-col gap-2 font-mono tabular-nums min-w-0"
+          data-testid={`sizing-drawer-${d.symbol}`}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] font-bold text-slate-400 uppercase">CAPITAL ($)</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={rawCapital}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                  const digitsOnly = e.target.value.replace(/[^0-9]/g, "");
+                  const cleaned = digitsOnly.replace(/^0+(?=\d)/, "");
+                  setRawCapital(cleaned);
+                  onUpdateCapital?.(d.symbol, Number(cleaned) || 0);
+                }}
+                onBlur={() => {
+                  if (rawCapital === "") {
+                    const fallback = String(Math.min(1000, Math.round(accountEquity || 1000)));
+                    setRawCapital(fallback);
+                    onUpdateCapital?.(d.symbol, Number(fallback));
+                  }
+                }}
+                aria-label={`Allocated capital for ${d.symbol}`}
+                data-testid={`ready-input-capital-${d.symbol}`}
+                className="appearance-none font-mono font-bold text-xs text-white bg-slate-950 border border-slate-700 focus:border-cyan-400 rounded px-2 py-1 w-20 text-right tabular-nums outline-none"
+              />
+            </div>
+
+            <div
+              className="inline-flex rounded-md border border-slate-700 bg-slate-950 p-0.5 text-[10px]"
+              data-testid={`sizing-mode-toggle-${d.symbol}`}
+            >
+              <button
+                type="button"
+                onClick={() => setSizingMode("risk_cap")}
+                className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                  sizingMode === "risk_cap"
+                    ? "bg-emerald-500/20 text-emerald-300"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                {activeRiskLabel} Risk Cap
+              </button>
+              <button
+                type="button"
+                onClick={() => setSizingMode("capital")}
+                className={`px-2 py-0.5 rounded font-bold cursor-pointer transition-colors ${
+                  sizingMode === "capital"
+                    ? "bg-cyan-500/20 text-cyan-300"
+                    : "text-slate-400 hover:text-white"
+                }`}
+              >
+                Capital
+              </button>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleCopyTicket}
-              disabled={guardrail.isStale}
-              className="flex-1 px-3 py-2 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/70 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500"
-              data-testid={`button-copy-oco-card-${d.symbol}`}
-            >
-              {copiedTicket ? "✓ Copied OCO" : "Copy Fidelity OCO"}
-            </button>
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-800/80">
+            <div className="flex flex-wrap items-center gap-1">
+              {RISK_PRESETS.map((pct) => {
+                const isSelected = Math.abs(activeRiskPct - pct) < 0.0005;
+                const label = `${(pct * 100).toFixed(1).replace(/\.0$/, "")}%`;
+                return (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => {
+                      setLocalRiskPct(pct);
+                      onUpdateRiskPct?.(d.symbol, pct);
+                    }}
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-bold cursor-pointer border transition-colors ${
+                      isSelected
+                        ? "bg-cyan-500/25 border-cyan-400 text-cyan-200"
+                        : "bg-slate-950 border-slate-800 text-slate-400 hover:text-white hover:border-slate-600"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
 
-            <button
-              type="button"
-              onClick={() => onConfirmExecute(d, ver)}
-              disabled={isArming || guardrail.isStale}
-              className="px-3 py-2 rounded-lg bg-transparent hover:bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-white font-mono font-semibold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
-              data-testid={`button-log-active-trade-${d.symbol}`}
+            <div
+              className="text-xs font-bold text-white tabular-nums"
+              data-testid={`execution-summary-strip-${d.symbol}`}
             >
-              {isArming ? "Logging..." : "Log Trade"}
-            </button>
+              {shareCountLabel}{" "}
+              <span className="text-cyan-300">(${cardMath.actualCapitalDeployed.toFixed(2)})</span>
+            </div>
           </div>
+
+          {sizingMode === "capital" && cardMath.exceedsRiskCap && (
+            <div className="text-[11px] font-bold text-amber-300">
+              ⚠️ Exceeds {activeRiskLabel} Risk Cap (${cardMath.maxRiskBudget.toFixed(2)} Max)
+            </div>
+          )}
+
+          {cardMath.shares === 0 && (
+            <div
+              className="flex flex-wrap items-center gap-1.5 pt-1 border-t border-amber-500/20 text-[11px] font-mono text-amber-300"
+              data-testid={`zero-share-rescue-${d.symbol}`}
+            >
+              <span>
+                0 sh ({activeRiskLabel} cap: ${cardMath.maxRiskBudget.toFixed(2)} &lt; $
+                {Math.abs(entryPrice - stopLossPrice).toFixed(2)}/sh risk)
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setLocalRiskPct(0.02);
+                  onUpdateRiskPct?.(d.symbol, 0.02);
+                }}
+                className="px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold cursor-pointer"
+              >
+                Switch to 2% Risk ({Math.max(1, Math.floor(((accountEquity || 1614.95) * 0.02) / Math.max(0.01, Math.abs(entryPrice - stopLossPrice))))} sh)
+              </button>
+              <button
+                type="button"
+                onClick={() => setShareModeOverride("fractional")}
+                className="px-2 py-0.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-200 font-bold cursor-pointer"
+              >
+                Use Fractional
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Row 4: Action Footer */}
+        <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
+          <button
+            type="button"
+            onClick={handleCopyTicket}
+            disabled={guardrail.isStale}
+            className="flex-1 h-8 px-2.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-emerald-400/70 text-emerald-300 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-500"
+            data-testid={`button-copy-oco-card-${d.symbol}`}
+          >
+            {copiedTicket ? "✓ Copied OCO" : "⚡ Copy Fidelity OCO"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onConfirmExecute(d, ver)}
+            disabled={isArming || guardrail.isStale}
+            className="h-8 px-3 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/50 text-emerald-200 font-mono font-bold text-xs uppercase tracking-wider transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            data-testid={`button-log-active-trade-${d.symbol}`}
+          >
+            {isArming ? "..." : "✓ Log Trade"}
+          </button>
+
+          <button
+            type="button"
+            disabled={guardrail.isStale}
+            onClick={() => setIsTicketDrawerOpen(true)}
+            className="h-8 px-2.5 rounded-lg bg-transparent hover:bg-slate-800/80 border border-slate-700 text-slate-300 hover:text-white font-mono font-semibold text-xs transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+            data-testid={`button-massive-arm-${d.symbol}`}
+          >
+            Open Full Ticket
+          </button>
         </div>
       </div>
 
@@ -1451,6 +1621,7 @@ function ActionCenterInner() {
     []
   );
   const [isPassedWatchlistOpen, setIsPassedWatchlistOpen] = useState(false);
+  const [isUnconfirmedWatchOpen, setIsUnconfirmedWatchOpen] = useState(false);
 
   const handlePassSetup = useCallback((ticker: string) => {
     if (!ticker) return;
@@ -1997,12 +2168,13 @@ function ActionCenterInner() {
     globalStore.setSetupStages(nextStages);
   }, [setups]);
 
-  // Rule 3 (Single Filter): Both buckets derive from the exact same `setups` array
+  // Rule 3 (Single Filter) + Market-Closed Auto-Purge (when closed & not Practice, clear READY TO TRADE)
   const readySetups = useMemo(() => {
+    if (!isMarketOpenNow && !isPractice) return [];
     return setups
       .filter((s) => s.stage === "READY" && !lockedSyms.has(s.symbol))
       .sort((a, b) => b.score - a.score);
-  }, [setups, lockedSyms]);
+  }, [setups, lockedSyms, isMarketOpenNow, isPractice]);
 
   // Confirmed/Ready setups in the Active Execution Zone: strictly use readySetups
   const confirmedRows = readySetups;
@@ -2274,7 +2446,10 @@ function ActionCenterInner() {
   }, [generalLoud]);
 
   const remainingConfirmedRows = (readySetups.length > 0 ? readySetups : confirmedRows).filter((d) => !heroSymSet.has(d.symbol));
-  const validHeroTrades = heroTrades.filter((t) => !pendingSetups.some((p) => p.symbol === t.symbol));
+  const validHeroTrades =
+    !isMarketOpenNow && !isPractice
+      ? []
+      : heroTrades.filter((t) => !pendingSetups.some((p) => p.symbol === t.symbol));
   const totalActiveConfirmed = validHeroTrades.length + remainingConfirmedRows.length + practiceDrills.length;
 
   const handleHeroArmOrExecute = async (trade: ConfirmedHeroTrade) => {
@@ -2829,52 +3004,81 @@ function ActionCenterInner() {
             </div>
           )}
           {/* ═════════════════════════════════════════════════════════════════ */}
-          {/* ZONE 1: TRUE "READY TO EXECUTE" (TOP)                              */}
+          {/* ZONE 1: PROP EXECUTION DESK / MARKET-CLOSED WATCHLIST              */}
           {/* ═════════════════════════════════════════════════════════════════ */}
           <div
-            className="flex flex-col gap-3.5 rounded-xl border border-slate-700/80 bg-[#151E2E] p-4 sm:p-5 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
+            className="flex flex-col gap-3 rounded-xl border border-slate-700/80 bg-[#151E2E] p-3 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3"
             data-testid="active-execution-zone"
           >
             {/* Compatibility hooks for test suites */}
             <div className="hidden border-2 border-emerald-500/80 bg-emerald-950/30 p-3 sm:p-4" />
             <div className="hidden border border-slate-800 bg-[#080d16] p-4 shadow-lg backdrop-blur-md animate-in fade-in duration-300 w-full col-span-full mb-3" />
             <div className="hidden bg-emerald-500 text-black px-2 py-0.5 rounded-full font-bold text-xs font-mono" />
-            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-700/80 pb-3">
-              <div className="flex items-center gap-2.5">
-                <span className="relative flex h-3 w-3">
-                  <span className={`${totalActiveConfirmed > 0 ? "animate-ping" : ""} absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75`} />
-                  <span className={`relative inline-flex rounded-full h-3 w-3 ${totalActiveConfirmed > 0 ? "bg-emerald-500" : "bg-emerald-700"}`} />
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-2">
+              <div className="flex items-center gap-2">
+                <span className="relative flex h-2 w-2">
+                  {isMarketOpenNow && totalActiveConfirmed > 0 && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  )}
+                  <span
+                    className={`relative inline-flex rounded-full h-2 w-2 ${
+                      !isMarketOpenNow
+                        ? "bg-amber-400/80"
+                        : totalActiveConfirmed > 0
+                        ? "bg-emerald-500"
+                        : "bg-slate-600"
+                    }`}
+                  />
                 </span>
-                <h3 className="font-mono text-base sm:text-lg font-extrabold uppercase tracking-widest text-white flex items-center gap-2">
-                  <span>⚡ READY TO TRADE — PROP EXECUTION DESK</span>
+                <h3 className="font-mono text-xs font-bold uppercase tracking-wider text-slate-200 flex items-center gap-2">
+                  <span>
+                    {isMarketOpenNow
+                      ? "⚡ READY TO TRADE — PROP EXECUTION DESK"
+                      : "MARKET CLOSED — NEXT SESSION WATCHLIST (QUEUED)"}
+                  </span>
                   <span className="sr-only">[ ACTIVE EXECUTION ZONE - CONFIRMED TRADES ]</span>
                 </h3>
-                <span className="bg-emerald-400/10 border border-emerald-400/30 text-[#00F5A0] px-3 py-1 rounded-md font-bold text-xs font-mono">
-                  {totalActiveConfirmed} READY
+                <span
+                  className={`px-2 py-0.5 rounded font-bold text-[11px] font-mono border ${
+                    !isMarketOpenNow
+                      ? "bg-amber-500/10 border-amber-400/30 text-amber-300"
+                      : "bg-emerald-400/10 border-emerald-400/30 text-[#00F5A0]"
+                  }`}
+                >
+                  {totalActiveConfirmed} {isMarketOpenNow ? "READY" : "QUEUED"}
                 </span>
               </div>
-              <span className="font-mono text-xs uppercase tracking-wider text-slate-300">
-                Rule Met: 1H Green Bounce Off Moving Average · 20/50-SMA Support Validated
+              <span className="font-mono text-[11px] uppercase tracking-wider text-slate-400">
+                {!isMarketOpenNow
+                  ? "Orders queued for next market open"
+                  : "1H + 4H SMA-10 Confirmed · 20/50-SMA Aligned"}
                 <span className="sr-only">No Hard Blocks · SMA 10/20/50 Bounce Verified · 1H Candle Close Validated</span>
               </span>
             </div>
 
             {totalActiveConfirmed === 0 ? (
               <div
-                className="flex flex-col items-center justify-center p-12 border-2 border-dashed border-slate-800 bg-[#0B1220]/50 rounded-lg w-full"
+                className="flex flex-col items-center justify-center p-6 border border-dashed border-slate-800 bg-[#0B1220]/70 rounded-xl w-full text-center"
                 data-testid="active-execution-zone-empty"
               >
-                <Radar className="w-8 h-8 text-slate-600 mb-4 animate-pulse" />
-                <span className="text-sm font-mono font-bold tracking-[0.2em] text-slate-500 uppercase mb-2">
-                  NO ACTIVE EXECUTION TRIGGERS
+                <Radar className="w-6 h-6 text-slate-600 mb-2" />
+                <span className="text-xs font-mono font-bold tracking-wider text-slate-300 mb-1">
+                  {!isMarketOpenNow && !isPractice
+                    ? "🌙 Market Closed — Ready-to-Trade Desk Cleared. Fresh setups will auto-populate when the market opens and 1H candles confirm."
+                    : "NO ACTIVE EXECUTION TRIGGERS"}
                 </span>
-                <span className="text-xs font-sans text-slate-600">
-                  System is monitoring pending setups. Awaiting 1H candle confirmation.
-                </span>
+                {isMarketOpenNow || isPractice ? (
+                  <span className="text-[11px] font-sans text-slate-500">
+                    {isPractice
+                      ? "Practice Mode active — click [ 🎮 Run Practice Drill ] on any Pending ticker below."
+                      : "System is monitoring pending setups for 1H + 4H SMA-10 confirmation."}
+                  </span>
+                ) : null}
               </div>
             ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 items-stretch w-full" data-testid="ready-cards-grid">
-                  {/* Unified Execution Cards (Mechanical Hero + Confirmed Scanner) sorted by Actionability */}
+              <>
+              <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4 items-stretch w-full" data-testid="ready-cards-grid">
+                  {/* Unified Execution Cards (Mechanical Hero + Confirmed Scanner) gated by SMA-10 & sorted by Actionability */}
                   {(() => {
                     const availableBuyingPower = Number((acct as any)?.buyingPower ?? (acct as any)?.cash ?? safeEquity) || safeEquity;
                     const tierOrder = { READY: 0, APPROACHING: 1, STALE: 2 } as const;
@@ -2899,6 +3103,8 @@ function ActionCenterInner() {
                       onConfirmExecute: (d: SwingDecision, ver: any) => void;
                       distancePct: number;
                       actionabilityTier: "READY" | "APPROACHING" | "STALE";
+                      passesSma10Gate: boolean;
+                      sma10Reasons: string[];
                     };
 
                     const heroEntries: UnifiedCardEntry[] = validHeroTrades.map((trade) => {
@@ -2931,6 +3137,12 @@ function ActionCenterInner() {
                         timeframe: "1H / 4H",
                         evaluatedAt: new Date(trade.timestamp).toISOString(),
                       } as unknown as SwingDecision;
+                      const sma10Gate = evaluateSma10SetupGate({
+                        decision: syntheticDecision,
+                        entryPrice,
+                        stopLoss,
+                        target1Price: target1,
+                      });
 
                       return {
                         key: `hero-${trade.symbol}`,
@@ -2952,6 +3164,8 @@ function ActionCenterInner() {
                         onConfirmExecute: () => handleHeroArmOrExecute(trade),
                         distancePct: guardrail.distancePct,
                         actionabilityTier: guardrail.actionabilityTier,
+                        passesSma10Gate: sma10Gate.passesSma10Gate,
+                        sma10Reasons: sma10Gate.reasons,
                       };
                     });
 
@@ -3019,6 +3233,12 @@ function ActionCenterInner() {
                           currentPrice: effectivePrice,
                           target1Price: lockedMath.target1_5R,
                         });
+                        const sma10Gate = evaluateSma10SetupGate({
+                          decision: d,
+                          entryPrice: lockedMath.entryPrice,
+                          stopLoss: lockedMath.stopLoss,
+                          target1Price: lockedMath.target1_5R,
+                        });
 
                         return {
                           key: d.symbol,
@@ -3040,44 +3260,51 @@ function ActionCenterInner() {
                           onConfirmExecute: handleDirectArmExecute,
                           distancePct: guardrail.distancePct,
                           actionabilityTier: guardrail.actionabilityTier,
+                          passesSma10Gate: sma10Gate.passesSma10Gate,
+                          sma10Reasons: sma10Gate.reasons,
                         };
                       })
                       .filter((x): x is UnifiedCardEntry => x !== null);
 
-                    return [...heroEntries, ...scannerEntries]
-                      .sort((a, b) => {
-                        const tierDiff = tierOrder[a.actionabilityTier] - tierOrder[b.actionabilityTier];
-                        return tierDiff !== 0 ? tierDiff : a.distancePct - b.distancePct;
-                      })
-                      .map((item) => (
-                        <ReadyExecutionCard
-                          key={item.key}
-                          d={item.d}
-                          ver={item.ver}
-                          isPractice={isPractice}
-                          isSyncingLiveData={item.isSyncingLiveData}
-                          isStaticLastClose={item.isStaticLastClose}
-                          effectivePrice={item.effectivePrice}
-                          formattedLastUpdated={item.formattedLastUpdated}
-                          entryPrice={item.entryPrice}
-                          stopLossPrice={item.stopLoss}
-                          target1Price={item.target1}
-                          target1_5R={item.target1}
-                          target2_0R={item.target2}
-                          target3_0R={item.target3}
-                          shares={item.calculatedShares}
-                          allocatedCapital={item.userAllocatedCapital}
-                          accountEquity={safeEquity}
-                          availableBuyingPower={availableBuyingPower}
-                          macroRegime={macroRegime}
-                          selectedRiskPct={tickerRiskMap[item.d.symbol]}
-                          onUpdateCapital={handleUpdateCapital}
-                          onUpdateRiskPct={handleUpdateRiskPct}
-                          onDismiss={item.onDismiss}
-                          isArming={item.isArming}
-                          onConfirmExecute={item.onConfirmExecute}
-                        />
-                      ));
+                    const allEntries = [...heroEntries, ...scannerEntries].sort((a, b) => {
+                      const tierDiff = tierOrder[a.actionabilityTier] - tierOrder[b.actionabilityTier];
+                      return tierDiff !== 0 ? tierDiff : a.distancePct - b.distancePct;
+                    });
+                    const visibleEntries = isPractice
+                      ? allEntries
+                      : allEntries.filter((item) => item.passesSma10Gate);
+
+                    return visibleEntries.map((item) => (
+                      <ReadyExecutionCard
+                        key={item.key}
+                        d={item.d}
+                        ver={item.ver}
+                        isPractice={isPractice}
+                        isMarketOpen={isMarketOpenNow}
+                        isExperimentalSetup={!item.passesSma10Gate}
+                        isSyncingLiveData={item.isSyncingLiveData}
+                        isStaticLastClose={item.isStaticLastClose}
+                        effectivePrice={item.effectivePrice}
+                        formattedLastUpdated={item.formattedLastUpdated}
+                        entryPrice={item.entryPrice}
+                        stopLossPrice={item.stopLoss}
+                        target1Price={item.target1}
+                        target1_5R={item.target1}
+                        target2_0R={item.target2}
+                        target3_0R={item.target3}
+                        shares={item.calculatedShares}
+                        allocatedCapital={item.userAllocatedCapital}
+                        accountEquity={safeEquity}
+                        availableBuyingPower={availableBuyingPower}
+                        macroRegime={macroRegime}
+                        selectedRiskPct={tickerRiskMap[item.d.symbol]}
+                        onUpdateCapital={handleUpdateCapital}
+                        onUpdateRiskPct={handleUpdateRiskPct}
+                        onDismiss={item.onDismiss}
+                        isArming={item.isArming}
+                        onConfirmExecute={item.onConfirmExecute}
+                      />
+                    ));
                   })()}
 
                   {/* Practice Execution Cards from Beginner Practice Simulator */}
@@ -3178,6 +3405,7 @@ function ActionCenterInner() {
                             <button
                               type="button"
                               onClick={() => {
+                                const simProfit = +((drill.target1 - drill.entryPrice) * drill.shares).toFixed(2);
                                 const practiceRecord = {
                                   id: `practice-${Date.now()}-${drill.symbol}`,
                                   symbol: drill.symbol,
@@ -3187,6 +3415,9 @@ function ActionCenterInner() {
                                   target2: drill.target2,
                                   shares: drill.shares,
                                   dollarRisk: drill.totalRisk,
+                                  simulatedProfit: simProfit,
+                                  rMultiple: 1.5,
+                                  outcome: "WIN",
                                   setupType: drill.setupType,
                                   timeframe: drill.timeframe,
                                   loggedAt: new Date().toISOString(),
@@ -3207,14 +3438,14 @@ function ActionCenterInner() {
                                   });
                                 }
                                 toast({
-                                  title: `✓ Practice Swing Logged · ${drill.symbol}`,
-                                  description: `Saved to isolated practiceTrades log ($${drill.totalRisk.toFixed(2)} simulated risk). Live capital protected.`,
+                                  title: `✓ Practice Trade Logged · ${drill.symbol}`,
+                                  description: `Saved to Practice Journal (+$${simProfit.toFixed(2)} simulated @ 1.5R). Live capital protected.`,
                                 });
                               }}
                               className="px-3 py-1.5 rounded-lg border border-emerald-500/60 bg-emerald-500/20 text-[#00F5A0] hover:bg-emerald-500/30 text-xs font-mono font-bold transition-colors cursor-pointer"
                               data-testid={`button-log-practice-drill-${drill.symbol}`}
                             >
-                              [ ✓ Log Practice Swing ]
+                              [ ✓ Log Practice Trade ]
                             </button>
 
                             <button
@@ -3239,7 +3470,105 @@ function ActionCenterInner() {
                   ))}
 
                 </div>
+
+                {/* Watch / Unconfirmed Tab (Non-SMA-10 Setups Routed Out of Live Execution Desk) */}
+                {!isPractice && (() => {
+                  const unconfirmed = confirmedRows.filter((d) => {
+                    if (heroSymSet.has(d.symbol)) return false;
+                    const ver = activeVersion(d, sel);
+                    const plan = effectivePlan(d, ver);
+                    const ep = Number((d as any).projectedEntry ?? plan.entry ?? d.entryPrice ?? d.currentPrice) || 0;
+                    const sp = Number((d as any).stopLoss ?? plan.stop ?? d.structuralStop ?? +(ep * 0.98).toFixed(2)) || 0;
+                    const t1 = +(ep + Math.max(0.01, ep - sp) * 1.5).toFixed(2);
+                    return !evaluateSma10SetupGate({ decision: d, entryPrice: ep, stopLoss: sp, target1Price: t1 }).passesSma10Gate;
+                  });
+                  if (unconfirmed.length === 0) return null;
+                  return (
+                    <div className="pt-2 border-t border-slate-800/80" data-testid="section-watch-unconfirmed">
+                      <button
+                        type="button"
+                        onClick={() => setIsUnconfirmedWatchOpen((prev) => !prev)}
+                        className="flex items-center gap-2 text-[11px] font-mono font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 cursor-pointer"
+                        data-testid="button-toggle-watch-unconfirmed"
+                        aria-expanded={isUnconfirmedWatchOpen}
+                      >
+                        {isUnconfirmedWatchOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                        <span>Watch / Unconfirmed ({unconfirmed.length})</span>
+                        <span className="text-[10px] font-normal text-slate-500">
+                          — Filtered by 1H + 4H SMA-10 gate (toggle PRACTICE mode to test)
+                        </span>
+                      </button>
+                      {isUnconfirmedWatchOpen && (
+                        <div className="mt-2 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2">
+                          {unconfirmed.map((d) => {
+                            const ver = activeVersion(d, sel);
+                            const plan = effectivePlan(d, ver);
+                            const ep = Number((d as any).projectedEntry ?? plan.entry ?? d.entryPrice ?? d.currentPrice) || 0;
+                            const sp = Number((d as any).stopLoss ?? plan.stop ?? d.structuralStop ?? +(ep * 0.98).toFixed(2)) || 0;
+                            const t1 = +(ep + Math.max(0.01, ep - sp) * 1.5).toFixed(2);
+                            const gate = evaluateSma10SetupGate({ decision: d, entryPrice: ep, stopLoss: sp, target1Price: t1 });
+                            return (
+                              <div
+                                key={`unconfirmed-${d.symbol}`}
+                                className="rounded-lg bg-slate-900/60 border border-slate-800 p-2.5 font-mono text-xs flex flex-col gap-1"
+                              >
+                                <div className="flex items-center justify-between">
+                                  <span className="font-bold text-slate-200">{d.symbol}</span>
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400">UNCONFIRMED</span>
+                                </div>
+                                <div className="text-[10px] text-amber-300/80 truncate">
+                                  {gate.reasons.join(" · ")}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
+                </>
               )}
+
+              {/* Isolated Practice Journal Summary Strip */}
+              {isPractice && practiceTrades.length > 0 && (() => {
+                const wins = practiceTrades.filter((t) => (t.simulatedProfit ?? 1) > 0).length;
+                const winRate = (wins / practiceTrades.length) * 100;
+                const avgR =
+                  practiceTrades.reduce((acc, t) => acc + Number(t.rMultiple ?? 1.5), 0) /
+                  practiceTrades.length;
+                const totalSimProfit = practiceTrades.reduce(
+                  (acc, t) =>
+                    acc +
+                    Number(
+                      t.simulatedProfit ??
+                        (t.target1 && t.entryPrice && t.shares ? (t.target1 - t.entryPrice) * t.shares : 0)
+                    ),
+                  0
+                );
+                return (
+                  <div
+                    className="mt-1 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-400/40 font-mono text-xs flex flex-wrap items-center justify-between gap-2 tabular-nums"
+                    data-testid="practice-journal-summary"
+                  >
+                    <span className="font-bold text-amber-300 uppercase">
+                      🧪 Practice Journal ({practiceTrades.length} Reps)
+                    </span>
+                    <div className="flex flex-wrap items-center gap-4 text-slate-200">
+                      <span>
+                        Win Rate: <strong className="text-emerald-400">{winRate.toFixed(0)}%</strong>
+                      </span>
+                      <span>
+                        Avg R-Multiple: <strong className="text-cyan-300">{avgR.toFixed(2)}R</strong>
+                      </span>
+                      <span>
+                        Simulated Profit:{" "}
+                        <strong className="text-emerald-400">+${totalSimProfit.toFixed(2)}</strong>
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
 
             {/* ─── SECTION 2: THE WAITING ROOM (Bottom Right - lg:col-span-9) ─── */}

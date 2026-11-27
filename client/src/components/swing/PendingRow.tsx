@@ -572,8 +572,7 @@ export const PendingRow = React.memo(function PendingRow({
             title={`Simulate 1H Green Candle bounce confirmation for ${d.symbol} in Practice Sandbox`}
           >
             <Zap className="w-3.5 h-3.5 fill-[#FFB800] text-[#FFB800]" />
-            <span>[ ⚡ SIMULATE 1H BOUNCE ]</span>
-            <span className="sr-only">[ 🎮 Practice Drill ]</span>
+            <span>[ 🎮 Run Practice Drill ]</span>
           </button>
         )}
       </div>

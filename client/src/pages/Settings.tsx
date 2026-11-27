@@ -1099,23 +1099,28 @@ function RegimeEnginePanel() {
 function AlertChannelStatusCard() {
   const { toast } = useToast();
   const [testing, setTesting] = useState(false);
-  const statusQ = useQuery<{ ok: boolean; telegramConfigured: boolean; emailConfigured: boolean }>({
+  const statusQ = useQuery<{
+    ok: boolean;
+    telegramConfigured: boolean;
+    emailConfigured: boolean;
+    lastAlertSentAt?: string | null;
+    lastError?: string | null;
+  }>({
     queryKey: ["/api/alerts/status"],
-    staleTime: 30_000,
+    staleTime: 15_000,
   });
 
   const handleTestAlerts = async () => {
     setTesting(true);
     try {
-      const res = await fetch("/api/alerts/dispatch", {
+      const res = await fetch("/api/alerts/test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          isTest: true,
           ticker: "SPY",
-          stage: "READY",
           entryPrice: 590.0,
           stopLoss: 584.0,
+          livePrice: 590.25,
           shares: 2,
           allocated: 1180.0,
           dollarRisk: 12.0,
@@ -1127,9 +1132,17 @@ function AlertChannelStatusCard() {
         }),
       });
       const json = await res.json();
+      void statusQ.refetch();
+      const tgInfo = json.telegramSent
+        ? `Sent (HTTP ${json.telegramStatus ?? 200})`
+        : json.telegramError || "Skipped";
+      const emInfo = json.emailSent
+        ? `Sent (HTTP ${json.emailStatus ?? 200})`
+        : json.emailError || "Skipped";
       toast({
-        title: "Test Alert Dispatched",
-        description: `Telegram: ${json.telegramSent ? "Sent ✓" : "Not configured / skipped"} · Email: ${json.emailSent ? "Sent ✓" : "Not configured / skipped"}`,
+        title: json.telegramSent || json.emailSent ? "Test Alert Dispatched" : "Test Alert Failed",
+        description: `Telegram: ${tgInfo} · Email: ${emInfo}`,
+        variant: !json.telegramSent && !json.emailSent ? "destructive" : "default",
       });
     } catch (e: any) {
       toast({ title: "Test Alert Error", description: e?.message || "Failed", variant: "destructive" });
@@ -1139,25 +1152,39 @@ function AlertChannelStatusCard() {
   };
 
   return (
-    <div className="pt-3 border-t border-ink-line flex flex-wrap items-center justify-between gap-3 font-mono text-xs">
-      <div className="flex flex-wrap items-center gap-3">
-        <span className="font-bold text-cyan-300 uppercase">Ready-to-Trade Alerts:</span>
-        <span className={statusQ.data?.telegramConfigured ? "text-emerald-400" : "text-amber-300"}>
-          Telegram: {statusQ.data?.telegramConfigured ? "Configured ✓" : "Missing ENV"}
-        </span>
-        <span className={statusQ.data?.emailConfigured ? "text-emerald-400" : "text-amber-300"}>
-          Email: {statusQ.data?.emailConfigured ? "Configured ✓" : "Missing ENV"}
-        </span>
+    <div className="pt-3 border-t border-ink-line flex flex-col gap-2 font-mono text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="font-bold text-cyan-300 uppercase">Ready-to-Trade Alerts:</span>
+          <span className={`inline-flex items-center gap-1.5 ${statusQ.data?.telegramConfigured ? "text-emerald-400" : "text-rose-400"}`}>
+            <span className={`h-2 w-2 rounded-full ${statusQ.data?.telegramConfigured ? "bg-emerald-400" : "bg-rose-500"}`} />
+            Telegram: {statusQ.data?.telegramConfigured ? "Connected" : "Missing ENV"}
+          </span>
+          <span className={`inline-flex items-center gap-1.5 ${statusQ.data?.emailConfigured ? "text-emerald-400" : "text-rose-400"}`}>
+            <span className={`h-2 w-2 rounded-full ${statusQ.data?.emailConfigured ? "bg-emerald-400" : "bg-rose-500"}`} />
+            Email: {statusQ.data?.emailConfigured ? "Connected" : "Missing ENV"}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={handleTestAlerts}
+          disabled={testing}
+          className="px-3 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-300 font-bold uppercase cursor-pointer disabled:opacity-50"
+          data-testid="button-test-telegram-email-alert"
+        >
+          {testing ? "Sending..." : "[ 🔔 Send Test Alert Now ]"}
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={handleTestAlerts}
-        disabled={testing}
-        className="px-3 py-1.5 rounded bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/50 text-cyan-300 font-bold uppercase cursor-pointer disabled:opacity-50"
-        data-testid="button-test-telegram-email-alert"
-      >
-        {testing ? "Sending..." : "[ 🔔 Send Test Telegram & Email Alert ]"}
-      </button>
+      {(statusQ.data?.lastAlertSentAt || statusQ.data?.lastError) && (
+        <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-400">
+          {statusQ.data?.lastAlertSentAt && (
+            <span>Last Sent: {new Date(statusQ.data.lastAlertSentAt).toLocaleString()}</span>
+          )}
+          {statusQ.data?.lastError && (
+            <span className="text-rose-300 truncate">Last Error: {statusQ.data.lastError}</span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
